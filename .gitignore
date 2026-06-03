@@ -1,0 +1,8 @@
+# Workspaces de evals (no commitear rastros de testeo)
+*-workspace/
+eval-workspace/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
