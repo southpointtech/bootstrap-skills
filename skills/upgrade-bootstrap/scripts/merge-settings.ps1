@@ -14,8 +14,10 @@ if (-not (Test-Path $ProjectSettings)) {
     exit 0
 }
 
-$canon = Get-Content $CanonicalSettings -Raw | ConvertFrom-Json -AsHashtable
-$proj  = Get-Content $ProjectSettings  -Raw | ConvertFrom-Json -AsHashtable
+try { $canon = Get-Content $CanonicalSettings -Raw | ConvertFrom-Json -AsHashtable }
+catch { throw "settings.json canonico no es JSON valido: $CanonicalSettings" }
+try { $proj  = Get-Content $ProjectSettings  -Raw | ConvertFrom-Json -AsHashtable }
+catch { throw "settings.json del proyecto no es JSON valido: $ProjectSettings" }
 if ($null -eq $proj)        { $proj = @{} }
 if (-not $proj.ContainsKey('hooks'))            { $proj['hooks'] = @{} }
 if (-not $proj.hooks.ContainsKey('PostToolUse')) { $proj.hooks['PostToolUse'] = @() }
@@ -39,6 +41,7 @@ $toAdd = @()
 foreach ($e in @($canon.hooks.PostToolUse)) {
     if (Has-Trigger @($e)) { $toAdd += $e }
 }
+if ($toAdd.Count -eq 0) { Write-Host "El settings.json canonico no tiene el hook review-loop-trigger: nada que agregar."; exit 0 }
 $proj.hooks['PostToolUse'] = @($proj.hooks.PostToolUse) + $toAdd
 $proj | ConvertTo-Json -Depth 12 | Set-Content $ProjectSettings -Encoding UTF8
 Write-Host "Hook review-loop-trigger agregado al settings.json del proyecto ($($toAdd.Count) entrada/s)."
