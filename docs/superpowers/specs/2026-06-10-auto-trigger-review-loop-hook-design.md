@@ -62,14 +62,20 @@ Estructura del `settings.json` (forma a validar en implementación):
 
 1. Lee el JSON de stdin; extrae `tool_input.command`.
 2. Si el comando **no** matchea `gh pr create` ni `git push` → exit 0 silencioso (no-op). Camino caliente: cada Bash pasa por acá, así que el no-git debe ser instantáneo.
-3. Resuelve el branch actual (`git rev-parse --abbrev-ref HEAD`). Si es `main`/`master` → no-op.
+3. Resuelve el branch actual (`git rev-parse --abbrev-ref HEAD`) y la **base branch** (ver "Resolución de la base" abajo). Si el branch actual **es** la base → no-op (no se revisa la base contra sí misma).
 4. **Dedupe:** lee `.git/review-loop-state.json` (dentro de `.git/`, nunca se commitea). Mapea `branch → último SHA disparado`. Si el SHA de `HEAD` para este branch ya fue disparado → no-op.
 5. Si pasa el filtro: actualiza el marcador con el SHA actual del branch, y emite por stdout el JSON con `hookSpecificOutput.additionalContext` con una instrucción **imperativa**, p. ej.:
    > "Acabás de abrir/actualizar un PR (branch `<branch>`). Antes de dar el trabajo por terminado, ejecutá `/review-loop` revisando el diff del branch: `git diff <base>...HEAD`. No marques el trabajo como completo hasta que el loop cierre (cero hallazgos medium/high o tope de 5 turnos)."
 
 Como cada fix del loop genera un commit nuevo (SHA distinto), el siguiente `git push` vuelve a disparar (re-review estilo greploop). Cuando el loop cierra sin commits nuevos, no re-dispara.
 
-**Base branch:** se resuelve a `main` por defecto (consistente con el repo); en implementación, derivarlo si es práctico (p. ej. del upstream del branch) con fallback a `main`.
+**Resolución de la base branch** (no se hardcodea `main` — proyectos como KBS usan `develop`, y otros podrían usar otras bases):
+
+1. Si el comando es `gh pr create` y trae `--base <branch>` explícito → usar ese.
+2. Si no, detectar el default branch del repo: `git symbolic-ref --short refs/remotes/origin/HEAD` (devuelve `origin/<base>` → extraer `<base>`). Fallback: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.
+3. Fallback final: el primer ref que exista entre `main`, `master`, `develop`.
+
+La base resuelta se usa tanto para el filtro del paso 3 (no disparar si el branch actual es la base) como para el rango del diff (`git diff <base>...HEAD`) en el `additionalContext`.
 
 ### Ajuste a la skill `review-loop` (×2)
 
@@ -92,7 +98,8 @@ Hoy el pre-flight usa `git diff --stat` (working-tree). Agregar soporte de **mod
 - Hook no-op: un comando Bash no-git (p. ej. `ls`) no inyecta nada y no rompe el flujo.
 - Hook dispara: `gh pr create` en un branch de feature inyecta el `additionalContext` con la instrucción de `/review-loop`.
 - Dedupe: `git push` seguido de `gh pr create` sobre el mismo commit dispara **una sola vez**.
-- Branch base: estar en `main` no dispara.
+- Branch base: estar en la base detectada no dispara — verificado con base `main` y con base `develop` (resolución dinámica, no hardcodeada).
+- Base explícita: `gh pr create --base develop` usa `develop` como base del rango aunque el default del repo sea otro.
 - `upgrade-bootstrap` con settings.json preexistente: mergea el hook sin pisar la config previa; correrlo dos veces no duplica.
 
 ## Fuera de alcance (YAGNI)
