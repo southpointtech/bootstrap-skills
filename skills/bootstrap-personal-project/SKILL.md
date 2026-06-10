@@ -39,7 +39,7 @@ Why enumerate instead of `scaffold\*`: wildcard expansion of dot-directories var
 
 Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
-This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
+This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
 
 ## Step 3 — Project-specific files
 
