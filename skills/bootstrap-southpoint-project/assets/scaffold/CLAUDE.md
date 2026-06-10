@@ -60,7 +60,7 @@ Recommended transitions:
 - After `/to-prd`, ask for PRD review and approval
 - After PRD approval, suggest `/to-issues`
 - After issues are approved, suggest `/tdd` for the selected task
-- After implementation, suggest QA and the clean-context review via `/review-loop`
+- After implementation, suggest QA and the clean-context review via `/review-loop`. Además, al abrir o actualizar un PR (`gh pr create` / `git push`), el hook `review-loop-trigger` inyecta automáticamente la orden de correr `/review-loop` sobre el diff del branch; no depende de que el agente lo recuerde. El `/review-loop` manual sigue disponible para revisar cambios locales sin commitear.
 
 ## Hard rules
 
