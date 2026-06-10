@@ -4,6 +4,12 @@ $ErrorActionPreference = "Stop"
 $repoSkills = Join-Path $PSScriptRoot "..\skills"
 $installed = Join-Path $env:USERPROFILE ".claude\skills"
 
+# Regenerar el manifest canónico de cada skill bootstrap antes de deployar,
+# para que el scaffold instalado siempre lleve hashes actualizados.
+foreach ($bs in (Get-ChildItem $repoSkills -Directory | Where-Object Name -like "bootstrap-*-project")) {
+    & (Join-Path $PSScriptRoot "gen-manifest.ps1") -SkillDir $bs.FullName
+}
+
 foreach ($skill in (Get-ChildItem $repoSkills -Directory)) {
     $dest = Join-Path $installed $skill.Name
     if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
