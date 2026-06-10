@@ -5,7 +5,7 @@ description: Bootstrap a new SOUTHPOINTLABS client project directory with the fu
 
 # Bootstrap SOUTHPOINTLABS Project
 
-Recreates the proven setup of the Forecasting App in a new project directory: the 8-step AI workflow (alignment → PRD → vertical slices → Zoho tasks → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out).
+Recreates the proven setup of the Forecasting App in a new project directory: the 8-step AI workflow (alignment → PRD → vertical slices → Zoho tasks → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop).
 
 The point of this skill is that the scaffolding lands **before** requirements or code, so every later session starts governed by the workflow instead of improvising.
 
@@ -37,9 +37,9 @@ Copy-Item "$skill\assets\scaffold\gitignore.txt" (Join-Path $proj ".gitignore")
 
 Why enumerate instead of `scaffold\*`: wildcard expansion of dot-directories varies between PowerShell versions — combining a wildcard copy with explicit `.agents`/`.claude` copies has produced nested duplicates (`.agents\.agents`) when both ran. Enumerating top-level entries once is deterministic. (`gitignore.txt` is stored under that name so the skill repo doesn't treat it as its own ignore file — it must land as `.gitignore`.)
 
-Before committing, verify the copy landed cleanly: `.agents\skills` has 9 skill directories, `.claude\commands` has 9 files, and neither `.agents\.agents` nor `.claude\.claude` exists.
+Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
-This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.agents/skills/` (9 skills), `.claude/commands/` (9 commands), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
+This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, own), `.claude/commands/` (10 commands), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
 
 ## Step 3 — Project-specific files
 
