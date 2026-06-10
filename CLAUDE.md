@@ -4,6 +4,7 @@ Este repo es la **fuente de verdad** de las skills personales de bootstrap de pr
 
 - `skills/bootstrap-southpoint-project/` — proyectos de cliente SOUTHPOINTLABS
 - `skills/bootstrap-personal-project/` — proyectos personales de Martín
+- `skills/upgrade-bootstrap/` — actualiza proyectos ya bootstrapeados al scaffold actual (merge-base por `.bootstrap-manifest.json`)
 
 Las copias **instaladas** (las que Claude Code realmente usa) viven en `C:\Users\marti\.claude\skills\`. Editar acá NO tiene efecto hasta deployar.
 
@@ -22,6 +23,7 @@ Las copias **instaladas** (las que Claude Code realmente usa) viven en `C:\Users
 - No dejar directorios vacíos en `assets/scaffold/` (git no los trackea y generan ruido en la copia).
 - Si cambiás el `CLAUDE.md` template, evaluá si el cambio también aplica al `CLAUDE.md` real de Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`).
 - Cualquier rastro de testeo (workspaces de evals, proyectos de prueba) se borra al terminar.
+- El `.bootstrap-manifest.json` del scaffold es **generado**, no se edita a mano. `tools/sync-skills.ps1` lo regenera antes de deployar; si editás el scaffold y commiteás sin correr sync, regeneralo con `tools/gen-manifest.ps1` y commitealo, para que `upgrade-bootstrap` compare contra hashes correctos.
 
 ## Contexto histórico
 
