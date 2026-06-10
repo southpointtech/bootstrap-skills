@@ -53,6 +53,8 @@ Avoid splitting work only into horizontal layers like:
 
 unless there is a strong reason.
 
+Each slice must fit in a small, reviewable PR (target ≤ ~400 lines of change). If a slice is larger, split it; when slices depend on each other, chain them as stacked PRs.
+
 ## 4. Zoho Task Formatting
 
 Each task must be ready to copy into Zoho Projects.
@@ -97,6 +99,8 @@ If tests cannot be run, Claude must explain why.
 ## 7. Clean-Context Review
 
 For important changes, a second review must be performed from a clean context.
+
+Run this as a loop with the `/review-loop` skill: `/code-review` → fix real findings → re-review, repeating until no medium/high-severity findings remain (or a 5-turn cap).
 
 The reviewer must check:
 
