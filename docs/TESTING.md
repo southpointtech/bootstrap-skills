@@ -10,7 +10,7 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 
 ## Assertions clave (lo que define "pasa")
 
-- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 5 docs ai-workflow, 10 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` propia), 10 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, README, CONTEXT.md stub, `docs/adr/`.
+- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 5 docs ai-workflow, 10 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` propia), 10 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, README, CONTEXT.md stub, `docs/adr/`.
 - Variante correcta: Southpoint menciona DOMO; personal CERO menciones a DOMO pero conserva Playwright/Firebase/Azure/Zoho.
 - Git: branch `main`, **un solo commit**, autor exacto según variante, config local (global intacta).
 - Sin duplicados anidados (`.agents\.agents`, `.claude\.claude`) — regresión del bug de iter 1.
@@ -32,6 +32,16 @@ La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no co
 1. **Manifest + desactualizado-no-tocado** — proyecto con `.bootstrap-manifest.json` y un archivo cuyo hash actual == base pero != canónico → debe clasificar `outdated` (seguro de actualizar).
 2. **Manifest + personalizado** — archivo cuyo hash actual != base → debe clasificar `customized` (no pisar).
 3. **Legacy sin manifest** — proyecto bootstrapeado con la versión vieja (sin manifest): `hasProjectManifest=False`, detecta `missing` (los 2 de `review-loop`) y `customized` los que difieren; tras aplicar, siembra el manifest.
-4. **Al día** — proyecto recién bootstrapeado: `missing/outdated/customized` vacíos, `uptodate` == 45.
+4. **Al día** — proyecto recién bootstrapeado: `missing/outdated/customized` vacíos, `uptodate` == 47.
 
 Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el plan `docs/superpowers/plans/2026-06-10-upgrade-bootstrap-skill.md` (Tasks 4-5); los casos 3-4 corren contra el scaffold instalado (Task 8).
+
+## Testeo del hook `review-loop-trigger` y del merge de settings
+
+El script del hook y `merge-settings.ps1` se testean con fixtures determinísticos (repos git temporales en `$env:TEMP`), no con skill-creator. Casos de regresión (implementados en `docs/superpowers/plans/2026-06-10-auto-trigger-review-loop-hook.md`, Tasks 1 y 5):
+
+- **No-op no-git** — un comando Bash que no es `gh pr create`/`git push` no emite nada.
+- **Dispara post-PR** — `git push` en un branch de feature emite `additionalContext` con `git diff <base>...HEAD`.
+- **Dedupe por SHA** — segundo disparo sobre el mismo commit no emite; tras un commit nuevo vuelve a disparar.
+- **Base dinámica** — estar en la base no dispara; `gh pr create --base develop` usa `develop` (no hardcodea `main`).
+- **Merge de settings** — `settings.json` ausente → copia el canónico; preexistente propio → agrega el hook sin pisar permisos/otros hooks; correrlo dos veces no duplica la entrada.
