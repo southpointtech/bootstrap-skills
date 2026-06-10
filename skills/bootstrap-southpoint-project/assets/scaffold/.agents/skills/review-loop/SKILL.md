@@ -25,6 +25,16 @@ git --no-pager diff --stat
 
 If the change approaches or exceeds ~400 lines of diff, stop and split it into smaller slices / stacked PRs first (matching the project's PR-size rule). The loop loses accuracy on large diffs — both the reviewer and the coding agent.
 
+## Modo PR (cuando lo dispara el hook)
+
+Si llegaste acá porque el hook `review-loop-trigger` te lo pidió tras un `gh pr create` / `git push`, revisá el **diff del branch** (lo que el PR introduce sobre su base), no el working-tree:
+
+```powershell
+git diff <base>...HEAD --stat   # <base> es la rama base del PR (main/develop/etc., la que indicó el hook)
+```
+
+Usá ese mismo rango (`git diff <base>...HEAD`) como entrada de cada `/code-review` del loop. El modo working-tree (`git diff` sin rango) sigue siendo el default para invocación manual sobre cambios sin commitear.
+
 ## The loop
 
 One turn = one complete pass through these three steps:
