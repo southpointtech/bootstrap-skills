@@ -66,7 +66,9 @@ Nueva skill custom que replica la mecánica de `greploop`/GP-Loop usando `/code-
 - `SKILL.md` de bootstrap, Step 2: verificación "9 skill directories" y "9 commands" → 10.
 - `SKILL.md` de bootstrap, Step 2: línea de entrega ("9 skills / 9 commands") → 10.
 - `SKILL.md` de bootstrap, descripción YAML que enumera las skills custom: agregar `review-loop`.
-- `skills-lock.json`: agregar la entrada de `review-loop`.
+- `docs/TESTING.md` (raíz del repo): assertion "9 skills `.agents`, 9 comandos `.claude`" → 10.
+
+**Decisión sobre `skills-lock.json`:** NO se modifica. El lockfile trackea solo las 9 skills sincronizadas desde `mattpocock/skills` (con hash upstream); lo consume `setup-matt-pocock-skills`. `review-loop` es una skill **propia** del scaffold, sin upstream, así que vive como archivo estático del template y queda fuera del lockfile. En el `SKILL.md` de bootstrap se aclara que de las 10 skills, 9 son sincronizadas (lockfile) y `review-loop` es propia.
 
 ### 4. Código como documentación `[alto valor]`
 
@@ -106,8 +108,12 @@ Por cada skill (`bootstrap-personal-project`, `bootstrap-southpoint-project`):
 - `assets/scaffold/docs/ai-workflow/QA_CHECKLIST.md` — cambio 1.
 - `assets/scaffold/.agents/skills/review-loop/SKILL.md` — nuevo (cambio 3).
 - `assets/scaffold/.claude/commands/review-loop.md` — nuevo (cambio 3).
-- `assets/scaffold/skills-lock.json` — cambio 3.
 - `SKILL.md` (de la skill bootstrap) — conteos 9→10 y enumeración (cambio 3).
+- `assets/scaffold/skills-lock.json` — **no se modifica** (ver decisión arriba).
+
+Y una vez (raíz del repo, no por skill):
+
+- `docs/TESTING.md` — assertion de conteos 9→10 (cambio 3).
 
 ## Validación posterior (no parte de este spec, pero requerida antes de cerrar)
 
