@@ -4,6 +4,8 @@
 
 Claude must never deploy without explicit human approval.
 
+Never open giant PRs. Keep each PR a small, reviewable unit (target ≤ ~400 lines); when changes depend on each other, prefer a chain of stacked PRs.
+
 ## Frontend / Hosting
 
 Before deploying a frontend (Firebase Hosting, Azure Static Web Apps, or other):

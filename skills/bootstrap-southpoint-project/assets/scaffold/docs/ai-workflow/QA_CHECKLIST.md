@@ -13,6 +13,7 @@
 - [ ] Small focused change
 - [ ] No unrelated files modified
 - [ ] Tests added or updated
+- [ ] New dependencies are ≥14 days old (or explicitly approved)
 - [ ] DOMO iframe constraints respected
 - [ ] Firebase/Azure target respected
 

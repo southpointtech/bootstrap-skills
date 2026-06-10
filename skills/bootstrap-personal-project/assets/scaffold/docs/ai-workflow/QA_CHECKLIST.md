@@ -13,6 +13,7 @@
 - [ ] Small focused change
 - [ ] No unrelated files modified
 - [ ] Tests added or updated
+- [ ] New dependencies are ≥14 days old (or explicitly approved)
 - [ ] Firebase/Azure target respected
 
 ## Automated QA
