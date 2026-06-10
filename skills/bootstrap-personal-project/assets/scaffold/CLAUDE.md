@@ -60,7 +60,7 @@ Recommended transitions:
 - After `/to-prd`, ask for PRD review and approval
 - After PRD approval, suggest `/to-issues`
 - After issues are approved, suggest `/tdd` for the selected task
-- After implementation, suggest QA and clean-context review
+- After implementation, suggest QA and the clean-context review via `/review-loop`
 
 ## Hard rules
 
@@ -72,11 +72,17 @@ Recommended transitions:
 - Never deploy to Firebase or Azure without explicit human approval.
 - Never modify secrets, production config, Firestore rules, or Azure resources without approval.
 - After implementation, report changed files, tests run, risks, and manual QA steps.
+- Do not install dependencies published less than 14 days ago without explicit human approval (recent supply-chain attack mitigation). Check a new dependency's publish date before adding it.
+- Keep each vertical slice a small, reviewable unit. Target ≤ ~400 lines of change per PR; a diff approaching thousands of lines breaks the review loop. If a slice exceeds ~400 lines, split it before implementing.
+- When slices depend on each other, chain them as stacked PRs instead of one large PR.
+- For critical libraries (or ones the agent tends to hallucinate APIs for), vendor the library's real source into the repo (e.g. `docs/vendor/<lib>/`) and point the agent at that code instead of relying on memory or possibly-stale docs.
 
 ## Preferred project style
 
 - Favor deep modules with simple interfaces.
 - Avoid unnecessary abstraction.
+- Structure logic in reusable service layers so the agent calls existing functions instead of duplicating them. Before writing new logic, check whether a service already covers it.
+- Model selection: use the most capable model for business logic, architecture, and risky refactors; reserve lighter/faster models for mechanical or low-risk tasks.
 - Avoid large context sessions. Use clean-context review before marking important work complete.
 - Prefer full copy-paste-ready files when the changed logic spans multiple sections.
 
