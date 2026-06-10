@@ -37,12 +37,20 @@ Summarize the JSON grouped by category, with counts. Be explicit about what each
 
 Get explicit approval before writing anything. Then:
 
-- **missing** → copy from the canonical scaffold into the project (same relative path). Special case: the canonical key `.gitignore` is sourced from `gitignore.txt` in the scaffold.
+- **missing** → copy from the canonical scaffold into the project (same relative path). Special case: the canonical key `.gitignore` is sourced from `gitignore.txt` in the scaffold. Special case `.claude/settings.json`: copy it only if absent; if the project already has its own, treat it as the `settings.json` merge below instead of a plain copy.
 - **outdated** → overwrite the project file with the canonical version.
-- **customized / different** → show the diff (canonical vs project). Offer, per file: skip (keep yours), or an assisted merge where you help integrate the new bits into the user's version. Never overwrite without per-file consent.
+- **customized / different** → show the diff (canonical vs project). Offer, per file: skip (keep yours), or an assisted merge where you help integrate the new bits into the user's version. Never overwrite without per-file consent. **Special case `.claude/settings.json`:** do NOT diff-merge by hand — run `merge-settings.ps1` (below), which adds the `review-loop-trigger` hook idempotently without touching the rest of the user's config.
 - **orphan** → list only; do not delete. Mention the user can remove them by hand.
 
 When copying `.gitignore`, read from `<canonical scaffold>/gitignore.txt`.
+
+**Merge of `.claude/settings.json`** (whenever it appears in `missing` with a pre-existing file, or in `customized`):
+
+```powershell
+pwsh -File <this-skill>/scripts/merge-settings.ps1 -ProjectSettings "<project>/.claude/settings.json" -CanonicalSettings "<canonical scaffold>/.claude/settings.json"
+```
+
+It is idempotent — running it twice never duplicates the hook. If the project had no `settings.json`, it copies the canonical one verbatim.
 
 ### 5. Re-seal the manifest
 
