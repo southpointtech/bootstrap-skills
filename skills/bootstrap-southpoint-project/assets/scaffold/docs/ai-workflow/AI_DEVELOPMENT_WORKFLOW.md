@@ -101,7 +101,7 @@ If tests cannot be run, Claude must explain why.
 
 For important changes, a second review must be performed from a clean context.
 
-Run this as a loop with the `/review-loop` skill: `/code-review` → fix real findings → re-review, repeating until no medium/high-severity findings remain (or a 5-turn cap).
+Run this as a loop via `/review-loop`: `/code-review` → fix real findings → re-review, repeating until no medium/high-severity findings remain (or a 5-turn cap).
 
 The reviewer must check:
 

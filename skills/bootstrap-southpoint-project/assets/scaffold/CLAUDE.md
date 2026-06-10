@@ -73,7 +73,7 @@ Recommended transitions:
 - Never deploy to DOMO, Firebase, or Azure without explicit human approval.
 - Never modify secrets, production config, Firestore rules, Azure resources, or DOMO-deployed assets without approval.
 - After implementation, report changed files, tests run, risks, and manual QA steps.
-- Do not install dependencies published less than 14 days ago without explicit human approval (recent supply-chain attack mitigation). Check a new dependency's publish date before adding it.
+- Do not install dependencies published less than 14 days ago without explicit human approval (recent supply-chain attack mitigation). Check a new dependency's publish date before adding it (e.g. `npm view <pkg> time.modified` or `pip index versions <pkg>`).
 - Keep each vertical slice a small, reviewable unit. Target ≤ ~400 lines of change per PR; a diff approaching thousands of lines breaks the review loop. If a slice exceeds ~400 lines, split it before implementing.
 - When slices depend on each other, chain them as stacked PRs instead of one large PR.
 - For critical libraries (or ones the agent tends to hallucinate APIs for), vendor the library's real source into the repo (e.g. `docs/vendor/<lib>/`) and point the agent at that code instead of relying on memory or possibly-stale docs.

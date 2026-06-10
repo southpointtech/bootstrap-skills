@@ -23,23 +23,23 @@ Before looping, check the diff size:
 git --no-pager diff --stat
 ```
 
-If the change is large (approaching thousands of lines, or well over ~400 lines), stop and split it into smaller slices / stacked PRs first. The loop loses accuracy on large diffs — both the reviewer and the coding agent.
+If the change approaches or exceeds ~400 lines of diff, stop and split it into smaller slices / stacked PRs first (matching the project's PR-size rule). The loop loses accuracy on large diffs — both the reviewer and the coding agent.
 
-## The loop (max 5 turns)
+## The loop
+
+One turn = one complete pass through these three steps:
 
 1. Run `/code-review` on the current diff.
 2. Read the findings. Fix ONLY findings that are real and relevant to this change. Do not rewrite unrelated code.
 3. For each bug fix, add or update a test when practical. Run the relevant tests/typechecks.
-4. Re-run `/code-review`.
-5. Repeat from step 1.
 
-Stop when ANY of:
+After step 3, begin the next turn back at step 1 (which re-reviews the updated diff). Stop when ANY of:
 
-- No findings of medium or high severity remain.
-- 5 turns reached.
-- Blocked by a decision that needs a human → stop and report.
+- The latest `/code-review` surfaced no findings of medium or high severity.
+- 5 turns have run.
+- You are blocked by a decision that needs a human → stop and report.
 
-Note: `/code-review` reports findings by severity, not a numeric score — "clean" means no medium/high-severity findings remain, which is this loop's exit condition (the Greptile 5/5 score does not exist here).
+Note: `/code-review` reports findings by severity, not a numeric score — "clean" means the latest review surfaced no medium/high-severity findings (the Greptile 5/5 score does not exist here).
 
 ## Guardrails
 
