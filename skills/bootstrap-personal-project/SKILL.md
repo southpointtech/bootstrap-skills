@@ -37,9 +37,9 @@ Copy-Item "$skill\assets\scaffold\gitignore.txt" (Join-Path $proj ".gitignore")
 
 Why enumerate instead of `scaffold\*`: wildcard expansion of dot-directories varies between PowerShell versions — combining a wildcard copy with explicit `.agents`/`.claude` copies has produced nested duplicates (`.agents\.agents`) when both ran. Enumerating top-level entries once is deterministic. (`gitignore.txt` is stored under that name so the skill repo doesn't treat it as its own ignore file — it must land as `.gitignore`.)
 
-Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, and neither `.agents\.agents` nor `.claude\.claude` exists.
+Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
-This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
+This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-dispara `review-loop` al abrir/actualizar un PR), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
 
 ## Step 3 — Project-specific files
 
