@@ -122,9 +122,9 @@ After approval: insert operational-rule blocks into `## Hard rules` as new bulle
 
 The `.bootstrap-manifest.json` copied in step B records the canonical `CLAUDE.md` hash as its base. Because the project's `CLAUDE.md` now differs (project Hard rules merged in), a future `upgrade-bootstrap` automatically classifies it as **customized** and never overwrites it — no extra sealing needed.
 
-### F. Continue with Steps 3–5
+### F. Continue with Steps 3–6
 
-Proceed to Step 3 (project-specific files — but if step E already seeded `CONTEXT.md`, do **not** overwrite it with a stub), Step 4 (git), and Step 5 (report). In the Step 5 report, explicitly state that the original is preserved at `docs/agents/legacy-claude.md`, and list which blocks went to `## Hard rules` vs `docs/agents/domain.md`.
+Proceed to Step 3 (project-specific files — but if step E already seeded `CONTEXT.md`, do **not** overwrite it with a stub), Step 4 (MCP servers — the `.mcp.json` menu applies to adopted projects too), Step 5 (git), and Step 6 (report). In the Step 6 report, explicitly state that the original is preserved at `docs/agents/legacy-claude.md`, and list which blocks went to `## Hard rules` vs `docs/agents/domain.md`.
 ````
 
 - [ ] **Step 3: Verificar que el cambio es coherente**

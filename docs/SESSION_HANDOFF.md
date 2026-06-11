@@ -1,5 +1,13 @@
 # Session Handoff — 2026-06-11
 
+## ⚠️ ACTUALIZACIÓN (post-merge concurrente) — leer primero
+
+Durante esta sesión, **otra terminal trabajó en paralelo** sobre el mismo working tree (feature "MCP por área") y al final **mergeó todo a `main`**. Estado final, ya estable y verificado:
+
+- **Todo está en `main`, working tree limpio.** No quedan feature branches. Mi trabajo (fix Step 0 `8572d09`, spec `ef11081`, plan `7dec7b4`, handoff `1dfb8a2`) sobrevivió el merge y está en `main`.
+- **La feature MCP renumeró los steps de ambos bootstrap:** ahora son Step 0, 1, 2, 3, **Step 4 — MCP servers (.mcp.json)** (nuevo), Step 5 — Git, Step 6 — Report. El plan ya fue corregido para esta numeración (sección F del Step 0b referencia Steps 3–6).
+- **Lección:** no correr dos sesiones de Claude Code sobre la misma carpeta. Usar `git worktree add ../otra-carpeta <branch>` para aislar.
+
 ## 1. Objetivo del proyecto
 
 Repo `Bootstrap Skills`: fuente de verdad de las skills personales de bootstrap de proyectos (`bootstrap-southpoint-project`, `bootstrap-personal-project`, `upgrade-bootstrap`). Las copias instaladas viven en `C:\Users\marti\.claude\skills\` y se deployan con `tools\sync-skills.ps1`. Reglas operativas en `CLAUDE.md` (raíz).
