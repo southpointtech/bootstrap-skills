@@ -66,5 +66,23 @@ $ovr = Get-Content (Join-Path $t4 ".mcp.json") -Raw | ConvertFrom-Json
 Assert ($null -eq $ovr.mcpServers.SENTINEL) "personal force: reemplazo el contenido"
 Assert ($null -ne $ovr.mcpServers.'zoho-personal') "personal force: nuevo server presente"
 
+# --- SOUTHPOINT: domo + zoho-projects ---
+$ts = NewTmp
+$rs = RunScript $southpoint @("domo","zoho-projects") $ts
+Assert ($rs.exit -eq 0) "southpoint happy: exit 0"
+$sd = Get-Content (Join-Path $ts ".mcp.json") -Raw | ConvertFrom-Json
+Assert ($null -ne $sd.mcpServers.domo) "southpoint happy: tiene domo"
+Assert ($sd.mcpServers.domo.env.DOMO_DEVELOPER_TOKEN -eq '${DOMO_SOUTHPOINT_TOKEN}') "southpoint happy: token domo por env var"
+Assert ($sd.mcpServers.domo.env.PYTHONPATH -eq '${DOMO_MCP_HOME}') "southpoint happy: PYTHONPATH domo por env var"
+Assert ($sd.mcpServers.'zoho-projects'.url -eq '${ZOHO_SOUTHPOINT_MCP_URL}') "southpoint happy: url zoho southpoint"
+$ss = $rs.out | ConvertFrom-Json
+Assert ($ss.requiredEnvVars -contains "DOMO_SOUTHPOINT_TOKEN") "southpoint happy: reporta DOMO_SOUTHPOINT_TOKEN"
+Assert ($ss.requiredEnvVars -contains "DOMO_MCP_HOME") "southpoint happy: reporta DOMO_MCP_HOME"
+
+# --- SOUTHPOINT: zoho-personal NO existe en este catalogo ---
+$ts2 = NewTmp
+$rs2 = RunScript $southpoint @("zoho-personal") $ts2
+Assert ($rs2.exit -ne 0) "southpoint: zoho-personal invalida en area southpoint"
+
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
