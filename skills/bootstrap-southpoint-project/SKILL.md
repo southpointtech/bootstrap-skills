@@ -15,7 +15,8 @@ All template files live in `assets/scaffold/` next to this SKILL.md — copy the
 
 Run this in the directory the user designates as the new project root (usually the current working directory).
 
-- If `CLAUDE.md` or `docs/ai-workflow/` already exist there, **stop and ask** — the project may already be bootstrapped, and overwriting its operating rules silently would be destructive.
+- If `.bootstrap-manifest.json` already exists, the project **was bootstrapped with this scaffold** — do not re-run bootstrap. Tell the user to use `upgrade-bootstrap` to pull scaffold changes, and stop.
+- If `CLAUDE.md` or `docs/ai-workflow/` exist but there is **no** `.bootstrap-manifest.json`, do **not** say "already bootstrapped" — it isn't. It just has its own files (e.g. a hand-written `CLAUDE.md`). **Stop and ask**: overwriting would be destructive, and the right path is `upgrade-bootstrap` (legacy adoption — seeds the scaffold + manifest without clobbering the existing `CLAUDE.md`). Point the user there instead of bootstrapping.
 - If the directory contains other files (code, docs), list them and confirm with the user before proceeding. Never overwrite an existing file; scaffold around it.
 
 ## Step 1 — Project info
