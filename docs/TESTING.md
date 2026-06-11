@@ -45,3 +45,14 @@ El script del hook y `merge-settings.ps1` se testean con fixtures determinístic
 - **Dedupe por SHA** — segundo disparo sobre el mismo commit no emite; tras un commit nuevo vuelve a disparar.
 - **Base dinámica** — estar en la base no dispara; `gh pr create --base develop` usa `develop` (no hardcodea `main`).
 - **Merge de settings** — `settings.json` ausente → copia el canónico; preexistente propio → agrega el hook sin pisar permisos/otros hooks; correrlo dos veces no duplica la entrada.
+
+## Testeo de `gen-mcp-json` (MCP por área)
+
+El generador del `.mcp.json` por proyecto (`scripts/gen-mcp-json.ps1`, uno por skill) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/gen-mcp-json.tests.ps1` (corre ambos scripts como subproceso y verifica `.mcp.json` + el resumen JSON de stdout). Cubre: happy path personal y southpoint, ninguna selección (no escribe archivo), clave inválida por área (`no-existe`, y `zoho-personal` rechazada en southpoint), no pisar sin `-Force`, y `-Force` sobrescribe. Los secretos quedan como literales `${VAR}`.
+
+Evals manuales del flujo del bootstrap (corridos 2026-06-11, ambos OK):
+
+1. **Directorio vacío** — `gen-mcp-json.ps1` personal con `-Servers firebase,zoho-personal` → escribe `.mcp.json` con esos dos servers, el JSON parsea, resumen con `requiredEnvVars=[ZOHO_PERSONAL_MCP_URL]`.
+2. **`.mcp.json` preexistente** — sembrar `{"mcpServers":{"MIO":{}}}` y correr `gen-mcp-json.ps1` southpoint con `-Servers domo` sin `-Force` → exit ≠ 0 y `MIO` intacto (no se pisa).
+
+Los workspaces temporales se borran al terminar cada eval.
