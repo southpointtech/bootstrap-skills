@@ -16,8 +16,55 @@ All template files live in `assets/scaffold/` next to this SKILL.md — copy the
 Run this in the directory the user designates as the new project root (usually the current working directory).
 
 - If `.bootstrap-manifest.json` already exists, the project **was bootstrapped with this scaffold** — do not re-run bootstrap. Tell the user to use `upgrade-bootstrap` to pull scaffold changes, and stop.
-- If `CLAUDE.md` or `docs/ai-workflow/` exist but there is **no** `.bootstrap-manifest.json`, do **not** say "already bootstrapped" — it isn't. It just has its own files (e.g. a hand-written `CLAUDE.md`). **Stop and ask**: overwriting would be destructive, and the right path is `upgrade-bootstrap` (legacy adoption — seeds the scaffold + manifest without clobbering the existing `CLAUDE.md`). Point the user there instead of bootstrapping.
+- If `CLAUDE.md` or `docs/ai-workflow/` exist but there is **no** `.bootstrap-manifest.json`, the project is **not** bootstrapped — it just has its own files. Do **not** say "already bootstrapped", and do **not** derive to `upgrade-bootstrap` (that skill is only for projects that already have a manifest). Instead, enter **Step 0b — Adoption mode** below: install the methodology while preserving the project's own content.
 - If the directory contains other files (code, docs), list them and confirm with the user before proceeding. Never overwrite an existing file; scaffold around it.
+
+## Step 0b — Adoption mode
+
+Reached from Step 0 when the project has its own `CLAUDE.md` (or `docs/ai-workflow/`) but no `.bootstrap-manifest.json`. Goal: install the 8-step methodology without losing the project's context or identity. Two invariants govern this mode: **the original is never lost** (a verbatim, permanent backup), and **the merge is never applied before the user approves a coverage map** of where each block of their content goes.
+
+Define `$skill` and `$proj` as in Step 2.
+
+### A. Back up the original verbatim
+
+Before copying anything, stash the project's `CLAUDE.md` so the scaffold copy can't clobber it:
+
+```powershell
+Copy-Item "$proj\CLAUDE.md" "$proj\CLAUDE.legacy.md" -Force
+```
+
+### B. Copy the scaffold, then park the backup
+
+Run **Step 2** exactly as written (the enumerated copy + `.gitignore`). This installs the canonical `CLAUDE.md`, all 44 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine, the original is stashed. Then move the stash to its permanent home (now that `docs/agents/` exists from the scaffold copy):
+
+```powershell
+Move-Item "$proj\CLAUDE.legacy.md" "$proj\docs\agents\legacy-claude.md" -Force
+```
+
+`docs/agents/legacy-claude.md` stays in the repo forever as the recovery net.
+
+### C. Classify the original's content
+
+Read `docs/agents/legacy-claude.md`. Split it into blocks (by heading or logical unit). Classify each block into exactly one destination, **moving text verbatim — never paraphrase or summarize**:
+
+- **Operational rule** (governs behavior, e.g. "never deploy without approval", "don't trust the 2xx as proof of arrival") → the `## Hard rules` section of the canonical `CLAUDE.md`.
+- **Domain knowledge** (what the project does, integrations, technical gotchas, branching model) → `docs/agents/domain.md`, appended under a new `## Project-specific domain` section.
+- **Project description** (the one-line of what this is) → `CONTEXT.md` (created in Step 3).
+- **Doesn't fit / unsure** → leave it only in `legacy-claude.md` and mark it on the map for the user to decide.
+
+### D. Present the coverage map and get approval
+
+Show the user a table: every block of the original → its destination, quoting the block verbatim. Make any unassigned ("doesn't fit") blocks visible. Get a **single explicit approval** (the user may correct individual rows before approving). Do **not** write the merge until approved.
+
+### E. Apply the merge
+
+After approval: insert operational-rule blocks into `## Hard rules` as new bullets (verbatim); append domain blocks under `## Project-specific domain` in `docs/agents/domain.md` (verbatim); seed `CONTEXT.md` with the description. Leave `legacy-claude.md` untouched as the permanent backup.
+
+The `.bootstrap-manifest.json` copied in step B records the canonical `CLAUDE.md` hash as its base. Because the project's `CLAUDE.md` now differs (project Hard rules merged in), a future `upgrade-bootstrap` automatically classifies it as **customized** and never overwrites it — no extra sealing needed.
+
+### F. Continue with Steps 3–6
+
+Proceed to Step 3 (project-specific files — but if step E already seeded `CONTEXT.md`, do **not** overwrite it with a stub), Step 4 (MCP servers — the `.mcp.json` menu applies to adopted projects too), Step 5 (git), and Step 6 (report). In the Step 6 report, explicitly state that the original is preserved at `docs/agents/legacy-claude.md`, and list which blocks went to `## Hard rules` vs `docs/agents/domain.md`.
 
 ## Step 1 — Project info
 
