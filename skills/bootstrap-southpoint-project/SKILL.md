@@ -51,7 +51,31 @@ Create these (they are per-project, so they are not in the scaffold):
 - `docs/adr/.gitkeep` — ADRs accumulate here as decisions crystallise.
 - `.scratch/` directory — local issue tracker home (gitignored by design).
 
-## Step 4 — Git
+## Step 4 — MCP servers (.mcp.json)
+
+Ask which MCP tools this project will use, then generate a committed `.mcp.json` (project scope). Tokens are referenced via `${VAR}` — never written into the file.
+
+Present the southpoint catalog with `AskUserQuestion` (multiSelect): **firebase**, **domo**, **zoho-projects**, **github**. Let the user pick zero or more.
+
+Then run the generator (adjust `$skill` to this skill's directory and `$proj` to the project root):
+
+```powershell
+$skill   = "<base directory of this skill>"
+$proj    = "<project root>"
+# $picks = the servers the user selected, e.g. @("firebase","github")
+$servers = ($picks -join ',')   # -> "firebase,github" (no spaces)
+pwsh -NoProfile -File "$skill\scripts\gen-mcp-json.ps1" -ProjectDir $proj -Servers $servers
+```
+
+The script ships with this skill at `$skill\scripts\gen-mcp-json.ps1`. If that path doesn't exist or the script exits non-zero, stop and report it — don't proceed to the Git step with a half-written `.mcp.json`.
+
+The script writes `<proj>/.mcp.json` with only the chosen servers and prints a JSON summary with `requiredEnvVars` and `prereqs`. If the user picks nothing, it writes no file — that's fine, skip it.
+
+`.mcp.json` is a per-project generated file (like README/CONTEXT): it is NOT part of the scaffold, NOT tracked by `.bootstrap-manifest.json`, and `upgrade-bootstrap` never touches it. It is committed with the rest of the scaffolding in the Git step.
+
+Keep the script's `requiredEnvVars` / `prereqs` output for the final report (Step 6).
+
+## Step 5 — Git
 
 If the directory is not a git repository: `git init -b main`.
 
@@ -66,8 +90,8 @@ Then commit everything as `chore: project scaffolding (AI workflow + skills)`.
 
 If it's already a repo, still set the local identity and commit the scaffolding files on the current branch.
 
-## Step 5 — Report and hand off
+## Step 6 — Report and hand off
 
-Report: files created (counts per area), git status, and the immediate next step of the workflow — closing requirements with `/grill-me` or `/grill-with-docs`, which produces CONTEXT.md content and the first ADRs, followed by `/to-prd` and `/to-issues`.
+Report: files created (counts per area), git status, and the immediate next step of the workflow — closing requirements with `/grill-me` or `/grill-with-docs`, which produces CONTEXT.md content and the first ADRs, followed by `/to-prd` and `/to-issues`. If a `.mcp.json` was generated, also report the **environment variables to set** (as persistent Windows user variables) and prerequisites from the script's summary — e.g. `ZOHO_SOUTHPOINT_MCP_URL`, `DOMO_SOUTHPOINT_TOKEN`, `DOMO_MCP_HOME`, `GITHUB_PERSONAL_ACCESS_TOKEN` (+ Docker running), or `firebase login` once. The MCP servers won't connect until those env vars exist; this is expected, not an error.
 
 Do not start requirements, PRDs, or code as part of this skill — bootstrap ends here by design (step 1 of the workflow needs the human present).
