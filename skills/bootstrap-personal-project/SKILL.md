@@ -60,10 +60,14 @@ Present the personal catalog with `AskUserQuestion` (multiSelect): **firebase**,
 Then run the generator (adjust `$skill` to this skill's directory and `$proj` to the project root):
 
 ```powershell
-$skill = "<base directory of this skill>"
-$proj  = "<project root>"
-pwsh -NoProfile -File "$skill\scripts\gen-mcp-json.ps1" -ProjectDir $proj -Servers <comma-separated picks>
+$skill   = "<base directory of this skill>"
+$proj    = "<project root>"
+# $picks = the servers the user selected, e.g. @("firebase","github")
+$servers = ($picks -join ',')   # -> "firebase,github" (no spaces)
+pwsh -NoProfile -File "$skill\scripts\gen-mcp-json.ps1" -ProjectDir $proj -Servers $servers
 ```
+
+The script ships with this skill at `$skill\scripts\gen-mcp-json.ps1`. If that path doesn't exist or the script exits non-zero, stop and report it — don't proceed to the Git step with a half-written `.mcp.json`.
 
 The script writes `<proj>/.mcp.json` with only the chosen servers and prints a JSON summary with `requiredEnvVars` and `prereqs`. If the user picks nothing, it writes no file — that's fine, skip it.
 
