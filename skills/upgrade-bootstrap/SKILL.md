@@ -72,3 +72,4 @@ List files copied, updated, left customized (skipped), and orphans flagged. Remi
 - Don't delete orphans automatically.
 - The scaffold's `.gitignore` lives as `gitignore.txt` in the source; map it when copying.
 - If `compare-scaffold.ps1` errors (e.g. canonical scaffold has no manifest), stop and report — don't guess.
+- `.mcp.json` no es parte del scaffold ni del manifest, así que `compare-scaffold.ps1` no lo ve y este upgrade nunca lo toca. Si el proyecto fue bootstrapeado antes de la feature de MCP-por-área y querés agregarle un `.mcp.json`, corré el menú a mano con `~/.claude/skills/<generatedFrom>/scripts/gen-mcp-json.ps1` (no es parte del flujo de upgrade).
