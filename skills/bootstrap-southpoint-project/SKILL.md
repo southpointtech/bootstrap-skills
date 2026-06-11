@@ -35,7 +35,7 @@ Copy-Item "$proj\CLAUDE.md" "$proj\CLAUDE.legacy.md" -Force
 
 ### B. Copy the scaffold, then park the backup
 
-Run **Step 2** exactly as written (the enumerated copy + `.gitignore`). This installs the canonical `CLAUDE.md`, all 44 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine, the original is stashed. Then move the stash to its permanent home (now that `docs/agents/` exists from the scaffold copy):
+Run **Step 2** exactly as written (the enumerated copy + `.gitignore`). This installs the canonical `CLAUDE.md`, all 47 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine, the original is stashed. Then move the stash to its permanent home (now that `docs/agents/` exists from the scaffold copy):
 
 ```powershell
 Move-Item "$proj\CLAUDE.legacy.md" "$proj\docs\agents\legacy-claude.md" -Force
@@ -45,7 +45,7 @@ Move-Item "$proj\CLAUDE.legacy.md" "$proj\docs\agents\legacy-claude.md" -Force
 
 ### C. Classify the original's content
 
-Read `docs/agents/legacy-claude.md`. Split it into blocks (by heading or logical unit). Classify each block into exactly one destination, **moving text verbatim — never paraphrase or summarize**:
+Read `docs/agents/legacy-claude.md`. Split it into blocks — **treat each top-level heading and its body as one block, and any leading title or description before the first heading as its own block**. Classify each block into exactly one destination, **moving text verbatim — never paraphrase or summarize**:
 
 - **Operational rule** (governs behavior, e.g. "never deploy without approval", "don't trust the 2xx as proof of arrival") → the `## Hard rules` section of the canonical `CLAUDE.md`.
 - **Domain knowledge** (what the project does, integrations, technical gotchas, branching model) → `docs/agents/domain.md`, appended under a new `## Project-specific domain` section.
@@ -102,7 +102,7 @@ Create these (they are per-project, so they are not in the scaffold):
 
 Ask which MCP tools this project will use, then generate a committed `.mcp.json` (project scope). Tokens are referenced via `${VAR}` — never written into the file.
 
-Present the southpoint catalog with `AskUserQuestion` (multiSelect): **firebase**, **domo**, **zoho-projects**, **github**. Let the user pick zero or more.
+Present the southpoint catalog with `AskUserQuestion` (multiSelect): **firebase**, **domo**, **zoho-projects**, **github**. Let the user pick zero or more. If `AskUserQuestion` is unavailable (non-interactive or agent context), don't block: infer the servers from the project's `CLAUDE.md`/context, or pick none if it's unclear, and note the inferred choice in the Step 6 report.
 
 Then run the generator (adjust `$skill` to this skill's directory and `$proj` to the project root):
 
@@ -124,7 +124,7 @@ Keep the script's `requiredEnvVars` / `prereqs` output for the final report (Ste
 
 ## Step 5 — Git
 
-If the directory is not a git repository: `git init -b main`.
+If the project directory is not **its own** git repository root — check with `git -C $proj rev-parse --show-toplevel` and confirm it equals `$proj`, not a parent repo the project happens to sit inside — run `git init -b main` so it gets its own repository. Never commit the scaffolding into an enclosing parent repo.
 
 Set the **local** identity (local, so the user's global git config is untouched):
 
@@ -135,7 +135,7 @@ git config user.email "mdeleon@agtium.com"
 
 Then commit everything as `chore: project scaffolding (AI workflow + skills)`.
 
-If it's already a repo, still set the local identity and commit the scaffolding files on the current branch.
+If it is already its own repo root, still set the local identity and commit the scaffolding files on the current branch.
 
 ## Step 6 — Report and hand off
 
