@@ -7,6 +7,7 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 1. **Southpoint, directorio vacío** — "Acabo de crear esta carpeta para un proyecto nuevo de Southpoint: un tablero de inventario para KBS (se llama 'KBS Inventory'). Dejame el directorio listo con todos los archivos base para arrancar, como hicimos en Forecasting App."
 2. **Personal, directorio vacío** — "ok arranco un proyecto personal aca, una app para trackear mis gastos del mes. preparame el ambiente y el repo con el setup base antes de escribir nada de codigo"
 3. **Southpoint, archivos preexistentes** — sembrar `src/index.js` y un `README.md` propio ("WIP - notas propias del proyecto") y pedir: "Este repo ya tiene un par de archivos del proyecto nuevo de Southpoint (KBS Inventory). Armame el scaffolding del workflow de AI sin romper lo que ya hay."
+4. **Southpoint, adopción (CLAUDE.md propio sin manifest)** — sembrar un `CLAUDE.md` hecho a mano (branching model main/develop + un gotcha técnico + una mención a DOMO) y un `worker.js`, sin `.bootstrap-manifest.json`, y pedir: "agregale el bootstrap a este proyecto". Debe entrar en **modo adopción** (Step 0b), no frenar ni derivar a upgrade-bootstrap.
 
 ## Assertions clave (lo que define "pasa")
 
@@ -16,6 +17,10 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - Sin duplicados anidados (`.agents\.agents`, `.claude\.claude`) — regresión del bug de iter 1.
 - No se adelanta: sin package.json, sin src/ (en dirs vacíos), sin ADRs inventados, sin PRD.
 - Preexistentes intactos byte a byte y commiteados.
+- Modo adopción: `docs/agents/legacy-claude.md` existe y es **byte-idéntico** al `CLAUDE.md` original sembrado.
+- Modo adopción: el `CLAUDE.md` final es el canónico (contiene "Workflow State Machine"); las reglas operativas del original aparecen en su sección `## Hard rules`; el conocimiento de dominio del original aparece en `docs/agents/domain.md`.
+- Modo adopción: cada bloque del original quedó representado (en `legacy-claude.md` + su destino); ningún bloque se perdió en silencio.
+- Modo adopción: tras adoptar, `compare-scaffold.ps1` clasifica `CLAUDE.md` como **customized** (ni `outdated` ni `uptodate`), confirmando que un upgrade futuro no lo pisa.
 
 ## Gotchas operativos del entorno de testing
 
