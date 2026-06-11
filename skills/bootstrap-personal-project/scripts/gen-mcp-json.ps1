@@ -31,12 +31,22 @@ if (-not (Test-Path $ProjectDir)) { throw "No existe ProjectDir: $ProjectDir" }
 # -File puede entregar "-Servers a,b" como un unico string "a,b": separar por coma nosotros.
 $selected = @($Servers | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
 
+foreach ($s in $selected) {
+  if (-not $Catalog.Contains($s)) {
+    throw "Server desconocido: '$s'. Validos: $(($Catalog.Keys) -join ', ')"
+  }
+}
+
 if ($selected.Count -eq 0) {
   [pscustomobject]@{ written = $false; reason = "no servers selected" } | ConvertTo-Json -Compress
   return
 }
 
 $target = Join-Path $ProjectDir ".mcp.json"
+
+if ((Test-Path $target) -and -not $Force) {
+  throw ".mcp.json ya existe en $ProjectDir (usa -Force para sobrescribir)"
+}
 
 $serverMap = [ordered]@{}
 $envVars = New-Object System.Collections.Generic.List[string]
