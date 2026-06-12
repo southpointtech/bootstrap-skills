@@ -12,12 +12,13 @@ Step 0b (modo adopción) en ambos SKILL.md espejados. Commits: `ced0f02` (eval e
 
 ## Migración MCP por área — COMPLETADA (2026-06-12)
 
-- ✅ **5/5 env vars** en scope User. La `ZOHO_PERSONAL_MCP_URL` se encontró en `.claude.json` (Flash Audit).
+- ✅ **6 env vars** en scope User: `DOMO_MCP_HOME`, `DOMO_SOUTHPOINT_TOKEN`, `ZOHO_SOUTHPOINT_MCP_URL`, `ZOHO_PERSONAL_MCP_URL` (encontrada en `.claude.json` Flash Audit), `GITHUB_SOUTHPOINT_TOKEN` (cuenta `southpointtech`), `GITHUB_PERSONAL_TOKEN` (cuenta `MartinDele703`).
+- ✅ **GitHub separado por cuenta (2026-06-12, commit `ed2950d`):** Martín tiene 2 cuentas GitHub. El catálogo MCP usaba una sola var; ahora personal→`${GITHUB_PERSONAL_TOKEN}`, southpoint→`${GITHUB_SOUTHPOINT_TOKEN}` (la clave interna `GITHUB_PERSONAL_ACCESS_TOKEN` que lee el binario no cambia). Tokens extraídos de `gh auth token` por cuenta. Var vieja `GITHUB_PERSONAL_ACCESS_TOKEN` removida.
 - ✅ **8 `.mcp.json` generados** (solo `${VAR}`): Southpoint (firebase,domo,zoho-projects) = Forecasting App, Southpoint App Migration, Call Center 1 (regenerado, tenía token DOMO plano), Call Center 2, Customer Portal, KBS Orders. Personal (firebase,zoho-personal) = Flash Audit, Planify AI. `github` excluido (Docker caído).
 - ✅ **Global vaciado** (`claude mcp list` → vacío). Backup `.claude.json.20260611-mcp-cleanup.bak`.
 
 ### Lo único que queda (requiere web UI o sesión interactiva → solo Martín)
-1. **Rotar** PAT GitHub (generar fine-grained en github.com/settings; el actual `gho_` es OAuth de `gh`) y token DOMO (Admin→Auth→Access Tokens en hssstaffing.domo.com); revocar viejos; re-setear `GITHUB_PERSONAL_ACCESS_TOKEN`/`DOMO_SOUTHPOINT_TOKEN`. Los valores actuales funcionan mientras tanto.
+1. **Rotar (opcional, higiene)** token DOMO (Admin→Auth→Access Tokens en hssstaffing.domo.com) y, si querés PATs dedicados en vez de los `gho_` de `gh`, generarlos fine-grained por cuenta en github.com/settings; revocar viejos; re-setear `DOMO_SOUTHPOINT_TOKEN`/`GITHUB_SOUTHPOINT_TOKEN`/`GITHUB_PERSONAL_TOKEN`. Los valores actuales funcionan. (El `gho_1hLv…` viejo y suelto del `.claude.json` ya no se usa.)
 2. **Verificar:** reabrir terminal/Claude Code (env vars no las ven procesos ya abiertos), abrir un proyecto, aprobar trust del `.mcp.json`, `claude mcp list`.
 3. **github** en los `.mcp.json`: re-generar con `-Force` cuando Docker corra.
 
