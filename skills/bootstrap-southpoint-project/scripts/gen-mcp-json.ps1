@@ -25,8 +25,8 @@ $Catalog = [ordered]@{
     prereqs         = @()
   }
   "github" = [ordered]@{
-    config          = [ordered]@{ type = "stdio"; command = "docker"; args = @("run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"); env = [ordered]@{ GITHUB_PERSONAL_ACCESS_TOKEN = '${GITHUB_PERSONAL_ACCESS_TOKEN}' } }
-    requiredEnvVars = @("GITHUB_PERSONAL_ACCESS_TOKEN")
+    config          = [ordered]@{ type = "stdio"; command = "docker"; args = @("run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"); env = [ordered]@{ GITHUB_PERSONAL_ACCESS_TOKEN = '${GITHUB_SOUTHPOINT_TOKEN}' } }
+    requiredEnvVars = @("GITHUB_SOUTHPOINT_TOKEN")
     prereqs         = @("Docker Desktop corriendo")
   }
 }
