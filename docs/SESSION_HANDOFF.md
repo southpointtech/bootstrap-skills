@@ -10,12 +10,19 @@ Step 0b (modo adopción) en ambos SKILL.md espejados. Commits: `ced0f02` (eval e
 ### ✅ Feature "MCP por área"
 `gen-mcp-json.ps1` + Step 4 en ambas skills + tests (26 asserts). Catálogos: personal = firebase/zoho-personal/github; southpoint = firebase/domo/zoho-projects/github. El `.mcp.json` versionado solo referencia `${VAR}` (secretos por env var, nunca commiteados).
 
-## Follow-ups pendientes (no son código)
+## Migración MCP por área — COMPLETADA (2026-06-12)
 
-1. **Env vars MCP** — ✅ 4/5 seteadas en scope User (2026-06-11): `DOMO_MCP_HOME`, `ZOHO_SOUTHPOINT_MCP_URL`, `DOMO_SOUTHPOINT_TOKEN` (valor actual), `GITHUB_PERSONAL_ACCESS_TOKEN` (valor actual). **Falta `ZOHO_PERSONAL_MCP_URL`** (solo la tiene Martín): `setx ZOHO_PERSONAL_MCP_URL "<url>"`.
-2. **Rotar secretos en texto plano** — PAT de GitHub y `DOMO_DEVELOPER_TOKEN`. Tras rotar, re-setear `DOMO_SOUTHPOINT_TOKEN` y `GITHUB_PERSONAL_ACCESS_TOKEN` con los valores nuevos.
-3. **Vaciar el user scope global de MCP** — `claude mcp remove firebase|github|domo|zoho-projects`. **BLOQUEADO** hasta que los proyectos activos tengan su `.mcp.json` (ahora ninguno lo tiene → sacar del global rompería todas las sesiones). Backup: `.claude.json.20260611-mcp-cleanup.bak`.
-4. **Proyectos legacy** — diferido por decisión de Martín ("lo hago cuando lo vea necesario"). Correr `upgrade-bootstrap` (modo legacy) dentro de cada uno: Flash Audit, Planify AI, Nueva carpeta. Adopción (CLAUDE.md sin scaffold, usar `bootstrap-*`): Outsourcing Dev, Call Center 1/2, Customer Portal, KBS Orders.
+- ✅ **5/5 env vars** en scope User. La `ZOHO_PERSONAL_MCP_URL` se encontró en `.claude.json` (Flash Audit).
+- ✅ **8 `.mcp.json` generados** (solo `${VAR}`): Southpoint (firebase,domo,zoho-projects) = Forecasting App, Southpoint App Migration, Call Center 1 (regenerado, tenía token DOMO plano), Call Center 2, Customer Portal, KBS Orders. Personal (firebase,zoho-personal) = Flash Audit, Planify AI. `github` excluido (Docker caído).
+- ✅ **Global vaciado** (`claude mcp list` → vacío). Backup `.claude.json.20260611-mcp-cleanup.bak`.
+
+### Lo único que queda (requiere web UI o sesión interactiva → solo Martín)
+1. **Rotar** PAT GitHub (generar fine-grained en github.com/settings; el actual `gho_` es OAuth de `gh`) y token DOMO (Admin→Auth→Access Tokens en hssstaffing.domo.com); revocar viejos; re-setear `GITHUB_PERSONAL_ACCESS_TOKEN`/`DOMO_SOUTHPOINT_TOKEN`. Los valores actuales funcionan mientras tanto.
+2. **Verificar:** reabrir terminal/Claude Code (env vars no las ven procesos ya abiertos), abrir un proyecto, aprobar trust del `.mcp.json`, `claude mcp list`.
+3. **github** en los `.mcp.json`: re-generar con `-Force` cuando Docker corra.
+
+### Proyectos legacy/adopción (diferido — "cuando lo veas necesario")
+`upgrade-bootstrap` para Flash Audit/Planify AI (ya tienen su `.mcp.json`); adopción (`bootstrap-*`) para Outsourcing Dev, KBS Orders. (Call Center 1/2 y Customer Portal ya tienen `.mcp.json` aunque su scaffold siga pendiente.)
 
 ### ✅ Follow-up ya resuelto (la memoria lo daba por pendiente)
 **Forecasting App CLAUDE.md** YA tiene todas las reglas nuevas (anti supply-chain L76, PRs ≤400 + stacked L77-78, vendor L79, service layer L85, model selection L86, review-loop + hook L63). Nada que hacer.
