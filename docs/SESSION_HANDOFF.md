@@ -1,4 +1,18 @@
-# Session Handoff — 2026-06-11 (actualizado)
+# Session Handoff — 2026-06-12 (actualizado)
+
+## ▶ AL RETOMAR — pendiente SOLO del lado de Martín
+
+Martín pidió retomar esto. Toda la migración MCP por área quedó hecha del lado del código/config (ver sección "Migración MCP" más abajo). Le falta hacer A MANO:
+
+1. **🔴 Reabrir terminal + verificar (lo único que bloquea hoy).** Las env vars se setearon en scope User → procesos ya abiertos no las ven. Abrir terminal nueva, entrar a un proyecto, aprobar el "trust" del `.mcp.json` (1ª vez por proyecto):
+   ```powershell
+   cd "C:\Repos\SOUTHPOINTLABS\Forecasting App"; claude mcp list   # firebase, domo, zoho-projects ✔
+   ```
+2. **🟡 GitHub MCP (opcional, requiere Docker).** Quedó fuera de los `.mcp.json` (Docker caído). Arrancar Docker Desktop y re-generar con `-Servers ...,github -Force` (comando exacto en sección Migración, punto 3).
+3. **🟡 Rotar token DOMO (opcional, higiene).** GitHub ya no hace falta (apunta a los `gho_` vivos por cuenta).
+4. **⚪ Scaffold legacy/adopción (diferido).** `upgrade-bootstrap`/`bootstrap-*` por proyecto.
+
+Si algún server no conecta tras el paso 1, pasar el error.
 
 ## Estado: working tree limpio, dos features grandes CERRADAS
 
