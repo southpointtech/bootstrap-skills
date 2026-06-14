@@ -19,7 +19,7 @@ $alreadyVar = [bool][Environment]::GetEnvironmentVariable("DOMO_SOUTHPOINT_TOKEN
 "config existe: $([bool](Test-Path $cfgPath)) | env var domo: $alreadyVar"
 ```
 
-Si el archivo existe y las env vars están: avisá que ya está configurada y ofrecé **re-aplicar** (útil para rotar un token) o salir. Si re-aplica, saltá a Step 2 usando el archivo existente.
+El **archivo de config es la señal canónica** (la env var de DOMO puede estar de un setup viejo a mano y no significa que esta skill haya corrido). Si el archivo **existe**: avisá que ya está configurada y ofrecé **re-aplicar** (útil para rotar un token) o salir; si re-aplica, saltá a Step 2 usando el archivo existente. Si el archivo **no existe** (aunque alguna env var ya esté seteada): tratá la máquina como no configurada y seguí con el setup completo desde Step 1.
 
 ## Step 1 — Pedir las credenciales
 
