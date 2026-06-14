@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Test-driven development with red-green-refactor loop. Use when user wants to build features or fix bugs using TDD, mentions "red-green-refactor", wants integration tests, or asks for test-first development.
+description: Test-driven development with the red-green-refactor loop. Use when the user wants to build a feature or fix a bug test-first, mentions "TDD", "red-green-refactor" / "rojo-verde-refactor", asks for integration tests, or says things like "hagamos esto con TDD", "escribí el test primero", "test-first", "empecemos por los tests", or "agregá un test que falle y después lo implementás".
 ---
 
 # Test-Driven Development

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up.
+description: Compact the current conversation into a handoff document for another agent or session to pick up. Use when the user wants to wrap up and hand off the current work, preserve context before switching agents/terminals, or says "armá un handoff", "documentá el estado para otro agente", "compactá esto en un handoff", or "pasá el contexto a una sesión nueva".
 argument-hint: "What will the next session be used for?"
 ---
 

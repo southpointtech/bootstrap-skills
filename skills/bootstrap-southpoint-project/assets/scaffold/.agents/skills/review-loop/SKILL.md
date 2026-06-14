@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /code-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or a 5-turn cap is hit. Adapts the Greptile "greploop" / GP-loop to Claude Code's native reviewer (no external paid service, no PR/remote required).
+description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /code-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or a 5-turn cap is hit. Trigger when the user says "pasá el review-loop", "revisá y arreglá este diff hasta que quede limpio", "loop de code-review sobre el PR", "dejá el PR sin findings", or wants an iterative review→fix cycle on a finished slice. Adapts the Greptile "greploop" / GP-loop to Claude Code's native reviewer (no external paid service, no PR/remote required).
 ---
 
 # Review Loop

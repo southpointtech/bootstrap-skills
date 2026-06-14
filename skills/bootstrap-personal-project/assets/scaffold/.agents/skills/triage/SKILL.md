@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Triage issues through a state machine driven by triage roles. Use when user wants to create an issue, triage issues, review incoming bugs or feature requests, prepare issues for an AFK agent, or manage issue workflow.
+description: Triage issues through a state machine driven by triage roles. Use when the user wants to create an issue, triage/clasificar issues, review incoming bugs or feature requests, label and prioritize the backlog, prepare issues for an AFK/autonomous agent, manage the issue workflow, or says "triageá los issues", "revisá los bugs entrantes", "prepará los tickets para que los agarre un agente", or "ordená/priorizá el backlog".
 ---
 
 # Triage

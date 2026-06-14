@@ -1,6 +1,6 @@
 ---
 name: bootstrap-personal-project
-description: Bootstrap a new personal (non-work) project directory with the AI-assisted workflow scaffolding (CLAUDE.md 8-step workflow, docs/ai-workflow without DOMO, docs/agents, custom skills like grill-me/tdd/to-prd, git init as MartinDele703). Use whenever the user says they are starting a new personal/side/hobby project, asks for "archivos base", "setup inicial", "scaffolding", "preparar el repo/ambiente" for something that is NOT a SOUTHPOINTLABS/client project — even if they don't name this skill. For Southpoint/work projects use bootstrap-southpoint-project instead.
+description: Bootstrap a new personal (non-work) project directory with the AI-assisted workflow scaffolding (CLAUDE.md 8-step workflow, docs/ai-workflow without DOMO, docs/agents, custom skills like grill-me/tdd/to-prd, git init as MartinDele703). Use whenever the user says they are starting/arrancando a new personal/side/hobby/own project, asks for "archivos base", "setup inicial", "scaffolding", "preparar el repo/ambiente", "armá la estructura del repo", "dejá listo el proyecto nuevo", "quiero arrancar un proyecto propio" for something that is NOT a SOUTHPOINTLABS/client project — even if they don't name this skill. This is per-PROJECT. For Southpoint/work projects use bootstrap-southpoint-project; to update an already-bootstrapped project use upgrade-bootstrap.
 ---
 
 # Bootstrap Personal Project
