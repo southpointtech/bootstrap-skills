@@ -120,6 +120,35 @@ and shipped on its own — so feedback comes early and PRs stay small. Splitting
 (all the DB, then all the API, then all the UI) means nothing works until the very end and every review
 is huge.
 
+### The review loop — the automated quality gate
+
+Step 7 deserves its own spotlight, because it's what takes a change from "it works" to **clean,
+review-passing code**. The **`review-loop`** skill runs a tight cycle:
+
+```
+/code-review on the diff  →  fix ONLY the real findings  →  re-review  →  repeat
+                          until no medium/high-severity findings remain (hard cap: 5 turns)
+```
+
+What makes it more than "just run a review":
+
+- **It loops until clean, not just once.** It keeps reviewing and fixing until the reviewer stops
+  finding medium/high-severity issues — that's the bar for "clean" here. (It adapts Greptile's
+  *greploop* to Claude Code's **native** reviewer, so there's no paid external service and no PR or
+  remote required — it works on local uncommitted changes too.)
+- **It fires automatically.** A bundled hook, `review-loop-trigger`, watches for `gh pr create` /
+  `git push` and **injects the order to run the loop on the branch diff** — so the quality gate doesn't
+  depend on the agent (or the human) remembering to run it. The manual `/review-loop` is still there
+  for reviewing local changes before you commit.
+- **It has guardrails.** Reviewers produce false positives, so it doesn't accept findings blindly;
+  agents over-fix, so it touches only what each finding is about; and **tests are the objective
+  signal** — "looks fine" is not a pass. It refuses to run on huge diffs (≥ ~400 lines), pushing you
+  back to smaller slices where the loop is actually accurate.
+
+> A note on "5/5": that score comes from Greptile's tool. Claude Code's reviewer reports findings by
+> **severity**, not a number — so here "5/5" means *the latest review surfaced no medium/high-severity
+> findings*. Same goal (ship clean code), expressed in the reviewer we actually use.
+
 Two helper skills support the loop without being steps of it: **`/zoom-out`** gives a higher-level map
 of how a piece fits the architecture before you dive in, and **`/handoff`** compacts the current
 session into a clean handoff so another agent or a fresh terminal can pick up without losing context.
