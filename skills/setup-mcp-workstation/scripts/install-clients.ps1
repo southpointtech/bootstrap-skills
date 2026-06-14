@@ -35,9 +35,11 @@ if ($haveGit -and $havePy) {
   $commands.Add($pipCmd)
   if (-not $DryRun) {
     if (Test-Path $DomoHome) { & $GitCmd -C $DomoHome pull --ff-only } else { & $GitCmd clone $DomoRepoUrl $DomoHome }
-    if ($LASTEXITCODE -ne 0 -and -not (Test-Path $req)) {
+    $gitExit = $LASTEXITCODE
+    if ($gitExit -ne 0 -and -not (Test-Path $req)) {
       $prereqsMissing.Add("clone de domo-mcp-server fallo: $cloneCmd")
     } else {
+      if ($gitExit -ne 0) { $prereqsMissing.Add("aviso: '$cloneCmd' fallo (exit $gitExit) pero el clone existente sigue usable; se usan las dependencias actuales sin actualizar.") }
       & $PythonCmd -m pip install --upgrade -r $req
       if ($LASTEXITCODE -ne 0) {
         $prereqsMissing.Add("pip install de las dependencias de domo fallo: $pipCmd")
