@@ -48,6 +48,7 @@ Nunca commitees este archivo ni lo muestres en pantalla con el token visible.
 ## Step 3 — Aplicar las env vars
 
 ```powershell
+$skill = "<base directory of this skill>"
 pwsh -NoProfile -File "$skill\scripts\apply-env.ps1" -ConfigPath $cfgPath
 ```
 
@@ -56,6 +57,7 @@ El script setea `SOUTHPOINT_GIT_NAME`, `SOUTHPOINT_GIT_EMAIL`, `DOMO_SOUTHPOINT_
 ## Step 4 — Instalar los clientes
 
 ```powershell
+$skill = "<base directory of this skill>"
 pwsh -NoProfile -File "$skill\scripts\install-clients.ps1"
 ```
 
