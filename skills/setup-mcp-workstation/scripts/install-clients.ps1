@@ -8,6 +8,7 @@ param(
   [switch]$DryRun
 )
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false  # exits no-cero de pip/npx no abortan: los manejamos via $LASTEXITCODE
 
 $installed       = New-Object System.Collections.Generic.List[string]
 $skipped         = New-Object System.Collections.Generic.List[string]
