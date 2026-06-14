@@ -5,7 +5,7 @@
 <h1 align="center">Bootstrap Skills</h1>
 
 <p align="center">
-  <strong>SOUTHPOINTLABS · AI-assisted development, standardized.</strong>
+  <strong>SOUTHPOINT LABS · AI-assisted development, standardized.</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 ## What this is
 
-**Bootstrap Skills** is the source of truth for how we start projects at SOUTHPOINTLABS.
+**Bootstrap Skills** is the source of truth for how we start projects at SOUTHPOINT LABS.
 
 Instead of every repo improvising its own structure, conventions, and AI workflow, these skills
 drop a complete, battle-tested operating model into a fresh directory in seconds: the 8-step
@@ -89,6 +89,38 @@ Both bootstrap skills land the same operating model:
   `triage`, `handoff`, `zoom-out`, `review-loop` and their commands.
 - **A configured git repository** — `main` branch, correct identity, an initial scaffolding commit,
   and a `.bootstrap-manifest.json` so the project can later be upgraded safely.
+
+## MCP servers & clients
+
+A big part of working "like Forecasting App" is that Claude can reach the **real systems** the project
+runs on — its database, its BI platform, its task tracker, its repo — through
+[MCP](https://modelcontextprotocol.io) (Model Context Protocol) servers. These skills wire that up in
+**two layers** so it's reproducible and safe:
+
+**1. Machine-level clients** — installed once by `setup-mcp-workstation`, shared by every project:
+
+| Client | What it is | Why |
+|---|---|---|
+| **DOMO MCP client** | The official `DomoApps/domo-mcp-server`, cloned to `~/.claude/domo-mcp-server` (it's clone-and-run, not a pip package). | Lets any project talk to DOMO without re-installing it each time. |
+| **Playwright browsers** | Chromium, installed via `npx playwright install`. | Powers end-to-end UI tests against a real browser. |
+
+**2. Per-project MCP servers** — `bootstrap-southpoint-project` asks which ones a project needs (Step 4)
+and writes a committed `.mcp.json` listing only those. From the Southpoint catalog:
+
+| Server | Connects to | What Claude can do with it |
+|---|---|---|
+| **`domo`** | The **DOMO** BI platform (`python -m domo_mcp`). | Query datasets and cards — pull the data forecasts and reports run on. |
+| **`zoho-projects`** | **Zoho Projects** (remote HTTP MCP). | Read and create tasks — the workflow turns the SRS into Zoho tasks. |
+| **`firebase`** | A **Firebase** project (`npx firebase-tools`). | Inspect/operate Auth, Firestore and Hosting — the app's backend. Needs `firebase login` once. |
+| **`github`** | **GitHub** (runs the GitHub MCP server in Docker). | Pull requests, issues and repo operations. Needs Docker Desktop. |
+
+**How the two layers stay secure.** Secrets (DOMO token, Zoho MCP URL, GitHub token) are stored **once**
+as user environment variables by `setup-mcp-workstation` — they never live in a repo. The generated
+`.mcp.json` only references them as `${DOMO_SOUTHPOINT_TOKEN}`, `${ZOHO_SOUTHPOINT_MCP_URL}`, etc., so it
+is safe to commit. A new machine just re-runs `setup-mcp-workstation` and every project's `.mcp.json`
+resolves automatically.
+
+> Personal projects skip DOMO; the Firebase / Zoho / Playwright conventions still apply.
 
 ## Getting started
 
@@ -163,6 +195,3 @@ For the full history, design rationale, and eval results, see [`docs/HISTORIA.md
 
 ---
 
-<p align="center">
-  <sub>SOUTHPOINTLABS · Built on <a href="https://claude.com/claude-code">Claude Code</a></sub>
-</p>
