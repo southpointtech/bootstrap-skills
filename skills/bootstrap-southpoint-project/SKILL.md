@@ -19,6 +19,8 @@ Run this in the directory the user designates as the new project root (usually t
 - If `CLAUDE.md` or `docs/ai-workflow/` exist but there is **no** `.bootstrap-manifest.json`, the project is **not** bootstrapped — it just has its own files. Do **not** say "already bootstrapped", and do **not** derive to `upgrade-bootstrap` (that skill is only for projects that already have a manifest). Instead, enter **Step 0b — Adoption mode** below: install the methodology while preserving the project's own content.
 - If the directory contains other files (code, docs), list them and confirm with the user before proceeding. Never overwrite an existing file; scaffold around it.
 
+**Chequeo de máquina (no bloqueante):** si no existe la env var `SOUTHPOINT_GIT_NAME` ni el archivo `"$env:USERPROFILE\.claude\mcp-workstation.local.json"`, esta PC probablemente no fue preparada para Southpoint. No frenes el bootstrap, pero avisá al usuario que conviene correr la skill `setup-mcp-workstation` una vez (deja la identidad git, los tokens de DOMO/Zoho y Playwright listos), y anotalo en el reporte del Step 6. Si la env var o el archivo existen, no digas nada.
+
 ## Step 0b — Adoption mode
 
 Reached from Step 0 when the project has its own `CLAUDE.md` (or `docs/ai-workflow/`) but no `.bootstrap-manifest.json`. Goal: install the 8-step methodology without losing the project's context or identity. Two invariants govern this mode: **the original is never lost** (a verbatim, permanent backup), and **the merge is never applied before the user approves a coverage map** of where each block of their content goes.
