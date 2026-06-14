@@ -15,9 +15,9 @@ $Catalog = [ordered]@{
     prereqs         = @("firebase login (una vez)")
   }
   "domo" = [ordered]@{
-    config          = [ordered]@{ type = "stdio"; command = '${DOMO_MCP_PYTHON:-python}'; args = @("-m","domo_mcp"); env = [ordered]@{ DOMO_DEVELOPER_TOKEN = '${DOMO_SOUTHPOINT_TOKEN}'; DOMO_HOST = "hssstaffing.domo.com"; PYTHONIOENCODING = "utf-8" } }
-    requiredEnvVars = @("DOMO_SOUTHPOINT_TOKEN")
-    prereqs         = @("domo_mcp instalado por setup-mcp-workstation")
+    config          = [ordered]@{ type = "stdio"; command = '${DOMO_MCP_PYTHON:-python}'; args = @("-m","domo_mcp"); env = [ordered]@{ DOMO_DEVELOPER_TOKEN = '${DOMO_SOUTHPOINT_TOKEN}'; DOMO_HOST = "hssstaffing.domo.com"; PYTHONPATH = '${DOMO_MCP_HOME}'; PYTHONIOENCODING = "utf-8" } }
+    requiredEnvVars = @("DOMO_SOUTHPOINT_TOKEN","DOMO_MCP_HOME")
+    prereqs         = @("domo-mcp-server clonado por setup-mcp-workstation (DOMO_MCP_HOME)")
   }
   "zoho-projects" = [ordered]@{
     config          = [ordered]@{ type = "http"; url = '${ZOHO_SOUTHPOINT_MCP_URL}' }

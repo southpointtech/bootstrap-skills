@@ -73,11 +73,11 @@ Assert ($rs.exit -eq 0) "southpoint happy: exit 0"
 $sd = Get-Content (Join-Path $ts ".mcp.json") -Raw | ConvertFrom-Json
 Assert ($null -ne $sd.mcpServers.domo) "southpoint happy: tiene domo"
 Assert ($sd.mcpServers.domo.env.DOMO_DEVELOPER_TOKEN -eq '${DOMO_SOUTHPOINT_TOKEN}') "southpoint happy: token domo por env var"
-Assert ($null -eq $sd.mcpServers.domo.env.PYTHONPATH) "southpoint happy: domo SIN PYTHONPATH (pip-installed)"
+Assert ($sd.mcpServers.domo.env.PYTHONPATH -eq '${DOMO_MCP_HOME}') "southpoint happy: PYTHONPATH domo apunta a DOMO_MCP_HOME (clone)"
 Assert ($sd.mcpServers.'zoho-projects'.url -eq '${ZOHO_SOUTHPOINT_MCP_URL}') "southpoint happy: url zoho southpoint"
 $ss = $rs.out | ConvertFrom-Json
 Assert ($ss.requiredEnvVars -contains "DOMO_SOUTHPOINT_TOKEN") "southpoint happy: reporta DOMO_SOUTHPOINT_TOKEN"
-Assert (-not ($ss.requiredEnvVars -contains "DOMO_MCP_HOME")) "southpoint happy: NO reporta DOMO_MCP_HOME"
+Assert ($ss.requiredEnvVars -contains "DOMO_MCP_HOME") "southpoint happy: reporta DOMO_MCP_HOME"
 
 # --- SOUTHPOINT: zoho-personal NO existe en este catalogo ---
 $ts2 = NewTmp
