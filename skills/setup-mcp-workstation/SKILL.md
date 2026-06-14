@@ -1,6 +1,6 @@
 ---
 name: setup-mcp-workstation
-description: Use ONCE per Windows PC to prepare a machine for SOUTHPOINTLABS work — first-time workstation setup that asks for the user's git identity, DOMO token and Zoho MCP URL, persists them as user env vars, and installs the attached clients (DOMO via pip, Playwright browsers). Trigger when someone says "configurá mi máquina", "preparar la compu/workstation", "setup inicial de la PC", "onboarding de un compañero nuevo", "dejá lista la máquina para Southpoint", or when bootstrap-southpoint-project reports the machine is not configured. This is a per-MACHINE setup, run once — NOT a per-project setup. For per-project scaffolding use bootstrap-southpoint-project.
+description: Use ONCE per Windows PC to prepare a machine for SOUTHPOINTLABS work — first-time workstation setup that asks for the user's git identity, DOMO token and Zoho MCP URL, persists them as user env vars, and installs the attached clients (clones the DOMO MCP client + its deps, Playwright browsers). Trigger when someone says "configurá mi máquina", "preparar la compu/workstation", "setup inicial de la PC", "onboarding de un compañero nuevo", "dejá lista la máquina para Southpoint", or when bootstrap-southpoint-project reports the machine is not configured. This is a per-MACHINE setup, run once — NOT a per-project setup. For per-project scaffolding use bootstrap-southpoint-project.
 ---
 
 # setup-mcp-workstation
@@ -29,7 +29,7 @@ Si el archivo NO existe (o el usuario quiere reconfigurar), pedí los valores co
 2. **Token de DOMO** — el developer token de su cuenta.
 3. **URL del MCP de Zoho** — la URL HTTP del MCP de Zoho Projects.
 
-El **host de DOMO** y la **fuente del paquete pip** son constantes (no se preguntan).
+El **host de DOMO** y el **repo del cliente DOMO** son constantes (no se preguntan).
 
 ## Step 2 — Escribir el archivo de config
 
@@ -61,8 +61,8 @@ $skill = "<base directory of this skill>"
 pwsh -NoProfile -File "$skill\scripts\install-clients.ps1"
 ```
 
-Instala DOMO (`pip install`) y los browsers de Playwright (chromium). Devuelve un resumen con `installed`, `skipped` y `prereqsMissing`. **No abortes** si reporta prereqs faltantes (Python/Node): seguí y listalos en el reporte como pasos guiados.
+Clona el cliente DOMO —el repo oficial `DomoApps/domo-mcp-server`, que **no es un paquete pip**— a `~/.claude/domo-mcp-server`, instala sus dependencias (`pip install -r requirements.txt`) y **setea `DOMO_MCP_HOME`** apuntando ahí; además instala los browsers de Playwright (chromium). Devuelve un resumen con `installed`, `skipped`, `prereqsMissing` y `domoHome`. **No abortes** si reporta prereqs faltantes (Git/Python/Node): seguí y listalos en el reporte como pasos guiados.
 
 ## Step 5 — Reporte
 
-Reportá: qué env vars quedaron seteadas (solo nombres), qué clientes se instalaron, qué prerequisitos faltan (con la instrucción exacta para resolverlos), y el recordatorio de **reiniciar Claude Code** para que tome las env vars nuevas. Cerrá con: "Máquina lista para Southpoint — ya podés usar `bootstrap-southpoint-project` en cualquier proyecto."
+Reportá: qué env vars quedaron seteadas (solo nombres) —incluida `DOMO_MCP_HOME`, que `install-clients` deja apuntando al clone de DOMO—, qué clientes se instalaron, qué prerequisitos faltan (con la instrucción exacta para resolverlos), y el recordatorio de **reiniciar Claude Code** para que tome las env vars nuevas. Cerrá con: "Máquina lista para Southpoint — ya podés usar `bootstrap-southpoint-project` en cualquier proyecto."

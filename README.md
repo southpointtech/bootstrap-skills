@@ -28,11 +28,11 @@ La primera vez que alguien va a usar estas skills en su máquina, corre `setup-m
 
 1. Clonar/recibir este repo.
 2. Correr `.\tools\sync-skills.ps1` (deploya las skills a `~/.claude/skills/`).
-3. Abrir Claude Code y decir *"configurá mi máquina para Southpoint"* → corre `setup-mcp-workstation`, que pide git/DOMO/Zoho **una sola vez**, persiste las env vars de usuario (sin imprimir secretos) e instala DOMO (`pip`) + Playwright (browsers).
+3. Abrir Claude Code y decir *"configurá mi máquina para Southpoint"* → corre `setup-mcp-workstation`, que pide git/DOMO/Zoho **una sola vez**, persiste las env vars de usuario (sin imprimir secretos), clona el cliente DOMO oficial e instala sus dependencias, e instala los browsers de Playwright.
 4. Reiniciar Claude Code (para que tome las env vars nuevas).
-5. Ya puede usar `bootstrap-southpoint-project` en cualquier proyecto: la identidad git sale de las env vars y el catálogo DOMO ya no necesita `DOMO_MCP_HOME`.
+5. Ya puede usar `bootstrap-southpoint-project` en cualquier proyecto: la identidad git sale de las env vars y el catálogo DOMO resuelve solo (la skill dejó `DOMO_MCP_HOME` apuntando al clone).
 
-Python (para DOMO) y Node (para Playwright) son prerequisitos: la skill los verifica y, si faltan, guía cómo instalarlos (no aborta).
+Git y Python (para DOMO) y Node (para Playwright) son prerequisitos: la skill los verifica y, si faltan, guía cómo instalarlos (no aborta).
 
 ## Editar y deployar
 

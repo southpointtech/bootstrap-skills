@@ -71,6 +71,6 @@ Los dos scripts de la skill se testean con runners sin Pester, cada uno imprime 
 
 **`apply-env.tests.ps1`** cubre: validación de la config (campo faltante → error que **nombra** el campo; config inexistente → error), que la salida **no filtra valores de secretos** (solo nombres de vars + estado), y todo corre con `-DryRun` para no ensuciar el entorno real.
 
-**`install-clients.tests.ps1`** cubre: ambos prereqs presentes (usa `pwsh` como stand-in vía `-PythonCmd`/`-NpxCmd`), Python ausente (reporta el prereq, **NO aborta**, igual sigue con Playwright), npx ausente (reporta Node), todo en `-DryRun` (no instala nada de verdad).
+**`install-clients.tests.ps1`** cubre: todos los prereqs presentes (usa `pwsh` como stand-in vía `-GitCmd`/`-PythonCmd`/`-NpxCmd`), y que el comando referencie el repo oficial de DOMO + `requirements.txt`; Git ausente (reporta el prereq, **NO clona**, igual sigue con Playwright), Python ausente (no intenta pip), npx ausente (reporta Node), todo en `-DryRun` (no clona ni instala nada de verdad).
 
 El flujo end-to-end de la skill se evalúa con skill-creator usando el caso *"configurá mi máquina para Southpoint"* (verifica que pida git/DOMO/Zoho, escriba el archivo de config y llame a los dos scripts), con `-DryRun` o un `$env:USERPROFILE` temporal para no tocar el entorno real. El workspace de evals se borra al terminar.

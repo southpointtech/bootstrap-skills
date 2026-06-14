@@ -43,16 +43,16 @@ Los rastros de testeo (workspace, proyectos de prueba, gradings, benchmarks) se 
 
 1. Las escribe en un único archivo de config fuera de todo repo (`~/.claude/mcp-workstation.local.json`), que nunca se commitea.
 2. Las persiste como env vars de usuario vía `apply-env.ps1` (`SOUTHPOINT_GIT_NAME`, `SOUTHPOINT_GIT_EMAIL`, `DOMO_SOUTHPOINT_TOKEN`, `ZOHO_SOUTHPOINT_MCP_URL`) **sin imprimir nunca los valores de los secretos**.
-3. Instala los clientes a nivel máquina vía `install-clients.ps1` de forma **híbrida**: hace solo lo no-admin/no-interactivo (DOMO por `pip install`, browsers de Playwright con `npx playwright install chromium`) y verifica/guía los prerequisitos que necesitan admin o interacción (Python, Node) sin abortar.
+3. Instala los clientes a nivel máquina vía `install-clients.ps1` de forma **híbrida**: hace solo lo no-admin/no-interactivo (clona el cliente DOMO oficial `DomoApps/domo-mcp-server` a `~/.claude/domo-mcp-server`, instala sus dependencias con `pip install -r requirements.txt` y setea `DOMO_MCP_HOME`; browsers de Playwright con `npx playwright install chromium`) y verifica/guía los prerequisitos que necesitan admin o interacción (Git, Python, Node) sin abortar.
 
 **Decisiones:**
 
 - **Skill aparte, no embebida en el bootstrap**: responsabilidad única, corre 1×/PC, se testea sola. El bootstrap sigue siendo 1×/proyecto.
 - **Fuente de verdad = un solo archivo** (`mcp-workstation.local.json`), no `settings.json`→`env`, porque no está documentado que Claude Code expanda `${VAR}` en `.mcp.json` desde ese lado.
 - **Identidad git parametrizada por env var con fallback en AMBAS bootstrap** (espejado): southpoint lee `SOUTHPOINT_GIT_NAME`/`SOUTHPOINT_GIT_EMAIL` (fallback `southpointtech`/`mdeleon@agtium.com`); personal lee `PERSONAL_GIT_NAME`/`PERSONAL_GIT_EMAIL` (fallback `MartinDele703`/`martin.deleon703@gmail.com`).
-- **Cambio de catálogo**: domo ahora se instala por `pip install`, así que se elimina `DOMO_MCP_HOME`/`PYTHONPATH` del catálogo southpoint.
+- **Catálogo (corrección descubierta en la implementación)**: el cliente DOMO oficial **no es un paquete pip** sino clonar-y-ejecutar (importa `domo_mcp` vía `PYTHONPATH`). La skill clona el repo a `~/.claude/domo-mcp-server` y **setea `DOMO_MCP_HOME` automáticamente**, así que el catálogo southpoint mantiene `PYTHONPATH=${DOMO_MCP_HOME}`; el usuario ya no setea `DOMO_MCP_HOME` a mano.
 
-**Pendiente al escribir esto:** el nombre/fuente real del paquete pip de `domo_mcp` (queda el marcador `domo-mcp` en `install-clients.ps1`), que se reemplaza en el deploy final (Task 8).
+**Pendiente al escribir esto:** correr el eval end-to-end con skill-creator y deployar con `tools/sync-skills.ps1` (Task 8). (Ya no hay marcador de paquete pip: el cliente DOMO se resuelve clonando el repo oficial.)
 
 ## Pendientes / ideas futuras
 
