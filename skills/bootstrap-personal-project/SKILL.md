@@ -127,10 +127,11 @@ Keep the script's `requiredEnvVars` / `prereqs` output for the final report (Ste
 If the project directory is not **its own** git repository root — check with `git -C $proj rev-parse --show-toplevel` and confirm it equals `$proj`, not a parent repo the project happens to sit inside — run `git init -b main` so it gets its own repository. Never commit the scaffolding into an enclosing parent repo.
 
 Set the **local** identity (local, so the user's global git config is untouched):
+La identidad se toma de las env vars `PERSONAL_GIT_NAME` / `PERSONAL_GIT_EMAIL`, con fallback a la identidad personal si no están seteadas:
 
 ```powershell
-git config user.name "MartinDele703"
-git config user.email "martin.deleon703@gmail.com"
+git config user.name  "$($env:PERSONAL_GIT_NAME  ?? 'MartinDele703')"
+git config user.email "$($env:PERSONAL_GIT_EMAIL ?? 'martin.deleon703@gmail.com')"
 ```
 
 Then commit everything as `chore: project scaffolding (AI workflow + skills)`.

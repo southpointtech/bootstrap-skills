@@ -127,10 +127,11 @@ Keep the script's `requiredEnvVars` / `prereqs` output for the final report (Ste
 If the project directory is not **its own** git repository root — check with `git -C $proj rev-parse --show-toplevel` and confirm it equals `$proj`, not a parent repo the project happens to sit inside — run `git init -b main` so it gets its own repository. Never commit the scaffolding into an enclosing parent repo.
 
 Set the **local** identity (local, so the user's global git config is untouched):
+La identidad se toma de las env vars que deja `setup-mcp-workstation` (`SOUTHPOINT_GIT_NAME` / `SOUTHPOINT_GIT_EMAIL`), con fallback a la identidad de servicio si no están seteadas:
 
 ```powershell
-git config user.name "southpointtech"
-git config user.email "mdeleon@agtium.com"
+git config user.name  "$($env:SOUTHPOINT_GIT_NAME  ?? 'southpointtech')"
+git config user.email "$($env:SOUTHPOINT_GIT_EMAIL ?? 'mdeleon@agtium.com')"
 ```
 
 Then commit everything as `chore: project scaffolding (AI workflow + skills)`.
