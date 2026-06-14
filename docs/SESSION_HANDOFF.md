@@ -1,57 +1,77 @@
-# Session Handoff — 2026-06-12 (actualizado)
+# Session Handoff — 2026-06-14
 
-## ▶ AL RETOMAR — pendiente SOLO del lado de Martín
+## ▶ AL RETOMAR — ejecutar el plan de `setup-mcp-workstation` con subagent-driven
 
-Martín pidió retomar esto. Toda la migración MCP por área quedó hecha del lado del código/config (ver sección "Migración MCP" más abajo). Le falta hacer A MANO:
+La fase de diseño y planificación de una feature nueva está **terminada y commiteada**. Lo que sigue es **implementar**, task por task, con `superpowers:subagent-driven-development` (el usuario ya eligió ese modo).
 
-1. **🔴 Reabrir terminal + verificar (lo único que bloquea hoy).** Las env vars se setearon en scope User → procesos ya abiertos no las ven. Abrir terminal nueva, entrar a un proyecto, aprobar el "trust" del `.mcp.json` (1ª vez por proyecto):
-   ```powershell
-   cd "C:\Repos\SOUTHPOINTLABS\Forecasting App"; claude mcp list   # firebase, domo, zoho-projects ✔
-   ```
-2. **🟡 GitHub MCP (opcional, requiere Docker).** Quedó fuera de los `.mcp.json` (Docker caído). Arrancar Docker Desktop y re-generar con `-Servers ...,github -Force` (comando exacto en sección Migración, punto 3).
-3. **🟡 Rotar token DOMO (opcional, higiene).** GitHub ya no hace falta (apunta a los `gho_` vivos por cuenta).
-4. **⚪ Scaffold legacy/adopción (diferido).** `upgrade-bootstrap`/`bootstrap-*` por proyecto.
+**Arrancar así:**
+1. Leer el plan: `docs/superpowers/plans/2026-06-14-setup-mcp-workstation.md` (8 tasks, TDD, con código completo).
+2. Leer el spec para contexto: `docs/superpowers/specs/2026-06-14-setup-mcp-workstation-design.md`.
+3. Invocar `superpowers:subagent-driven-development` y ejecutar Task 1 → 8 en orden, con review entre tasks.
 
-Si algún server no conecta tras el paso 1, pasar el error.
+**Bloqueante externo (solo Martín lo sabe):** el **nombre/fuente real del paquete pip de `domo_mcp`** (PyPI público / índice privado / `git+https`). El plan usa el marcador `"domo-mcp"` y lo reemplaza en **Task 8, Step 1**. Tasks 1-7 NO dependen de ese dato — se pueden hacer enteras antes de pedirlo. Pedirlo recién al llegar a Task 8.
 
-## Estado: working tree limpio, dos features grandes CERRADAS
+---
 
-El handoff anterior describía la feature de adopción como "no empezada"; eso quedó obsoleto. Ambas features están **implementadas, mergeadas a `main` y deployadas**. No quedan feature branches.
+## Qué es el proyecto
 
-### ✅ Feature "adopción con merge de CLAUDE.md"
-Step 0b (modo adopción) en ambos SKILL.md espejados. Commits: `ced0f02` (eval en TESTING.md), `3128abb` (southpoint), `8db1314` (personal), `39fbea5` (3 fixes post-eval + conteo 47 files). Eval real pasó: 5 assertions OK + `compare-scaffold.ps1` clasifica `CLAUDE.md` como `customized` (sellado emergente confirmado).
+`C:\Repos\PERSONAL\Bootstrap Skills` es la **fuente de verdad** de las skills personales de bootstrap de Claude Code (`bootstrap-southpoint-project`, `bootstrap-personal-project`, `upgrade-bootstrap`). Las copias instaladas viven en `C:\Users\marti\.claude\skills\`; editar acá NO tiene efecto hasta deployar con `tools\sync-skills.ps1`.
 
-### ✅ Feature "MCP por área"
-`gen-mcp-json.ps1` + Step 4 en ambas skills + tests (26 asserts). Catálogos: personal = firebase/zoho-personal/github; southpoint = firebase/domo/zoho-projects/github. El `.mcp.json` versionado solo referencia `${VAR}` (secretos por env var, nunca commiteados).
+## Feature en curso: `setup-mcp-workstation`
 
-## Migración MCP por área — COMPLETADA (2026-06-12)
+**Motivación:** Martín comparte las Bootstrap Skills con un compañero nuevo de trabajo (entra el 2026-06-15). Hoy el setup de credenciales/MCPs es manual y atado al entorno de Martín. Esta feature crea una skill que prepara una PC Windows **una vez por máquina**: el usuario ingresa sus credenciales una sola vez (responde preguntas o llena un archivo) y la skill persiste las env vars e instala los clientes. Después solo usa `bootstrap-southpoint-project` normal.
 
-- ✅ **6 env vars** en scope User: `DOMO_MCP_HOME`, `DOMO_SOUTHPOINT_TOKEN`, `ZOHO_SOUTHPOINT_MCP_URL`, `ZOHO_PERSONAL_MCP_URL` (encontrada en `.claude.json` Flash Audit), `GITHUB_SOUTHPOINT_TOKEN` (cuenta `southpointtech`), `GITHUB_PERSONAL_TOKEN` (cuenta `MartinDele703`).
-- ✅ **GitHub separado por cuenta (2026-06-12, commit `ed2950d`):** Martín tiene 2 cuentas GitHub. El catálogo MCP usaba una sola var; ahora personal→`${GITHUB_PERSONAL_TOKEN}`, southpoint→`${GITHUB_SOUTHPOINT_TOKEN}` (la clave interna `GITHUB_PERSONAL_ACCESS_TOKEN` que lee el binario no cambia). Tokens extraídos de `gh auth token` por cuenta. Var vieja `GITHUB_PERSONAL_ACCESS_TOKEN` removida.
-- ✅ **8 `.mcp.json` generados** (solo `${VAR}`): Southpoint (firebase,domo,zoho-projects) = Forecasting App, Southpoint App Migration, Call Center 1 (regenerado, tenía token DOMO plano), Call Center 2, Customer Portal, KBS Orders. Personal (firebase,zoho-personal) = Flash Audit, Planify AI. `github` excluido (Docker caído).
-- ✅ **Global vaciado** (`claude mcp list` → vacío). Backup `.claude.json.20260611-mcp-cleanup.bak`.
+**Decisiones de diseño (todas ya tomadas y aprobadas por el usuario):**
+- **Skill aparte** (no embebida en bootstrap): responsabilidad única, frecuencia 1×/PC, testeable sola, no se duplica.
+- **Fuente de verdad = un archivo** `~/.claude/mcp-workstation.local.json` (fuera de todo repo). La skill lo lee y **aplica env vars persistentes de usuario** vía `[Environment]::SetEnvironmentVariable(...,'User')`. El usuario NUNCA corre comandos en la terminal. (Se descartó `settings.json`→`env` porque NO está documentado que expanda `${VAR}` en `.mcp.json`; el `${VAR}` lee del entorno del proceso — confirmado por claude-code-guide.)
+- **Instalación híbrida:** auto-hace lo no-admin/no-interactivo (env vars, `pip install` de DOMO, `npx playwright install chromium`); **verifica y guía** lo que necesita admin/interacción (Python, Node).
+- **Alcance de credenciales:** git (name+email) + DOMO (token) + Zoho (mcpUrl). github y firebase quedan fuera (siguen con env vars manuales). Host DOMO = constante (`hssstaffing.domo.com`), no se pregunta.
+- **`domo_mcp` se instala por `pip install`** (no checkout, no git clone). Esto elimina `DOMO_MCP_HOME` del catálogo MCP de southpoint.
+- **Identidad git parametrizada en AMBAS bootstrap** (regla de espejado): leen env var por área con fallback a la identidad actual. southpoint → `SOUTHPOINT_GIT_NAME`/`EMAIL` (fallback `southpointtech`/`mdeleon@agtium.com`); personal → `PERSONAL_GIT_NAME`/`EMAIL` (fallback `MartinDele703`/`martin.deleon703@gmail.com`).
+- **Playwright** = tooling de QA, no MCP, no credencial: solo se instalan los browsers (chromium) a nivel máquina.
 
-### Lo único que queda (requiere web UI o sesión interactiva → solo Martín)
-1. **Rotar (opcional, higiene)** token DOMO (Admin→Auth→Access Tokens en hssstaffing.domo.com) y, si querés PATs dedicados en vez de los `gho_` de `gh`, generarlos fine-grained por cuenta en github.com/settings; revocar viejos; re-setear `DOMO_SOUTHPOINT_TOKEN`/`GITHUB_SOUTHPOINT_TOKEN`/`GITHUB_PERSONAL_TOKEN`. Los valores actuales funcionan. (El `gho_1hLv…` viejo y suelto del `.claude.json` ya no se usa.)
-2. **Verificar:** reabrir terminal/Claude Code (env vars no las ven procesos ya abiertos), abrir un proyecto, aprobar trust del `.mcp.json`, `claude mcp list`.
-3. **github** en los `.mcp.json`: re-generar con `-Force` cuando Docker corra.
+## Estado de implementación
 
-### Proyectos legacy/adopción (diferido — "cuando lo veas necesario")
-`upgrade-bootstrap` para Flash Audit/Planify AI (ya tienen su `.mcp.json`); adopción (`bootstrap-*`) para Outsourcing Dev, KBS Orders. (Call Center 1/2 y Customer Portal ya tienen `.mcp.json` aunque su scaffold siga pendiente.)
+- **Diseño:** ✅ spec escrito y commiteado (`f269d31`).
+- **Plan:** ✅ plan escrito y commiteado (`dcae61c`), con un fix de sintaxis aplicado después (`-match`).
+- **Código:** ❌ NADA implementado todavía. Las 8 tasks están sin tocar.
 
-### ✅ Follow-up ya resuelto (la memoria lo daba por pendiente)
-**Forecasting App CLAUDE.md** YA tiene todas las reglas nuevas (anti supply-chain L76, PRs ≤400 + stacked L77-78, vendor L79, service layer L85, model selection L86, review-loop + hook L63). Nada que hacer.
+## Archivos que el plan crea / modifica (ninguno tocado aún salvo los docs de spec/plan)
 
-### Env vars que esperan los catálogos (valores conocidos al 2026-06-11)
-- `DOMO_MCP_HOME` = `C:\Repos\SOUTHPOINTLABS\domo-mcp-server` (PYTHONPATH del checkout local)
-- `DOMO_SOUTHPOINT_TOKEN` = token DOMO actual (**a rotar** — poner el nuevo)
-- `ZOHO_SOUTHPOINT_MCP_URL` = `https://zohoprojectsmcp-924788082.zohomcp.com/mcp/8cb285306e74aa4e506b0e418b6ee9c4/message`
-- `ZOHO_PERSONAL_MCP_URL` = (cuenta Zoho personal — no registrada, el usuario la tiene)
-- `GITHUB_PERSONAL_ACCESS_TOKEN` = PAT GitHub (**a rotar** — poner el nuevo; Docker debe estar corriendo)
+**Crear:** `skills/setup-mcp-workstation/SKILL.md`, `skills/setup-mcp-workstation/scripts/apply-env.ps1`, `skills/setup-mcp-workstation/scripts/install-clients.ps1`, `tests/apply-env.tests.ps1`, `tests/install-clients.tests.ps1`.
+**Modificar:** `skills/bootstrap-southpoint-project/scripts/gen-mcp-json.ps1` (quitar `DOMO_MCP_HOME`/`PYTHONPATH` del server domo), `tests/gen-mcp-json.tests.ps1` (aserciones domo), `skills/bootstrap-southpoint-project/SKILL.md` (Step 5 identidad git + Step 0 chequeo de máquina), `skills/bootstrap-personal-project/SKILL.md` (Step 5 identidad git), `README.md`, `docs/HISTORIA.md`, `docs/TESTING.md`.
+
+## Comandos de test (runners sin Pester, estilo del repo)
+
+```powershell
+pwsh -NoProfile -File tests/apply-env.tests.ps1        # nuevo (Task 1)
+pwsh -NoProfile -File tests/install-clients.tests.ps1  # nuevo (Task 2)
+pwsh -NoProfile -File tests/gen-mcp-json.tests.ps1     # existente, se actualiza en Task 4
+```
+Cada uno imprime "TODOS LOS TESTS PASARON" o "N test(s) FALLARON" + exit code. Aún no corridos (código no escrito).
+
+## Decisiones técnicas clave para no romper nada
+
+- `apply-env.ps1` **nunca imprime valores de tokens** (solo nombres de vars + estado `set`/`unchanged`). El `-DryRun` calcula sin escribir → los tests usan dry-run para no ensuciar el entorno real.
+- `install-clients.ps1` acepta `-PythonCmd`/`-NpxCmd` para que los tests simulen ausencia pasando un comando inexistente. Prereqs faltantes **no abortan**.
+- La skill personal **no tiene server domo** (catálogo = firebase/zoho-personal), así que Task 4 toca **solo** southpoint.
+- **`DOMO_MCP_HOME` queda deprecado** por esta feature (antes apuntaba a `C:\Repos\SOUTHPOINTLABS\domo-mcp-server`). Es un cambio intencional: con pip ya no hace falta `PYTHONPATH`.
 
 ## Reglas del repo (no olvidar)
+
 - Las dos skills bootstrap se mantienen **espejadas en estructura**; todo cambio de mecánica va en ambas. Solo difieren en DOMO e identidad git.
-- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (regenera manifests).
+- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (regenera manifests de las bootstrap). `sync-skills.ps1` enumera todo `skills/`, así que `setup-mcp-workstation` entra sola al deployar (Task 8).
 - NO wildcard `scaffold\*` en los copy de PowerShell (anida `.agents\.agents`).
-- Identidad de commit: `MartinDele703 <martin.deleon703@gmail.com>`.
+- Identidad de commit en ESTE repo: `MartinDele703 <martin.deleon703@gmail.com>` (ya configurada local).
 - Rastros de testeo (workspaces de evals) se borran al terminar.
+- Los evals de skill se corren con skill-creator (ver `docs/TESTING.md`).
+
+## Contexto previo (cerrado, no es trabajo pendiente)
+
+Features anteriores YA mergeadas y deployadas: "adopción con merge de CLAUDE.md" (Step 0b) y "MCP por área" (`gen-mcp-json.ps1` + Step 4). La migración MCP por área del entorno de Martín quedó hecha (8 `.mcp.json` generados, global vaciado, env vars seteadas). Pendientes históricos del lado de Martín (opcionales, no bloquean esta feature): rotar token DOMO, agregar github MCP cuando Docker corra, adopción de proyectos legacy. Detalle en el historial de git si se necesita.
+
+## Próximos 3 pasos recomendados
+
+1. Invocar `superpowers:subagent-driven-development` apuntando al plan `docs/superpowers/plans/2026-06-14-setup-mcp-workstation.md`.
+2. Ejecutar Tasks 1-7 (no requieren el paquete pip real); correr los tests de cada task antes de commitear.
+3. Al llegar a Task 8, pedir a Martín el paquete pip real de `domo_mcp`, reemplazarlo, correr toda la batería + eval con skill-creator, y deployar con `tools\sync-skills.ps1`.
