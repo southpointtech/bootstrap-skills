@@ -35,6 +35,25 @@ El snapshot de referencia es el commit inicial de Forecasting App (`c8da469`, "c
 
 Los rastros de testeo (workspace, proyectos de prueba, gradings, benchmarks) se eliminaron al cierre por pedido de Martín. Este doc es el registro que sobrevive.
 
+## setup-mcp-workstation — onboarding de PC (2026-06-14)
+
+**Motivación:** se van a compartir las Bootstrap Skills con un compañero nuevo (entra 2026-06-15). El setup de credenciales/MCP era manual y atado al entorno de Martín (env vars seteadas a mano, DOMO con `DOMO_MCP_HOME` apuntando a un clone local), así que no era reproducible en otra máquina.
+
+**La skill `setup-mcp-workstation`** prepara una PC Windows **una sola vez**: pide la identidad git (nombre+email), el token developer de DOMO y la URL del MCP de Zoho una vez, y entonces:
+
+1. Las escribe en un único archivo de config fuera de todo repo (`~/.claude/mcp-workstation.local.json`), que nunca se commitea.
+2. Las persiste como env vars de usuario vía `apply-env.ps1` (`SOUTHPOINT_GIT_NAME`, `SOUTHPOINT_GIT_EMAIL`, `DOMO_SOUTHPOINT_TOKEN`, `ZOHO_SOUTHPOINT_MCP_URL`) **sin imprimir nunca los valores de los secretos**.
+3. Instala los clientes a nivel máquina vía `install-clients.ps1` de forma **híbrida**: hace solo lo no-admin/no-interactivo (DOMO por `pip install`, browsers de Playwright con `npx playwright install chromium`) y verifica/guía los prerequisitos que necesitan admin o interacción (Python, Node) sin abortar.
+
+**Decisiones:**
+
+- **Skill aparte, no embebida en el bootstrap**: responsabilidad única, corre 1×/PC, se testea sola. El bootstrap sigue siendo 1×/proyecto.
+- **Fuente de verdad = un solo archivo** (`mcp-workstation.local.json`), no `settings.json`→`env`, porque no está documentado que Claude Code expanda `${VAR}` en `.mcp.json` desde ese lado.
+- **Identidad git parametrizada por env var con fallback en AMBAS bootstrap** (espejado): southpoint lee `SOUTHPOINT_GIT_NAME`/`SOUTHPOINT_GIT_EMAIL` (fallback `southpointtech`/`mdeleon@agtium.com`); personal lee `PERSONAL_GIT_NAME`/`PERSONAL_GIT_EMAIL` (fallback `MartinDele703`/`martin.deleon703@gmail.com`).
+- **Cambio de catálogo**: domo ahora se instala por `pip install`, así que se elimina `DOMO_MCP_HOME`/`PYTHONPATH` del catálogo southpoint.
+
+**Pendiente al escribir esto:** el nombre/fuente real del paquete pip de `domo_mcp` (queda el marcador `domo-mcp` en `install-clients.ps1`), que se reemplaza en el deploy final (Task 8).
+
 ## Pendientes / ideas futuras
 
 - (vacío — anotar acá lo que surja)
