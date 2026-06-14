@@ -90,6 +90,40 @@ Both bootstrap skills land the same operating model:
 - **A configured git repository** — `main` branch, correct identity, an initial scaffolding commit,
   and a `.bootstrap-manifest.json` so the project can later be upgraded safely.
 
+## The 8-step workflow (the heart of it)
+
+The single most important rule the scaffold installs is this:
+
+> **Claude must not jump straight from a request to code.** For any non-trivial work, it walks the
+> developer through eight steps first, producing a clear artifact at each one.
+
+Why that matters: an AI agent left to improvise will happily pick a stack before anyone agreed on the
+problem, write a 2,000-line change nobody can review, degrade as the context fills up, and deploy
+without a human looking. The workflow exists to prevent exactly those failure modes — it turns "build
+me X" into a reviewable, testable, approvable sequence. Each phase ends with Claude reporting what was
+produced and **waiting for your approval** before moving on (the *Workflow State Machine*); it never
+assumes you remember the next step.
+
+| # | Phase | What happens — and the artifact it produces | Skill / command |
+|---|---|---|---|
+| **1** | **Alignment / Grill Me** | Claude *interviews you* to kill ambiguity **before writing any code**: product goal, affected users, current vs. desired behavior, data dependencies, platform constraints, edge cases, testing strategy, deployment risks, acceptance criteria. It pressure-tests your plan and finds the holes. | `/grill-me`, `/grill-with-docs` |
+| **2** | **PRD** | The shared understanding is written up as a **PRD** (Product Requirements Document — the project's requirements spec, the SRS): problem statement, goals, non-goals, user stories, functional / technical / data / testing requirements, acceptance criteria, risks, open questions. | `/to-prd` |
+| **3** | **Vertical-slice planning** | The PRD is broken into **independently testable vertical slices** — each one cutting through UI + backend + data + tests — instead of horizontal "DB-only / API-only / UI-only" layers. Each slice is kept small (target ≤ ~400 lines) so it stays reviewable; dependent slices become stacked PRs. | `/to-issues` |
+| **4** | **Task formatting** | Each slice becomes a task ready to paste into **Zoho Projects**: title, description, acceptance criteria, dependencies, test plan, deployment target, estimated complexity, affected area (DOMO / Firebase / Azure / Playwright / docs / config). | `/to-issues`, `/triage` |
+| **5** | **Test-first implementation** | **One slice at a time.** TDD when practical (red → green → refactor), Playwright tests for UI changes. Focused changes only — no touching unrelated files, no deploying. | `/tdd` |
+| **6** | **Automated QA** | Before anything is called "done": unit tests, type checks, lint, Playwright, and the manual QA checklist. If a check can't run, Claude has to say why. | QA checklist |
+| **7** | **Clean-context review** | A second review from a **fresh context** (so the author's blind spots don't carry over): `/code-review` → fix only real findings → re-review, looping until no medium/high-severity findings remain. | `/review-loop` |
+| **8** | **Human approval** | **Nothing ships without a person.** No deploy to DOMO / Firebase / Azure, and no change to secrets, production config, or Firestore rules, happens without explicit human sign-off. | (human) |
+
+**Why vertical slices?** A slice that delivers one thin end-to-end behavior can be tested, reviewed,
+and shipped on its own — so feedback comes early and PRs stay small. Splitting by horizontal layer
+(all the DB, then all the API, then all the UI) means nothing works until the very end and every review
+is huge.
+
+Two helper skills support the loop without being steps of it: **`/zoom-out`** gives a higher-level map
+of how a piece fits the architecture before you dive in, and **`/handoff`** compacts the current
+session into a clean handoff so another agent or a fresh terminal can pick up without losing context.
+
 ## MCP servers & clients
 
 A big part of working "like Forecasting App" is that Claude can reach the **real systems** the project
