@@ -14,7 +14,7 @@ if (-not $cmd) { exit 0 }
 # 2. Filtrar: gh pr create / git push / git commit
 $isPr     = $cmd -match '\bgh\s+pr\s+create\b'
 $isPush   = $cmd -match '\bgit\s+push\b'
-$isCommit = $cmd -match '\bgit\s+commit\b'
+$isCommit = $cmd -match '\bgit\s+commit(?![\w-])'   # excluye git commit-graph y similares
 if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Ubicarse en el repo (cwd del evento)

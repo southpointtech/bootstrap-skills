@@ -34,6 +34,9 @@ Assert ($o -match "additionalContext") "git push en feature branch dispara"; Rem
 $t = New-Repo; $o = Fire $t "git commit -m slice"
 Assert (($o -match "additionalContext") -and ($o -match "review-loop AHORA")) "git commit en feature branch dispara con mensaje imperativo"; Remove-Item -Recurse -Force $t
 
+$t = New-Repo; $o = Fire $t "git commit-graph write"
+Assert ([string]::IsNullOrEmpty($o)) "git commit-graph (falso positivo) NO dispara"; Remove-Item -Recurse -Force $t
+
 $t = New-Repo; git -C $t checkout -q master; $o = Fire $t "git push"
 Assert ([string]::IsNullOrEmpty($o)) "estar en la base no dispara"; Remove-Item -Recurse -Force $t
 
