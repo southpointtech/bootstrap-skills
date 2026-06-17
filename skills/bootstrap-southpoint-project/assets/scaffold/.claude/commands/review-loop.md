@@ -35,6 +35,17 @@ git diff <base>...HEAD --stat   # <base> es la rama base del PR (main/develop/et
 
 Usá ese mismo rango (`git diff <base>...HEAD`) como entrada de cada `/code-review` del loop. El modo working-tree (`git diff` sin rango) sigue siendo el default para invocación manual sobre cambios sin commitear.
 
+## Modo commit / local (cuando lo dispara un `git commit`)
+
+Si llegaste acá tras un `git commit` (típico en repos locales sin remote), revisá el diff del slice recién cerrado. Si el branch tiene una base resoluble, usá el rango del branch; si no, revisá el último commit:
+
+```powershell
+git --no-pager diff <base>...HEAD --stat   # si hay base (sirve también con base local, sin remote)
+git --no-pager show --stat HEAD            # fallback: solo el último commit
+```
+
+Si el commit es solo un test que falla a propósito (RED de TDD) y todavía no hay código de implementación que revisar, cerrá el loop sin acción: no hay nada que arreglar aún.
+
 ## The loop
 
 One turn = one complete pass through these three steps:

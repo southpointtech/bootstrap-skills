@@ -60,7 +60,7 @@ Recommended transitions:
 - After `/to-prd`, ask for PRD review and approval
 - After PRD approval, suggest `/to-issues`
 - After issues are approved, suggest `/tdd` for the selected task
-- After implementation, suggest QA and the clean-context review via `/review-loop`. Además, al abrir o actualizar un PR (`gh pr create` / `git push`), el hook `review-loop-trigger` inyecta automáticamente la orden de correr `/review-loop` sobre el diff del branch; no depende de que el agente lo recuerde. El `/review-loop` manual sigue disponible para revisar cambios locales sin commitear.
+- After implementation, run `/review-loop` at the close of every slice and after each implementation commit — do NOT ask whether to run it, just run it until it closes (zero medium/high findings, or the 5-turn cap). The `review-loop-trigger` hook reinforces this deterministically: on `git commit`, `git push` or `gh pr create` in a feature branch it injects the order to run `/review-loop` over the slice diff, so it does not depend on the agent remembering. This works in local repos (no remote) and on GitHub alike. Work in feature branches per slice — commits directly on the base branch do not trigger the loop.
 
 ## Hard rules
 
@@ -73,7 +73,7 @@ Recommended transitions:
 - Never modify secrets, production config, Firestore rules, or Azure resources without approval.
 - After implementation, report changed files, tests run, risks, and manual QA steps.
 - Do not install dependencies published less than 14 days ago without explicit human approval (recent supply-chain attack mitigation). Check a new dependency's publish date before adding it (e.g. `npm view <pkg> time.modified` or `pip index versions <pkg>`).
-- Keep each vertical slice a small, reviewable unit. Target ≤ ~400 lines of change per PR; a diff approaching thousands of lines breaks the review loop. If a slice exceeds ~400 lines, split it before implementing.
+- Keep each vertical slice a small, reviewable unit of ≤ ~400 lines of *logic* diff. Generated files, vendored code (`docs/vendor/`), lockfiles and snapshots do not count. Cohesion comes first, but a slice projected well over ~400 lines of logic must be split before implementing, not after — a diff approaching thousands of lines breaks the review loop.
 - When slices depend on each other, chain them as stacked PRs instead of one large PR.
 - For critical libraries (or ones the agent tends to hallucinate APIs for), vendor the library's real source into the repo (e.g. `docs/vendor/<lib>/`) and point the agent at that code instead of relying on memory or possibly-stale docs.
 

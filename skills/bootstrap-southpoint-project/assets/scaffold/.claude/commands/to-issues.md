@@ -29,6 +29,7 @@ Slices may be 'HITL' or 'AFK'. HITL slices require human interaction, such as an
 - Each slice delivers a narrow but COMPLETE path through every layer (schema, API, UI, tests)
 - A completed slice is demoable or verifiable on its own
 - Prefer many thin slices over few thick ones
+- Keep each slice ≤ ~400 lines of *logic* diff. Generated files, vendored code (`docs/vendor/`), lockfiles and snapshots do NOT count. Cohesion comes first — this is a guide, not a hard gate — but a slice projected well over ~400 lines of logic MUST be split before it is published, not after.
 </vertical-slice-rules>
 
 ### 4. Quiz the user
@@ -43,6 +44,7 @@ Present the proposed breakdown as a numbered list. For each slice, show:
 Ask the user:
 
 - Does the granularity feel right? (too coarse / too fine)
+- Does any slice project over ~400 lines of logic diff? If so, split it now.
 - Are the dependency relationships correct?
 - Should any slices be merged or split further?
 - Are the correct slices marked as HITL and AFK?

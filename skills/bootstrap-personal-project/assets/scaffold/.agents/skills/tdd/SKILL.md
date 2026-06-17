@@ -98,6 +98,17 @@ After all tests pass, look for [refactor candidates](refactoring.md):
 
 **Never refactor while RED.** Get to GREEN first.
 
+### 5. Close the slice
+
+After green/refactor, before starting the next slice. This is NOT optional and you do NOT ask permission — you run it:
+
+1. Check the diff size: `git --no-pager diff --stat` (or `git --no-pager diff <base>...HEAD --stat` on a feature branch). Generated files, vendored code, lockfiles and snapshots don't count toward the ~400-line guide. If the logic diff is well over ~400 lines, close the cohesive part as its own slice first.
+2. Commit. Multi-commit per slice is expected — one commit per green/refactor step — and `/review-loop` runs per commit.
+3. Run `/review-loop` on the slice diff and iterate until it closes (zero medium/high findings, or the 5-turn cap). Do NOT mark the slice done until the loop closes.
+4. Only then start the next slice.
+
+A RED-only commit (a failing test, no implementation) has nothing to review — run the loop after green/refactor, not after red. If the hook triggers the loop on a RED commit anyway, its pre-flight closes it without noise.
+
 ## Checklist Per Cycle
 
 ```

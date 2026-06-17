@@ -11,10 +11,11 @@ try { $evt = $raw | ConvertFrom-Json } catch { exit 0 }
 $cmd = $evt.tool_input.command
 if (-not $cmd) { exit 0 }
 
-# 2. Filtrar: solo gh pr create / git push
-$isPr   = $cmd -match '\bgh\s+pr\s+create\b'
-$isPush = $cmd -match '\bgit\s+push\b'
-if (-not ($isPr -or $isPush)) { exit 0 }
+# 2. Filtrar: gh pr create / git push / git commit
+$isPr     = $cmd -match '\bgh\s+pr\s+create\b'
+$isPush   = $cmd -match '\bgit\s+push\b'
+$isCommit = $cmd -match '\bgit\s+commit\b'
+if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Ubicarse en el repo (cwd del evento)
 $cwd = if ($evt.cwd) { $evt.cwd } else { (Get-Location).Path }
@@ -63,10 +64,10 @@ $state[$branch] = $sha
 ([pscustomobject]$state) | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
 
 # 7. Inyectar la instrucción a Claude
-$msg = "Acabas de abrir o actualizar un PR (branch '$branch' sobre base '$base'). " +
-       "Antes de dar el trabajo por terminado, ejecuta /review-loop revisando el diff del " +
-       "branch con: git diff $base...HEAD. No marques el trabajo como completo hasta que el " +
-       "loop cierre (cero hallazgos de severidad media/alta, o el tope de 5 turnos)."
+$msg = "Cerraste un commit/slice en el branch '$branch' (base '$base'). " +
+       "Ejecuta /review-loop AHORA sobre el diff del slice. No preguntes si querés correrlo: corrélo. " +
+       "Usá 'git diff $base...HEAD' si el branch tiene base resoluble, o el diff del ultimo commit en repos locales. " +
+       "No marques el trabajo como completo hasta que el loop cierre (cero hallazgos de severidad media/alta, o el tope de 5 turnos)."
 @{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
     ConvertTo-Json -Depth 4 -Compress
 exit 0

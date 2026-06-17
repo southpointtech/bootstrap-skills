@@ -43,13 +43,14 @@ Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el pl
 
 ## Testeo del hook `review-loop-trigger` y del merge de settings
 
-El script del hook y `merge-settings.ps1` se testean con fixtures determinísticos (repos git temporales en `$env:TEMP`), no con skill-creator. Casos de regresión (implementados en `docs/superpowers/plans/2026-06-10-auto-trigger-review-loop-hook.md`, Tasks 1 y 5):
+El script del hook y `merge-settings.ps1` se testean con fixtures determinísticos (repos git temporales), no con skill-creator. Runner: `pwsh -NoProfile -File tests/review-loop-trigger.tests.ps1` (imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). **Importante:** el hook resuelve el repo desde `cwd`; en los tests, `cwd` debe ser un path Windows real (como el que pasa Claude Code), no un path MSYS `/tmp/...`, o `Set-Location` falla y el hook corre contra el repo equivocado. Casos cubiertos:
 
-- **No-op no-git** — un comando Bash que no es `gh pr create`/`git push` no emite nada.
-- **Dispara post-PR** — `git push` en un branch de feature emite `additionalContext` con `git diff <base>...HEAD`.
+- **No-op no-git** — un comando que no es `gh pr create`/`git push`/`git commit` no emite nada.
+- **Dispara post-PR/push** — `git push` en un branch de feature emite `additionalContext`.
+- **Dispara post-commit** — `git commit` en un branch de feature emite la orden imperativa de correr `/review-loop` (cubre repos locales sin remote).
 - **Dedupe por SHA** — segundo disparo sobre el mismo commit no emite; tras un commit nuevo vuelve a disparar.
 - **Base dinámica** — estar en la base no dispara; `gh pr create --base develop` usa `develop` (no hardcodea `main`).
-- **Merge de settings** — `settings.json` ausente → copia el canónico; preexistente propio → agrega el hook sin pisar permisos/otros hooks; correrlo dos veces no duplica la entrada.
+- **Merge de settings** — `settings.json` ausente → copia el canónico; preexistente propio (p. ej. con `enabledPlugins`) → agrega el hook sin pisar lo demás; correrlo dos veces no duplica la entrada.
 
 ## Testeo de `gen-mcp-json` (MCP por área)
 
