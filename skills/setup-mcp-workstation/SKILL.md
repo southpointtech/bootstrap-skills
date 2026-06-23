@@ -61,7 +61,15 @@ $skill = "<base directory of this skill>"
 pwsh -NoProfile -File "$skill\scripts\install-clients.ps1"
 ```
 
-Clona el cliente DOMO —el repo oficial `DomoApps/domo-mcp-server`, que **no es un paquete pip**— a `~/.claude/domo-mcp-server`, instala sus dependencias (`pip install -r requirements.txt`) y **setea `DOMO_MCP_HOME`** apuntando ahí; además instala los browsers de Playwright (chromium). Devuelve un resumen con `installed`, `skipped`, `prereqsMissing` y `domoHome`. **No abortes** si reporta prereqs faltantes (Git/Python/Node): seguí y listalos en el reporte como pasos guiados.
+Clona el cliente DOMO —el repo `DomoApps/domo-mcp-server`, que **no es un paquete pip**— a `~/.claude/domo-mcp-server`, instala sus dependencias (`pip install -r requirements.txt`) y **setea `DOMO_MCP_HOME`** apuntando ahí; además instala los browsers de Playwright (chromium). Devuelve un resumen con `installed`, `skipped`, `prereqsMissing` y `domoHome`. **No abortes** si reporta prereqs faltantes (Git/Python/Node): seguí y listalos en el reporte como pasos guiados.
+
+**Si el clone falla con "Repository not found" (404):** ese repo no siempre es público — no insistas reintentando la misma URL. Preguntale al usuario si ya tiene una copia local del código del servidor DOMO MCP (clonada a mano, provista por el equipo, etc.) y, si la tiene, volvé a correr el script pasando esa ruta:
+
+```powershell
+pwsh -NoProfile -File "$skill\scripts\install-clients.ps1" -DomoLocalSource "<ruta local existente>"
+```
+
+Esto salta el `git clone`, instala las dependencias desde esa carpeta y setea `DOMO_MCP_HOME` apuntando ahí. Si el usuario no tiene una copia local, dejá `domo` en `prereqsMissing` y seguí con el resto (no bloquees Playwright).
 
 ## Step 5 — Reporte
 
