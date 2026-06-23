@@ -1,21 +1,13 @@
-# Session Handoff — 2026-06-14 (README público para la empresa + repo en GitHub)
+# Session Handoff — 2026-06-23 (self-bootstrap del repo en modo adopción)
 
-## ▶ AL RETOMAR — el repo YA ESTÁ EN GITHUB; mañana solo falta "subamos el repo" (push de pendientes + dar acceso a ecardozo)
+## ▶ AL RETOMAR — qué quedó y qué falta
 
-**LEÉ ESTO PRIMERO para no duplicar trabajo:** el repo **ya fue creado y pusheado hoy** a
-`https://github.com/southpointtech/bootstrap-skills` (privado, bajo la cuenta `southpointtech`, que es la **oficial**).
-El remote `origin` ya está configurado y `main` ya está pusheada (5 commits de esta sesión incluidos).
-**NO crear un repo nuevo.** Todo el trabajo de README está commiteado — el working tree está limpio.
+Esta sesión **auto-bootstrapeó el propio repo Bootstrap Skills** con `bootstrap-personal-project`
+(modo adopción), para que la fuente de verdad de las skills opere bajo su propio workflow de 8 pasos.
 
-Cuando el usuario diga **"subamos el repo"** mañana, lo que realmente queda es:
-1. `git push` de cualquier cambio que se haga mañana (p. ej. el fix de nombre, ver Pendientes).
-2. **Dar acceso a `ecardozo`** (hoy el usuario NO pudo iniciar sesión con `ecardozo@south...`). Necesitás el **username de GitHub de ecardozo**. Comando listo:
-   ```bash
-   gh api --method PUT /repos/southpointtech/bootstrap-skills/collaborators/<USERNAME_ECARDOZO> -f permission=push
-   ```
-   (gh está logueado con `southpointtech` —activa— y `MartinDele703`. Confirmá la cuenta activa con `gh auth status` antes.)
-
----
+- **Rama:** `chore/bootstrap-self` (creada desde `main`, NO desde `feat/alignment-gate-hook`, para no mezclar con el WIP del hook).
+- **Commit:** `f67331f` — `chore: project scaffolding (AI workflow + skills)`. Working tree limpio salvo este handoff.
+- **PENDIENTE PRINCIPAL:** la rama **NO está mergeada a `main`**. El usuario reservó el merge para después de revisar el diff él mismo. **No mergear sin que lo pida.** Para revisar: `git diff main..chore/bootstrap-self`.
 
 ## Qué es el proyecto
 
@@ -26,49 +18,51 @@ Cuando el usuario diga **"subamos el repo"** mañana, lo que realmente queda es:
 - `setup-mcp-workstation` — prepara una PC Windows 1× por máquina.
 
 Editar las skills acá NO tiene efecto hasta deployar con `pwsh -NoProfile -File tools/sync-skills.ps1`.
-**Commits con identidad `MartinDele703 <martin.deleon703@gmail.com>`** (esta sesión los hizo con
-`git -c user.name="MartinDele703" -c user.email="martin.deleon703@gmail.com" commit ...`). Se trabaja directo en `main`.
+Commits con identidad local `MartinDele703 <martin.deleon703@gmail.com>`.
+El repo está en GitHub: `southpointtech/bootstrap-skills` (privado). `origin/main` puede estar algunos commits atrás del `main` local.
 
-## Objetivo de ESTA sesión — publicar el README para toda la empresa
+## Objetivo de ESTA sesión — bootstrapear el propio repo
 
-Se reescribió el `README.md` (antes era interno/personal) para que sea **presentable a toda la empresa SOUTHPOINTLABS**:
-qué es, por qué sirve, los componentes y cómo se usa. **Idioma elegido: inglés.** Despersonalizado (sin nombres/emails/handles individuales).
+El usuario invocó `/upgrade-bootstrap` dentro de este repo. Como el repo NO es un proyecto bootstrapeado
+(no tenía `.bootstrap-manifest.json`), upgrade no aplicaba. El usuario decidió **correr el bootstrap acá**.
+Al tener `CLAUDE.md` propio sin manifest, entró por **modo adopción (Step 0b)**: el contenido original se preservó y mergeó.
 
-### Lo que se hizo (todo commiteado y pusheado)
-- **Branding:** se copiaron el ícono y el wordmark de Southpoint a `docs/assets/` (`southpoint-icon.png`, `southpoint-logo.png`).
-  El header usa el **ícono azul** (se ve en light y dark mode); el wordmark es texto blanco → invisible en light mode, por eso NO se usa en el header (queda como recurso de marca).
-  - Fuentes: `C:\Repos\SOUTHPOINTLABS\Forecasting App\.scratch\presentation-build\assets\sp-logo.png` (wordmark) y `C:\Repos\SOUTHPOINTLABS\Task Manager\design\task-manager\project\assets\Logo.png` (ícono).
-- **README reescrito** con secciones: What this is · Why it matters · How it works · The skills (las **4** top-level; antes faltaba `upgrade-bootstrap`) · What gets scaffolded · **The 8-step workflow** · **MCP servers & clients** · Getting started · Repository structure · Maintaining the skills.
-- **Sección "The 8-step workflow"**: tabla fase→artefacto→skill (grill-me, PRD/SRS via to-prd, vertical slices via to-issues, tareas Zoho, TDD, QA, review-loop, human approval) + por qué importan los vertical slices.
-- **Sección "MCP servers & clients"**: dos capas — clientes machine-level (DOMO client clonado + Playwright) y servers MCP por proyecto (catálogo `domo`/`zoho-projects`/`firebase`/`github` en `.mcp.json`), con la explicación de que los secretos viven en env vars (`${VAR}`) y nunca en el repo.
-- **Subsección destacada "The review loop — the automated quality gate"** (pedido explícito del usuario: lo considera la pieza clave de calidad). Aclara que `review-loop` está bien implementada (SKILL + comando `/review-loop` + hook `review-loop-trigger` que la dispara solo en `gh pr create`/`git push`), el ciclo review→fix→re-review hasta cero findings medium/high, guardrails, y que el "5/5" de Greptile acá = "sin findings medium/high" (el reviewer reporta por severidad, no por score).
-
-### Commits de esta sesión (sobre `1032648`)
-```
-ebfb0bc docs(readme): reescribir el README para publicación a la empresa (inglés + branding)
-4c84e4a docs(readme): explicar los MCP servers y clientes (DOMO/Zoho/Firebase/GitHub + Playwright)
-253064f docs(readme): explicar el flujo de 8 pasos y sus artefactos
-f76370e docs(readme): destacar review-loop como el quality gate del proceso
-```
-(+ el commit que creó/pusheó el repo). **Nota:** se editaron solo `README.md` y `docs/assets/` — NO se tocaron las skills ni el scaffold, así que NO hace falta correr `sync-skills.ps1`.
+### Lo que se hizo (commit `f67331f`)
+- **Backup verbatim** del `CLAUDE.md` original → `docs/agents/legacy-claude.md` (red de recuperación permanente, no se borra).
+- **Scaffold copiado**: `.agents/skills/` (10 skills), `.claude/` (10 commands + `settings.json` + hook `review-loop-trigger.ps1`), `docs/ai-workflow/` (5 docs), `docs/agents/` (issue-tracker, triage-labels, domain), `.bootstrap-manifest.json`, `skills-lock.json`, `CONTEXT.md`, `docs/adr/.gitkeep`, `.scratch/`.
+- **Merge del CLAUDE.md original (coverage map aprobado por el usuario):**
+  - Sus **7 hard rules** → `## Hard rules` del CLAUDE.md canónico (verbatim).
+  - Flujo editar→testear→deployar→commitear + lista de skills + puntero a HISTORIA → `docs/agents/domain.md` (`## Project-specific domain`).
+  - Descripción one-line → `CONTEXT.md`.
+- **`.gitignore` MERGEADO** (no pisado): scaffold + reglas de evals propias (`*-workspace/`, `eval-workspace/`).
+- **`.mcp.json`: NO generado** (el usuario eligió "ninguno"; el repo no usa Firebase/Zoho/GitHub MCP).
+- **`README.md` preservado** intacto (no se tocó).
 
 ## Decisiones de esta sesión
-- **Cuenta oficial = `southpointtech`** (no MartinDele703). El repo queda ahí, privado. `ecardozo` solo necesita acceso como colaborador (no es el dueño).
-- **Repo privado** (no público): es interno de la empresa; se puede abrir/compartir después.
-- README en **inglés**, despersonalizado.
+- Variante usada: **`bootstrap-personal-project`** (no Southpoint — el repo es personal).
+- Rama dedicada `chore/bootstrap-self` desde `main`, para aislar del WIP de `feat/alignment-gate-hook`.
+- Merge a `main` **deliberadamente NO hecho** — lo reservó el usuario para tras su revisión del diff.
 
-## Pendientes / próximos pasos
-1. **(Mañana, "subamos el repo")** `git push` de pendientes + invitar a `ecardozo` como colaborador (comando arriba; falta su username de GitHub).
-2. **Unificar el nombre en el README:** conviven "SOUTHPOINT LABS" (con espacio, en el header — lo puso el usuario a mano) y "SOUTHPOINTLABS" (junto, en tablas/prosa). Preguntar al usuario cuál es el oficial y dejarlo consistente (1 commit + push). **No cambiar sin confirmar cuál querés.**
-3. (Opcional) ¿Invitar a más del equipo además de ecardozo? ¿Transferir a una org si la empresa crea una en GitHub?
-4. (Opcional) El ícono pesa ~1 MB; se puede comprimir si se quiere aligerar el repo.
+## Gotcha encontrado y corregido
+- Como `docs/` ya existía en el proyecto, `Copy-Item -Recurse -Force` de la carpeta `docs` del scaffold
+  **anidó el contenido en `docs/docs/`** en vez de mergear. Hubo que desanidar a mano
+  (`docs/docs/agents` → `docs/agents`, `docs/docs/ai-workflow` → `docs/ai-workflow`, borrar `docs/docs`).
+  Es el mismo patrón que el bug `.agents/.agents`, pero disparado por **carpetas preexistentes del proyecto**.
+- **TODO sugerido:** evaluar reflejar esto en el Step 2 de ambas skills bootstrap (la copia de directorios
+  que ya existen en destino debería ser por contenido/merge, no `Copy-Item -Recurse` del directorio entero).
+  Aplica también a `upgrade-bootstrap` si copia directorios.
 
 ## Estado de verificación
-- ✅ `README.md` + `docs/assets/` commiteados y pusheados a `origin/main`. Working tree limpio.
-- ✅ Repo en GitHub: `southpointtech/bootstrap-skills` (privado). Assets verificados en el remoto (`git ls-tree -r origin/main` los lista) → el ícono del header renderiza.
-- ✅ Skills y scaffold SIN cambios esta sesión (no requiere deploy).
-- ⏳ Acceso de `ecardozo` pendiente (bloqueado hoy por no poder loguearse a esa cuenta).
-- ℹ️ Se instaló `grip` (pip) para previsualizar el README local (`http://localhost:6419`); ese proceso muere al cerrar esta terminal. Con el repo en GitHub ya no hace falta.
+- ✅ Copia del scaffold verificada: `.agents/skills` = 10, `.claude/commands` = 10, `settings.json` + hook presentes, sin `.agents/.agents` ni `.claude/.claude`.
+- ✅ `docs/` preservado (HISTORIA.md, TESTING.md, assets, superpowers) + subdirs nuevos correctos.
+- ✅ Commit `f67331f` hecho con identidad local correcta. Working tree limpio (salvo este handoff).
+- ⏳ Merge `chore/bootstrap-self` → `main`: PENDIENTE de revisión del usuario.
+- ℹ️ No se corrieron los Pester tests (`tests/*.tests.ps1`): el scaffolding no tocó código de skills, solo agregó archivos al root.
+
+## Pendientes / próximos pasos
+1. **Usuario:** revisar `git diff main..chore/bootstrap-self` y mergear a `main` cuando esté conforme.
+2. (Opcional) Reflejar el gotcha `docs/docs` en el Step 2 de las skills bootstrap + `upgrade-bootstrap`.
+3. **Aparte (otra rama):** `feat/alignment-gate-hook` sigue con el alignment-gate hook en estado spec+plan, IMPLEMENTACIÓN PENDIENTE (plan de 7 tasks). Ver `docs/superpowers/`.
 
 ## Reglas del repo (no olvidar)
 - Las dos skills bootstrap se mantienen **espejadas en estructura**; todo cambio de mecánica va en ambas. Solo difieren en DOMO e identidad git.
@@ -81,4 +75,4 @@ f76370e docs(readme): destacar review-loop como el quality gate del proceso
 ## Gotchas técnicos (vigentes)
 - `run_loop.py` del skill-creator (optimizador de descripción) está **roto en Windows**.
 - El warning git "LF will be replaced by CRLF" en los `.md` es pre-existente (archivos en LF) e inofensivo.
-- `gh` tiene dos cuentas logueadas (`southpointtech` activa, `MartinDele703`); verificá la activa antes de operar sobre el repo.
+- `gh` tiene dos cuentas logueadas (`southpointtech` activa, `MartinDele703`); verificá la activa antes de operar sobre el repo en GitHub.
