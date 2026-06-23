@@ -1,8 +1,32 @@
-# Workspaces de evals (no commitear rastros de testeo)
-*-workspace/
-eval-workspace/
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
 
 # OS / editor
 .DS_Store
 Thumbs.db
 *.swp
+
+# Scratch (local technical issues)
+.scratch/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+
+# Workspaces de evals (no commitear rastros de testeo)
+*-workspace/
+eval-workspace/
