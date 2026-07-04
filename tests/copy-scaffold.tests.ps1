@@ -11,14 +11,18 @@ $script:failures = 0
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
-function New-Proj {
-  $t = Join-Path ([IO.Path]::GetTempPath()) ("cs-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $t | Out-Null
+function New-Proj([string]$suffix = "") {
+  $t = Join-Path ([IO.Path]::GetTempPath()) ("cs-test-" + [guid]::NewGuid().ToString('N') + $suffix)
+  [IO.Directory]::CreateDirectory($t) | Out-Null
   return $t
 }
 function Invoke-Copy($proj) {
   & pwsh -NoProfile -File $scriptP -SkillDir $skillP -ProjectDir $proj | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "copy-scaffold salió con exit code 0"
 }
+
+# Workspaces huérfanos de corridas anteriores abortadas (regla del repo: sin rastros de testeo)
+Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "cs-test-*" | Remove-Item -Recurse -Force
 
 # 1. Destino vacío: aterriza completo, sin anidamientos, gitignore.txt renombrado
 $t = New-Proj
@@ -65,7 +69,14 @@ Invoke-Copy $t
 Assert ((Get-Content "$t\CLAUDE.md" -Raw) -match "AI Operating Rules") "CLAUDE.md preexistente es reemplazado por el canónico"
 Remove-Item -Recurse -Force $t
 
-# 5. Espejado byte-idéntico entre las dos skills
+# 5. Paths con corchetes (wildcards de PowerShell) se tratan como literales
+$t = New-Proj "[v2]"
+Invoke-Copy $t
+Assert (Test-Path -LiteralPath "$t\CLAUDE.md") "proyecto con corchetes en el path: la copia aterriza igual"
+Assert (Test-Path -LiteralPath "$t\.gitignore") "proyecto con corchetes: .gitignore presente"
+Remove-Item -LiteralPath $t -Recurse -Force
+
+# 6. Espejado byte-idéntico entre las dos skills
 $hp = (Get-FileHash $scriptP -Algorithm SHA256).Hash
 $hs = (Get-FileHash $scriptS -Algorithm SHA256).Hash
 Assert ($hp -eq $hs) "copy-scaffold.ps1 espejado byte-idéntico (personal == southpoint)"

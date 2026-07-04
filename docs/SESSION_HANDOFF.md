@@ -60,14 +60,14 @@ Al tener `CLAUDE.md` propio sin manifest, entró por **modo adopción (Step 0b)*
 - ℹ️ No se corrieron los Pester tests (`tests/*.tests.ps1`): el scaffolding no tocó código de skills, solo agregó archivos al root.
 
 ## Pendientes / próximos pasos
-1. **Usuario:** revisar `git diff main..chore/bootstrap-self` y mergear a `main` cuando esté conforme.
-2. (Opcional) Reflejar el gotcha `docs/docs` en el Step 2 de las skills bootstrap + `upgrade-bootstrap`.
+1. ~~**Usuario:** revisar `git diff main..chore/bootstrap-self` y mergear a `main` cuando esté conforme.~~ **HECHO 2026-07-04** (fast-forward, rama borrada).
+2. ~~(Opcional) Reflejar el gotcha `docs/docs` en el Step 2 de las skills bootstrap + `upgrade-bootstrap`.~~ **HECHO 2026-07-04**: la copia del Step 2 ahora vive en `skills/*/scripts/copy-scaffold.ps1` (archivo por archivo, mergea en dirs preexistentes; test en `tests/copy-scaffold.tests.ps1`). `upgrade-bootstrap` no necesitaba cambio: aplica el delta por ruta relativa del manifest, nunca copia directorios.
 3. **Aparte (otra rama):** `feat/alignment-gate-hook` sigue con el alignment-gate hook en estado spec+plan, IMPLEMENTACIÓN PENDIENTE (plan de 7 tasks). Ver `docs/superpowers/`.
 
 ## Reglas del repo (no olvidar)
 - Las dos skills bootstrap se mantienen **espejadas en estructura**; todo cambio de mecánica va en ambas. Solo difieren en DOMO e identidad git.
 - Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (regenera los `.bootstrap-manifest.json`).
-- NO usar wildcard `scaffold\*` en los copy de PowerShell (anida `.agents\.agents`).
+- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a inline-ar `Copy-Item <dir> -Recurse` (anida `docs\docs` si el destino existe) ni wildcard `scaffold\*` (anida `.agents\.agents`).
 - `gitignore.txt` en assets aterriza como `.gitignore` (no renombrar en el repo).
 - El `.bootstrap-manifest.json` es generado; lo regenera `sync-skills.ps1`.
 - Rastros de testeo (workspaces de evals/sandboxes temp) se borran al terminar.

@@ -41,6 +41,17 @@ La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no co
 
 Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el plan `docs/superpowers/plans/2026-06-10-upgrade-bootstrap-skill.md` (Tasks 4-5); los casos 3-4 corren contra el scaffold instalado (Task 8).
 
+## Testeo de la copia del scaffold (`copy-scaffold.ps1`)
+
+La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en ambas skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Casos cubiertos:
+
+- **Destino vacío** — aterrizan los 48 archivos, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
+- **Regresión `docs/docs`** — `docs/` y `docs/agents/` preexistentes en el proyecto → el contenido se mergea (sin anidar) y los archivos propios quedan intactos (gotcha del self-bootstrap 2026-06-23).
+- **Dot-dirs preexistentes** — `.claude/` con archivos propios → merge sin anidar ni pisar lo ajeno.
+- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica del Step 2; en adopción el original ya está stasheado).
+- **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards).
+- **Espejado** — los dos `copy-scaffold.ps1` son byte-idénticos (hash SHA256).
+
 ## Testeo del hook `review-loop-trigger` y del merge de settings
 
 El script del hook y `merge-settings.ps1` se testean con fixtures determinísticos (repos git temporales), no con skill-creator. Runner: `pwsh -NoProfile -File tests/review-loop-trigger.tests.ps1` (imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). **Importante:** el hook resuelve el repo desde `cwd`; en los tests, `cwd` debe ser un path Windows real (como el que pasa Claude Code), no un path MSYS `/tmp/...`, o `Set-Location` falla y el hook corre contra el repo equivocado. Casos cubiertos:
