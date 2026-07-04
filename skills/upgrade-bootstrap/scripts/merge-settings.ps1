@@ -1,5 +1,6 @@
-# Integra (idempotente) el hook review-loop-trigger en el settings.json del proyecto, sin
-# pisar la config previa. Si el proyecto no tiene settings.json, copia el canónico entero.
+# Integra (idempotente) los hooks canonicos (review-loop-trigger, alignment-gate, y cualquier
+# otro que se agregue a futuro) en el settings.json del proyecto, sin pisar la config previa.
+# Si el proyecto no tiene settings.json, copia el canónico entero.
 # Uso: pwsh -File merge-settings.ps1 -ProjectSettings <ruta> -CanonicalSettings <ruta>
 param(
     [Parameter(Mandatory)][string]$ProjectSettings,
@@ -18,30 +19,29 @@ try { $canon = Get-Content $CanonicalSettings -Raw | ConvertFrom-Json -AsHashtab
 catch { throw "settings.json canonico no es JSON valido: $CanonicalSettings" }
 try { $proj  = Get-Content $ProjectSettings  -Raw | ConvertFrom-Json -AsHashtable }
 catch { throw "settings.json del proyecto no es JSON valido: $ProjectSettings" }
-if ($null -eq $proj)        { $proj = @{} }
-if (-not $proj.ContainsKey('hooks'))            { $proj['hooks'] = @{} }
-if (-not $proj.hooks.ContainsKey('PostToolUse')) { $proj.hooks['PostToolUse'] = @() }
+if ($null -eq $proj) { $proj = @{} }
+if (-not $proj.ContainsKey('hooks')) { $proj['hooks'] = @{} }
+if ($null -eq $canon.hooks) { Write-Host "El settings.json canonico no tiene hooks: nada que hacer."; exit 0 }
 
-function Has-Trigger($entries) {
-    foreach ($e in @($entries)) {
-        foreach ($h in @($e.hooks)) {
-            if ($h.command -and ($h.command -match 'review-loop-trigger')) { return $true }
+# Firma de una entrada de hook: la concatenacion de los command de sus hooks.
+function Get-Sig($entry) { (@($entry.hooks) | ForEach-Object { $_.command }) -join '|' }
+
+$added = 0
+foreach ($event in @($canon.hooks.Keys)) {
+    if (-not $proj.hooks.ContainsKey($event)) { $proj.hooks[$event] = @() }
+    $present = @($proj.hooks[$event]) | ForEach-Object { Get-Sig $_ }
+    foreach ($entry in @($canon.hooks[$event])) {
+        if ((Get-Sig $entry) -notin $present) {
+            $proj.hooks[$event] = @($proj.hooks[$event]) + $entry
+            $present += (Get-Sig $entry)
+            $added++
         }
     }
-    return $false
 }
-
-if (Has-Trigger $proj.hooks.PostToolUse) {
-    Write-Host "Hook review-loop-trigger ya presente: nada que hacer (idempotente)."
-    exit 0
+if ($added -gt 0) {
+    $proj | ConvertTo-Json -Depth 12 | Set-Content $ProjectSettings -Encoding UTF8
+    Write-Host "Hooks integrados al settings.json del proyecto: $added entrada/s nueva/s."
+} else {
+    Write-Host "Todos los hooks canonicos ya presentes: nada que hacer (idempotente)."
 }
-
-# Agregar solo las entradas canonicas que traen el hook review-loop-trigger
-$toAdd = @()
-foreach ($e in @($canon.hooks.PostToolUse)) {
-    if (Has-Trigger @($e)) { $toAdd += $e }
-}
-if ($toAdd.Count -eq 0) { Write-Host "El settings.json canonico no tiene el hook review-loop-trigger: nada que agregar."; exit 0 }
-$proj.hooks['PostToolUse'] = @($proj.hooks.PostToolUse) + $toAdd
-$proj | ConvertTo-Json -Depth 12 | Set-Content $ProjectSettings -Encoding UTF8
-Write-Host "Hook review-loop-trigger agregado al settings.json del proyecto ($($toAdd.Count) entrada/s)."
+exit 0

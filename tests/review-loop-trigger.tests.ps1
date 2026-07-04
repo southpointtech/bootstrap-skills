@@ -52,17 +52,18 @@ $o2 = Fire $t "git commit -m slice2"
 Assert ($o2 -match "additionalContext") "dedupe: un commit nuevo vuelve a disparar"
 Remove-Item -Recurse -Force $t
 
-# --- Merge de settings (caso proyecto con settings.json propio, p. ej. enabledPlugins) ---
+# --- Merge de settings (proyecto con settings.json propio, p. ej. enabledPlugins) ---
 $t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-ms-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $t | Out-Null
 $sp = Join-Path $t "settings.json"
 '{ "enabledPlugins": { "domo-skills@martin-local": true } }' | Set-Content $sp -Encoding UTF8
 & pwsh -NoProfile -File $ms -ProjectSettings $sp -CanonicalSettings $canon | Out-Null
 $txt = Get-Content $sp -Raw
-Assert (($txt -match "enabledPlugins") -and ($txt -match "review-loop-trigger")) "merge preserva config propia y agrega el hook"
+Assert (($txt -match "enabledPlugins") -and ($txt -match "review-loop-trigger")) "merge preserva config propia y agrega review-loop-trigger"
+Assert ($txt -match "alignment-gate") "merge agrega tambien el hook alignment-gate (PreToolUse)"
 & pwsh -NoProfile -File $ms -ProjectSettings $sp -CanonicalSettings $canon | Out-Null
-$n = ([regex]::Matches((Get-Content $sp -Raw), "review-loop-trigger")).Count
-Assert ($n -eq 1) "merge es idempotente (no duplica el hook)"
+$txt2 = Get-Content $sp -Raw
+Assert ((([regex]::Matches($txt2, "review-loop-trigger")).Count -eq 1) -and (([regex]::Matches($txt2, "alignment-gate")).Count -eq 1)) "merge es idempotente (no duplica ningun hook)"
 Remove-Item -Recurse -Force $t
 
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
