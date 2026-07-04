@@ -65,8 +65,9 @@ Remove-Item -Recurse -Force $t
 # 4. Conflicto de archivo: el scaffold pisa (semántica del Step 2; en adopción el original ya está stasheado)
 $t = New-Proj
 "claude viejo" | Set-Content "$t\CLAUDE.md" -Encoding UTF8
+(Get-Item "$t\CLAUDE.md").Attributes = 'ReadOnly'
 Invoke-Copy $t
-Assert ((Get-Content "$t\CLAUDE.md" -Raw) -match "AI Operating Rules") "CLAUDE.md preexistente es reemplazado por el canónico"
+Assert ((Get-Content "$t\CLAUDE.md" -Raw) -match "AI Operating Rules") "CLAUDE.md preexistente (incluso read-only) es reemplazado por el canónico"
 Remove-Item -Recurse -Force $t
 
 # 5. Paths con corchetes (wildcards de PowerShell) se tratan como literales

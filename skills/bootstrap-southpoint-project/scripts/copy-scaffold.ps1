@@ -24,5 +24,7 @@ Get-ChildItem -LiteralPath $scaffold -Recurse -File -Force | ForEach-Object {
   if ($rel -eq "gitignore.txt") { $rel = ".gitignore" }
   $dest = Join-Path $ProjectDir $rel
   [IO.Directory]::CreateDirectory((Split-Path $dest -Parent)) | Out-Null
+  # File.Copy con overwrite no pisa destinos read-only/ocultos (Copy-Item -Force sí lo hacía)
+  if ([IO.File]::Exists($dest)) { [IO.File]::SetAttributes($dest, 'Normal') }
   [IO.File]::Copy($_.FullName, $dest, $true)
 }
