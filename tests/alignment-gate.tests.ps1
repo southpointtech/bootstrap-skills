@@ -77,4 +77,16 @@ Remove-Item -Recurse -Force $t
 # 9. Espejado: hook personal y southpoint byte-idénticos
 Assert ((Get-FileHash $hookP).Hash -eq (Get-FileHash $hookS).Hash) "alignment-gate.ps1 idéntico en ambos scaffolds"
 
+# 10. Ambos settings.json declaran el PreToolUse del alignment-gate y son JSON válido
+foreach ($s in @(
+    (Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/settings.json"),
+    (Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/settings.json")
+)) {
+    $j = $null
+    try { $j = Get-Content $s -Raw | ConvertFrom-Json } catch {}
+    Assert ($null -ne $j) "settings.json es JSON válido: $s"
+    Assert (($j.hooks.PreToolUse | ConvertTo-Json -Depth 8) -match 'alignment-gate') "settings.json declara el hook alignment-gate en PreToolUse: $s"
+    Assert (($j.hooks.PostToolUse | ConvertTo-Json -Depth 8) -match 'review-loop-trigger') "settings.json conserva review-loop-trigger en PostToolUse: $s"
+}
+
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
