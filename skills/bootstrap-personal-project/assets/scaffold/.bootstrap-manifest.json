@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-07-04+4c06b14",
+  "version": "2026-07-04+ec22e73",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "0bd8ba91f12b15ecc6f87d116fd889ed42cdd15f70dd587cb1112d43640f62a9",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -37,10 +37,11 @@
     ".claude/commands/to-prd.md": "b60e3805e361e4eabc6f3df48d305299e0fde64cb24b6e95443c01de907a2e7d",
     ".claude/commands/triage.md": "28ac199dbf7e0d7e00b6fe3c6ee9ef70f346a28edc9d5a2d563758b63aafb46c",
     ".claude/commands/zoom-out.md": "2a6894c7f9b1c9c55f451c625a834c4f377e217b623a85280e55db5fe9cacf48",
+    ".claude/hooks/alignment-gate.ps1": "64218b45dd2aefeed07b0648124d80c59087db95d36bd545e677095e35097b1f",
     ".claude/hooks/review-loop-trigger.ps1": "95097f418fbd26edd9b6d081dc0c1e022ce51b6cd4c6908b27c36200bc8228c5",
-    ".claude/settings.json": "bab17fd63df8a23e6c7d0971c62b3400f54a7ce699734627b86b2fdf5b9be3b8",
+    ".claude/settings.json": "61ad880e8ba44d027929cb7b3a2e3fa656a9c19270699f48b004155ac17df9b6",
     ".gitignore": "1762689c0b84495c3cf204ae1bf4af09c30d65b16da1713125cc00c011e59b65",
-    "CLAUDE.md": "f11cab49efdfbdbe5eeb92f0e111415cc969adf29f8c912592f0b5dddb1ee754",
+    "CLAUDE.md": "8aabfad1ba3256be7563ae00688ec5a125ff26c91f143befb3637a0ed5c09d2a",
     "docs/agents/domain.md": "685b56398dda8718b49d4ed5035b742c61275538c203cc88ea08a8f5c2d2247c",
     "docs/agents/issue-tracker.md": "7cd8de25677a05d7c752d9dca7f3043e57c12082f2f47593a3ec9e139ae6d90a",
     "docs/agents/triage-labels.md": "4f53c9b40ce2651e3611aa090eaedbd6dbc9b71ef8c5f7e65eac0d8263190d0d",
