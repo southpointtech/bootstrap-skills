@@ -74,7 +74,7 @@ $o = Fire $t 'Write' (Join-Path $t 'tsconfig.json') 's1'
 Assert ([string]::IsNullOrEmpty($o)) "archivo .json no dispara"
 Remove-Item -Recurse -Force $t
 
-# 9. Espejado: hook personal y southpoint byte-idénticos (DESTAPAR en Task 2)
-# Assert ((Get-FileHash $hookP).Hash -eq (Get-FileHash $hookS).Hash) "alignment-gate.ps1 idéntico en ambos scaffolds"
+# 9. Espejado: hook personal y southpoint byte-idénticos
+Assert ((Get-FileHash $hookP).Hash -eq (Get-FileHash $hookS).Hash) "alignment-gate.ps1 idéntico en ambos scaffolds"
 
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
