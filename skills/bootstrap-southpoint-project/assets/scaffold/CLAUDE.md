@@ -61,6 +61,7 @@ Recommended transitions:
 - After PRD approval, suggest `/to-issues`
 - After issues are approved, suggest `/tdd` for the selected task
 - After implementation, run `/review-loop` at the close of every slice and after each implementation commit — do NOT ask whether to run it, just run it until it closes (zero medium/high findings, or the 5-turn cap). The `review-loop-trigger` hook reinforces this deterministically: on `git commit`, `git push` or `gh pr create` in a feature branch it injects the order to run `/review-loop` over the slice diff, so it does not depend on the agent remembering. This works in local repos (no remote) and on GitHub alike. Work in feature branches per slice — commits directly on the base branch do not trigger the loop.
+- Before the first code edit of a session, the `alignment-gate` hook (`PreToolUse` on `Edit`/`Write`/`MultiEdit`) deterministically reinforces step 1: it blocks the first edit of a *code* file once per session and tells the agent to OFFER alignment (`/grill-me` or `/grill-with-docs`) before coding — it never runs the grill on its own, and non-code files (`*.md`, `docs/`, `.scratch/`, `.agents/`, `.claude/`, config) pass through untouched. If the work is trivial or already aligned, just retry the edit and proceed. This breaks the "fix→implement" autopilot that text rules alone do not stop.
 
 ## Hard rules
 
