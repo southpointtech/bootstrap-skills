@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-06-16+fb4fec0",
+  "version": "2026-07-04+fb4fec0",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "0bd8ba91f12b15ecc6f87d116fd889ed42cdd15f70dd587cb1112d43640f62a9",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",

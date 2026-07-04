@@ -77,7 +77,7 @@ Recommended transitions:
 - When slices depend on each other, chain them as stacked PRs instead of one large PR.
 - For critical libraries (or ones the agent tends to hallucinate APIs for), vendor the library's real source into the repo (e.g. `docs/vendor/<lib>/`) and point the agent at that code instead of relying on memory or possibly-stale docs.
 - Las dos skills deben mantenerse **espejadas en estructura**: si cambiás la mecánica (Step 0–5 del SKILL.md), aplicá el mismo cambio en ambas. Solo difieren en: contenido DOMO (Southpoint sí, personal no) e identidad git.
-- NO usar wildcard `scaffold\*` en los comandos de copia del Step 2 — en PowerShell 7 produce duplicados anidados `.agents\.agents` (bug encontrado y corregido en evals 2026-06-03). La copia es por enumeración top-level.
+- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` (archivo por archivo, mergea en directorios preexistentes; test en `tests/copy-scaffold.tests.ps1`). NO reemplazarla por `Copy-Item <dir> -Recurse` (anida `docs\docs` si el destino existe — bug del self-bootstrap 2026-06-23) ni por wildcard `scaffold\*` (anida `.agents\.agents` — bug de evals 2026-06-03).
 - `gitignore.txt` en assets se llama así a propósito (debe aterrizar como `.gitignore` en el proyecto destino). No renombrarlo en el repo.
 - No dejar directorios vacíos en `assets/scaffold/` (git no los trackea y generan ruido en la copia).
 - Si cambiás el `CLAUDE.md` template, evaluá si el cambio también aplica al `CLAUDE.md` real de Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`).

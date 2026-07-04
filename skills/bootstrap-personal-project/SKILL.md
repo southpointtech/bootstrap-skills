@@ -35,7 +35,7 @@ Copy-Item "$proj\CLAUDE.md" "$proj\CLAUDE.legacy.md" -Force
 
 ### B. Copy the scaffold, then park the backup
 
-Run **Step 2** exactly as written (the enumerated copy + `.gitignore`). This installs the canonical `CLAUDE.md`, all 47 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine, the original is stashed. Then move the stash to its permanent home (now that `docs/agents/` exists from the scaffold copy):
+Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges into pre-existing directories like `docs/` instead of nesting). This installs the canonical `CLAUDE.md`, all 47 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine, the original is stashed. Then move the stash to its permanent home (now that `docs/agents/` exists from the scaffold copy):
 
 ```powershell
 Move-Item "$proj\CLAUDE.legacy.md" "$proj\docs\agents\legacy-claude.md" -Force
@@ -72,18 +72,15 @@ Infer the project name from the directory name or the user's message. Only ask i
 
 ## Step 2 — Copy the scaffold
 
-Copy the entire `assets/scaffold/` tree into the project root. On Windows (adjust `$skill` to this skill's directory and `$proj` to the project root):
+Copy the entire `assets/scaffold/` tree into the project root by running the bundled script. On Windows (adjust `$skill` to this skill's directory and `$proj` to the project root):
 
 ```powershell
 $skill = "<base directory of this skill>"
 $proj  = "<project root>"
-Get-ChildItem "$skill\assets\scaffold" -Force |
-  Where-Object Name -ne "gitignore.txt" |
-  ForEach-Object { Copy-Item $_.FullName (Join-Path $proj $_.Name) -Recurse -Force }
-Copy-Item "$skill\assets\scaffold\gitignore.txt" (Join-Path $proj ".gitignore")
+pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -ProjectDir $proj
 ```
 
-Why enumerate instead of `scaffold\*`: wildcard expansion of dot-directories varies between PowerShell versions — combining a wildcard copy with explicit `.agents`/`.claude` copies has produced nested duplicates (`.agents\.agents`) when both ran. Enumerating top-level entries once is deterministic. (`gitignore.txt` is stored under that name so the skill repo doesn't treat it as its own ignore file — it must land as `.gitignore`.)
+The script copies file-by-file, merging into directories the project already has. Do NOT replace it with `Copy-Item <dir> -Recurse` (nests into `docs\docs` / `.agents\.agents` when the destination directory exists) or a `scaffold\*` wildcard (dot-directory expansion varies between PowerShell versions). It also lands `gitignore.txt` as `.gitignore` (stored under that name so the skill repo doesn't treat it as its own ignore file).
 
 Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
