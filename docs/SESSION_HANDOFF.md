@@ -1,78 +1,62 @@
-# Session Handoff — 2026-06-23 (self-bootstrap del repo en modo adopción)
+# Session Handoff — 2026-07-04 (pendientes cerrados: merge self-bootstrap + fix docs/docs + alignment-gate implementado)
 
-## ▶ AL RETOMAR — qué quedó y qué falta
+## ▶ AL RETOMAR — estado y qué falta
 
-Esta sesión **auto-bootstrapeó el propio repo Bootstrap Skills** con `bootstrap-personal-project`
-(modo adopción), para que la fuente de verdad de las skills opere bajo su propio workflow de 8 pasos.
+Rama actual: **`feat/alignment-gate-hook`** (HEAD `3c32330`, 10 commits sobre `main`, working tree limpio).
 
-- **Rama:** `chore/bootstrap-self` (creada desde `main`, NO desde `feat/alignment-gate-hook`, para no mezclar con el WIP del hook).
-- **Commit:** `f67331f` — `chore: project scaffolding (AI workflow + skills)`. Working tree limpio salvo este handoff.
-- **PENDIENTE PRINCIPAL:** la rama **NO está mergeada a `main`**. El usuario reservó el merge para después de revisar el diff él mismo. **No mergear sin que lo pida.** Para revisar: `git diff main..chore/bootstrap-self`.
+**ÚNICO PENDIENTE INMEDIATO:** mergear `feat/alignment-gate-hook` → `main`. El review final de rama completa (multi-agente, con evidencia empírica) dio **READY TO MERGE, cero hallazgos medium/high**. El merge quedó para aprobación explícita del usuario. Es fast-forward-able tras `git checkout main && git merge feat/alignment-gate-hook`.
 
-## Qué es el proyecto
+Nada sin commitear. Nada roto. `origin/main` está varios commits atrás del local (no se pushea sin que el usuario lo pida; ojo: `gh` tiene dos cuentas, verificar la activa).
 
-`C:\Repos\PERSONAL\Bootstrap Skills` es la **fuente de verdad** de las skills de Claude Code que bootstrapean proyectos:
-- `bootstrap-southpoint-project` — proyectos cliente SOUTHPOINTLABS (DOMO/Zoho).
-- `bootstrap-personal-project` — proyectos personales.
-- `upgrade-bootstrap` — actualiza proyectos ya bootstrapeados al scaffold actual.
-- `setup-mcp-workstation` — prepara una PC Windows 1× por máquina.
+## Qué se hizo en esta sesión (2026-07-04)
 
-Editar las skills acá NO tiene efecto hasta deployar con `pwsh -NoProfile -File tools/sync-skills.ps1`.
-Commits con identidad local `MartinDele703 <martin.deleon703@gmail.com>`.
-El repo está en GitHub: `southpointtech/bootstrap-skills` (privado). `origin/main` puede estar algunos commits atrás del `main` local.
+Plan aprobado: "Cerrar pendientes del repo Bootstrap Skills" (`C:\Users\marti\.claude\plans\me-gustaria-optimizar-mi-rosy-lovelace.md`). Tres fases, las tres completas:
 
-## Objetivo de ESTA sesión — bootstrapear el propio repo
+### Fase A — Merge del self-bootstrap ✅
+`chore/bootstrap-self` → `main` (fast-forward hasta `64ad7e4`), rama borrada. Verificado antes: `docs/agents/legacy-claude.md` byte-idéntico al CLAUDE.md original.
 
-El usuario invocó `/upgrade-bootstrap` dentro de este repo. Como el repo NO es un proyecto bootstrapeado
-(no tenía `.bootstrap-manifest.json`), upgrade no aplicaba. El usuario decidió **correr el bootstrap acá**.
-Al tener `CLAUDE.md` propio sin manifest, entró por **modo adopción (Step 0b)**: el contenido original se preservó y mergeó.
+### Fase B — Fix del gotcha `docs/docs` ✅ (mergeado a main)
+- La copia del Step 2 ya NO es un snippet inline: vive en `skills/*/scripts/copy-scaffold.ps1` (espejado byte-idéntico), copia **archivo por archivo** mergeando en directorios preexistentes — imposible anidar `docs/docs`/`.agents/.agents`.
+- Endurecido por review-loop (3 turnos, cerrado limpio): paths literales (`-LiteralPath`/APIs .NET — proyectos con corchetes `app[v2]` funcionan), pisa destinos read-only/ocultos como el viejo `Copy-Item -Force`, test verifica exit code del script hijo y limpia workspaces `cs-test-*` huérfanos.
+- Test: `tests/copy-scaffold.tests.ps1`. Documentado en `docs/TESTING.md`.
+- `upgrade-bootstrap` NO necesitaba el fix (aplica delta por ruta relativa del manifest, nunca copia directorios).
 
-### Lo que se hizo (commit `f67331f`)
-- **Backup verbatim** del `CLAUDE.md` original → `docs/agents/legacy-claude.md` (red de recuperación permanente, no se borra).
-- **Scaffold copiado**: `.agents/skills/` (10 skills), `.claude/` (10 commands + `settings.json` + hook `review-loop-trigger.ps1`), `docs/ai-workflow/` (5 docs), `docs/agents/` (issue-tracker, triage-labels, domain), `.bootstrap-manifest.json`, `skills-lock.json`, `CONTEXT.md`, `docs/adr/.gitkeep`, `.scratch/`.
-- **Merge del CLAUDE.md original (coverage map aprobado por el usuario):**
-  - Sus **7 hard rules** → `## Hard rules` del CLAUDE.md canónico (verbatim).
-  - Flujo editar→testear→deployar→commitear + lista de skills + puntero a HISTORIA → `docs/agents/domain.md` (`## Project-specific domain`).
-  - Descripción one-line → `CONTEXT.md`.
-- **`.gitignore` MERGEADO** (no pisado): scaffold + reglas de evals propias (`*-workspace/`, `eval-workspace/`).
-- **`.mcp.json`: NO generado** (el usuario eligió "ninguno"; el repo no usa Firebase/Zoho/GitHub MCP).
-- **`README.md` preservado** intacto (no se tocó).
+### Fase C — Alignment-gate hook ✅ (en rama, listo para merge)
+Ejecutado el plan `docs/superpowers/plans/2026-06-18-alignment-gate-hook.md` (7 tasks TDD) con subagent-driven-development (implementer + reviewer por task, ledger en `.superpowers/sdd/progress.md`):
+- Hook `alignment-gate.ps1` (PreToolUse `Edit|Write|MultiEdit`) en ambos scaffolds, byte-idéntico: frena el PRIMER edit de código por sesión (dedup por `session_id` en `.git/alignment-gate-state.json`), ofrece grill (nunca lo auto-ejecuta); no-código (md/json/yaml/toml, docs/, .scratch/, .agents/, .claude/) pasa libre; exit 0 silencioso en todo camino de error (probado: no puede romper una sesión).
+- Registrado en ambos `settings.json` (PreToolUse + PostToolUse preservado).
+- `merge-settings.ps1` de upgrade-bootstrap **generalizado**: integra toda entrada de hook canónica ausente en cualquier evento, idempotente (proyectos legacy reciben el gate vía `/upgrade-bootstrap`).
+- CLAUDE.md template de ambos scaffolds documenta el hook; manifests regenerados (48 archivos); TESTING.md al día; **deployado** a `~/.claude/skills` (activo en próximas sesiones).
+- Evals e2e: 22/22 assertions (bootstrap vacío + preexistentes + smoke funcional del hook: deny/dedup/allowlist).
+- Tests: `tests/alignment-gate.tests.ps1` (15 asserts) + `tests/review-loop-trigger.tests.ps1` extendido (11) — todos verdes; suite completa de 6 runners verde.
 
-## Decisiones de esta sesión
-- Variante usada: **`bootstrap-personal-project`** (no Southpoint — el repo es personal).
-- Rama dedicada `chore/bootstrap-self` desde `main`, para aislar del WIP de `feat/alignment-gate-hook`.
-- Merge a `main` **deliberadamente NO hecho** — lo reservó el usuario para tras su revisión del diff.
+## Follow-ups anotados (Minor, del review final — NO bloquean el merge)
+1. `merge-settings.ps1` lookup case-sensitive de event keys (settings con `"posttooluse"` no canónico duplica estructura; incidencia ≈ 0).
+2. `merge-settings.ps1` crashea con `{"hooks": null}` (preexistente, no regresión).
+3. Estado del gate crece sin poda ni locking (~15 bytes/sesión; casi wontfix).
+4. Typo "proceds" en el mensaje del deny del hook (cosmético, requiere ciclo mirror→manifest→deploy).
+5. Dedup de merge-settings por firma string exacta (command distinto = duplicado funcional; se auto-desactiva en runtime).
 
-## Gotcha encontrado y corregido
-- Como `docs/` ya existía en el proyecto, `Copy-Item -Recurse -Force` de la carpeta `docs` del scaffold
-  **anidó el contenido en `docs/docs/`** en vez de mergear. Hubo que desanidar a mano
-  (`docs/docs/agents` → `docs/agents`, `docs/docs/ai-workflow` → `docs/ai-workflow`, borrar `docs/docs`).
-  Es el mismo patrón que el bug `.agents/.agents`, pero disparado por **carpetas preexistentes del proyecto**.
-- **TODO sugerido:** evaluar reflejar esto en el Step 2 de ambas skills bootstrap (la copia de directorios
-  que ya existen en destino debería ser por contenido/merge, no `Copy-Item -Recurse` del directorio entero).
-  Aplica también a `upgrade-bootstrap` si copia directorios.
-
-## Estado de verificación
-- ✅ Copia del scaffold verificada: `.agents/skills` = 10, `.claude/commands` = 10, `settings.json` + hook presentes, sin `.agents/.agents` ni `.claude/.claude`.
-- ✅ `docs/` preservado (HISTORIA.md, TESTING.md, assets, superpowers) + subdirs nuevos correctos.
-- ✅ Commit `f67331f` hecho con identidad local correcta. Working tree limpio (salvo este handoff).
-- ⏳ Merge `chore/bootstrap-self` → `main`: PENDIENTE de revisión del usuario.
-- ℹ️ No se corrieron los Pester tests (`tests/*.tests.ps1`): el scaffolding no tocó código de skills, solo agregó archivos al root.
-
-## Pendientes / próximos pasos
-1. ~~**Usuario:** revisar `git diff main..chore/bootstrap-self` y mergear a `main` cuando esté conforme.~~ **HECHO 2026-07-04** (fast-forward, rama borrada).
-2. ~~(Opcional) Reflejar el gotcha `docs/docs` en el Step 2 de las skills bootstrap + `upgrade-bootstrap`.~~ **HECHO 2026-07-04**: la copia del Step 2 ahora vive en `skills/*/scripts/copy-scaffold.ps1` (archivo por archivo, mergea en dirs preexistentes; test en `tests/copy-scaffold.tests.ps1`). `upgrade-bootstrap` no necesitaba cambio: aplica el delta por ruta relativa del manifest, nunca copia directorios.
-3. **Aparte (otra rama):** `feat/alignment-gate-hook` sigue con el alignment-gate hook en estado spec+plan, IMPLEMENTACIÓN PENDIENTE (plan de 7 tasks). Ver `docs/superpowers/`.
+## Roadmap acordado en el brainstorming (próximos specs, EN ORDEN)
+1. **Bootstrap "compartible"** — variante para terceros SIN Zoho/DOMO/identidad de Martín. Dolor confirmado: el scaffold personal filtra Zoho (CLAUDE.md steps 4/7, `docs/agents/issue-tracker.md`, `TASK_TEMPLATE.md`, server `zoho-personal` en gen-mcp-json) y defaultea git a MartinDele703. Decidir: ¿tercera skill espejada vs parametrizar? (ojo al costo de espejado triple).
+2. **Descubrir skills/loops nuevos** — auditar `C:\Repos\SOUTHPOINTLABS` y `C:\Repos\PERSONAL` buscando patrones de trabajo aún no capturados como skills.
+3. **Mejoras generales del scaffold.**
 
 ## Reglas del repo (no olvidar)
-- Las dos skills bootstrap se mantienen **espejadas en estructura**; todo cambio de mecánica va en ambas. Solo difieren en DOMO e identidad git.
-- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (regenera los `.bootstrap-manifest.json`).
-- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a inline-ar `Copy-Item <dir> -Recurse` (anida `docs\docs` si el destino existe) ni wildcard `scaffold\*` (anida `.agents\.agents`).
-- `gitignore.txt` en assets aterriza como `.gitignore` (no renombrar en el repo).
-- El `.bootstrap-manifest.json` es generado; lo regenera `sync-skills.ps1`.
-- Rastros de testeo (workspaces de evals/sandboxes temp) se borran al terminar.
+- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (ya corrido al cierre; deploy al día con HEAD).
+- Espejado byte-idéntico de mecánica entre ambas skills bootstrap.
+- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a `Copy-Item <dir> -Recurse` ni wildcard `scaffold\*`.
+- Manifest generado, nunca a mano. Rastros de testeo se borran. Identidad local `MartinDele703`.
+- El hook `review-loop-trigger` dispara `/review-loop` en cada commit de feature branch: corrélo sin preguntar.
+- Regla nueva a considerar: el CLAUDE.md template cambió (bullet del alignment-gate) → evaluar si aplica al CLAUDE.md real de Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`); Forecasting App y KBS reciben todo esto vía `/upgrade-bootstrap` / bootstrap.
 
-## Gotchas técnicos (vigentes)
-- `run_loop.py` del skill-creator (optimizador de descripción) está **roto en Windows**.
-- El warning git "LF will be replaced by CRLF" en los `.md` es pre-existente (archivos en LF) e inofensivo.
-- `gh` tiene dos cuentas logueadas (`southpointtech` activa, `MartinDele703`); verificá la activa antes de operar sobre el repo en GitHub.
+## Gotchas técnicos vigentes
+- `run_loop.py` del skill-creator roto en Windows.
+- Warning git "LF will be replaced by CRLF" en `.md`/`.ps1` nuevos: inofensivo.
+- `gh` con dos cuentas (`southpointtech` activa, `MartinDele703`).
+- Este repo está auto-bootstrapeado: cuando el scaffold gana features (p. ej. el alignment-gate), el propio repo puede traerlas con `/upgrade-bootstrap`.
+
+## Próximos 3 pasos recomendados
+1. Usuario aprueba → merge `feat/alignment-gate-hook` a `main` y borrar la rama (opcional: push a origin verificando cuenta gh).
+2. (Opcional, corto) Correr `/upgrade-bootstrap` EN este repo para que el propio repo reciba el alignment-gate en su `.claude/`.
+3. Arrancar el spec del **bootstrap compartible** con `/grill-me` o brainstorming (frente #1 del roadmap).
