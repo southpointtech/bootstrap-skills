@@ -1,62 +1,59 @@
-# Session Handoff — 2026-07-04 (pendientes cerrados: merge self-bootstrap + fix docs/docs + alignment-gate implementado)
+# Session Handoff — 2026-07-05 (alignment-gate mergeado + pusheado + self-upgrade del repo)
 
 ## ▶ AL RETOMAR — estado y qué falta
 
-Rama actual: **`feat/alignment-gate-hook`** (HEAD `3c32330`, 10 commits sobre `main`, working tree limpio).
+Rama actual: **`main`**, working tree limpio, sincronizado con `origin/main`.
 
-**ÚNICO PENDIENTE INMEDIATO:** mergear `feat/alignment-gate-hook` → `main`. El review final de rama completa (multi-agente, con evidencia empírica) dio **READY TO MERGE, cero hallazgos medium/high**. El merge quedó para aprobación explícita del usuario. Es fast-forward-able tras `git checkout main && git merge feat/alignment-gate-hook`.
+**NO HAY PENDIENTES INMEDIATOS.** Todo lo de la sesión anterior quedó cerrado. Lo próximo es arrancar el roadmap (abajo), frente #1: **bootstrap compartible**.
 
-Nada sin commitear. Nada roto. `origin/main` está varios commits atrás del local (no se pushea sin que el usuario lo pida; ojo: `gh` tiene dos cuentas, verificar la activa).
+Skills sugeridas para la próxima sesión: `/grill-me` o brainstorming (superpowers) para el spec del bootstrap compartible.
 
-## Qué se hizo en esta sesión (2026-07-04)
+## Qué se hizo en esta sesión (2026-07-05)
 
-Plan aprobado: "Cerrar pendientes del repo Bootstrap Skills" (`C:\Users\marti\.claude\plans\me-gustaria-optimizar-mi-rosy-lovelace.md`). Tres fases, las tres completas:
+1. **Merge `feat/alignment-gate-hook` → `main`** (fast-forward hasta `85786cb`), rama borrada.
+2. **Push a `origin/main`** (`southpointtech/bootstrap-skills`). Dato nuevo: **MartinDele703 NO tiene permiso de push en este repo (403)** — el remoto es de la org southpointtech y se pushea con esa cuenta (`gh auth switch --user southpointtech`). No existe `MartinDele703/bootstrap-skills`.
+3. **Self-upgrade con `/upgrade-bootstrap`** (commit `c35c39f`, directo a main con aprobación explícita — cambio ya revisado en origen, no ameritaba rama+review-loop):
+   - Copiado `.claude/hooks/alignment-gate.ps1` (missing).
+   - `.claude/settings.json` actualizado (outdated-safe): ahora registra el PreToolUse del gate + conserva el PostToolUse del review-loop-trigger.
+   - Bullet del alignment-gate integrado al `CLAUDE.md` real (merge asistido; era el único customized donde el canónico avanzó — los otros 23 customized no tenían delta upstream, quedaron intactos).
+   - Manifest resellado a baseline `2026-07-04+ec22e73` (48 archivos). Cero huérfanos.
+4. Memoria persistente actualizada (alignment-gate = mergeado; push solo con southpointtech).
 
-### Fase A — Merge del self-bootstrap ✅
-`chore/bootstrap-self` → `main` (fast-forward hasta `64ad7e4`), rama borrada. Verificado antes: `docs/agents/legacy-claude.md` byte-idéntico al CLAUDE.md original.
+**⚠️ El alignment-gate está ACTIVO en este repo desde la próxima sesión:** el primer `Edit`/`Write` de un archivo de *código* por sesión rebota una vez ofreciendo `/grill-me`; si el trabajo ya está alineado, reintentar y seguir. No-código (`.md`, `docs/`, `.scratch/`, `.agents/`, `.claude/`, configs) pasa libre.
 
-### Fase B — Fix del gotcha `docs/docs` ✅ (mergeado a main)
-- La copia del Step 2 ya NO es un snippet inline: vive en `skills/*/scripts/copy-scaffold.ps1` (espejado byte-idéntico), copia **archivo por archivo** mergeando en directorios preexistentes — imposible anidar `docs/docs`/`.agents/.agents`.
-- Endurecido por review-loop (3 turnos, cerrado limpio): paths literales (`-LiteralPath`/APIs .NET — proyectos con corchetes `app[v2]` funcionan), pisa destinos read-only/ocultos como el viejo `Copy-Item -Force`, test verifica exit code del script hijo y limpia workspaces `cs-test-*` huérfanos.
-- Test: `tests/copy-scaffold.tests.ps1`. Documentado en `docs/TESTING.md`.
-- `upgrade-bootstrap` NO necesitaba el fix (aplica delta por ruta relativa del manifest, nunca copia directorios).
+## Follow-ups anotados (Minor, del review de la feature — NO urgentes)
 
-### Fase C — Alignment-gate hook ✅ (en rama, listo para merge)
-Ejecutado el plan `docs/superpowers/plans/2026-06-18-alignment-gate-hook.md` (7 tasks TDD) con subagent-driven-development (implementer + reviewer por task, ledger en `.superpowers/sdd/progress.md`):
-- Hook `alignment-gate.ps1` (PreToolUse `Edit|Write|MultiEdit`) en ambos scaffolds, byte-idéntico: frena el PRIMER edit de código por sesión (dedup por `session_id` en `.git/alignment-gate-state.json`), ofrece grill (nunca lo auto-ejecuta); no-código (md/json/yaml/toml, docs/, .scratch/, .agents/, .claude/) pasa libre; exit 0 silencioso en todo camino de error (probado: no puede romper una sesión).
-- Registrado en ambos `settings.json` (PreToolUse + PostToolUse preservado).
-- `merge-settings.ps1` de upgrade-bootstrap **generalizado**: integra toda entrada de hook canónica ausente en cualquier evento, idempotente (proyectos legacy reciben el gate vía `/upgrade-bootstrap`).
-- CLAUDE.md template de ambos scaffolds documenta el hook; manifests regenerados (48 archivos); TESTING.md al día; **deployado** a `~/.claude/skills` (activo en próximas sesiones).
-- Evals e2e: 22/22 assertions (bootstrap vacío + preexistentes + smoke funcional del hook: deny/dedup/allowlist).
-- Tests: `tests/alignment-gate.tests.ps1` (15 asserts) + `tests/review-loop-trigger.tests.ps1` extendido (11) — todos verdes; suite completa de 6 runners verde.
-
-## Follow-ups anotados (Minor, del review final — NO bloquean el merge)
 1. `merge-settings.ps1` lookup case-sensitive de event keys (settings con `"posttooluse"` no canónico duplica estructura; incidencia ≈ 0).
 2. `merge-settings.ps1` crashea con `{"hooks": null}` (preexistente, no regresión).
 3. Estado del gate crece sin poda ni locking (~15 bytes/sesión; casi wontfix).
 4. Typo "proceds" en el mensaje del deny del hook (cosmético, requiere ciclo mirror→manifest→deploy).
 5. Dedup de merge-settings por firma string exacta (command distinto = duplicado funcional; se auto-desactiva en runtime).
 
-## Roadmap acordado en el brainstorming (próximos specs, EN ORDEN)
+## Roadmap acordado (próximos specs, EN ORDEN)
+
 1. **Bootstrap "compartible"** — variante para terceros SIN Zoho/DOMO/identidad de Martín. Dolor confirmado: el scaffold personal filtra Zoho (CLAUDE.md steps 4/7, `docs/agents/issue-tracker.md`, `TASK_TEMPLATE.md`, server `zoho-personal` en gen-mcp-json) y defaultea git a MartinDele703. Decidir: ¿tercera skill espejada vs parametrizar? (ojo al costo de espejado triple).
 2. **Descubrir skills/loops nuevos** — auditar `C:\Repos\SOUTHPOINTLABS` y `C:\Repos\PERSONAL` buscando patrones de trabajo aún no capturados como skills.
 3. **Mejoras generales del scaffold.**
 
+Follow-up externo pendiente de otras sesiones: Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`, repo local en `master`) y KBS necesitan `/upgrade-bootstrap` / bootstrap para recibir review-loop-trigger + alignment-gate; evaluar si el bullet nuevo del CLAUDE.md template aplica al CLAUDE.md real de Forecasting App.
+
 ## Reglas del repo (no olvidar)
-- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (ya corrido al cierre; deploy al día con HEAD).
+
+- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (deploy al día con HEAD al cierre de esta sesión).
 - Espejado byte-idéntico de mecánica entre ambas skills bootstrap.
 - La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a `Copy-Item <dir> -Recurse` ni wildcard `scaffold\*`.
-- Manifest generado, nunca a mano. Rastros de testeo se borran. Identidad local `MartinDele703`.
-- El hook `review-loop-trigger` dispara `/review-loop` en cada commit de feature branch: corrélo sin preguntar.
-- Regla nueva a considerar: el CLAUDE.md template cambió (bullet del alignment-gate) → evaluar si aplica al CLAUDE.md real de Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`); Forecasting App y KBS reciben todo esto vía `/upgrade-bootstrap` / bootstrap.
+- Manifest generado, nunca a mano (`tools/gen-manifest.ps1` si editás scaffold sin sync). Rastros de testeo se borran. Identidad git local `MartinDele703`.
+- El hook `review-loop-trigger` dispara `/review-loop` en cada commit de feature branch: corrélo sin preguntar. Trabajar en feature branches por slice.
 
 ## Gotchas técnicos vigentes
+
+- Push a este repo: **solo cuenta `southpointtech`** (MartinDele703 → 403). `gh` tiene las dos cuentas; verificar la activa.
 - `run_loop.py` del skill-creator roto en Windows.
 - Warning git "LF will be replaced by CRLF" en `.md`/`.ps1` nuevos: inofensivo.
-- `gh` con dos cuentas (`southpointtech` activa, `MartinDele703`).
-- Este repo está auto-bootstrapeado: cuando el scaffold gana features (p. ej. el alignment-gate), el propio repo puede traerlas con `/upgrade-bootstrap`.
+- Este repo está auto-bootstrapeado y al día con el scaffold canónico (baseline `2026-07-04+ec22e73`); futuras features del scaffold llegan con `/upgrade-bootstrap`.
 
 ## Próximos 3 pasos recomendados
-1. Usuario aprueba → merge `feat/alignment-gate-hook` a `main` y borrar la rama (opcional: push a origin verificando cuenta gh).
-2. (Opcional, corto) Correr `/upgrade-bootstrap` EN este repo para que el propio repo reciba el alignment-gate en su `.claude/`.
-3. Arrancar el spec del **bootstrap compartible** con `/grill-me` o brainstorming (frente #1 del roadmap).
+
+1. Arrancar el spec del **bootstrap compartible** con `/grill-me` o brainstorming (frente #1 del roadmap). Trabajarlo en feature branch.
+2. (Cuando toque contexto Southpoint) `/upgrade-bootstrap` en Forecasting App y bootstrap de KBS.
+3. Ir bajando los follow-ups Minor si algún ciclo mirror→manifest→deploy los hace gratis (p. ej. el typo "proceds").
