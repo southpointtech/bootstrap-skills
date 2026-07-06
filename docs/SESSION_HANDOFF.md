@@ -1,59 +1,74 @@
-# Session Handoff — 2026-07-05 (alignment-gate mergeado + pusheado + self-upgrade del repo)
+# Session Handoff — 2026-07-06 (bootstrap compartible: spec + plan listos, ejecutar con subagentes)
 
-## ▶ AL RETOMAR — estado y qué falta
+## ▶ AL RETOMAR — estado y qué hacer
 
-Rama actual: **`main`**, working tree limpio, sincronizado con `origin/main`.
+Rama actual: **`main`**, working tree limpio. Commits locales `6367e9e` (spec) y `45f7389` (plan) **sin pushear** a `origin/main` (pushear con la cuenta `southpointtech` cuando se quiera).
 
-**NO HAY PENDIENTES INMEDIATOS.** Todo lo de la sesión anterior quedó cerrado. Lo próximo es arrancar el roadmap (abajo), frente #1: **bootstrap compartible**.
+**PRÓXIMA ACCIÓN ÚNICA:** ejecutar el plan `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md` con **`superpowers:subagent-driven-development`** (elección explícita del usuario). El brainstorming y el spec ya están aprobados — NO re-abrir diseño ni volver a preguntar lo decidido.
 
-Skills sugeridas para la próxima sesión: `/grill-me` o brainstorming (superpowers) para el spec del bootstrap compartible.
+Reglas para la ejecución con subagentes:
 
-## Qué se hizo en esta sesión (2026-07-05)
+- **Prohibir explícitamente `git checkout` / `git branch` a los subagentes implementadores** (memoria persistente: se van de rama solos). El orquestador maneja las ramas.
+- 3 slices, cada uno en su feature branch: `feat/scaffold-english` → `feat/bootstrap-ai-project` → `feat/export-shareable` (en orden; cada uno mergea a main antes del siguiente).
+- El hook `review-loop-trigger` dispara `/review-loop` en cada commit de feature branch: obedecerlo hasta que cierre.
+- El hook `alignment-gate` va a frenar el primer edit de código de la sesión: el trabajo YA está alineado (spec aprobado) — reintentar y seguir.
 
-1. **Merge `feat/alignment-gate-hook` → `main`** (fast-forward hasta `85786cb`), rama borrada.
-2. **Push a `origin/main`** (`southpointtech/bootstrap-skills`). Dato nuevo: **MartinDele703 NO tiene permiso de push en este repo (403)** — el remoto es de la org southpointtech y se pushea con esa cuenta (`gh auth switch --user southpointtech`). No existe `MartinDele703/bootstrap-skills`.
-3. **Self-upgrade con `/upgrade-bootstrap`** (commit `c35c39f`, directo a main con aprobación explícita — cambio ya revisado en origen, no ameritaba rama+review-loop):
-   - Copiado `.claude/hooks/alignment-gate.ps1` (missing).
-   - `.claude/settings.json` actualizado (outdated-safe): ahora registra el PreToolUse del gate + conserva el PostToolUse del review-loop-trigger.
-   - Bullet del alignment-gate integrado al `CLAUDE.md` real (merge asistido; era el único customized donde el canónico avanzó — los otros 23 customized no tenían delta upstream, quedaron intactos).
-   - Manifest resellado a baseline `2026-07-04+ec22e73` (48 archivos). Cero huérfanos.
-4. Memoria persistente actualizada (alignment-gate = mergeado; push solo con southpointtech).
+## Qué se hizo en esta sesión (2026-07-06)
 
-**⚠️ El alignment-gate está ACTIVO en este repo desde la próxima sesión:** el primer `Edit`/`Write` de un archivo de *código* por sesión rebota una vez ofreciendo `/grill-me`; si el trabajo ya está alineado, reintentar y seguir. No-código (`.md`, `docs/`, `.scratch/`, `.agents/`, `.claude/`, configs) pasa libre.
+1. **Brainstorming completo del "bootstrap compartible"** (frente #1 del roadmap) con decisiones aprobadas por el usuario.
+2. **Spec escrito y commiteado:** `docs/superpowers/specs/2026-07-06-bootstrap-compartible-design.md` (commit `6367e9e`).
+3. **Plan de implementación escrito y commiteado:** `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md` (commit `45f7389`) — 12 tasks en 3 slices + post-merge, con todo el contenido exacto (traducciones, scripts, tests) inline. Self-review pasado.
 
-## Follow-ups anotados (Minor, del review de la feature — NO urgentes)
+## Decisiones de diseño aprobadas (NO re-litigar)
 
-1. `merge-settings.ps1` lookup case-sensitive de event keys (settings con `"posttooluse"` no canónico duplica estructura; incidencia ≈ 0).
-2. `merge-settings.ps1` crashea con `{"hooks": null}` (preexistente, no regresión).
-3. Estado del gate crece sin poda ni locking (~15 bytes/sesión; casi wontfix).
-4. Typo "proceds" en el mensaje del deny del hook (cosmético, requiere ciclo mirror→manifest→deploy).
-5. Dedup de merge-settings por firma string exacta (command distinto = duplicado funcional; se auto-desactiva en runtime).
+- **Audiencia:** terceros corren el bootstrap en su propia máquina → skill 100% autocontenida.
+- **Distribución:** repo público GitHub `MartinDele703/ai-project-bootstrap` (bootstrap + upgrade-bootstrap + README + install.ps1); actualizaciones vía git pull + re-install.
+- **Enfoque A:** tercera skill espejada `skills/bootstrap-ai-project` en este repo; el repo público es espejo de publicación vía `tools/export-shareable.ps1`. Se descartó parametrizar con flavors y el fork one-time.
+- **Zoho → genericizado** a "your issue tracker (GitHub Issues, Jira, Linear, …)"; tracker local `.scratch/` se preserva.
+- **Identidad git:** la skill nueva NO la toca (usa la global del tercero; si falta, pide configurarla y espera).
+- **Catálogo MCP compartible:** `firebase` + `github` (sin zoho-personal).
+- **Idioma:** inglés puro en prosa/cuerpo/mensajes, PERO **las frases-trigger en español de los frontmatter `description:` se conservan en las 3 variantes** (bilingües; decisión posterior al spec, refinada en el planning — prevalece sobre el "inglés puro" del spec para los triggers).
+- **Anglicización del canónico:** la prosa en español de los archivos compartidos del scaffold se traduce TAMBIÉN en personal y southpoint, para byte-identidad triple.
+- **Gate anti-fuga:** marcadores case-insensitive `zoho, domo, MartinDele703, martin.deleon, southpoint` en `tools/leak-markers.txt` (fuente única para test + export). El README público NO lleva URL absoluta del repo (dispararía el marcador MartinDele703).
+- **Plataforma v1:** pwsh 7+ requerido (cross-platform), sin port a bash.
 
-## Roadmap acordado (próximos specs, EN ORDEN)
+## Datos técnicos descubiertos (importan al implementar)
 
-1. **Bootstrap "compartible"** — variante para terceros SIN Zoho/DOMO/identidad de Martín. Dolor confirmado: el scaffold personal filtra Zoho (CLAUDE.md steps 4/7, `docs/agents/issue-tracker.md`, `TASK_TEMPLATE.md`, server `zoho-personal` en gen-mcp-json) y defaultea git a MartinDele703. Decidir: ¿tercera skill espejada vs parametrizar? (ojo al costo de espejado triple).
-2. **Descubrir skills/loops nuevos** — auditar `C:\Repos\SOUTHPOINTLABS` y `C:\Repos\PERSONAL` buscando patrones de trabajo aún no capturados como skills.
-3. **Mejoras generales del scaffold.**
+- Las 2 skills existentes comparten 43/52 archivos byte-idénticos; divergen en 9 (SKILL.md, CLAUDE.md, 5 docs ai-workflow, gen-mcp-json.ps1, manifest).
+- `.claude/commands/review-loop.md` NO es byte-idéntico a `.agents/skills/review-loop/SKILL.md` → traducir por bloque en los 4 archivos (2 por skill), no copiar uno sobre otro.
+- `tests/review-loop-trigger.tests.ps1:35` asserta `"review-loop AHORA"` → la traducción del hook exige actualizar ese assert a `"review-loop NOW"` (el plan lo hace test-first).
+- `tests/alignment-gate.tests.ps1` asserta `deny` + `grill` → sobrevive a la traducción sin cambios.
+- El typo `proceds` está en el mensaje de `alignment-gate.ps1` (ambos scaffolds) — el plan lo corrige gratis en la traducción (follow-up Minor #4 del handoff anterior, queda cerrado).
+- `upgrade-bootstrap` lee `generatedFrom` del manifest → integra la tercera skill sin cambios estructurales; solo se genericiza su redacción (menciones a las 2 skills, heurística legacy línea 22, guardrail línea 75, 8 strings de scripts — tabla exacta en el plan).
+- El manifest del scaffold tiene campos `variant`, `generatedFrom`, `version`, `files` — el test del export asserta `generatedFrom -eq "bootstrap-ai-project"`.
+- `tools/sync-skills.ps1` y `tools/gen-manifest.ps1` operan sobre el glob `bootstrap-*-project` → la skill nueva obtiene manifest + deploy gratis.
+- Español en el scaffold: 31 ocurrencias acentuadas en 14 archivos + español sin acentos en hooks/copy-scaffold — el plan lista los reemplazos exactos; los `description:` con triggers en español NO se tocan.
 
-Follow-up externo pendiente de otras sesiones: Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`, repo local en `master`) y KBS necesitan `/upgrade-bootstrap` / bootstrap para recibir review-loop-trigger + alignment-gate; evaluar si el bullet nuevo del CLAUDE.md template aplica al CLAUDE.md real de Forecasting App.
+## Tests
+
+- Suite actual (6 archivos en `tests/`, runner sin Pester): todos pasaban al inicio de la sesión; no se tocó código en esta sesión (solo docs).
+- Tests nuevos que el plan crea: `mirror.tests.ps1` (Slice 1, guard — pasa de entrada), `shareable-leaks.tests.ps1` (Slice 2, RED→GREEN), `export-shareable.tests.ps1` (Slice 3, RED→GREEN). Se extiende `gen-mcp-json.tests.ps1`.
+
+## Pendientes / TODOs
+
+1. Ejecutar el plan (3 slices + Task 12 post-merge: sync-skills + eval descartable + limpieza).
+2. Pushear `main` a origin (cuenta southpointtech) cuando el usuario quiera.
+3. **Export real al repo público = paso MANUAL del usuario** (crear `MartinDele703/ai-project-bootstrap` en GitHub, clonar, correr export, revisar diff, push con MartinDele703). NO hacerlo sin que lo pida.
+4. Follow-ups Minor previos (handoff 2026-07-05): quedan 1, 2, 3 y 5 (el 4, typo proceds, lo cierra el Slice 1).
+5. Roadmap tras esta feature: descubrir skills/loops nuevos auditando ambos árboles de repos → mejoras generales del scaffold.
+6. Externo: Forecasting App y KBS siguen pendientes de upgrade/bootstrap. Tras mergear esta feature, este repo y los demás verán los archivos traducidos como `outdated-safe` en su próximo `/upgrade-bootstrap` (esperado).
 
 ## Reglas del repo (no olvidar)
 
-- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1` (deploy al día con HEAD al cierre de esta sesión).
-- Espejado byte-idéntico de mecánica entre ambas skills bootstrap.
-- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a `Copy-Item <dir> -Recurse` ni wildcard `scaffold\*`.
-- Manifest generado, nunca a mano (`tools/gen-manifest.ps1` si editás scaffold sin sync). Rastros de testeo se borran. Identidad git local `MartinDele703`.
-- El hook `review-loop-trigger` dispara `/review-loop` en cada commit de feature branch: corrélo sin preguntar. Trabajar en feature branches por slice.
-
-## Gotchas técnicos vigentes
-
-- Push a este repo: **solo cuenta `southpointtech`** (MartinDele703 → 403). `gh` tiene las dos cuentas; verificar la activa.
-- `run_loop.py` del skill-creator roto en Windows.
-- Warning git "LF will be replaced by CRLF" en `.md`/`.ps1` nuevos: inofensivo.
-- Este repo está auto-bootstrapeado y al día con el scaffold canónico (baseline `2026-07-04+ec22e73`); futuras features del scaffold llegan con `/upgrade-bootstrap`.
+- Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1`.
+- Manifest generado, nunca a mano (`tools/gen-manifest.ps1`). Rastros de testeo se borran.
+- Identidad git local de ESTE repo: MartinDele703; push a origin: solo cuenta `southpointtech` (MartinDele703 da 403).
+- Espejado: tras el Slice 2 son TRES skills espejadas; `tests/mirror.tests.ps1` lo verifica determinísticamente.
+- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a `Copy-Item <dir> -Recurse` ni wildcard.
+- Commits en español estilo conventional (`feat(...)`, `docs(...)`, `test(...)`).
 
 ## Próximos 3 pasos recomendados
 
-1. Arrancar el spec del **bootstrap compartible** con `/grill-me` o brainstorming (frente #1 del roadmap). Trabajarlo en feature branch.
-2. (Cuando toque contexto Southpoint) `/upgrade-bootstrap` en Forecasting App y bootstrap de KBS.
-3. Ir bajando los follow-ups Minor si algún ciclo mirror→manifest→deploy los hace gratis (p. ej. el typo "proceds").
+1. Invocar `superpowers:subagent-driven-development` con el plan `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md`, empezando por Slice 1 (`feat/scaffold-english`, Tasks 1–4).
+2. Al cerrar cada slice: review-loop limpio → merge a main → borrar branch → siguiente slice.
+3. Post-merge del Slice 3: Task 12 (deploy + eval descartable + reporte al usuario para el export manual).
