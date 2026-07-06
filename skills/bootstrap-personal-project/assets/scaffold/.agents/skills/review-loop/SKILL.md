@@ -25,26 +25,26 @@ git --no-pager diff --stat
 
 If the change approaches or exceeds ~400 lines of diff, stop and split it into smaller slices / stacked PRs first (matching the project's PR-size rule). The loop loses accuracy on large diffs — both the reviewer and the coding agent.
 
-## Modo PR (cuando lo dispara el hook)
+## PR mode (when triggered by the hook)
 
-Si llegaste acá porque el hook `review-loop-trigger` te lo pidió tras un `gh pr create` / `git push`, revisá el **diff del branch** (lo que el PR introduce sobre su base), no el working-tree:
-
-```powershell
-git diff <base>...HEAD --stat   # <base> es la rama base del PR (main/develop/etc., la que indicó el hook)
-```
-
-Usá ese mismo rango (`git diff <base>...HEAD`) como entrada de cada `/code-review` del loop. El modo working-tree (`git diff` sin rango) sigue siendo el default para invocación manual sobre cambios sin commitear.
-
-## Modo commit / local (cuando lo dispara un `git commit`)
-
-Si llegaste acá tras un `git commit` (típico en repos locales sin remote), revisá el diff del slice recién cerrado. Si el branch tiene una base resoluble, usá el rango del branch; si no, revisá el último commit:
+If you got here because the `review-loop-trigger` hook asked for it after a `gh pr create` / `git push`, review the **branch diff** (what the PR introduces over its base), not the working tree:
 
 ```powershell
-git --no-pager diff <base>...HEAD --stat   # si hay base (sirve también con base local, sin remote)
-git --no-pager show --stat HEAD            # fallback: solo el último commit
+git diff <base>...HEAD --stat   # <base> is the PR's base branch (main/develop/etc., the one the hook reported)
 ```
 
-Si el commit es solo un test que falla a propósito (RED de TDD) y todavía no hay código de implementación que revisar, cerrá el loop sin acción: no hay nada que arreglar aún.
+Use that same range (`git diff <base>...HEAD`) as the input of every `/code-review` in the loop. Working-tree mode (`git diff` with no range) remains the default for manual invocation over uncommitted changes.
+
+## Commit / local mode (when triggered by a `git commit`)
+
+If you got here after a `git commit` (typical in local repos with no remote), review the diff of the slice just closed. If the branch has a resolvable base, use the branch range; otherwise review the last commit:
+
+```powershell
+git --no-pager diff <base>...HEAD --stat   # if there is a base (also works with a local base, no remote)
+git --no-pager show --stat HEAD            # fallback: last commit only
+```
+
+If the commit is only a deliberately failing test (TDD RED) and there is no implementation code to review yet, close the loop with no action: there is nothing to fix yet.
 
 ## The loop
 
