@@ -1,7 +1,7 @@
-# Integra (idempotente) los hooks canonicos (review-loop-trigger, alignment-gate, y cualquier
-# otro que se agregue a futuro) en el settings.json del proyecto, sin pisar la config previa.
-# Si el proyecto no tiene settings.json, copia el canónico entero.
-# Uso: pwsh -File merge-settings.ps1 -ProjectSettings <ruta> -CanonicalSettings <ruta>
+# Idempotently merges the canonical hooks (review-loop-trigger, alignment-gate, and any
+# future addition) into the project's settings.json, without clobbering the existing config.
+# If the project has no settings.json, copies the canonical one whole.
+# Usage: pwsh -File merge-settings.ps1 -ProjectSettings <path> -CanonicalSettings <path>
 param(
     [Parameter(Mandatory)][string]$ProjectSettings,
     [Parameter(Mandatory)][string]$CanonicalSettings
@@ -23,7 +23,7 @@ if ($null -eq $proj) { $proj = @{} }
 if (-not $proj.ContainsKey('hooks')) { $proj['hooks'] = @{} }
 if ($null -eq $canon.hooks) { Write-Host "Canonical settings.json has no hooks: nothing to do."; exit 0 }
 
-# Firma de una entrada de hook: la concatenacion de los command de sus hooks.
+# Signature of a hook entry: the concatenation of its hooks' commands.
 function Get-Sig($entry) { (@($entry.hooks) | ForEach-Object { $_.command }) -join '|' }
 
 $added = 0

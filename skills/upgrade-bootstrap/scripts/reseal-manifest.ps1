@@ -1,10 +1,10 @@
-# Re-sella el manifest del proyecto tras un upgrade.
-# Uso: pwsh -File reseal-manifest.ps1 -ProjectDir <ruta> -CanonicalScaffold <ruta a assets\scaffold instalado>
-# Regla de base por archivo:
-#   actual == canónico            -> base = canónico (reconciliado)
-#   actual != canónico, hay base  -> base = base previa (personalizado: sigue detectable)
-#   actual != canónico, sin base  -> base = actual (legacy: sembrar)
-#   archivo ausente en proyecto   -> no se registra (el usuario lo saltó)
+# Re-seals the project manifest after an upgrade.
+# Usage: pwsh -File reseal-manifest.ps1 -ProjectDir <path> -CanonicalScaffold <path to the installed assets\scaffold>
+# Per-file base rule:
+#   current == canonical            -> base = canonical (reconciled)
+#   current != canonical, has base  -> base = previous base (customized: stays detectable)
+#   current != canonical, no base   -> base = current (legacy: seed)
+#   file absent in project          -> not recorded (user skipped it)
 param(
     [Parameter(Mandatory)][string]$ProjectDir,
     [Parameter(Mandatory)][string]$CanonicalScaffold

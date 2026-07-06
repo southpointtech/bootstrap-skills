@@ -1,6 +1,6 @@
-# Clasifica los archivos del proyecto contra el scaffold canónico (merge-base de 3 hashes).
-# Uso: pwsh -File compare-scaffold.ps1 -ProjectDir <ruta> -CanonicalScaffold <ruta a assets\scaffold instalado>
-# Emite JSON a stdout: { hasProjectManifest, canonicalVersion, variant, missing[], outdated[], customized[], orphan[], uptodate[] }
+# Classifies the project's files against the canonical scaffold (3-hash merge-base).
+# Usage: pwsh -File compare-scaffold.ps1 -ProjectDir <path> -CanonicalScaffold <path to the installed assets\scaffold>
+# Emits JSON to stdout: { hasProjectManifest, canonicalVersion, variant, missing[], outdated[], customized[], orphan[], uptodate[] }
 param(
     [Parameter(Mandatory)][string]$ProjectDir,
     [Parameter(Mandatory)][string]$CanonicalScaffold
@@ -28,14 +28,14 @@ foreach ($p in $canon.files.PSObject.Properties) {
     if ($actual -eq $canonHash)   { $uptodate += $rel; continue }
     if ($hasProjManifest -and $projBase.ContainsKey($rel)) {
         $base = $projBase[$rel]
-        if ($actual -eq $base) { $outdated += $rel }                                   # no tocado; canónico avanzó
-        else { $customized += [ordered]@{ file = $rel; threeWay = ($canonHash -ne $base) } }  # tocado
+        if ($actual -eq $base) { $outdated += $rel }                                   # untouched; canonical moved forward
+        else { $customized += [ordered]@{ file = $rel; threeWay = ($canonHash -ne $base) } }  # touched
     } else {
-        $customized += [ordered]@{ file = $rel; threeWay = $true }                      # sin base: diferente, decide el usuario
+        $customized += [ordered]@{ file = $rel; threeWay = $true }                      # no base: differs, user decides
     }
 }
 
-# Huérfanos: solo determinables con manifest del proyecto (sabemos qué pertenecía al scaffold).
+# Orphans: only determinable with the project manifest (we know what belonged to the scaffold).
 $orphan = @()
 if ($hasProjManifest) {
     $canonNames = $canon.files.PSObject.Properties.Name

@@ -84,7 +84,7 @@ The script copies file-by-file, merging into directories the project already has
 
 Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` and `.claude\hooks\alignment-gate.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
-This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-dispara `review-loop` al abrir/actualizar un PR) + `.claude/hooks/alignment-gate.ps1` (frena el primer edit de código por sesión y ofrece alinear antes de codear), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
+This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-runs `review-loop` on each slice commit/push or PR) + `.claude/hooks/alignment-gate.ps1` (stops the first code edit of the session and offers to align before coding), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
 
 ## Step 3 — Project-specific files
 
