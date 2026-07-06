@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $repo       = Split-Path $PSScriptRoot -Parent
 $personal   = Join-Path $repo "skills/bootstrap-personal-project/scripts/gen-mcp-json.ps1"
 $southpoint = Join-Path $repo "skills/bootstrap-southpoint-project/scripts/gen-mcp-json.ps1"
+$shareable  = Join-Path $repo "skills/bootstrap-ai-project/scripts/gen-mcp-json.ps1"
 $script:failures = 0
 
 function Assert($cond, $msg) {
@@ -83,6 +84,20 @@ Assert ($ss.requiredEnvVars -contains "DOMO_MCP_HOME") "southpoint happy: report
 $ts2 = NewTmp
 $rs2 = RunScript $southpoint @("zoho-personal") $ts2
 Assert ($rs2.exit -ne 0) "southpoint: zoho-personal invalida en area southpoint"
+
+# --- SHAREABLE: happy path firebase+github ---
+$tsh = NewTmp
+$rsh = RunScript $shareable @("firebase","github") $tsh
+Assert ($rsh.exit -eq 0) "shareable happy: exit 0"
+$shd = Get-Content (Join-Path $tsh ".mcp.json") -Raw | ConvertFrom-Json
+Assert ($null -ne $shd.mcpServers.firebase -and $null -ne $shd.mcpServers.github) "shareable happy: firebase y github presentes"
+Remove-Item -Recurse -Force $tsh
+
+# --- SHAREABLE: zoho-personal NO existe en este catalogo ---
+$tsh2 = NewTmp
+$rsh2 = RunScript $shareable @("zoho-personal") $tsh2
+Assert ($rsh2.exit -ne 0) "shareable: zoho-personal invalido en el catalogo compartible"
+Remove-Item -Recurse -Force $tsh2
 
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
