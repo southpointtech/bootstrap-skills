@@ -1,6 +1,6 @@
 ---
 name: upgrade-bootstrap
-description: Use to update a project that was already bootstrapped with bootstrap-personal-project or bootstrap-southpoint-project when the scaffold has since changed (new files, edited rules, new skills like review-loop). Detects what is missing, outdated, or customized using the project's .bootstrap-manifest.json (with a fallback for legacy projects without one), and applies the delta with your approval — never overwriting your customizations. Trigger whenever the user wants to "actualizar/sincronizar el bootstrap", "traer los cambios nuevos del scaffold", "traé las skills nuevas (review-loop, etc.)", "poné al día el scaffolding de este proyecto", "mergeá los cambios del bootstrap acá", "sync the workflow scaffolding", or mentions a bootstrapped project being on an older/outdated scaffold version. Run this inside the already-bootstrapped project, not in the bootstrap-skills repo. Do NOT use to bootstrap a brand-new project (use bootstrap-personal-project / bootstrap-southpoint-project), to run the review loop on a PR (use review-loop), or to update npm/package dependencies.
+description: Use to update a project that was already bootstrapped with a bootstrap-*-project skill when the scaffold has since changed (new files, edited rules, new skills like review-loop). Detects what is missing, outdated, or customized using the project's .bootstrap-manifest.json (with a fallback for legacy projects without one), and applies the delta with your approval — never overwriting your customizations. Trigger whenever the user wants to "actualizar/sincronizar el bootstrap", "traer los cambios nuevos del scaffold", "traé las skills nuevas (review-loop, etc.)", "poné al día el scaffolding de este proyecto", "mergeá los cambios del bootstrap acá", "sync the workflow scaffolding", or mentions a bootstrapped project being on an older/outdated scaffold version. Run this inside the already-bootstrapped project, not in the bootstrap-skills repo. Do NOT use to bootstrap a brand-new project (use your bootstrap-*-project skill), to run the review loop on a PR (use review-loop), or to update npm/package dependencies.
 ---
 
 # Upgrade Bootstrap
@@ -19,7 +19,7 @@ For each scaffold file it compares three hashes — **base** (what the manifest 
 
 - The project is the current working directory unless the user points elsewhere.
 - If `<project>/.bootstrap-manifest.json` exists, read `generatedFrom`; the canonical scaffold is `~/.claude/skills/<generatedFrom>/assets/scaffold`.
-- If there is no manifest (legacy project), determine the variant: if `CLAUDE.md` mentions DOMO it's `bootstrap-southpoint-project`, otherwise `bootstrap-personal-project`. If genuinely ambiguous, ask the user.
+- If there is no manifest (legacy project), ask the user which bootstrap-*-project skill this project was originally bootstrapped with, and use that skill's scaffold as canonical.
 
 ### 2. Run the comparison
 
@@ -72,4 +72,4 @@ List files copied, updated, left customized (skipped), and orphans flagged. Remi
 - Don't delete orphans automatically.
 - The scaffold's `.gitignore` lives as `gitignore.txt` in the source; map it when copying.
 - If `compare-scaffold.ps1` errors (e.g. canonical scaffold has no manifest), stop and report — don't guess.
-- `.mcp.json` no es parte del scaffold ni del manifest, así que `compare-scaffold.ps1` no lo ve y este upgrade nunca lo toca. Si el proyecto fue bootstrapeado antes de la feature de MCP-por-área y querés agregarle un `.mcp.json`, corré el menú a mano con `~/.claude/skills/<generatedFrom>/scripts/gen-mcp-json.ps1` (no es parte del flujo de upgrade).
+- `.mcp.json` is not part of the scaffold nor the manifest, so `compare-scaffold.ps1` does not see it and this upgrade never touches it. If the project was bootstrapped before the per-project MCP feature and you want to add a `.mcp.json`, run the menu manually with `~/.claude/skills/<generatedFrom>/scripts/gen-mcp-json.ps1` (not part of the upgrade flow).

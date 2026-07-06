@@ -36,4 +36,4 @@ $manifest = [ordered]@{
     files         = $files
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content $projManifestPath -Encoding UTF8
-Write-Host "Manifest del proyecto re-sellado: version $($canon.version), $($files.Count) archivos"
+Write-Host "Project manifest re-sealed: version $($canon.version), $($files.Count) files"

@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 function Get-Hash($path) { if (Test-Path $path) { (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() } else { $null } }
 
 $canonManifestPath = Join-Path $CanonicalScaffold ".bootstrap-manifest.json"
-if (-not (Test-Path $canonManifestPath)) { throw "Scaffold canónico sin manifest: $canonManifestPath" }
+if (-not (Test-Path $canonManifestPath)) { throw "Canonical scaffold has no manifest: $canonManifestPath" }
 $canon = Get-Content $canonManifestPath -Raw | ConvertFrom-Json
 
 $projManifestPath = Join-Path $ProjectDir ".bootstrap-manifest.json"

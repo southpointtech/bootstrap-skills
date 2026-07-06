@@ -11,17 +11,17 @@ $ErrorActionPreference = "Stop"
 if (-not (Test-Path $ProjectSettings)) {
     New-Item -ItemType Directory -Force (Split-Path $ProjectSettings -Parent) | Out-Null
     Copy-Item $CanonicalSettings $ProjectSettings -Force
-    Write-Host "settings.json no existia: copiado el canonico."
+    Write-Host "settings.json did not exist: canonical copied."
     exit 0
 }
 
 try { $canon = Get-Content $CanonicalSettings -Raw | ConvertFrom-Json -AsHashtable }
-catch { throw "settings.json canonico no es JSON valido: $CanonicalSettings" }
+catch { throw "canonical settings.json is not valid JSON: $CanonicalSettings" }
 try { $proj  = Get-Content $ProjectSettings  -Raw | ConvertFrom-Json -AsHashtable }
-catch { throw "settings.json del proyecto no es JSON valido: $ProjectSettings" }
+catch { throw "project settings.json is not valid JSON: $ProjectSettings" }
 if ($null -eq $proj) { $proj = @{} }
 if (-not $proj.ContainsKey('hooks')) { $proj['hooks'] = @{} }
-if ($null -eq $canon.hooks) { Write-Host "El settings.json canonico no tiene hooks: nada que hacer."; exit 0 }
+if ($null -eq $canon.hooks) { Write-Host "Canonical settings.json has no hooks: nothing to do."; exit 0 }
 
 # Firma de una entrada de hook: la concatenacion de los command de sus hooks.
 function Get-Sig($entry) { (@($entry.hooks) | ForEach-Object { $_.command }) -join '|' }
@@ -40,8 +40,8 @@ foreach ($event in @($canon.hooks.Keys)) {
 }
 if ($added -gt 0) {
     $proj | ConvertTo-Json -Depth 12 | Set-Content $ProjectSettings -Encoding UTF8
-    Write-Host "Hooks integrados al settings.json del proyecto: $added entrada/s nueva/s."
+    Write-Host "Hooks merged into the project settings.json: $added new entry/ies."
 } else {
-    Write-Host "Todos los hooks canonicos ya presentes: nada que hacer (idempotente)."
+    Write-Host "All canonical hooks already present: nothing to do (idempotent)."
 }
 exit 0
