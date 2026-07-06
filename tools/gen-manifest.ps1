@@ -8,7 +8,7 @@ if (-not (Test-Path $scaffold)) { throw "No existe el scaffold: $scaffold" }
 $skillName = Split-Path $SkillDir -Leaf
 # variant = nombre de la skill sin el envoltorio bootstrap-...-project
 # (bootstrap-personal-project -> personal, bootstrap-southpoint-project -> southpoint,
-#  bootstrap-ai-project -> ai-project). Generaliza a cualquier variante nueva sin heurística binaria.
+#  bootstrap-ai-project -> ai). Generaliza a cualquier variante nueva sin heurística binaria.
 $variant = ($skillName -replace '^bootstrap-', '' -replace '-project$', '')
 $scaffoldFull = (Resolve-Path $scaffold).Path
 
