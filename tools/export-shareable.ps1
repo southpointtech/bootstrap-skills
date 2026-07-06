@@ -11,10 +11,7 @@ if (-not (Test-Path (Join-Path $PublicRepoDir ".git"))) {
     throw "PublicRepoDir is not a git clone: $PublicRepoDir"
 }
 
-# 1. Manifest fresco para que el scaffold exportado lleve hashes actuales
-& (Join-Path $PSScriptRoot "gen-manifest.ps1") -SkillDir (Join-Path $repo "skills/bootstrap-ai-project")
-
-# 2. Copia limpia del payload
+# 1. Copia limpia del payload
 $skillsDest = Join-Path $PublicRepoDir "skills"
 [IO.Directory]::CreateDirectory($skillsDest) | Out-Null
 foreach ($name in @("bootstrap-ai-project", "upgrade-bootstrap")) {
@@ -24,6 +21,10 @@ foreach ($name in @("bootstrap-ai-project", "upgrade-bootstrap")) {
 }
 Copy-Item (Join-Path $repo "public/README.md")   (Join-Path $PublicRepoDir "README.md")   -Force
 Copy-Item (Join-Path $repo "public/install.ps1") (Join-Path $PublicRepoDir "install.ps1") -Force
+
+# 2. Manifest fresco sobre la copia YA en el clon (nunca toca el árbol del repo fuente,
+#    así correr el export/los tests no deja el .bootstrap-manifest.json del repo modificado)
+& (Join-Path $PSScriptRoot "gen-manifest.ps1") -SkillDir (Join-Path $skillsDest "bootstrap-ai-project")
 
 # 3. Gate anti-fuga sobre TODO el árbol exportado (menos .git)
 $markers = @(Get-Content (Join-Path $PSScriptRoot "leak-markers.txt") | Where-Object { $_.Trim() })
