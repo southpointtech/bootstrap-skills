@@ -14,7 +14,11 @@ Assert ($markers.Count -eq 5) "leak-markers.txt tiene 5 marcadores"
 $targets = @("skills/bootstrap-ai-project", "skills/upgrade-bootstrap", "public") |
   ForEach-Object { Join-Path $repo $_ }
 
+# Los dos targets de skills siempre existen tras Slice 2 y deben escanearse: si uno faltara
+# (typo, export parcial), el filtro Test-Path de abajo lo saltearía en silencio y el test pasaría
+# sin cubrir lo que debe proteger. 'public' es opcional: lo crea Slice 3 y se escanea cuando existe.
 Assert (Test-Path (Join-Path $repo "skills/bootstrap-ai-project")) "skills/bootstrap-ai-project existe"
+Assert (Test-Path (Join-Path $repo "skills/upgrade-bootstrap")) "skills/upgrade-bootstrap existe"
 
 foreach ($t in ($targets | Where-Object { Test-Path $_ })) {
   $hits = @()
