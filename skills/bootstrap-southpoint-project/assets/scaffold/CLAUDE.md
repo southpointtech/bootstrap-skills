@@ -92,12 +92,12 @@ Recommended transitions:
 
 ### Issue tracker
 
-Issues técnicos viven como markdown local en `.scratch/`. Tareas de alto nivel se registran en Zoho Projects. Ver `docs/agents/issue-tracker.md`.
+Technical issues live as local markdown in `.scratch/`. High-level tasks are registered in Zoho Projects. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Vocabulario por defecto (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). Ver `docs/agents/triage-labels.md`.
+Default vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: un `CONTEXT.md` + `docs/adr/` en la raíz. Ver `docs/agents/domain.md`.
+Single-context: one `CONTEXT.md` + `docs/adr/` at the root. See `docs/agents/domain.md`.

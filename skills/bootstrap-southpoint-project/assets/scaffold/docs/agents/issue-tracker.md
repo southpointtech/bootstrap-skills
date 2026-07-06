@@ -2,7 +2,7 @@
 
 ## Primary: Local Markdown
 
-Issues y PRDs técnicos para este repo viven como archivos markdown en `.scratch/`.
+Technical issues and PRDs for this repo live as markdown files in `.scratch/`.
 
 ### Conventions
 

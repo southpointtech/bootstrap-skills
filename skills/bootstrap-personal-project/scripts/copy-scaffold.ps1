@@ -1,12 +1,12 @@
-# copy-scaffold.ps1 — copia assets\scaffold\ al proyecto archivo por archivo, mergeando en
-# directorios preexistentes. Nunca copia un directorio como unidad: Copy-Item -Recurse sobre un
-# destino existente anida (docs -> docs\docs, .agents -> .agents\.agents) en vez de mergear.
-# Paths siempre literales (-LiteralPath / APIs .NET): un proyecto con corchetes en el nombre
-# (app[v2]) rompe los cmdlets que interpretan wildcards.
-# gitignore.txt aterriza como .gitignore (en assets se llama así para que el repo de la skill
-# no lo trate como ignore propio). Este mapeo debe coincidir con el de tools/gen-manifest.ps1:
-# las rutas que aterrizan acá son las claves del .bootstrap-manifest.json que consume upgrade-bootstrap.
-# Uso: pwsh -NoProfile -File copy-scaffold.ps1 -SkillDir <dir de esta skill> -ProjectDir <raíz del proyecto>
+# copy-scaffold.ps1 — copies assets\scaffold\ into the project file by file, merging into
+# pre-existing directories. Never copies a directory as a unit: Copy-Item -Recurse onto an
+# existing destination nests (docs -> docs\docs, .agents -> .agents\.agents) instead of merging.
+# Paths are always literal (-LiteralPath / .NET APIs): a project with brackets in its name
+# (app[v2]) breaks cmdlets that interpret wildcards.
+# gitignore.txt lands as .gitignore (named that way in assets so the skill repo does not
+# treat it as its own ignore file). This mapping must match tools/gen-manifest.ps1:
+# the paths landing here are the keys of the .bootstrap-manifest.json consumed by upgrade-bootstrap.
+# Usage: pwsh -NoProfile -File copy-scaffold.ps1 -SkillDir <this skill's dir> -ProjectDir <project root>
 param(
   [Parameter(Mandatory)][string]$SkillDir,
   [Parameter(Mandatory)][string]$ProjectDir
@@ -14,8 +14,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scaffold = Join-Path $SkillDir "assets\scaffold"
-if (-not (Test-Path -LiteralPath $scaffold -PathType Container))   { throw "No existe el scaffold: $scaffold" }
-if (-not (Test-Path -LiteralPath $ProjectDir -PathType Container)) { throw "No existe el proyecto: $ProjectDir" }
+if (-not (Test-Path -LiteralPath $scaffold -PathType Container))   { throw "Scaffold not found: $scaffold" }
+if (-not (Test-Path -LiteralPath $ProjectDir -PathType Container)) { throw "Project dir not found: $ProjectDir" }
 $scaffold   = (Resolve-Path -LiteralPath $scaffold).Path
 $ProjectDir = (Resolve-Path -LiteralPath $ProjectDir).Path
 
@@ -24,7 +24,7 @@ Get-ChildItem -LiteralPath $scaffold -Recurse -File -Force | ForEach-Object {
   if ($rel -eq "gitignore.txt") { $rel = ".gitignore" }
   $dest = Join-Path $ProjectDir $rel
   [IO.Directory]::CreateDirectory((Split-Path $dest -Parent)) | Out-Null
-  # File.Copy con overwrite no pisa destinos read-only/ocultos (Copy-Item -Force sí lo hacía)
+  # File.Copy with overwrite cannot clobber read-only/hidden destinations (Copy-Item -Force could)
   if ([IO.File]::Exists($dest)) { [IO.File]::SetAttributes($dest, 'Normal') }
   [IO.File]::Copy($_.FullName, $dest, $true)
 }
