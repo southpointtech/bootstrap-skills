@@ -1,5 +1,16 @@
 # Session Handoff — 2026-07-06 (bootstrap compartible EJECUTADO + auditoría de mejoras al scaffold)
 
+## ▶▶ PRIORIDAD AL RETOMAR (nueva terminal)
+
+El usuario quiere que le **expliques la auditoría del scaffold en lenguaje llano, conversando**, no que sigas con implementación. El documento técnico le resultó demasiado técnico. Arrancá así:
+
+1. Leé `docs/superpowers/notes/2026-07-06-auditoria-EN-CRIOLLO.md` (versión sin jerga) — es tu guion.
+2. Explicale de forma charlada, empezando por lo urgente (las **2 claves/secretos expuestos** en `Linkedin` y `Project Management Migration` → rotar) y siguiendo por las mejoras que más rinden. NO uses jerga técnica (hashes, autocrlf, manifests, rutas de archivo) salvo que él lo pida.
+3. Dejá que él pregunte y priorice. Recién cuando elija qué mejora quiere, ahí sí entrás al flujo `grill-me → PRD → slices`.
+4. El backlog técnico completo (evidencia file:line, leak-scrub, archivo exacto) está en `docs/superpowers/notes/2026-07-06-auditoria-mejoras-scaffold.md` — usalo solo como respaldo si él quiere el detalle.
+
+La feature del bootstrap compartible YA está terminada y mergeada (ver abajo). Salvo que él lo pida, no hay que tocar código todavía.
+
 ## ▶ AL RETOMAR — estado y qué hacer
 
 Rama: **`main`**, working tree limpio. El plan del bootstrap compartible está **ejecutado completo** (3 slices + eval). Commits locales **sin pushear** a `origin/main` (pushear con cuenta `southpointtech` cuando se quiera).
