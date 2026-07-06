@@ -1,74 +1,51 @@
-# Session Handoff — 2026-07-06 (bootstrap compartible: spec + plan listos, ejecutar con subagentes)
+# Session Handoff — 2026-07-06 (bootstrap compartible EJECUTADO + auditoría de mejoras al scaffold)
 
 ## ▶ AL RETOMAR — estado y qué hacer
 
-Rama actual: **`main`**, working tree limpio. Commits locales `6367e9e` (spec) y `45f7389` (plan) **sin pushear** a `origin/main` (pushear con la cuenta `southpointtech` cuando se quiera).
+Rama: **`main`**, working tree limpio. El plan del bootstrap compartible está **ejecutado completo** (3 slices + eval). Commits locales **sin pushear** a `origin/main` (pushear con cuenta `southpointtech` cuando se quiera).
 
-**PRÓXIMA ACCIÓN ÚNICA:** ejecutar el plan `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md` con **`superpowers:subagent-driven-development`** (elección explícita del usuario). El brainstorming y el spec ya están aprobados — NO re-abrir diseño ni volver a preguntar lo decidido.
+**Lo único que NO puedo hacer yo (requiere al usuario):**
+1. **Push de `main`** a origin (cuenta `southpointtech`; MartinDele703 da 403 en este repo).
+2. **Export real al repo público**: crear `MartinDele703/ai-project-bootstrap` en GitHub → clonar → `pwsh -NoProfile -File tools/export-shareable.ps1 -PublicRepoDir <clon>` → revisar diff → commit/push con cuenta **MartinDele703**.
 
-Reglas para la ejecución con subagentes:
+## Qué se hizo esta sesión (2026-07-06)
 
-- **Prohibir explícitamente `git checkout` / `git branch` a los subagentes implementadores** (memoria persistente: se van de rama solos). El orquestador maneja las ramas.
-- 3 slices, cada uno en su feature branch: `feat/scaffold-english` → `feat/bootstrap-ai-project` → `feat/export-shareable` (en orden; cada uno mergea a main antes del siguiente).
-- El hook `review-loop-trigger` dispara `/review-loop` en cada commit de feature branch: obedecerlo hasta que cierre.
-- El hook `alignment-gate` va a frenar el primer edit de código de la sesión: el trabajo YA está alineado (spec aprobado) — reintentar y seguir.
+Ejecuté `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md` con `superpowers:subagent-driven-development` (implementer + task-review por task, review-loop por slice, whole-branch review final). Todo mergeado a `main` por fast-forward:
 
-## Qué se hizo en esta sesión (2026-07-06)
+- **Slice 1 — `feat/scaffold-english`** (`dd27ab9..77b01ae`): anglicización de la prosa del scaffold canónico en las 2 skills (review-loop docs/comando, hooks, bullets de CLAUDE.md, issue-tracker, copy-scaffold). Nuevo `tests/mirror.tests.ps1` (guard de espejado). Fix typo `proceds→proceed`. Triggers `description:` español intactos (bilingües).
+- **Slice 2 — `feat/bootstrap-ai-project`** (`8df1b98..35b194e`): tercera skill `skills/bootstrap-ai-project` (copia de personal + 6 divergentes genericizados). `tools/leak-markers.txt` + `tests/shareable-leaks.tests.ps1`. `upgrade-bootstrap` genericizado (publicable). CLAUDE.md raíz: regla de espejado 2→3 skills.
+- **Slice 3 — `feat/export-shareable`** (`4d30449..a2313ee`): `tools/export-shareable.ps1` (copia limpia + gate anti-fuga) + `public/README.md` + `public/install.ps1` + `tests/export-shareable.tests.ps1`.
 
-1. **Brainstorming completo del "bootstrap compartible"** (frente #1 del roadmap) con decisiones aprobadas por el usuario.
-2. **Spec escrito y commiteado:** `docs/superpowers/specs/2026-07-06-bootstrap-compartible-design.md` (commit `6367e9e`).
-3. **Plan de implementación escrito y commiteado:** `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md` (commit `45f7389`) — 12 tasks en 3 slices + post-merge, con todo el contenido exacto (traducciones, scripts, tests) inline. Self-review pasado.
+**Fixes surgidos en los review-loops (más allá del plan):**
+- `tools/gen-manifest.ps1`: `variant` derivado del nombre (`bootstrap-ai-project`→`ai`; antes la heurística binaria lo dejaba `personal`).
+- `tests/mirror.tests.ps1`: hashea contenido **normalizado** (CRLF/CR→LF), robusto ante `core.autocrlf` (antes daba RED espurio).
+- `tools/export-shareable.ps1`: regenera el manifest **en el clon**, no en el repo fuente (ya no ensucia el working tree al correr el test).
 
-## Decisiones de diseño aprobadas (NO re-litigar)
+**Eval descartable (Task 12): PASÓ.** Deploy con `sync-skills` OK. Bootstrap de un proyecto temporal como tercero: 10 skills, hooks en inglés (`NOW`/`proceed`), `.gitignore` mapeado, `gitignore.txt` ausente, identidad git NO seteada por la skill, `CLAUDE.md` genericizado ("your issue tracker"), **0 marcadores de fuga**. Proyecto borrado.
 
-- **Audiencia:** terceros corren el bootstrap en su propia máquina → skill 100% autocontenida.
-- **Distribución:** repo público GitHub `MartinDele703/ai-project-bootstrap` (bootstrap + upgrade-bootstrap + README + install.ps1); actualizaciones vía git pull + re-install.
-- **Enfoque A:** tercera skill espejada `skills/bootstrap-ai-project` en este repo; el repo público es espejo de publicación vía `tools/export-shareable.ps1`. Se descartó parametrizar con flavors y el fork one-time.
-- **Zoho → genericizado** a "your issue tracker (GitHub Issues, Jira, Linear, …)"; tracker local `.scratch/` se preserva.
-- **Identidad git:** la skill nueva NO la toca (usa la global del tercero; si falta, pide configurarla y espera).
-- **Catálogo MCP compartible:** `firebase` + `github` (sin zoho-personal).
-- **Idioma:** inglés puro en prosa/cuerpo/mensajes, PERO **las frases-trigger en español de los frontmatter `description:` se conservan en las 3 variantes** (bilingües; decisión posterior al spec, refinada en el planning — prevalece sobre el "inglés puro" del spec para los triggers).
-- **Anglicización del canónico:** la prosa en español de los archivos compartidos del scaffold se traduce TAMBIÉN en personal y southpoint, para byte-identidad triple.
-- **Gate anti-fuga:** marcadores case-insensitive `zoho, domo, MartinDele703, martin.deleon, southpoint` en `tools/leak-markers.txt` (fuente única para test + export). El README público NO lleva URL absoluta del repo (dispararía el marcador MartinDele703).
-- **Plataforma v1:** pwsh 7+ requerido (cross-platform), sin port a bash.
+Suite completa (9 archivos en `tests/`): toda verde.
 
-## Datos técnicos descubiertos (importan al implementar)
+## Follow-up técnico DESCUBIERTO (pendiente, su propia tarea)
 
-- Las 2 skills existentes comparten 43/52 archivos byte-idénticos; divergen en 9 (SKILL.md, CLAUDE.md, 5 docs ai-workflow, gen-mcp-json.ps1, manifest).
-- `.claude/commands/review-loop.md` NO es byte-idéntico a `.agents/skills/review-loop/SKILL.md` → traducir por bloque en los 4 archivos (2 por skill), no copiar uno sobre otro.
-- `tests/review-loop-trigger.tests.ps1:35` asserta `"review-loop AHORA"` → la traducción del hook exige actualizar ese assert a `"review-loop NOW"` (el plan lo hace test-first).
-- `tests/alignment-gate.tests.ps1` asserta `deny` + `grill` → sobrevive a la traducción sin cambios.
-- El typo `proceds` está en el mensaje de `alignment-gate.ps1` (ambos scaffolds) — el plan lo corrige gratis en la traducción (follow-up Minor #4 del handoff anterior, queda cerrado).
-- `upgrade-bootstrap` lee `generatedFrom` del manifest → integra la tercera skill sin cambios estructurales; solo se genericiza su redacción (menciones a las 2 skills, heurística legacy línea 22, guardrail línea 75, 8 strings de scripts — tabla exacta en el plan).
-- El manifest del scaffold tiene campos `variant`, `generatedFrom`, `version`, `files` — el test del export asserta `generatedFrom -eq "bootstrap-ai-project"`.
-- `tools/sync-skills.ps1` y `tools/gen-manifest.ps1` operan sobre el glob `bootstrap-*-project` → la skill nueva obtiene manifest + deploy gratis.
-- Español en el scaffold: 31 ocurrencias acentuadas en 14 archivos + español sin acentos en hooks/copy-scaffold — el plan lista los reemplazos exactos; los `description:` con triggers en español NO se tocan.
+`core.autocrlf=true` + archivos que llegan por vías distintas (checkout=CRLF, Write de agente=LF) → los `.bootstrap-manifest.json` **commiteados tienen hashes mixtos LF/CRLF**. Consecuencia: `sync-skills.ps1` y `export-shareable.ps1` regeneran y dejan los 3 manifests modificados en **cada corrida** (fricción del flujo normal). NO es un leak; el export se auto-sana (regenera en el clon). **Fix sugerido:** `.gitattributes` normalizando el repo (`* text=auto eol=lf` o marcar el scaffold) + `git add --renormalize` + regenerar los 3 manifests + commitear. Blast radius alto → merece brainstorm + review propio, no apurarlo. (mirror ya quedó inmune vía hash normalizado.)
 
-## Tests
+## Auditoría de mejoras al scaffold (frente de mayor valor — COMPLETA)
 
-- Suite actual (6 archivos en `tests/`, runner sin Pester): todos pasaban al inicio de la sesión; no se tocó código en esta sesión (solo docs).
-- Tests nuevos que el plan crea: `mirror.tests.ps1` (Slice 1, guard — pasa de entrada), `shareable-leaks.tests.ps1` (Slice 2, RED→GREEN), `export-shareable.tests.ps1` (Slice 3, RED→GREEN). Se extiende `gen-mcp-json.tests.ps1`.
+Auditoría de ambos árboles (`C:\Repos\PERSONAL` — 8 repos; `C:\Repos\SOUTHPOINTLABS` — 7 repos) + skills user-level + los 2 findings del whole-branch review. **Backlog priorizado y de-riesgado en `docs/superpowers/notes/2026-07-06-auditoria-mejoras-scaffold.md`** — NO implementado (alimenta grill → PRD → slices; Martín decide). Highlights:
 
-## Pendientes / TODOs
+- **A1 (correctness, el más importante):** hashing normalizado en `gen-manifest`/`compare-scaffold`/`reseal-manifest` — hoy hashean bytes crudos → bajo autocrlf rompen la comparación de `upgrade-bootstrap` para consumidores del repo público + ensucian los manifests en cada `sync`/`export`. Su propia mini-feature con test (patrón ya usado en `mirror.tests.ps1`). Ver [[bug-autocrlf-manifests-hashes-mixtos]].
+- **Quick wins (convergen en ambos árboles):** hard rule "secretos con `${ENV_VAR}`, nunca literales" (se encontraron 2 secretos reales hardcodeados: `Linkedin/.mcp.json`, `Project Management Migration` — **rotar aparte**); Firebase MCP en el catálogo de personal/southpoint; doc de convención `skills-lock.json`; "definition of tested" en QA_CHECKLIST.
+- **Bundlear:** `verify-downstream-arrival` + `debug-source-first` (con scrub de secciones DOMO).
+- **Templates:** runbook `[CLAUDE]`/`[HUMANO]`, decision-log de stakeholders, estimation-guide (scrub alto), design-master-prompt.
+- **Sistémico:** drift del scaffold — pasada de `upgrade-bootstrap` por repos viejos (la mayoría sin `alignment-gate`).
+- **NO bundlear:** `scaffold-e2e-suite` (pesada), `bootstrap-multistage-project` (compite + leaks) — minar 2 ideas: sección branching-model + convención de nombres fechados.
 
-1. Ejecutar el plan (3 slices + Task 12 post-merge: sync-skills + eval descartable + limpieza).
-2. Pushear `main` a origin (cuenta southpointtech) cuando el usuario quiera.
-3. **Export real al repo público = paso MANUAL del usuario** (crear `MartinDele703/ai-project-bootstrap` en GitHub, clonar, correr export, revisar diff, push con MartinDele703). NO hacerlo sin que lo pida.
-4. Follow-ups Minor previos (handoff 2026-07-05): quedan 1, 2, 3 y 5 (el 4, typo proceds, lo cierra el Slice 1).
-5. Roadmap tras esta feature: descubrir skills/loops nuevos auditando ambos árboles de repos → mejoras generales del scaffold.
-6. Externo: Forecasting App y KBS siguen pendientes de upgrade/bootstrap. Tras mergear esta feature, este repo y los demás verán los archivos traducidos como `outdated-safe` en su próximo `/upgrade-bootstrap` (esperado).
+**Además, cierre de calidad post-review (commiteado en `main`):** traducción de prosa/comentarios español residuales en las skills publicadas (`bootstrap-ai-project/SKILL.md:87` + comentarios de los 3 scripts de `upgrade-bootstrap`) que se colaban por los gates automáticos.
 
 ## Reglas del repo (no olvidar)
 
 - Editar skills acá NO tiene efecto hasta `tools\sync-skills.ps1`.
 - Manifest generado, nunca a mano (`tools/gen-manifest.ps1`). Rastros de testeo se borran.
-- Identidad git local de ESTE repo: MartinDele703; push a origin: solo cuenta `southpointtech` (MartinDele703 da 403).
-- Espejado: tras el Slice 2 son TRES skills espejadas; `tests/mirror.tests.ps1` lo verifica determinísticamente.
-- La copia del Step 2 vive en `skills/*/scripts/copy-scaffold.ps1` — NO volver a `Copy-Item <dir> -Recurse` ni wildcard.
-- Commits en español estilo conventional (`feat(...)`, `docs(...)`, `test(...)`).
-
-## Próximos 3 pasos recomendados
-
-1. Invocar `superpowers:subagent-driven-development` con el plan `docs/superpowers/plans/2026-07-06-bootstrap-compartible.md`, empezando por Slice 1 (`feat/scaffold-english`, Tasks 1–4).
-2. Al cerrar cada slice: review-loop limpio → merge a main → borrar branch → siguiente slice.
-3. Post-merge del Slice 3: Task 12 (deploy + eval descartable + reporte al usuario para el export manual).
+- Identidad git local de ESTE repo: MartinDele703; push a origin: solo `southpointtech`.
+- Ahora son **TRES** skills espejadas; `tests/mirror.tests.ps1` (contenido normalizado) + `tests/shareable-leaks.tests.ps1` lo verifican.
+- Commits español conventional (`feat/docs/test/fix(...)`).
