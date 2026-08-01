@@ -9,7 +9,7 @@ Running `bootstrap-ai-project` inside a project directory installs:
 - **`CLAUDE.md`** — an 8-step operating workflow: alignment → PRD → vertical slices → task formatting → TDD → QA → clean-context review → human approval.
 - **`docs/ai-workflow/`** — the workflow docs: PRD and task templates, QA checklist, deployment rules.
 - **`docs/agents/`** — agent conventions: local issue tracker, triage labels, domain docs.
-- **10 custom skills** (`.agents/skills/`) — grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop, and a skills setup helper.
+- **11 custom skills** (`.agents/skills/`) — grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop, slice-review (a local multi-agent code reviewer the agent can actually launch), and a skills setup helper.
 - **2 hooks** (`.claude/hooks/`) — `review-loop-trigger` (auto-runs an iterative code-review loop every time you commit a slice on a feature branch) and `alignment-gate` (stops the first code edit of a session and offers to align on requirements first).
 - **`.bootstrap-manifest.json`** — a version manifest so `upgrade-bootstrap` can bring future scaffold improvements without clobbering your customizations.
 

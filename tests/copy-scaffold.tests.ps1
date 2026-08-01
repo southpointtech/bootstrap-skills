@@ -27,7 +27,7 @@ Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "cs-test-*" | Remove
 # 1. Destino vacío: aterriza completo, sin anidamientos, gitignore.txt renombrado
 $t = New-Proj
 Invoke-Copy $t
-Assert ((Get-ChildItem "$t\.agents\skills" -Directory).Count -eq 10) "destino vacío: .agents/skills tiene 10 skills"
+Assert ((Get-ChildItem "$t\.agents\skills" -Directory).Count -eq 11) "destino vacío: .agents/skills tiene 11 skills"
 Assert (-not (Test-Path "$t\.agents\.agents") -and -not (Test-Path "$t\.claude\.claude")) "destino vacío: sin .agents/.agents ni .claude/.claude"
 Assert ((Test-Path "$t\.gitignore") -and -not (Test-Path "$t\gitignore.txt")) "gitignore.txt aterriza como .gitignore"
 $srcGi = Get-Content "$skillP\assets\scaffold\gitignore.txt" -Raw

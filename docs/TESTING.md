@@ -45,12 +45,21 @@ Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el pl
 
 La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en ambas skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Casos cubiertos:
 
-- **Destino vacío** — aterrizan los 48 archivos, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
+- **Destino vacío** — aterrizan los 50 archivos (11 skills en `.agents/skills`), sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
 - **Regresión `docs/docs`** — `docs/` y `docs/agents/` preexistentes en el proyecto → el contenido se mergea (sin anidar) y los archivos propios quedan intactos (gotcha del self-bootstrap 2026-06-23).
 - **Dot-dirs preexistentes** — `.claude/` con archivos propios → merge sin anidar ni pisar lo ajeno.
 - **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica del Step 2; en adopción el original ya está stasheado).
 - **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards).
 - **Espejado** — los dos `copy-scaffold.ps1` son byte-idénticos (hash SHA256).
+
+## Testeo del motor del review-loop (`/slice-review`)
+
+El paso 1 del loop tiene que ser **invocable por el agente**. El built-in `/code-review` está marcado `disable-model-invocation` (falla con `Skill code-review cannot be used with Skill tool`), así que un loop apoyado en él nunca cierra solo: el hook `review-loop-trigger` ordena algo imposible de cumplir y el slice termina reportado como "revisado" sin que haya corrido ningún reviewer. Por eso el scaffold trae `/slice-review` (reviewer multi-agente sobre el diff local). Runner: `pwsh -NoProfile -File tests/slice-review.tests.ps1`. Casos cubiertos, en las tres skills bootstrap:
+
+- **Existencia del par** — `.claude/commands/slice-review.md` y `.agents/skills/slice-review/SKILL.md` presentes.
+- **Invocabilidad** — ambos declaran `description` en el frontmatter y **ninguno** setea `disable-model-invocation: true`.
+- **Regresión a `/code-review`** — ningún archivo del par (ni el de `review-loop`) *ordena* correr `/code-review`; mencionarlo para explicar por qué no se usa sí está permitido.
+- **Paso 1 del loop** — `review-loop` (command y SKILL.md) corre `/slice-review` como primer paso.
 
 ## Testeo del hook `review-loop-trigger` y del merge de settings
 

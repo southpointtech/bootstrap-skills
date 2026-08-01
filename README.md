@@ -86,7 +86,7 @@ Both bootstrap skills land the same operating model:
 - **`docs/ai-workflow/`** — the workflow documentation the CLAUDE.md references.
 - **`docs/agents/`** — agent conventions (local issue tracker, triage labels, domain docs).
 - **Custom Claude Code skills** — `grill-me`, `grill-with-docs`, `tdd`, `to-prd`, `to-issues`,
-  `triage`, `handoff`, `zoom-out`, `review-loop` and their commands.
+  `triage`, `handoff`, `zoom-out`, `review-loop`, `slice-review` and their commands.
 - **A configured git repository** — `main` branch, correct identity, an initial scaffolding commit,
   and a `.bootstrap-manifest.json` so the project can later be upgraded safely.
 
@@ -112,7 +112,7 @@ assumes you remember the next step.
 | **4** | **Task formatting** | Each slice becomes a task ready to paste into **Zoho Projects**: title, description, acceptance criteria, dependencies, test plan, deployment target, estimated complexity, affected area (DOMO / Firebase / Azure / Playwright / docs / config). | `/to-issues`, `/triage` |
 | **5** | **Test-first implementation** | **One slice at a time.** TDD when practical (red → green → refactor), Playwright tests for UI changes. Focused changes only — no touching unrelated files, no deploying. | `/tdd` |
 | **6** | **Automated QA** | Before anything is called "done": unit tests, type checks, lint, Playwright, and the manual QA checklist. If a check can't run, Claude has to say why. | QA checklist |
-| **7** | **Clean-context review** | A second review from a **fresh context** (so the author's blind spots don't carry over): `/code-review` → fix only real findings → re-review, looping until no medium/high-severity findings remain. | `/review-loop` |
+| **7** | **Clean-context review** | A second review from a **fresh context** (so the author's blind spots don't carry over): `/slice-review` → fix only real findings → re-review, looping until no medium/high-severity findings remain. | `/review-loop` |
 | **8** | **Human approval** | **Nothing ships without a person.** No deploy to DOMO / Firebase / Azure, and no change to secrets, production config, or Firestore rules, happens without explicit human sign-off. | (human) |
 
 **Why vertical slices?** A slice that delivers one thin end-to-end behavior can be tested, reviewed,
@@ -126,9 +126,14 @@ Step 7 deserves its own spotlight, because it's what takes a change from "it wor
 review-passing code**. The **`review-loop`** skill runs a tight cycle:
 
 ```
-/code-review on the diff  →  fix ONLY the real findings  →  re-review  →  repeat
-                          until no medium/high-severity findings remain (hard cap: 5 turns)
+/slice-review on the diff  →  fix ONLY the real findings  →  re-review  →  repeat
+                           until no medium/high-severity findings remain (hard cap: 5 turns)
 ```
+
+The reviewer is **`/slice-review`**, a multi-agent reviewer over the *local* diff (parallel reviewers
+with distinct focus areas, then a confidence pass that drops false positives). It exists because
+Claude Code's built-in `/code-review` is marked `disable-model-invocation` — only a human can type
+it — so a loop built on it can never close by itself.
 
 What makes it more than "just run a review":
 
