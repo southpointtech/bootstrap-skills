@@ -1,6 +1,24 @@
-# Session Handoff — 2026-07-06 (bootstrap compartible EJECUTADO + auditoría de mejoras al scaffold)
+# Session Handoff — 2026-08-01 (fix: el review-loop no podía cerrarse solo)
 
-## ▶▶ PRIORIDAD AL RETOMAR (nueva terminal)
+## ▶▶ ESTADO AL RETOMAR (sesión 2026-08-01)
+
+Rama **`fix/review-loop-motor-invocable`**, commit **`8cc6e9e`**, working tree limpio. **Sin mergear a `main` y sin pushear.**
+
+**El bug:** el built-in `/code-review` está marcado `disable-model-invocation` — solo lo puede tipear un humano (`Skill code-review cannot be used with Skill tool`). Era el paso 1 del `review-loop`, así que **el loop nunca podía cerrarse solo**: el hook `review-loop-trigger` ordenaba en cada commit algo imposible de cumplir, y un slice podía terminar reportado como "revisado" sin reviewer. Lo detectó Martín en `C:\Repos\Outsourcing Development`, pero la causa estaba en el scaffold: lo heredaban todos los proyectos bootstrapeados.
+
+**El fix:** nuevo comando **`/slice-review`** (command + SKILL.md, espejado en las 3 skills bootstrap y en el propio repo) — reviewer multi-agente sobre el diff **local**: reviewers en paralelo (bugs, reglas del CLAUDE.md, historia del código, contratos/callers, tests) + pase de confianza 0-100 que descarta findings < 60. Los comandos custom **sí** son invocables por el modelo; ese es todo el truco. `tests/slice-review.tests.ps1` blinda la regresión (verificado que falla al revertir el paso 1). Suite: **10/10 verde**. Manifests regenerados + manifest del repo resellado.
+
+**Pendientes de esta sesión, en orden:**
+
+1. **`/review-loop` sobre `main...HEAD`** — este diff **todavía no pasó por ningún reviewer**. No darlo por revisado.
+2. **Merge a `main`** una vez limpio (y push con cuenta `southpointtech`; MartinDele703 da 403 acá).
+3. **`tools/sync-skills.ps1`** — hasta que no corra, un bootstrap nuevo sigue instalando la versión rota.
+4. **Outsourcing Development**: ya tiene el fix aplicado a mano y funcionando. Después del deploy conviene correr `upgrade-bootstrap` ahí para que el manifest selle esos archivos como canónicos en vez de marcarlos "customized".
+5. **Resto de proyectos bootstrapeados** (Forecasting App, etc.): necesitan `upgrade-bootstrap`.
+
+Reapareció el bug conocido de `core.autocrlf` (los archivos nuevos quedaron LF en el working tree, CRLF en el próximo checkout) — los hashes de los manifests siguen sin normalizar. No se tocó en esta sesión.
+
+## ▶▶ PRIORIDAD ANTERIOR — SIGUE PENDIENTE (2026-07-06, nueva terminal)
 
 El usuario quiere que le **expliques la auditoría del scaffold en lenguaje llano, conversando**, no que sigas con implementación. El documento técnico le resultó demasiado técnico. Arrancá así:
 
