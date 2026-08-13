@@ -107,6 +107,12 @@ foreach ($r in $roots) {
   if (Test-Path -LiteralPath $hook) {
     $htxt = [IO.File]::ReadAllText($hook)
     Assert ($htxt -match 'review-marker\.ps1') "$($r.Name): el hook manda el rango al marcador"
+    # El cierre de slice es un acto DECLARADO: sin el trailer, un commit cualquiera no dispara.
+    Assert ($htxt -match 'Slice-Close:') "$($r.Name): el hook exige el trailer Slice-Close en un commit"
+    # ...pero olvidarse del trailer no puede dejar un slice gigante sin revisar.
+    Assert ($htxt -match '(?m)-le\s+400') "$($r.Name): el hook conserva la red de seguridad del techo"
+    # El evento trae el cwd de la SESIÓN, no el directorio donde corrió el comando.
+    Assert ($htxt -match '--format=%ct') "$($r.Name): el hook verifica que el commit ocurrió en ESTE repo"
   }
 }
 

@@ -55,22 +55,63 @@ if (-not $base) { exit 0 }
 # 5. Never review the base against itself (the base may be a remote-tracking ref)
 if (($branch -eq $base) -or ($base -eq "origin/$branch")) { exit 0 }
 
-# 6. Dedupe by the branch HEAD SHA
+# 6. A commit fires only when the slice close is DECLARED with a `Slice-Close:` trailer.
+# The trailer is read from the commit that was just created, not parsed out of the command line,
+# so it works the same for `-m`, `-F file`, a heredoc or `--amend`.
+if ($isCommit) {
+    # The event carries the SESSION cwd, not the directory the command ran in: a `git commit`
+    # inside another repo would otherwise be attributed to this one. If this repo's HEAD is not
+    # fresh, the commit happened somewhere else.
+    $ct = (git log -1 --format=%ct 2>$null)
+    if (-not $ct) { exit 0 }
+    if (([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$ct) -gt 120) { exit 0 }
+
+    $body = ((git log -1 --format=%B 2>$null) -join "`n")
+    if ($body -notmatch '(?m)^\s*Slice-Close:') {
+        # Safety net: forgetting the trailer must not leave a huge slice unreviewed. If the
+        # UNREVIEWED delta is already over the ~400-line guide of CLAUDE.md, fire anyway.
+        $range = $null
+        $root = (git rev-parse --show-toplevel 2>$null)
+        if ($root) {
+            $marker = Join-Path $root ".claude/scripts/review-marker.ps1"
+            if (Test-Path -LiteralPath $marker) {
+                $r = (& pwsh -NoProfile -File $marker -Action range -RepoDir $root 2>$null)
+                if ($LASTEXITCODE -eq 0 -and $r) { $range = ([string]$r).Trim() }
+            }
+        }
+        # No marker (older scaffold) or no marker range yet: fall back to the branch range.
+        if (-not $range) { $range = "$base...HEAD" }
+        $lines = 0
+        foreach ($row in (git diff --numstat $range 2>$null)) {
+            $cols = ($row -split "`t")
+            if ($cols.Count -ge 2) {
+                foreach ($n in $cols[0..1]) { if ($n -match '^\d+$') { $lines += [int]$n } }
+            }
+        }
+        if ($lines -le 400) { exit 0 }
+    }
+}
+
+# 7. Dedupe by the branch HEAD SHA
 $sha = (git rev-parse HEAD 2>$null)
 if (-not $sha) { exit 0 }
 $statePath = Join-Path $gitDir "review-loop-state.json"
 $state = @{}
+# Same file the review marker writes. Read and write it as UTF-8 explicitly: Get-Content /
+# Set-Content use the ANSI code page under Windows PowerShell 5.1, which turns the marker's
+# accented untracked fingerprint into mojibake and leaves that branch unable to ever close.
 if (Test-Path $statePath) {
     try {
-        (Get-Content $statePath -Raw | ConvertFrom-Json).PSObject.Properties |
+        ([IO.File]::ReadAllText($statePath) | ConvertFrom-Json).PSObject.Properties |
             ForEach-Object { $state[$_.Name] = $_.Value }
     } catch { $state = @{} }
 }
 if ($state[$branch] -eq $sha) { exit 0 }     # already fired for this commit
 $state[$branch] = $sha
-([pscustomobject]$state) | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
+$json = ([pscustomobject]$state) | ConvertTo-Json -Depth 6
+[IO.File]::WriteAllText($statePath, $json, (New-Object Text.UTF8Encoding($false)))
 
-# 7. Inject the instruction to Claude
+# 8. Inject the instruction to Claude
 $msg = "You just closed a commit/slice on branch '$branch' (base '$base'). " +
        "Run /review-loop NOW over the slice diff. Do not ask whether to run it: run it. " +
        "The range comes from the marker ('.claude/scripts/review-marker.ps1 -Action range'), not from the whole branch: " +
