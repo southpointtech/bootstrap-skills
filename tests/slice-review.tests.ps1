@@ -46,12 +46,14 @@ foreach ($s in $skills) {
     }
   }
 
-  # El paso 1 del loop tiene que apuntar al reviewer invocable.
+  # La corrida de review del loop tiene que apuntar al reviewer invocable. El número de paso no
+  # se fija acá: desde el review incremental, el paso 1 es pedirle el rango al marcador y la
+  # corrida de review es el paso 2. Lo que este test blinda es el MOTOR, no el orden.
   foreach ($f in $pairs["review-loop"]) {
     $rel = $f.Substring($s.FullName.Length).TrimStart('\')
     if (-not (Test-Path -LiteralPath $f)) { continue }
     $txt = [IO.File]::ReadAllText($f)
-    Assert ($txt -match '(?m)^1\. Run `/slice-review`') "$($s.Name): $rel corre /slice-review en el paso 1 del loop"
+    Assert ($txt -match '(?m)^\d+\. Run `/slice-review`') "$($s.Name): $rel corre /slice-review como paso numerado del loop"
   }
 }
 
