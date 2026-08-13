@@ -37,7 +37,7 @@ Summarize the JSON grouped by category, with counts. Be explicit about what each
 
 Get explicit approval before writing anything. Then:
 
-- **missing** → copy from the canonical scaffold into the project (same relative path). Special case: the canonical key `.gitignore` is sourced from `gitignore.txt` in the scaffold. Special case `.claude/settings.json`: copy it only if absent; if the project already has its own, treat it as the `settings.json` merge below instead of a plain copy.
+- **missing** → copy from the canonical scaffold into the project (same relative path), creating the parent directory first if it does not exist — the scaffold does add new directories (`.claude/scripts/`), and a plain copy into a missing parent fails. Special case: the canonical key `.gitignore` is sourced from `gitignore.txt` in the scaffold. Special case `.claude/settings.json`: copy it only if absent; if the project already has its own, treat it as the `settings.json` merge below instead of a plain copy.
 - **outdated** → overwrite the project file with the canonical version.
 - **customized / different** → show the diff (canonical vs project). Offer, per file: skip (keep yours), or an assisted merge where you help integrate the new bits into the user's version. Never overwrite without per-file consent. **Special case `.claude/settings.json`:** do NOT diff-merge by hand — run `merge-settings.ps1` (below), which adds every missing canonical hook (`review-loop-trigger`, `alignment-gate`, and any future ones) idempotently without touching the rest of the user's config.
 - **orphan** → list only; do not delete. Mention the user can remove them by hand.

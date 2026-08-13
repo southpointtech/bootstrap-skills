@@ -31,7 +31,14 @@ $base = $null
 if ($isPr -and $cmd -match '--base[ =]+([^\s''"]+)') { $base = $matches[1] }
 if (-not $base) {
     $head = (git symbolic-ref --short refs/remotes/origin/HEAD 2>$null)
-    if ($head) { $base = ($head -replace '^origin/', '') }
+    if ($head) {
+        # Strip `origin/` only if the local branch actually exists. A single-branch clone has
+        # `origin/main` and no local `main`, and the stripped name would make the fallback range
+        # this hook suggests (`git diff <base>...HEAD`) fail.
+        $short = ($head -replace '^origin/', '')
+        git rev-parse --verify --quiet "$short^{commit}" 2>$null | Out-Null
+        $base = if ($LASTEXITCODE -eq 0) { $short } else { ([string]$head).Trim() }
+    }
 }
 if (-not $base) {
     $def = (gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>$null)
@@ -45,8 +52,8 @@ if (-not $base) {
 }
 if (-not $base) { exit 0 }
 
-# 5. Never review the base against itself
-if ($branch -eq $base) { exit 0 }
+# 5. Never review the base against itself (the base may be a remote-tracking ref)
+if (($branch -eq $base) -or ($base -eq "origin/$branch")) { exit 0 }
 
 # 6. Dedupe by the branch HEAD SHA
 $sha = (git rev-parse HEAD 2>$null)
@@ -66,7 +73,8 @@ $state[$branch] = $sha
 # 7. Inject the instruction to Claude
 $msg = "You just closed a commit/slice on branch '$branch' (base '$base'). " +
        "Run /review-loop NOW over the slice diff. Do not ask whether to run it: run it. " +
-       "Use 'git diff $base...HEAD' if the branch has a resolvable base, or the last commit's diff in local repos. " +
+       "The range comes from the marker ('.claude/scripts/review-marker.ps1 -Action range'), not from the whole branch: " +
+       "only if that script is missing, use 'git diff $base...HEAD'. " +
        "Do not mark the work complete until the loop closes (zero medium/high-severity findings, or the 5-turn cap)."
 @{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
     ConvertTo-Json -Depth 4 -Compress

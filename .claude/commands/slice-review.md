@@ -1,6 +1,6 @@
 ---
 description: Run a multi-agent code review over a local diff (no PR or remote required) and report findings by severity with a confidence pass that filters false positives. Use as step 1 of the review-loop, or standalone to review a finished slice.
-argument-hint: [diff range, e.g. main...HEAD — defaults to the working tree]
+argument-hint: [diff range — a bare ref from the review marker, or e.g. main...HEAD; defaults to the working tree]
 ---
 
 # Slice Review
@@ -15,8 +15,21 @@ confidence pass before it reaches the report. That second pass is what keeps the
 
 ## Step 1 — Resolve what to review
 
-Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`).
-Otherwise pick the first that applies:
+Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
+ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
+came from `/review-loop`'s marker it is a `git stash create` object whose first parent is HEAD, so
+`git diff <ref>..HEAD` prints the working-tree changes **inverted**: you would review a reversed
+diff and report it clean. `git diff <bare ref>` is the whole contract.
+
+**New files are not in the diff.** `git diff` never shows untracked files, so a range alone can
+hide the whole point of the change — the loop's fix step writes a brand-new test file, which is
+untracked until someone commits it. List them and review their contents too:
+
+```powershell
+git -c core.quotepath=false ls-files --others --exclude-standard    # from the repo root
+```
+
+Without arguments, pick the first that applies:
 
 1. Uncommitted work exists (`git status --porcelain` is non-empty) → review the working tree:
    `git diff HEAD`
@@ -28,7 +41,9 @@ State the resolved target out loud before reviewing. Getting the base wrong is t
 failure of this command: on long-lived branches `main...HEAD` can drag in commits from earlier
 slices. If the range looks bigger than the slice you just closed, use the real base of the slice.
 
-If the resolved diff is empty, stop and report "nothing to review" — do not invent a target.
+If the resolved diff is empty **and there are no untracked files**, stop and report "nothing to
+review" — do not invent a target. An empty diff with untracked files present is not nothing: it is
+the normal shape of a change made entirely of new files.
 
 ## Step 2 — Pre-flight
 
@@ -47,7 +62,8 @@ findings — there is nothing to review.
 
 Collect this and hand it to every reviewer, so none of them re-derives it:
 
-- The diff itself (`git diff <range>`).
+- The diff itself (`git diff <range>`), **plus the contents of the untracked files** — they are
+  part of the change and appear in no diff.
 - The list of changed files.
 - Paths of the relevant `CLAUDE.md` files: the root one, plus any in the directories touched.
 - The slice's intent: the task/PRD/commit message it implements.

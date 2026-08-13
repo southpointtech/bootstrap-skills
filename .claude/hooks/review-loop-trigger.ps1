@@ -31,7 +31,14 @@ $base = $null
 if ($isPr -and $cmd -match '--base[ =]+([^\s''"]+)') { $base = $matches[1] }
 if (-not $base) {
     $head = (git symbolic-ref --short refs/remotes/origin/HEAD 2>$null)
-    if ($head) { $base = ($head -replace '^origin/', '') }
+    if ($head) {
+        # Pelar `origin/` solo si la rama local existe de verdad. Un clon de una sola rama tiene
+        # `origin/main` y ningún `main` local, y con el nombre pelado falla el rango de fallback
+        # que este hook sugiere (`git diff <base>...HEAD`).
+        $short = ($head -replace '^origin/', '')
+        git rev-parse --verify --quiet "$short^{commit}" 2>$null | Out-Null
+        $base = if ($LASTEXITCODE -eq 0) { $short } else { ([string]$head).Trim() }
+    }
 }
 if (-not $base) {
     $def = (gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>$null)
@@ -45,8 +52,8 @@ if (-not $base) {
 }
 if (-not $base) { exit 0 }
 
-# 5. No revisar la base contra sí misma
-if ($branch -eq $base) { exit 0 }
+# 5. No revisar la base contra sí misma (la base puede ser un ref remoto)
+if (($branch -eq $base) -or ($base -eq "origin/$branch")) { exit 0 }
 
 # 6. Dedupe por SHA del HEAD del branch
 $sha = (git rev-parse HEAD 2>$null)
@@ -66,7 +73,8 @@ $state[$branch] = $sha
 # 7. Inyectar la instrucción a Claude
 $msg = "Cerraste un commit/slice en el branch '$branch' (base '$base'). " +
        "Ejecuta /review-loop AHORA sobre el diff del slice. No preguntes si querés correrlo: corrélo. " +
-       "Usá 'git diff $base...HEAD' si el branch tiene base resoluble, o el diff del ultimo commit en repos locales. " +
+       "El rango sale del marcador ('.claude/scripts/review-marker.ps1 -Action range'), no del branch entero: " +
+       "solo si ese script no existe, usá 'git diff $base...HEAD'. " +
        "No marques el trabajo como completo hasta que el loop cierre (cero hallazgos de severidad media/alta, o el tope de 5 turnos)."
 @{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
     ConvertTo-Json -Depth 4 -Compress

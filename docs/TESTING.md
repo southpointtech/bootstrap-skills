@@ -59,7 +59,38 @@ El paso 1 del loop tiene que ser **invocable por el agente**. El built-in `/code
 - **Existencia del par** — `.claude/commands/slice-review.md` y `.agents/skills/slice-review/SKILL.md` presentes.
 - **Invocabilidad** — ambos declaran `description` en el frontmatter y **ninguno** setea `disable-model-invocation: true`.
 - **Regresión a `/code-review`** — ningún archivo del par (ni el de `review-loop`) *ordena* correr `/code-review`; mencionarlo para explicar por qué no se usa sí está permitido.
-- **Paso 1 del loop** — `review-loop` (command y SKILL.md) corre `/slice-review` como primer paso.
+- **El motor del loop** — `review-loop` (command y SKILL.md) corre `/slice-review` como paso numerado. El assert no fija el número: desde el turno incremental el paso 1 es pedirle el rango al marcador y la corrida de review es el paso 2. Lo que se blinda es el motor, no su posición.
+
+## Testeo del marcador de revisión y del turno incremental
+
+El loop revisa el **delta sin revisar**, no el rango completo de la rama en cada turno. Dos runners lo cubren.
+
+`pwsh -NoProfile -File tests/review-marker.tests.ps1` — el script `.claude/scripts/review-marker.ps1` sobre repos git temporales (runner sin Pester). Casos cubiertos:
+
+- **Los tres verbos** — `advance` fija un punto de corte resoluble, `get` lo devuelve, `range` dice qué pasarle a `git diff`.
+- **`advance` es no-invasivo** — no commitea, no mueve HEAD, no toca el árbol de trabajo, y el árbol sucio entra en el punto de corte (`git stash create`, no `rev-parse HEAD`).
+- **El rango no repite lo ya revisado** y sí trae el delta nuevo, incluidos los fixes **sin commitear** y los **archivos nuevos sin trackear** (que `git diff` nunca muestra).
+- **Base del slice** — sale de la rama remota cuando no hay rama local con ese nombre (un clon de una sola rama tiene `origin/main` y ningún `main`); sobre la propia rama base cae a HEAD para cubrir lo no commiteado.
+- **Exit codes** — vacío + 0 es "no hay delta"; vacío + **2** es "no puedo determinar el rango". Con fixture: fuera de repo, detached HEAD y repo cuya única ref es la rama actual. Sin fixture (verificado a mano, no cubierto): repo sin commits. Confundir los dos códigos es lo que hace que un slice se reporte revisado sin reviewer.
+- **La base no se llama siempre `main`** — si no resuelve ninguno de los nombres usuales (base `trunk`, `dev`, `release`), entran las demás refs y la base es el ancestro común **más lejano** de todas: una rama hermana nacida a mitad del slice está más cerca que la base real, y elegirla haría perder los commits anteriores. Con una sola ref en el repo (o una rama huérfana) el rango da exit 2 en vez de emitir HEAD.
+- **Un candidato que ya contiene HEAD no gana la elección de base** — con la rama mergeada a `develop` y trabajo que sigue encima, `merge-base develop HEAD` es HEAD y su distancia es 0, así que en una comparación "gana el más cercano" gana siempre y la base colapsa a HEAD: `git diff HEAD` deja de mostrar los commits del slice, con exit 0. HEAD queda como último recurso, nunca por delante de un candidato con delta commiteado.
+- **El estado cruza shells** — lo escribe `pwsh` 7 y lo lee Windows PowerShell 5.1 sin corromperse. Sus defaults de encoding discrepan (BOM sí/no, y `Get-Content -Raw` cae en la code page ANSI), y con eso la huella de un untracked acentuado no vuelve a matchear nunca: esa rama ya no puede cerrar el loop por "no hay delta".
+
+**Lo que este archivo de tests NO cubre** (verificado por mutación, no inferido — los mutantes sobreviven con la suite en verde):
+
+- Entre **dos** nombres conocidos con merge-base distinto, que gane el **más cercano**: invertir la comparación a "más lejano" no pone nada en rojo. Ningún fixture tiene dos candidatos nombrados que difieran.
+- El **fallback pairwise** para historias no relacionadas (cuando `merge-base --octopus` falla): reemplazarlo por `return $null` no pone nada en rojo.
+- Que **HEAD entre en el `--octopus`**: sacarlo no pone nada en rojo, aunque sin él el rango puede arrancar en un commit que no es ancestro de HEAD y mostrarle al reviewer cambios ajenos con exit 0.
+- El fixture del **upstream pusheado con otro nombre** pasa por el camino de nombres conocidos (`git clone` deja `origin/HEAD → origin/trunk`), así que `Get-OtherRefs` nunca corre: el resultado es correcto, pero por el camino equivocado.
+- Que la clave de la huella de untracked sea **por rama** (`untracked:<rama>`): con una clave global, la huella de una rama tapa el archivo nuevo de otra y el rango queda vacío.
+- El **exit code de `get`** cuando todavía no hay marcador (el header del script lo declara como contrato).
+- Los dos guards de `advance` (forma del sha y exit code de `git stash create`) **se tapan mutuamente**: cada uno sobrevive solo; sólo mueren juntos.
+- **Untracked desde el marcador** — un archivo sin trackear que el marcador ya cubrió no vuelve a contar como delta (`advance` guarda su huella junto al marcador); uno nuevo sí. Sin eso el rango nunca vuelve a quedar vacío y el loop no puede cerrar por "no hay delta".
+- **`advance` nunca persiste basura** — durante un merge conflictivo `git stash create` falla escribiendo `<archivo>: needs merge` en STDOUT; se validan el exit code y la forma del sha.
+- **Marcador podado por `git gc`** → cae a la base del slice (el fixture verifica que la poda ocurrió de verdad).
+- **Coexistencia con el hook** — el estado vive en `<git-dir>/review-loop-state.json` bajo `marker:<rama>`, no ensucia el árbol ni el diff del slice, y no pisa el dedupe por SHA del disparo.
+
+`pwsh -NoProfile -File tests/review-loop-incremental.tests.ps1` — el contrato en las **cuatro** copias (3 skills + este repo): que las instrucciones usen el marcador, distingan el exit 2, exijan RED en los fixes, y que el **orden** sea range → corrida de review → `advance` → fixes (verificado por posición, no por presencia: un doc que avanzara al final pasaba todos los asserts de presencia). Incluye el hash normalizado de las 4 copias del script, porque `mirror.tests.ps1` compara solo las 3 skills entre sí y la copia de este repo — la que corre acá — no entra en ninguna comparación.
 
 ## Testeo del hook `review-loop-trigger` y del merge de settings
 

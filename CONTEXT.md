@@ -70,15 +70,24 @@ Cuando se dice "corré el review", se habla de `/review-loop`. Cuando se dice "e
 
 **"turno" no es "corrida de review"**: un turno incluye los fixes y su verificación; la corrida es solo la parte que revisa.
 
+## Estado de implementación de los términos
+
+El glosario define el vocabulario **decidido**, que no es lo mismo que shippeado. Hoy están
+implementados el **marcador de revisión**, el **delta sin revisar**, el **turno** incremental y el
+**pase de confianza**. Siguen decididos pero **sin implementar**: el **trailer de cierre** — la
+línea `Slice-Close:` en el mensaje del commit con la que el **cierre de slice** va a pasar a
+declararse a mano, en lugar de que el hook dispare en cada commit —, el **pase de coherencia** y la
+**mutación acotada**. El diálogo de abajo habla del diseño completo, no del comportamiento de hoy.
+
 ## Example dialogue
 
 > **Dev**: Cerré el slice del formulario. ¿Corro el review?
 >
-> **Domain expert**: Si lo cerraste, el trailer de cierre ya disparó el loop. El primer turno revisa el delta sin revisar, no el slice entero.
+> **Domain expert**: Si lo cerraste, el disparo ya pidió el loop. El primer turno revisa el delta sin revisar, no el slice entero.
 >
 > **Dev**: ¿Y por qué no el slice entero, si el slice es la unidad?
 >
-> **Domain expert**: Porque el slice entero ya lo mira el pase de coherencia, una vez y sin ejecutar nada. Si cada turno revisara todo, pagarías la mutación acotada y los cinco focos de nuevo sobre código que ya pasó.
+> **Domain expert**: Porque el slice entero lo va a mirar el pase de coherencia, una vez y sin ejecutar nada. Si cada turno revisara todo, pagarías la mutación acotada y los cinco focos de nuevo sobre código que ya pasó.
 >
 > **Dev**: El reviewer de tests me marcó que un assert no tiene dientes. ¿Lo arreglo?
 >

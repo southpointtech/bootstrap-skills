@@ -3,8 +3,12 @@
 - **Estado**: aceptada
 - **Fecha**: 2026-08-11
 - **Contexto de la decisión**: sesión de `/grill-with-docs` sobre el costo del ciclo de revisión
-- **Implementa**: `.scratch/review-cost-redesign/PRD.md` (Track A)
-- **Se juzga con**: `.scratch/review-cost-measurement/PRD.md` (Track B)
+- **Implementa**: Track A, `.scratch/review-cost-redesign/PRD.md` — **fuera de git** (`.scratch/`
+  está gitignoreado), así que este ADR no depende de él: lo que hay que saber está acá.
+- **Se juzga con**: Track B, la medición que vive en el repo `claude-analytics`
+  (`.scratch/review-cost-measurement/`), también fuera de git. La línea base de agosto que sostiene
+  esta decisión se pierde alrededor del **2026-09-10** por la retención de 30 días de los
+  transcripts; la copia congelada está en `claude-analytics/output/raw/review-cost-baseline-2026-08/`.
 
 ## Contexto
 
@@ -36,7 +40,11 @@ completa y acertada"**.
 ## Decisión
 
 El ciclo de revisión deja de razonar sobre el rango completo de la rama y pasa a razonar sobre el
-**delta sin revisar**, anclado a un **marcador de revisión** que avanza al cerrar cada turno. El
+**delta sin revisar**, anclado a un **marcador de revisión** que avanza **después de cada corrida de
+review y antes de aplicar los fixes de ese turno** — no al cerrar el turno. Avanzarlo al cierre le
+entregaría al turno siguiente un rango vacío y los fixes del loop no los revisaría nadie, que es
+justo el modo de falla que esta decisión evita (59 de 235 reportes de turno atribuían sus hallazgos
+a los fixes del turno anterior). El
 **slice** completo se mira **una sola vez**, al cierre, en un **pase de coherencia** de solo lectura
 que no ejecuta nada.
 

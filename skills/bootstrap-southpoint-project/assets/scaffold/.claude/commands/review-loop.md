@@ -26,10 +26,12 @@ run. `/code-review` remains available for a human to type.
 
 ## Pre-flight: is the diff small enough?
 
-Before looping, check the diff size:
+Before looping, check the size of what you are about to review — the range from the next section,
+not the working tree. On the dominant path (the hook fires right after a commit) the tree is clean,
+so a bare `git diff --stat` prints nothing and the size rule silently never applies:
 
 ```powershell
-git --no-pager diff --stat
+git --no-pager diff --stat <range>
 ```
 
 If the change approaches or exceeds ~400 lines of diff, stop and split it into smaller slices / stacked PRs first (matching the project's PR-size rule). The loop loses accuracy on large diffs — both the reviewer and the coding agent.
@@ -55,19 +57,72 @@ git --no-pager diff <range>       # <range> is exactly what -Action range printe
 ```
 
 Do **not** rewrite it as `<range>..HEAD`. The two-dot form only covers commits, and would drop
-uncommitted work — which is precisely what the marker exists to capture.
+uncommitted work — which is precisely what the marker exists to capture. Worse than narrower: when
+the marker came from `git stash create`, its first parent *is* HEAD, so `git diff <range>..HEAD`
+prints the working-tree changes **inverted** — the reviewer reads a reversed diff and reports clean.
 
-**Empty output from `range` means there is nothing new to review.** Close the loop with no action
-instead of inventing a range; do not fall back to `main...HEAD`.
+`git diff` never shows untracked files. Pass them to the reviewer alongside the range (both this and
+the marker commands are run from the **repo root**; from a subdirectory `ls-files` only lists that
+subtree while the diff covers everything). `core.quotepath=false` keeps accented filenames readable
+instead of escaped to octal:
 
-Failure modes are already decided, and both err toward reviewing too much:
+```powershell
+git -c core.quotepath=false ls-files --others --exclude-standard
+```
+
+**Read the exit code — empty output means two different things:**
+
+| Exit | Output | Meaning | What you do |
+|---|---|---|---|
+| 0 | a ref | there is unreviewed delta | review `git diff <ref>` |
+| 0 | empty | genuinely nothing new since the last review run | close the loop |
+| 2 | empty | undeterminable — see below | **do not close the loop**; pick the recovery that applies and say so in the report |
+
+Exit 2 is one signal for several situations, so check which one you are in before recovering:
+
+- **Detached HEAD, or no base could be resolved** (the current branch is the repo's only ref, or an
+  orphan branch with no common ancestor) → review the working tree (`git diff HEAD`) if it is
+  dirty; if it is clean, review the last commit (`git show HEAD`). Do not reach for
+  `git diff <base>...HEAD` here — the base is exactly what could not be resolved.
+- **Not a git repo, or a repo with no commits** (`git rev-parse --git-dir` or `git rev-parse HEAD`
+  fails) → there is nothing a `git diff` can review. Report that plainly and stop; do not claim
+  the slice was reviewed.
+
+On empty **with exit 0**, close: everything up to the marker was already reviewed, so do not fall
+back to `main...HEAD` and do not invent a range — that re-review is the waste the marker removes.
+
+Never treat exit 2 as "clean". Closing on it is how a slice gets reported reviewed with no reviewer
+having run, which this loop exists to prevent.
+
+Failure modes err toward reviewing too much:
 
 - With no previous marker, `range` starts at the slice base, so the first turn covers the whole slice.
 - If the marker's object was pruned by `git gc`, `range` falls back to the slice base as well.
-- Outside a git repo, or on a detached HEAD, the script prints nothing and you decide.
+- The base is not assumed to be called `main`. When one of the usual names resolves
+  (`origin/HEAD`, `main`, `master`, `develop`, or their `origin/` forms) the base is the merge-base
+  **nearest** HEAD among them — they are all plausible bases, and that keeps unpushed commits on
+  `develop` inside the range. Only when none of them resolves — a repo based on `trunk`, `dev`,
+  `release` — do other refs come into play, and there the base is the **farthest** common ancestor
+  of all of them: a branch cut from the middle of this slice (a `wip` backup, a worktree, an
+  upstream pushed under another name) is always nearer than the real base, so picking the nearest
+  would drop the slice's own earlier commits.
+- On the base branch itself HEAD is a legitimate base: nothing branched off, so the range covers the
+  uncommitted work. That holds only while every candidate ref points at HEAD — a sibling branch left
+  behind HEAD makes the range start at its fork point instead, which reviews more than the slice
+  rather than less. When the current branch is the repo's only ref — or an orphan branch
+  with no common ancestor — nothing can tell a base from a slice, so `range` reports exit 2 rather
+  than emitting HEAD and hiding the branch's own commits behind a confident-looking exit 0. A repo
+  freshly created by the bootstrap skills is in that shape until its first feature branch exists;
+  work in a feature branch per slice and the case does not arise.
+
+One case does **not** err that way: after `commit --amend`, `rebase` or `reset --hard`, a marker
+that still resolves but is no longer an ancestor of HEAD yields a diff containing reverted hunks.
+If the diff shows changes you did not make, ignore the marker and review the slice's branch range.
 
 If the marker script is missing (an older scaffold), fall back to the slice's branch range
 (`git diff <base>...HEAD`) and say so in the final report — do not report the loop as incremental.
+Check with `Test-Path` before invoking it: `pwsh -File` on a missing script prints its usage block
+to **stdout**, which looks exactly like a range if you only read stdout.
 
 ## When the hook triggered this loop
 
@@ -83,13 +138,18 @@ yet, close the loop with no action: there is nothing to fix yet.
 
 One turn = one complete pass through these steps:
 
-1. Ask the marker for the range (`-Action range`). **Empty → the loop is done; close it.**
-2. Run `/slice-review` on `git diff <range>` (pass the range as its argument).
-3. Advance the marker (`-Action advance`). Do this **after the review run and BEFORE applying
-   fixes**: the reviewer has now seen everything up to this point, and the fixes you are about to
-   write become the next turn's unreviewed delta. Advancing after fixing would hand the next turn an
-   empty range and the fixes would never be reviewed by anyone — which is the exact failure this
-   loop exists to prevent.
+1. Ask the marker for the range (`-Action range`). **Empty with exit 0 → the loop is done; close
+   it. Empty with exit 2 → undeterminable; recover as the exit-code section above says, and do
+   not close.**
+2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
+   files the range does not carry.
+3. Advance the marker (`-Action advance`) — but **only if a reviewer actually ran and returned a
+   report**. If the review run failed or was interrupted, leave the marker where it is: advancing
+   past code nobody read hides it from every future turn, and there is no verb to walk it back.
+   Do this **after the review run and BEFORE applying fixes**: the reviewer has now seen everything
+   up to this point, and the fixes you are about to write become the next turn's unreviewed delta.
+   Advancing after fixing would hand the next turn an empty range and the fixes would never be
+   reviewed by anyone — which is the exact failure this loop exists to prevent.
 4. Read the findings. Fix ONLY findings that are real and relevant to this change. Do not rewrite unrelated code.
 5. For each bug fix, first write a test that **fails without the fix** — run it and watch it fail (RED)
    before writing the fix. A test that never failed is not a net. Then apply the fix, re-run the test,
@@ -98,7 +158,7 @@ One turn = one complete pass through these steps:
 After step 5, begin the next turn back at step 1 — which now reviews only the fixes you just made. Stop when ANY of:
 
 - The latest `/slice-review` reported clean: no findings of medium or high severity.
-- `range` came back empty.
+- `range` came back empty **with exit 0** (exit 2 is not a stop condition).
 - 5 turns have run.
 - You are blocked by a decision that needs a human → stop and report.
 

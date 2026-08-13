@@ -1,3 +1,157 @@
+# Session Handoff — 2026-08-13 (A1 commiteado + 4 turnos de review-loop sobre él)
+
+## ▶▶▶▶▶▶ ESTADO AL RETOMAR — decir "continuemos" y seguir desde acá
+
+Rama **`feat/marcador-de-revision`**. **A1 está commiteado** (2 commits) y encima hay **4 turnos de
+`/review-loop` aplicados y SIN COMMITEAR** en el working tree. Suite **12/12 verde**. El loop
+**NO cerró**: falta el turno 5, que es también el tope.
+
+```
+b962d45  docs(review-cost): glosario del ciclo de revision, ADR-0001 y handoff
+326aee3  feat(review-loop): marcador de revision y turno incremental      <- A1
+         (+ 4 turnos de fixes del loop, sin commitear)
+```
+
+### Lo primero: el turno 5 (y por qué el marcador NO se avanzó)
+
+El marcador quedó en **`1d66cf3`** a propósito. El turno 4 corrió con **un solo reviewer**: el de
+tests murió por límite de sesión (`You've hit your session limit`), así que los tests del turno 3
+**nunca los revisó nadie**. Avanzar el marcador los habría dejado del lado "revisado" sin serlo, así
+que se dejó quieto: el turno 5 vuelve a cubrir todo desde `1d66cf3` (revisar de más, nunca de menos).
+
+Para arrancar el turno 5:
+
+```powershell
+pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range   # debe dar 1d66cf3...
+```
+
+y correr `/slice-review` sobre ese rango, con foco en **tests** (es lo que quedó sin revisar) y en
+la resolución de base del turno 4.
+
+### Qué encontró cada turno (todo reproducido en vivo, no inferido)
+
+| Turno | Medium/high | De dónde salieron |
+|---|---|---|
+| 1 | 11 de 22 únicos | el slice A1 original |
+| 2 | 5 | los fixes del turno 1 — **2 regresiones propias** |
+| 3 | 4 | los fixes del turno 2 — incluido un fix que no arreglaba nada |
+| 4 | 1 alto + 6 | los fixes del turno 3 — **1 regresión propia** |
+
+Los agujeros más graves que se cerraron, todos en la dirección peligrosa (**revisar de menos con
+exit 0**, que es "rango confiable" para el caller):
+
+1. **Untracked invisibles.** `git stash create` y `git diff` los ignoran → un fix hecho de archivos
+   nuevos daba rango vacío y el loop cerraba sin revisarlo. Y el paso 5 del propio loop *ordena*
+   crear un test nuevo. Ahora `advance` guarda una huella `path|sha256` de los untracked junto al
+   marcador y `range` compara contra ella. **Ojo**: `/slice-review` también se cambió para recibir
+   los untracked — antes había emisor sin receptor.
+2. **Base mal resuelta.** Se pelaba `origin/` y se usaba el nombre local, que en un clon de una sola
+   rama no existe → sin base → **slice entero sin revisar en el primer turno**.
+3. **`advance` guardaba basura.** En un merge conflictivo `git stash create` falla escribiendo
+   `<archivo>: needs merge` por **stdout**; eso quedaba persistido como marcador.
+4. **"vacío" significaba dos cosas.** Ahora exit 0 = aplicable, **exit 2** = indeterminable. Cerrar
+   el loop con exit 2 es reportar limpio un slice que nadie miró.
+5. **Rama hermana como base.** Elegir el merge-base más cercano hacía que un `git branch wip` a
+   mitad del slice se convirtiera en la base. Ahora: entre nombres conocidos el más cercano; entre
+   refs cualesquiera el ancestro común **más lejano** (`merge-base --octopus`, un solo proceso git
+   en vez de tres por ref — medido: 48 s en un repo con 300 refs).
+6. **El hook contradecía al loop.** Seguía inyectando `git diff main...HEAD`. Se verificó en vivo:
+   es el mensaje que llegó al commitear A1.
+
+### Trampas de testing que aparecieron (valen para cualquier test del repo)
+
+- **`[regex]::Match(...).Index` vale `0` cuando NO hay match**, no -1. Dos asserts de orden eran
+  tautologías: se podía borrar el paso 1 del doc entero y la suite quedaba verde. Fix: helper `Idx`
+  en `tests/review-loop-incremental.tests.ps1`.
+- **`mirror.tests.ps1` compara las 3 skills ENTRE SÍ**: la copia del repo — la que efectivamente
+  corre acá — no entra en ninguna comparación. Se agregó hash normalizado de 5 archivos × 4 copias
+  en `review-loop-incremental.tests.ps1`.
+- Un assert dentro de `if (Test-Path)` no verifica nada: borrar el archivo dejaba la suite verde.
+- `git ls-files` C-quotea nombres no-ASCII (`"\303\261andu.txt"`) y PowerShell decodifica la salida
+  del hijo con la code page de consola. Las dos cosas rompían la huella de `ñandú.txt`. Fix:
+  `-c core.quotepath=false` + forzar UTF-8 en `Console::OutputEncoding` alrededor de la llamada.
+
+### Archivos cambiados (39, todos sin commitear)
+
+Lógica: `.claude/scripts/review-marker.ps1` (109 → **245** líneas), `.claude/hooks/review-loop-trigger.ps1`.
+Instrucciones: `review-loop.md` + `review-loop/SKILL.md`, `slice-review.md` + `slice-review/SKILL.md`.
+Tests: `tests/review-marker.tests.ps1` (139 → **425**), `tests/review-loop-incremental.tests.ps1` (47 → **135**).
+Docs: `CLAUDE.md` (×4: repo + 3 plantillas), `CONTEXT.md`, `docs/TESTING.md`, `docs/adr/0001-...`,
+`skills/upgrade-bootstrap/SKILL.md`. Más las 3 copias espejadas de cada archivo del scaffold y los
+3 `.bootstrap-manifest.json` regenerados.
+
+### ⚠️ El slice se pasó del techo
+
+`git diff --stat 01fa552` da **3386 líneas** (39 archivos). Descontando las 3 copias espejadas, los
+manifests generados y los docs, la lógica canónica ×1 ronda **900 líneas** — más del doble del techo
+de ~400 de `CLAUDE.md`. **Es decisión del usuario** si se parte (marcador ↔ instrucciones del loop)
+o se acepta como está; no se partió por cuenta propia.
+
+### Decisiones tomadas esta sesión
+
+| # | Decisión | Quién |
+|---|---|---|
+| 1 | El marcador avanza **después del review y antes de los fixes** (se apartó de la letra del issue 01) | usuario, confirmado |
+| 2 | Exit 2 como señal de "no puedo determinar el rango", distinta de "no hay delta" | agente |
+| 3 | Entre nombres conocidos, merge-base más cercano; entre refs cualesquiera, el más lejano | agente |
+| 4 | El marcador NO se avanza si el reviewer no corrió (regla escrita en el loop) | agente |
+| 5 | A1 se commiteó en 2 commits (docs aparte del slice) para no inflar el diff a revisar | agente |
+| 6 | Un repo con una sola ref da exit 2 y no HEAD, aunque sea la forma en que nacen los proyectos bootstrapeados (se trabaja en feature branch por slice, así que no aparece en el flujo normal) | agente, declarado |
+
+### Bugs
+
+- **Arreglados**: los 6 de arriba, cada uno con un test que se verificó en RED antes del fix.
+- **Sigue abierto**: `copy-scaffold.ps1` pisa el `.gitignore` del proyecto destino.
+- **Sigue abierto**: `core.autocrlf` con hashes mixtos en los manifests — este slice suma 3 entradas
+  más del lado equivocado (`tools/gen-manifest.ps1` hashea bytes crudos).
+- **Sigue abierto**: el `.bootstrap-manifest.json` de la **raíz** no se reselló (es AC de A7).
+  Verificado que hoy no misclasifica nada: los 3 archivos tocados en la raíz son byte-idénticos a
+  los canónicos.
+- **Sigue abierto**: el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Tests
+
+- **Suite completa 12/12 verde**, corrida entera después de cada turno.
+- `tests/review-marker.tests.ps1`: ~60 asserts sobre repos git temporales, runner sin Pester.
+- Los fixtures ahora aíslan el gitconfig global (`commit.gpgsign`, `core.hooksPath`,
+  `core.excludesFile`): sin eso, una máquina con gpgsign activo daba 23 fallos.
+- **Mutación verificada a mano** en los asserts nuevos: mueren el de espejado de las 4 copias y el
+  de orden del `advance`.
+
+### Antes de tocar código
+
+- **El `alignment-gate` va a frenar el primer edit de código.** El paso 1 está cerrado (grill 11/8,
+  PRD e issues aprobados 12/8): decilo y reintentá.
+- **Regla del espejo**: `review-marker.ps1`, `review-loop.md`, `review-loop/SKILL.md`,
+  `slice-review.md`, `slice-review/SKILL.md` y el hook van a las **4 copias**. Editar la de
+  `bootstrap-personal-project` y espejar; el comando y el SKILL.md difieren **solo** en la línea
+  `description`. El hook de la copia del repo está en **español** (drift previo, esperado).
+- **Manifests generados**: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`,
+  una skill por vez, antes de commitear.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+
+### Próximos pasos
+
+1. **Turno 5 del `/review-loop`** sobre `1d66cf3` (rango que ya devuelve el marcador), con foco en
+   tests. Es el último: al cerrarlo, el loop llegó al tope y se reporta como tal.
+2. **Decidir si A1 se parte** (ver el aviso de techo) antes de commitear los fixes.
+3. **Commitear los 4 turnos de fixes**, sugerido en un commit propio
+   (`fix(review-loop): correcciones del ciclo de revisión sobre el marcador`).
+4. Seguir con **A2 y A3** (dependen solo de A1), después A4/A5, después A6, y **A7 al final**
+   (requiere presencia humana: deploya a `~/.claude/skills`).
+5. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- El turno 4 corrió con **un solo foco** (bugs/contratos) por el límite de sesión; el de tests no
+  llegó a correr. El turno 5 lo compensa.
+- Los turnos 2, 3 y 4 usaron 2-3 focos en vez de los 5 de `/slice-review`: el delta de esos turnos
+  era el mismo material (script + tests + prosa), no superficie nueva. Está declarado acá porque un
+  cap silencioso se lee como "se cubrió todo".
+- El techo de ~400 líneas se midió a mano; no hay tooling que lo verifique.
+
+---
+
 # Session Handoff — 2026-08-12 parte 2 (A1 implementado con TDD: marcador + loop incremental)
 
 ## ▶▶▶▶▶ ESTADO AL RETOMAR — decir "continuemos" y seguir desde acá
