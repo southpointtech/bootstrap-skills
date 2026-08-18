@@ -12,7 +12,7 @@ function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 
-Assert ($skills.Count -ge 2) "hay al menos 2 skills bootstrap-*-project ($($skills.Count))"
+Assert ($skills.Count -ge 3) "hay al menos 3 skills bootstrap-*-project ($($skills.Count))"
 
 # Pares (command para el humano, SKILL.md con triggers para autodescubrimiento) de cada scaffold.
 foreach ($s in $skills) {
@@ -114,6 +114,44 @@ foreach ($p in $slicePairs) {
       "$($p.label)/${rel}: el reporte dice cuantos hallazgos descarto la confianza"
     Assert ($txt -match '(?i)diff range that was actually reviewed') `
       "$($p.label)/${rel}: el reporte dice que rango se reviso"
+
+    # --- Turno 1 del review-loop sobre A3: correcciones del Step 1 (marcador) ---
+    # A — el script AUSENTE se maneja pre-flight (Test-Path), no metido en el bucket exit 2
+    #     (pwsh -File <missing> sale 64 e imprime usage a stdout, no exit 2 + empty).
+    Assert ($txt -match '(?i)Test-Path[^\r\n]*review-marker\.ps1') `
+      "$($p.label)/${rel}: chequea Test-Path del marcador antes de invocarlo (script ausente != exit 2)"
+    # B — exit 2 separa el caso 'no es repo git / sin commits' (reportar y parar) del base-indeterminable.
+    Assert ($txt -match '(?i)not a git repo, or a repo with no commits') `
+      "$($p.label)/${rel}: exit 2 separa el caso no-repo/sin-commits (reportar y parar)"
+    # C — la rama de recuperacion exit-2 queda pinneada (no borrable en silencio).
+    Assert ($txt -match '(?i)exit 2 \+ empty') `
+      "$($p.label)/${rel}: documenta la recuperacion de exit 2"
+    # D — el marcador es el objetivo por DEFECTO sin args (no la vieja cascada working-tree/branch).
+    Assert ($txt -match '(?i)without arguments, the default target is the \*\*unreviewed delta\*\*') `
+      "$($p.label)/${rel}: sin args, el default es el delta del marcador"
+    Assert ($txt -match '(?i)or invent a range') `
+      "$($p.label)/${rel}: con delta vacio no inventa un rango (accion pinneada)"
+    # F — la prohibicion de escritura aparece UNA sola vez (el punto del cambio 3).
+    Assert (([regex]::Matches($txt, 'reviewer, not an editor')).Count -eq 1) `
+      "$($p.label)/${rel}: la prohibicion de escritura aparece exactamente una vez"
+
+    # --- Turno 2 del review-loop sobre A3: pinnear las ACCIONES de recuperacion (no solo la deteccion) ---
+    # G (parity con review-loop.md:86) — en detached-HEAD no se usa <base>...HEAD (la base es lo irresoluble).
+    Assert ($txt -match '(?i)do not reach for .git diff <base>\.\.\.HEAD. here') `
+      "$($p.label)/${rel}: caveat: en exit-2 base-irresoluble no arrastrar git diff <base>...HEAD"
+    # H1 — la accion del script ausente: caer al branch range del slice.
+    Assert ($txt -match '(?i)fall back to the slice.s branch\s+range') `
+      "$($p.label)/${rel}: script ausente => fallback al branch range del slice"
+    # H2 — la recuperacion exit-2 base-irresoluble: working tree, si no el ultimo commit.
+    Assert ($txt -match '(?i)else the last commit') `
+      "$($p.label)/${rel}: exit-2 base-irresoluble => working tree, si no el ultimo commit"
+    # H3 — AMBAS recuperaciones (script ausente y exit-2 base-irresoluble) declaran no-incremental.
+    #      Conteo >= 2: borrar una sola de las dos declaraciones baja a 1 y el assert muerde.
+    Assert (([regex]::Matches($txt, '(?i)not incremental')).Count -ge 2) `
+      "$($p.label)/${rel}: ambas recuperaciones declaran que la corrida no es incremental"
+    # H4 — el caso no-repo/sin-commits NO llama git show HEAD (falla sin commits): reportar y parar.
+    Assert ($txt -match '(?i)it fails with no commits') `
+      "$($p.label)/${rel}: no-repo/sin-commits => no llamar git show HEAD (reportar y parar)"
   }
 }
 

@@ -32,24 +32,41 @@ git -c core.quotepath=false ls-files --others --exclude-standard    # from the r
 Without arguments, the default target is the **unreviewed delta** — what changed since the last
 review run — resolved from the review marker, exactly the way `/review-loop` gets it. The whole
 branch range is **not** the default: re-reviewing already-reviewed code is the waste the marker
-exists to remove, and reviewing the full slice range is reserved for the coherence pass. Ask the
-marker (from the repo root):
+exists to remove, and reviewing the full slice range is reserved for the coherence pass.
+
+Check the marker script exists **before** invoking it — `pwsh -File` on a missing script does not
+fail cleanly, it prints its usage block to **stdout**, which looks exactly like a range if you only
+read stdout:
+
+```powershell
+Test-Path .claude/scripts/review-marker.ps1
+```
+
+If it is **missing** (an older scaffold, so there is no marker), fall back to the slice's branch
+range (`git diff <base>...HEAD`) and say in the report that this run is **not incremental** — do
+not mistake the usage dump for a range. Otherwise ask the marker (from the repo root):
 
 ```powershell
 pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range
 ```
 
-Read the exit code — empty output means two different things:
+Read the **exit code**, not just the output — empty output means different things at exit 0 and at
+exit 2:
 
 - **exit 0 + a bare ref** → that ref is the range; review `git diff <ref>` (plus untracked files).
 - **exit 0 + empty** → everything up to the marker was already reviewed. Report "nothing to
   review" and stop. Do **not** fall back to `main...HEAD` or invent a range — that re-review is
   exactly what the marker exists to remove.
-- **exit 2 + empty** → the marker could not resolve a base (detached HEAD, the repo's only ref, an
-  orphan branch, or the marker script is missing on an older scaffold). Do not treat this as
-  "nothing to review": recover by reviewing the working tree (`git diff HEAD`) if it is dirty, else
-  the last commit (`git show HEAD`), and say in the report that the marker was unavailable so this
-  run is not incremental.
+- **exit 2 + empty** → undeterminable; do not treat it as "nothing to review". Which recovery to
+  pick depends on why the base could not be resolved:
+  - **detached HEAD, the repo's only ref, or an orphan branch** (no base could be resolved) →
+    review the working tree (`git diff HEAD`) if it is dirty, else the last commit (`git show
+    HEAD`), and say in the report that the run is not incremental.
+    Do not reach for `git diff <base>...HEAD` here — the base is exactly what could not
+    be resolved (unlike the missing-script case above, where the base *can* be resolved).
+  - **not a git repo, or a repo with no commits** → there is nothing a `git diff` can review.
+    Report that plainly and stop; do **not** reach for `git show HEAD` (it fails with no commits)
+    and do not claim the slice was reviewed.
 
 State the resolved target out loud before reviewing. Getting the base wrong is the most common
 failure of this command: on long-lived branches `main...HEAD` can drag in commits from earlier
