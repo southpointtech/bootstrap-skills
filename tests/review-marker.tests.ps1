@@ -575,4 +575,19 @@ $newState = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
 Assert ($newState.'marker:feat/x' -eq $adv) "el estado nuevo tiene el marcador de la rama actual"
 Remove-Item -Recurse -Force $t
 
+# Rama $writable=$false: si el Move-Item a `.bad` FALLA (destino bloqueado), advance NO debe pisar el
+# estado ilegible — reescribirlo destruye justo lo que la cuarentena preserva. Saltea la escritura y
+# AUN ASI imprime el marcador (el punto de corte se comunica). Gemelo del test del hook (:587-594).
+# Sin el guard `if ($writable)`, el archivo original se pisa: el assert de que sigue ilegible cae.
+$t = New-Repo
+$gitDir = (git -C $t rev-parse --git-dir)
+$statePath = Join-Path $t (Join-Path $gitDir "review-loop-state.json")
+Set-Content -LiteralPath $statePath -Value '{ "marker:otra-rama": "deadbeef", ROTO' -Encoding UTF8
+$lock = [IO.File]::Open("$statePath.bad", [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+try { $adv = Marker $t advance } finally { $lock.Close(); $lock.Dispose() }
+Assert ($adv -match '^[0-9a-f]{40}$') "con la cuarentena bloqueada, advance igual imprime el marcador"
+$origStill = [IO.File]::ReadAllText($statePath)
+Assert ($origStill -match 'otra-rama') "con la cuarentena bloqueada, advance NO pisa el estado original (queda recuperable)"
+Remove-Item -Recurse -Force $t
+
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

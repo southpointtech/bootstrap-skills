@@ -21,6 +21,12 @@ $ErrorActionPreference = "SilentlyContinue"
 # whose output can carry a path needs this, not just the `ls-files` of the guide. `rev-parse
 # --show-toplevel` under a non-ASCII path came back mangled and the marker could no longer be found.
 try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# The event JSON arrives on STDIN, decoded with Console::InputEncoding — and a hook spawned with an
+# OEM console (the Windows default) does NOT inherit UTF-8 on input either. Without this, an event
+# whose `cwd` holds a non-ASCII path (`C:\Users\Martín\…`) came back mojibake, `Set-Location` below
+# failed silently, and the hook ran against the AMBIENT repo and fired — mislocating the whole thing.
+# Set before the first read of [Console]::In so the reader is (re)built with UTF-8.
+try { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
 
 # 1. Read the hook event from stdin
 $raw = [Console]::In.ReadToEnd()
@@ -85,10 +91,17 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-gra
 # count of double quotes ODD, the literal walker desyncs and swallows the rest of the line, DROPPING
 # real triggers — `git commit -m "$(sed 's/"/x/' f)" && git push` came out with $isPush FALSE, the
 # push lost. Rather than model `$()` (the bash-parsing pit that produced eight highs), when the
-# command contains `$(` or a backtick, compute the flags over the RAW command too and OR them in:
-# every false negative turns into a false positive, the direction the project already declared safe
-# (an extra review-loop, never a dropped close). Natural uses (`date +"%F"`, `basename "$PWD"`) keep
-# an even quote count, re-align on their own and do not reach this branch.
+# command contains `$(` or a backtick, compute the flags over the RAW command too and OR them in.
+# The cost is a wider false-POSITIVE surface: a commit whose MESSAGE text mentions "git push" /
+# "gh pr create" inside a `$(...)` now raises $isPush/$isPr from that text, and since step 6's gate is
+# `-not ($isPush -or $isPr)`, such a commit skips the trailer gate, the freshness window AND the
+# ceiling, firing unconditionally (still SHA-deduped to one fire). That is not free — it defeats the
+# freshness guard that stops another repo's stale commit from being attributed here — but the worst
+# outcome is one spurious /review-loop, which asks the marker for THIS repo's range and closes on
+# empty: the "review too much" direction the project already declared safe, never a dropped close.
+# Natural uses (`date +"%F"`, `basename "$PWD"`) keep an even quote count, re-align on their own and
+# do not reach this branch. The accepted false positive is pinned by a fixture so it cannot regress
+# into a silent behavior change.
 if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
     $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
@@ -98,7 +111,13 @@ if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
 if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Locate the repo (event cwd)
+# If the event carries a cwd that does not resolve on disk, exit rather than fall through: with
+# $ErrorActionPreference = SilentlyContinue a failed Set-Location is silent, and the hook would keep
+# running against whatever directory it was spawned in — the AMBIENT repo — and inject a false slice
+# close there. The encoding force above is the primary fix for a non-ASCII cwd; this is the net that
+# keeps ANY unresolvable cwd (mojibake, a stale path, a deleted dir) from firing on the wrong repo.
 $cwd = if ($evt.cwd) { $evt.cwd } else { (Get-Location).Path }
+if (-not (Test-Path -LiteralPath $cwd)) { exit 0 }
 Set-Location -LiteralPath $cwd
 $gitDir = (git rev-parse --git-dir 2>$null)
 if (-not $gitDir) { exit 0 }                 # not a git repo

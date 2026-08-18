@@ -374,6 +374,17 @@ $o = Fire $t 'echo "$(sed ''s/"/x/'' f)" && git commit -m cierre'
 Assert ($o -match "additionalContext") "un `echo `$(...)` antes de un commit declarado no impide el disparo"
 Remove-Item -Recurse -Force $t
 
+# COSTO ACEPTADO del OR sobre el crudo (F7): un commit SIN trailer cuyo MENSAJE menciona "git push"
+# DENTRO de un `$(...)` ahora prende $isPush sobre el crudo y saltea la puerta del trailer, disparando.
+# Es un falso positivo (la direccion segura: un review-loop de mas), pero se FIJA para que no cambie
+# de conducta en silencio. Sin `$(`, la misma frase entrecomillada NO dispara (ver el fixture de
+# arriba, "un commit cuyo MENSAJE menciona 'git push'..."): ese contraste es justo lo que este fija.
+$t = New-Repo
+git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t 'git commit -m "recorda: $(echo git push) al terminar"'
+Assert ($o -match "additionalContext") "costo aceptado: un `$(...)` en el mensaje que dice git push dispara (falso positivo, direccion segura)"
+Remove-Item -Recurse -Force $t
+
 # El evento trae el cwd de la SESION, que puede ser un subdirectorio (monorepo: la sesion abierta en
 # `apps/web` con el git root arriba). El pathspec `.` del techo y `ls-files` son relativos a ese cwd,
 # asi que la red de seguridad medía solo ese subarbol y desaparecia en silencio.
@@ -462,31 +473,52 @@ Assert $cpSet "guard: la code page se forzo a 850 de verdad (si no, el caso no e
 Assert ($o -match "additionalContext") "la red de seguridad cuenta un untracked con nombre acentuado"
 Remove-Item -Recurse -Force $t
 
-# El caso de arriba ejercita el nombre de ARCHIVO acentuado; este ejercita la RUTA DEL REPO, que es
-# la otra mitad y la que el hook declara cubrir al forzar el encoding una sola vez arriba de todo en
-# vez de solo alrededor del `ls-files`. Sin el forzado global, `rev-parse --show-toplevel` bajo
-# `C:\Users\Martín\...` vuelve mojibake: $root deja de ser un repo, el `git -C $root diff` del techo
-# falla, $measurable queda en falso y la red DISPARA SIEMPRE — el loop vuelve a medir la rama entera
-# en cada commit, en silencio. Medido: angostar el forzado al `ls-files` sobrevivia la suite entera
-# porque ningun fixture usaba ruta de repo no-ASCII.
-# LIMITE DECLARADO: para que el caso sea deterministico en cualquier maquina la code page se fuerza
-# DENTRO del hijo, lo que obliga a invocar el hook en-proceso (`& '$hook'`) en vez de con
-# `pwsh -File` como lo invoca Claude Code. Es la misma concesion que el caso no-ASCII del marcador.
-$cpChild = ((& pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); [Console]::OutputEncoding.CodePage") | Out-String).Trim()
-Assert ($cpChild -eq "850") "guard: el pwsh hijo de este caso corre en code page 850 (dio '$cpChild')"
-# El nombre se arma por punto de codigo, no como literal: asi el caso no depende de con que encoding
-# se guardo ESTE archivo ni de con cual lo lea el runner.
-$enye = [string][char]0x00F1
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-test-" + $enye + "andu-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
-git -C $t init -q -b master; git -C $t config user.email a@b.c; git -C $t config user.name a
-git -C $t config commit.gpgsign false; git -C $t config core.hooksPath ""; git -C $t config core.excludesFile ""
-git -C $t commit --allow-empty -q -m base
-git -C $t checkout -q -b feat/x; git -C $t commit --allow-empty -q -m "slice chico sin declarar"
-$evt = @{ tool_input = @{ command = "git commit -m x" }; cwd = $t } | ConvertTo-Json -Compress
-$o = ($evt | & pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); & '$hook'") | Out-String
-Assert ([string]::IsNullOrWhiteSpace($o)) "bajo ruta de repo no-ASCII y code page OEM el techo se mide igual: un delta chico sin trailer NO dispara"
-Remove-Item -Recurse -Force -LiteralPath $t
+# El caso de arriba ejercita el nombre de ARCHIVO acentuado; este ejercita la RUTA DEL REPO. El evento
+# llega por STDIN, que se decodifica con [Console]::InputEncoding — y un hook corrido como proceso
+# hijo con la consola en code page OEM (lo normal en Windows) NO hereda UTF-8 en la entrada. Sin
+# forzar InputEncoding, el `cwd` con `ñ` vuelve mojibake, `Set-Location` falla en silencio y el hook
+# opera sobre el repo AMBIENTE y dispara mal. Este caso invoca el hook como `pwsh -File` (igual que
+# Claude Code), alimenta el evento como bytes UTF-8 por redireccion y fuerza la consola a 850 con
+# `chcp`, que es el escenario real de produccion: bytes UTF-8 en stdin, consola OEM.
+# CONTROL POSITIVO: el repo temporal trae un cierre DECLARADO fresco, asi que si el hook resuelve el
+# cwd no-ASCII, dispara nombrando SU rama (feat/x). Con el bug, mojibakea, cae al ambiente y nombra
+# la rama de ESTE repo (o el hardening lo saca con exit 0): en cualquier caso no aparece 'feat/x'.
+function Fire-File($repo, $cmd) {
+  $enye2 = [string][char]0x00F1
+  $rt = Join-Path ([IO.Path]::GetTempPath()) ("rlt-test-" + $enye2 + "andu-" + [guid]::NewGuid().ToString('N'))
+  Rename-Item -LiteralPath $repo -NewName (Split-Path $rt -Leaf) -ErrorAction SilentlyContinue
+  if (-not (Test-Path -LiteralPath $rt)) { $rt = $repo }   # si el rename fallo, seguimos con el original
+  $evt = @{ tool_input = @{ command = $cmd }; cwd = $rt } | ConvertTo-Json -Compress
+  # El padre escribe bytes UTF-8 (como Claude Code manda el JSON del evento); el hijo arranca con la
+  # consola de ENTRADA en OEM (850), como una maquina Windows tipica. El hook debe forzar
+  # InputEncoding a UTF-8 para leer bien el cwd acentuado; sin eso, mojibakea y opera sobre el
+  # ambiente. Se restaura el OutputEncoding del runner al salir.
+  $prev = [Console]::OutputEncoding
+  try {
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    $out = ($evt | & pwsh -NoProfile -Command "[Console]::InputEncoding = [Text.Encoding]::GetEncoding(850); & '$hook'") | Out-String
+  } finally { [Console]::OutputEncoding = $prev }
+  return @{ out = $out; path = $rt }
+}
+$t = New-Repo   # feat/x con un commit 'slice'
+Close-Slice $t "cierre bajo ruta acentuada"   # HEAD fresco con trailer Slice-Close
+$r = Fire-File $t "git commit -m cierre"
+Assert (($r.out -match "additionalContext") -and ($r.out -match "'feat/x'")) "bajo ruta de repo no-ASCII y consola OEM, el hook resuelve el cwd de stdin y dispara sobre SU repo (fuerza InputEncoding)"
+Remove-Item -Recurse -Force -LiteralPath $r.path
+
+# HARDENING: un cwd que NO resuelve nunca debe hacer que el hook opere sobre el repo donde fue lanzado.
+# Sin el guard, `Set-Location` falla en silencio (SilentlyContinue) y el hook corre sobre el cwd de
+# lanzamiento y dispara un cierre falso. El caso es SELF-CONTAINED: se lanza el hook con el cwd del
+# proceso en un repo temporal FRESCO con cierre declarado (que dispararia sin el guard, HEAD reciente
+# + trailer), y el evento trae un cwd inexistente (un subdir del temporal que no existe). Sin el guard
+# -> opera sobre el repo de lanzamiento -> dispara (RED); con el guard -> exit 0 -> silencio. Asi el
+# caso NO depende de la frescura ni del trailer de ESTE repo, que a los 30 min ya no dispararia y
+# volveria el test vacio (verificado: mide 122 min en una corrida tipica).
+$t = New-Repo; Close-Slice $t "cierre para el hardening"   # HEAD fresco con trailer en el repo de lanzamiento
+$evtBad = @{ tool_input = @{ command = "git commit -m x" }; cwd = (Join-Path $t "no-existe-subdir-xyz") } | ConvertTo-Json -Compress
+$ob = ($evtBad | & pwsh -NoProfile -Command "Set-Location -LiteralPath '$t'; & '$hook'") | Out-String
+Assert ([string]::IsNullOrWhiteSpace($ob)) "un cwd de evento que no resuelve hace exit 0, no dispara sobre el repo de lanzamiento (self-contained)"
+Remove-Item -Recurse -Force $t
 
 # Un binario sin trackear no es delta de logica (del lado trackeado `--numstat` ya reporta `-`).
 # Sin este fixture, borrar el bloque entero de deteccion de binarios sobrevive la suite.

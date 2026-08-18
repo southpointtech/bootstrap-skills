@@ -21,6 +21,12 @@ $ErrorActionPreference = "SilentlyContinue"
 # TODA llamada a git cuya salida pueda traer una ruta, no sólo el `ls-files` del techo. Bajo una ruta
 # no-ASCII, `rev-parse --show-toplevel` volvía mojibake y el marcador ya no se podía encontrar.
 try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# El JSON del evento llega por STDIN, decodificado con Console::InputEncoding — y un hook lanzado con
+# la consola en OEM (el default de Windows) tampoco hereda UTF-8 en la entrada. Sin esto, un evento
+# cuyo `cwd` trae una ruta no-ASCII (`C:\Users\Martín\…`) volvía mojibake, el `Set-Location` de abajo
+# fallaba en silencio, y el hook corría sobre el repo AMBIENTE y disparaba — desubicando todo. Se
+# fuerza antes de la primera lectura de [Console]::In para que el reader se (re)construya con UTF-8.
+try { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
 
 # 1. Leer el evento del hook por stdin
 $raw = [Console]::In.ReadToEnd()
@@ -100,7 +106,13 @@ if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
 if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Ubicarse en el repo (cwd del evento)
+# Si el evento trae un cwd que no resuelve en disco, salir en vez de seguir de largo: con
+# $ErrorActionPreference = SilentlyContinue un Set-Location fallido es mudo, y el hook seguiría
+# corriendo sobre el directorio donde se lanzó — el repo AMBIENTE — inyectando ahí un cierre falso. El
+# forzado de encoding de arriba es el fix principal para un cwd no-ASCII; esto es la red que evita que
+# CUALQUIER cwd irresoluble (mojibake, una ruta vieja, un dir borrado) dispare sobre el repo equivocado.
 $cwd = if ($evt.cwd) { $evt.cwd } else { (Get-Location).Path }
+if (-not (Test-Path -LiteralPath $cwd)) { exit 0 }
 Set-Location -LiteralPath $cwd
 $gitDir = (git rev-parse --git-dir 2>$null)
 if (-not $gitDir) { exit 0 }                 # no es repo git
