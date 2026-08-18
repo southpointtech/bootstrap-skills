@@ -81,6 +81,22 @@ $folded   = $scan -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+
 $isPr     = $folded -match '\bgh\s+pr\s+create\b'
 $isPush   = $folded -match '\bgit\s+push\b'
 $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-graph y similares
+# La sustitución de comando `$(...)` y los backticks reinician el contexto de comillas de bash
+# adentro, algo que Hide-Literals no modela: una comilla doble dentro de comillas simples dentro de
+# `$(...)` deja el total de dobles IMPAR, el walker de literales se desincroniza y se traga el resto
+# de la línea, PERDIENDO disparadores reales — `git commit -m "$(sed 's/"/x/' f)" && git push` salía
+# con $isPush FALSE, el push perdido. En vez de modelar `$()` (el pozo del parseo de bash que produjo
+# ocho altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el
+# comando CRUDO y se combinan con OR: todo falso negativo se vuelve falso positivo, la dirección que
+# el proyecto ya declaró segura (un review-loop de más, nunca un cierre perdido). Los usos naturales
+# (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas, se re-alinean solos y no
+# llegan a esta rama.
+if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
+    $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
+    $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
+    $isPush   = $isPush   -or ($rawFolded -match '\bgit\s+push\b')
+    $isCommit = $isCommit -or ($rawFolded -match '\bgit\s+commit(?![\w-])')
+}
 if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Ubicarse en el repo (cwd del evento)
@@ -155,13 +171,33 @@ if (-not $base) {
     }
 }
 if (-not $base) {
-    $def = (gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>$null)
-    if ($def) { $base = $def.Trim() }
-}
-if (-not $base) {
     foreach ($cand in @("main", "master", "develop")) {
         git rev-parse --verify --quiet "$cand" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { $base = $cand; break }
+    }
+}
+# Bases con nombre no estándar (`trunk`, `dev`, `release`): se delega en el marcador, cuyo resolvedor
+# ya las maneja (for-each-ref + merge-base --octopus). Esto cierra la ASIMETRÍA que hacía a este hook
+# la mitad muda del motor — el código viejo hacía `exit 0` acá, ANTES del gate del trailer de abajo,
+# así que en un repo cuya base no es main/master/develop se perdía un cierre DECLARADO en silencio,
+# justo el falso negativo que este hook existe para eliminar, escondido en GitHub donde `gh repo
+# view` lo rescataba. Ese `gh repo view` también se fue: era una llamada de red en cada commit cuando
+# origin/HEAD no está seteado (el caso `git init` + `remote add`), y corría ANTES del fallback local
+# que resuelve gratis. La rama default de un clon ya la cubre origin/HEAD de arriba; un repo no-clon
+# cae a las ramas nombradas y luego acá. El marcador emite un commit (el merge-base), usado solo como
+# extremo del diff y en el mensaje, nunca como guarda de nombre de rama. Sin marcador (repo no
+# bootstrapeado, así que tampoco hay /review-loop que correr) $base queda nulo y el hook calla.
+if (-not $base) {
+    $root = (git rev-parse --show-toplevel 2>$null)
+    if ($root) {
+        $mk = Join-Path $root ".claude/scripts/review-marker.ps1"
+        if (Test-Path -LiteralPath $mk) {
+            # Centinela: si `pwsh` no está en el PATH el error tragado dejaría $LASTEXITCODE en el 0
+            # de la llamada a git de arriba, que se leería como un exit 0 exitoso del marcador.
+            $global:LASTEXITCODE = 99
+            $rb = (& pwsh -NoProfile -File $mk -Action base -RepoDir $root 2>$null)
+            if (($LASTEXITCODE -eq 0) -and $rb) { $base = ([string]$rb).Trim() }
+        }
     }
 }
 if (-not $base) { exit 0 }

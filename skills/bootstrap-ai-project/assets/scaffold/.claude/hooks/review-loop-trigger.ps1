@@ -80,6 +80,21 @@ $folded   = $scan -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+
 $isPr     = $folded -match '\bgh\s+pr\s+create\b'
 $isPush   = $folded -match '\bgit\s+push\b'
 $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-graph and the like
+# Command substitution `$(...)` and backticks restart bash's quoting context inside, which
+# Hide-Literals does not model: a double quote inside single quotes inside `$(...)` leaves the total
+# count of double quotes ODD, the literal walker desyncs and swallows the rest of the line, DROPPING
+# real triggers — `git commit -m "$(sed 's/"/x/' f)" && git push` came out with $isPush FALSE, the
+# push lost. Rather than model `$()` (the bash-parsing pit that produced eight highs), when the
+# command contains `$(` or a backtick, compute the flags over the RAW command too and OR them in:
+# every false negative turns into a false positive, the direction the project already declared safe
+# (an extra review-loop, never a dropped close). Natural uses (`date +"%F"`, `basename "$PWD"`) keep
+# an even quote count, re-align on their own and do not reach this branch.
+if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
+    $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
+    $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
+    $isPush   = $isPush   -or ($rawFolded -match '\bgit\s+push\b')
+    $isCommit = $isCommit -or ($rawFolded -match '\bgit\s+commit(?![\w-])')
+}
 if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Locate the repo (event cwd)
@@ -151,13 +166,33 @@ if (-not $base) {
     }
 }
 if (-not $base) {
-    $def = (gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>$null)
-    if ($def) { $base = $def.Trim() }
-}
-if (-not $base) {
     foreach ($cand in @("main", "master", "develop")) {
         git rev-parse --verify --quiet "$cand" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { $base = $cand; break }
+    }
+}
+# Non-standard base names (`trunk`, `dev`, `release`): delegate to the marker, whose resolver
+# already handles them (for-each-ref + merge-base --octopus). This closes the ASYMMETRY that made
+# this the mute half of the engine — the old code `exit 0`ed here, BEFORE the trailer gate below, so
+# a repo whose base is not main/master/develop silently dropped a DECLARED slice close, exactly the
+# false negative this hook exists to eliminate, hidden on GitHub where `gh repo view` used to rescue
+# it. That `gh repo view` is also gone: it was a network call on every commit when origin/HEAD is
+# unset (the `git init` + `remote add` case), and it ran BEFORE the local fallback that resolves for
+# free. A clone's default branch is already covered by origin/HEAD above; a non-clone falls to the
+# named branches and then here. The marker emits a commit (the merge-base), used only as a diff
+# endpoint and in the message, never as a branch-name guard. Absent marker (not a bootstrapped repo,
+# so there is no /review-loop to run anyway) leaves $base null and the hook stays silent.
+if (-not $base) {
+    $root = (git rev-parse --show-toplevel 2>$null)
+    if ($root) {
+        $mk = Join-Path $root ".claude/scripts/review-marker.ps1"
+        if (Test-Path -LiteralPath $mk) {
+            # Sentinel: if `pwsh` is off the PATH the swallowed error would leave $LASTEXITCODE at
+            # the 0 of the git call above, which would read as a successful exit 0 from the marker.
+            $global:LASTEXITCODE = 99
+            $rb = (& pwsh -NoProfile -File $mk -Action base -RepoDir $root 2>$null)
+            if (($LASTEXITCODE -eq 0) -and $rb) { $base = ([string]$rb).Trim() }
+        }
     }
 }
 if (-not $base) { exit 0 }

@@ -529,4 +529,50 @@ Assert ($acc -match '^[0-9a-f]{40}$') "bajo ruta no-ASCII, advance emite un marc
 Assert (Test-Path -LiteralPath (Join-Path $t ".git/review-loop-state.json")) "bajo ruta no-ASCII, el estado se escribe dentro del repo"
 Remove-Item -Recurse -Force -LiteralPath $t
 
+# --- `-Action base` resuelve la base del slice para el hook (Alta A: repos con base no estándar) ---
+# El hook delega acá la resolución de base cuando las ramas nombradas (main/master/develop/origin-HEAD)
+# fallan, para no quedar mudo en un repo cuya base se llama `trunk`, `dev`, etc. Devuelve el
+# merge-base (un commit), con el mismo contrato de exit codes que `range`: 0+ref resoluble / 2+vacío.
+$t = Join-Path ([IO.Path]::GetTempPath()) ("rm-test-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $t | Out-Null
+Init-Repo $t "trunk"
+"base" | Set-Content (Join-Path $t "file.txt")
+git -C $t add -A; git -C $t commit -q -m base
+$trunkTip = (git -C $t rev-parse trunk).Trim()
+git -C $t checkout -q -b feat/y
+"y" | Set-Content (Join-Path $t "y.txt")
+git -C $t add -A; git -C $t commit -q -m y
+$b = Marker $t base
+Assert ($script:lastExit -eq 0) "base en repo 'trunk' sale con exit 0 (dio $($script:lastExit))"
+Assert ($b -eq $trunkTip) "base delega en Get-SliceBase y devuelve el merge-base contra 'trunk'"
+Remove-Item -Recurse -Force $t
+
+# Repo con una sola rama y ninguna otra ref: no hay base determinable -> exit 2, vacío (nunca 0+vacío,
+# que el hook leería como 'no hay nada que revisar' y dejaría pasar un cierre declarado).
+$t = New-RepoOn "solo"
+$b = Marker $t base
+Assert ($script:lastExit -eq 2) "base sin ninguna ref candidata sale con exit 2 (dio $($script:lastExit))"
+Assert ($b -eq "") "base indeterminable no emite ningún ref"
+Remove-Item -Recurse -Force $t
+
+# --- advance pone en cuarentena un estado ilegible antes de pisarlo (A2b fix 3) ---
+# El estado compartido guarda las claves `marker:<rama>` / `untracked:<rama>` de TODAS las ramas y el
+# dedupe del hook. Si el archivo queda ilegible (una escritura no atomica pisada a mitad, otra
+# herramienta), advance leia @{} y reescribia solo su clave, borrando las de las demas ramas SIN
+# rastro. El hook ya implementa el `.bad` para este mismo archivo; el marcador era la mitad
+# asimetrica. Ahora advance mueve el archivo corrupto a `.bad` (recuperable) antes de escribir.
+$t = New-Repo
+$gitDir = (git -C $t rev-parse --git-dir)
+$statePath = Join-Path $t (Join-Path $gitDir "review-loop-state.json")
+# JSON invalido que ADEMAS contiene la clave de otra rama: es lo que hay que poder recuperar.
+Set-Content -LiteralPath $statePath -Value '{ "marker:otra-rama": "deadbeef", NO_ES_JSON' -Encoding UTF8
+$adv = Marker $t advance
+Assert ($adv -match '^[0-9a-f]{40}$') "advance sobre estado ilegible igual fija un marcador"
+Assert (Test-Path -LiteralPath "$statePath.bad") "advance movio el estado ilegible a .bad (no lo destruyo)"
+$badContent = if (Test-Path -LiteralPath "$statePath.bad") { [IO.File]::ReadAllText("$statePath.bad") } else { "" }
+Assert ($badContent -match 'otra-rama') "el .bad conserva la clave de la otra rama (recuperable)"
+$newState = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
+Assert ($newState.'marker:feat/x' -eq $adv) "el estado nuevo tiene el marcador de la rama actual"
+Remove-Item -Recurse -Force $t
+
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

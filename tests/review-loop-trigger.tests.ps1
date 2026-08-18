@@ -63,6 +63,27 @@ Assert (($o -match "additionalContext") -and ($o -match "review-loop NOW")) "git
 Assert (($o -match "review-marker\.ps1") -and ($o -match "-Action range")) "el mensaje inyectado manda el ciclo al delta sin revisar, no al rango completo de la rama"
 Remove-Item -Recurse -Force $t
 
+# Alta A (A2b): en un repo cuya base NO se llama main/master/develop, el hook resolvia la base con
+# `exit 0` ANTES del gate del trailer (paso 4), quedando MUDO y perdiendo un cierre DECLARADO — el
+# falso negativo que este hook existe para eliminar, escondido justo en GitHub donde `gh repo view`
+# lo rescataba. Ahora delega la base al marcador CO-UBICADO (-Action base), que resuelve `trunk`/`dev`/
+# `release` via for-each-ref + merge-base --octopus. Mutante: revertir el bloque de delegacion (volver
+# al `exit 0`) deja este assert en rojo y el resto de la suite en verde.
+$mk = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/scripts/review-marker.ps1"
+$t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-test-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $t | Out-Null
+git -C $t init -q -b trunk; git -C $t config user.email a@b.c; git -C $t config user.name a
+git -C $t config commit.gpgsign false; git -C $t config core.hooksPath ""; git -C $t config core.excludesFile ""
+git -C $t commit --allow-empty -q -m base
+git -C $t checkout -q -b feat/y
+# En un proyecto bootstrapeado el marcador esta presente: el hook delega en el.
+New-Item -ItemType Directory -Path (Join-Path $t ".claude/scripts") -Force | Out-Null
+Copy-Item $mk (Join-Path $t ".claude/scripts/review-marker.ps1")
+Close-Slice $t "la feature y"
+$o = Fire $t "git commit -m cierre"
+Assert (($o -match "additionalContext") -and ($o -match "review-loop NOW")) "Alta A: cierre declarado en repo con base 'trunk' dispara (el hook delega la base al marcador)"
+Remove-Item -Recurse -Force $t
+
 # El evento dice `git commit` y trae el cwd de la sesion, pero el comando corrio en OTRO repo:
 # el HEAD de ESTE repo quedo viejo. Reproducido en vivo el 2026-08-11 con un repo de mktemp -d.
 $t = New-Repo
@@ -334,6 +355,23 @@ Remove-Item -Recurse -Force $t
 $t = New-Repo
 $o = Fire $t 'git commit -m "don''t" && git push && echo "it''s ok"'
 Assert ($o -match "additionalContext") "un apostrofe en el mensaje no se traga el git push que viene despues"
+Remove-Item -Recurse -Force $t
+
+# A2b fix 2: sustitucion de comando `$(...)`. Una comilla doble dentro de comillas simples dentro de
+# `$(...)` deja el total de dobles IMPAR, Hide-Literals se desincroniza y se traga el resto de la
+# linea, PERDIENDO el `git push` REAL que viene despues. Con el fix, un comando que contiene `$(` o
+# backtick recalcula las banderas sobre el comando crudo y las combina con OR: el falso negativo se
+# vuelve falso positivo (la direccion segura). Mutante: sacar el bloque del OR deja este assert rojo.
+$t = New-Repo
+$o = Fire $t 'git commit -m "$(sed ''s/"/x/'' f)" && git push'
+Assert ($o -match "additionalContext") "un `$(...)` con comilla desbalanceada no se traga el git push que viene despues"
+Remove-Item -Recurse -Force $t
+
+# La direccion segura tambien para el cierre declarado perdido: `echo "$(...)"` antes del commit no
+# debe volver mudo al hook. Aca el disparador es el commit CON trailer.
+$t = New-Repo; Close-Slice $t "cierre con substitucion"
+$o = Fire $t 'echo "$(sed ''s/"/x/'' f)" && git commit -m cierre'
+Assert ($o -match "additionalContext") "un `echo `$(...)` antes de un commit declarado no impide el disparo"
 Remove-Item -Recurse -Force $t
 
 # El evento trae el cwd de la SESION, que puede ser un subdirectorio (monorepo: la sesion abierta en

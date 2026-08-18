@@ -9,6 +9,9 @@
 #                       is `git diff <what range prints>`.
 #   -Action advance  -> cuts a new marker with `git stash create` (falls back to HEAD when the
 #                       tree is clean), persists it per branch and prints it
+#   -Action base     -> the slice base (a merge-base commit), for the trigger hook to delegate to
+#                       when its own named-branch lookup fails. Same exit contract as `range`:
+#                       0 + a ref when resolvable, 2 + no output when no base can be determined.
 #
 # Exit codes are part of the contract, because "nothing new to review" and "I cannot tell" must
 # never look the same to the caller — a caller that conflates them closes the loop reporting a
@@ -27,7 +30,7 @@
 # names, so these keys cannot collide with the trigger hook's dedupe entries in the same file.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet("get", "range", "advance")][string]$Action,
+  [Parameter(Mandatory = $true)][ValidateSet("get", "range", "advance", "base")][string]$Action,
   [string]$RepoDir
 )
 $ErrorActionPreference = "SilentlyContinue"
@@ -69,13 +72,18 @@ $key = "marker:$branch"
 # fingerprint never matches again, and the range stays non-empty forever: that branch can no longer
 # close the loop on "nothing new". The .NET calls below are explicit UTF-8 (with BOM detection on
 # read) in every PowerShell edition.
+# $script:stateCorrupt records that the file EXISTED but did not parse, so `advance` can quarantine
+# it before overwriting instead of silently dropping every OTHER branch's marker/untracked keys and
+# the hook's dedupe entries — the same `.bad` recovery the trigger hook already performs on its side.
+$script:stateCorrupt = $false
 function Read-State {
   $s = @{}
+  $script:stateCorrupt = $false
   if (Test-Path -LiteralPath $statePath) {
     try {
       ([IO.File]::ReadAllText($statePath) | ConvertFrom-Json).PSObject.Properties |
         ForEach-Object { $s[$_.Name] = $_.Value }
-    } catch { $s = @{} }
+    } catch { $s = @{}; $script:stateCorrupt = $true }
   }
   return $s
 }
@@ -216,6 +224,20 @@ switch ($Action) {
     exit 0
   }
 
+  "base" {
+    # The base of the slice, for the trigger hook to DELEGATE base resolution to when its own
+    # named-branch lookup (main/master/develop/origin-HEAD) comes up empty — a repo whose base is
+    # `trunk`, `dev`, `release`. Same resolver as `range` (Get-SliceBase), so the hook stops being
+    # the asymmetric half that goes silent on those repos and drops a declared slice close.
+    # Same exit contract: a resolvable ref, or exit 2 + nothing when no base can be determined — so
+    # the caller never reads "no base" as "nothing to review". Emits a commit (the merge-base), which
+    # the hook uses only as a diff endpoint, never as a branch-name guard.
+    $b = Get-SliceBase
+    if (-not $b) { exit 2 }
+    Write-Output $b
+    exit 0
+  }
+
   "range" {
     # A stored marker is only usable while its object still resolves: `git stash create` objects
     # are unreachable, so an aggressive `git gc` can prune one. Falling back to the slice base
@@ -262,13 +284,27 @@ switch ($Action) {
     if (-not $sha) { exit 2 }                         # repo with no commits yet
 
     $state = Read-State
+    # An unreadable state parsed to @{}: overwriting it now would erase every OTHER branch's
+    # marker/untracked keys and the hook's dedupe entries with no trace. Move it aside first, so the
+    # keys stay recoverable — the same `.bad` quarantine the trigger hook does before it writes.
+    # If the move itself fails (most likely the file held open mid-write, since that write is not
+    # atomic), leave the file ALONE and skip persisting rather than clobber what could not be backed
+    # up: not advancing means the next turn reviews too much, which is the safe direction. The marker
+    # is still printed so the caller sees the cut point.
+    $writable = $true
+    if ($script:stateCorrupt -and (Test-Path -LiteralPath $statePath)) {
+      try { Move-Item -LiteralPath $statePath -Destination "$statePath.bad" -Force -ErrorAction Stop }
+      catch { $writable = $false }
+    }
     $state[$key] = $sha
     # The marker's commit object cannot hold untracked files, so they are recorded beside it.
     # Without this, every later turn would see them as new delta forever.
     $state["untracked:$branch"] = @(Get-UntrackedList)
-    # UTF-8 without BOM, written the same way by every PowerShell edition — see Read-State.
-    $json = ([pscustomobject]$state) | ConvertTo-Json
-    [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
+    if ($writable) {
+      # UTF-8 without BOM, written the same way by every PowerShell edition — see Read-State.
+      $json = ([pscustomobject]$state) | ConvertTo-Json
+      [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
+    }
     Write-Output $sha
     exit 0
   }
