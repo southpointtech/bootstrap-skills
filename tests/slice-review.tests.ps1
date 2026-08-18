@@ -57,5 +57,65 @@ foreach ($s in $skills) {
   }
 }
 
+# --- A3: corrida de review incremental ---------------------------------------------------------
+# El contenido del prompt de slice-review se verifica en las 3 skills bootstrap Y en la copia del
+# repo (AC: "verificados en las 3 skills bootstrap y en la copia del repo"). Los dos artefactos de
+# cada ubicacion (command para el humano + SKILL.md para autodescubrimiento) comparten el CUERPO,
+# asi que las mismas aserciones corren sobre ambos.
+$slicePairs = @(
+  @{ label = "repo"; files = @(
+      (Join-Path $repo ".claude\commands\slice-review.md"),
+      (Join-Path $repo ".agents\skills\slice-review\SKILL.md")
+  ) }
+)
+foreach ($s in $skills) {
+  $scaffold = Join-Path $s.FullName "assets\scaffold"
+  $slicePairs += @{ label = $s.Name; files = @(
+      (Join-Path $scaffold ".claude\commands\slice-review.md"),
+      (Join-Path $scaffold ".agents\skills\slice-review\SKILL.md")
+  ) }
+}
+
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { Assert $false "$($p.label): existe slice-review ($rel)"; continue }
+    $txt = [IO.File]::ReadAllText($f)
+
+    # Cambio 1 — el objetivo por DEFECTO (sin args) es el delta sin revisar, resuelto del marcador.
+    Assert ($txt -match 'review-marker\.ps1 -Action range') `
+      "$($p.label)/${rel}: el default resuelve el delta desde el marcador (-Action range)"
+    # El rango completo del slice queda reservado al pase de coherencia (A4), no es el default.
+    Assert ($txt -match '(?i)reserved for the coherence pass') `
+      "$($p.label)/${rel}: el rango completo del slice queda reservado al pase de coherencia"
+
+    # Cambio 2 — con delta vacio (exit 0) reporta 'nada que revisar' en vez de inventar un rango.
+    Assert ($txt -match '(?i)everything up to the marker was already reviewed') `
+      "$($p.label)/${rel}: delta vacio del marcador => nada que revisar, sin inventar rango"
+
+    # Cambio 3 — la prohibicion de escritura viaja en el contexto compartido, una sola vez.
+    Assert ($txt -match '(?i)reviewer, not an editor') `
+      "$($p.label)/${rel}: declara la prohibicion de escritura en el contexto compartido"
+
+    # Cambio 4 — cada foco declara su modelo: Sonnet 5 (reglas, historia), Opus 5 (bugs, contratos, tests).
+    Assert ($txt -match '(?i)project rules and historical context on \*\*Sonnet 5\*\*') `
+      "$($p.label)/${rel}: reglas e historia declaran Sonnet 5"
+    Assert ($txt -match '(?i)bugs, contracts and tests on \*\*Opus 5\*\*') `
+      "$($p.label)/${rel}: bugs, contratos y tests declaran Opus 5"
+
+    # Cambio 5 — el pase de confianza sigue en Opus 5, con la misma rubrica y el mismo corte en 60.
+    Assert ($txt -match '(?i)the confidence pass runs on Opus 5') `
+      "$($p.label)/${rel}: el pase de confianza corre en Opus 5"
+    Assert ($txt -match 'Drop everything below 60') `
+      "$($p.label)/${rel}: el pase de confianza mantiene el corte en 60 (regresion)"
+
+    # AC6 (regresion) — el reporte sigue diciendo cuantos descarto la confianza y que rango se reviso.
+    Assert ($txt -match '(?i)dropped by the confidence pass') `
+      "$($p.label)/${rel}: el reporte dice cuantos hallazgos descarto la confianza"
+    Assert ($txt -match '(?i)diff range that was actually reviewed') `
+      "$($p.label)/${rel}: el reporte dice que rango se reviso"
+  }
+}
+
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
