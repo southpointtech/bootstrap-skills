@@ -141,10 +141,15 @@ What makes it more than "just run a review":
   finding medium/high-severity issues — that's the bar for "clean" here. (It adapts Greptile's
   *greploop* to Claude Code's **native** reviewer, so there's no paid external service and no PR or
   remote required — it works on local uncommitted changes too.)
-- **It fires automatically.** A bundled hook, `review-loop-trigger`, watches for `gh pr create` /
-  `git push` and **injects the order to run the loop on the branch diff** — so the quality gate doesn't
-  depend on the agent (or the human) remembering to run it. The manual `/review-loop` is still there
-  for reviewing local changes before you commit.
+- **It fires automatically.** A bundled hook, `review-loop-trigger`, watches for `gh pr create`,
+  `git push`, and any commit that **declares** the close of a slice with a `Slice-Close:` trailer,
+  and **injects the order to run the loop over the unreviewed delta** — so the quality gate doesn't
+  depend on the agent (or the human) remembering to run it. Forgetting the trailer is covered too:
+  a safety net fires on a trailer-less commit once the unreviewed delta passes the ~400-line guide.
+  The manual `/review-loop` is still there for reviewing local changes before you commit.
+- **Each turn reviews only what's new.** A review marker (`.claude/scripts/review-marker.ps1`)
+  records how far the last review run got, so turn 2 reviews the fixes from turn 1 rather than the
+  whole branch again — which is where this loop used to burn most of its time.
 - **It has guardrails.** Reviewers produce false positives, so it doesn't accept findings blindly;
   agents over-fix, so it touches only what each finding is about; and **tests are the objective
   signal** — "looks fine" is not a pass. It refuses to run on huge diffs (≥ ~400 lines), pushing you

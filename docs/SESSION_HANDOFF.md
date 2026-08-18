@@ -1,3 +1,1116 @@
+# Session Handoff — 2026-08-15 (GRUPO SEGURO APLICADO — la alta B está cerrada)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: abrir A2b
+
+Rama **`feat/marcador-de-revision`**. Último commit sigue siendo **`e320510`** (A2). Encima están los
+**26 archivos modificados sin commitear** (los mismos de antes: no se creó ni borró ningún archivo).
+Suite completa **12/12 verde**, corrida entera al cierre de esta sesión.
+
+```
+e320510  feat(review-loop): disparo por cierre de slice declarado          <- A2
+67ae410  fix(review-loop): correcciones del ciclo de revision sobre el marcador
+326aee3  feat(review-loop): marcador de revision y turno incremental       <- A1
+```
+
+**No hay ninguna decisión pendiente del usuario.**
+
+### Qué hizo esta sesión: el paso 1 del plan (los 7 hallazgos del "grupo seguro")
+
+Sólo tests y prosa — **cero cambios de producción**, que es lo que hacía seguro aplicarlos con el cap
+de 5 turnos agotado. Cada uno con su mutante verificado, no inferido.
+
+| # | Hallazgo | Qué se hizo | Verificación |
+|---|---|---|---|
+| **Alta B** | el fixture del "costo aceptado" pinea sólo la mitad del bloque borrado | assert **gemelo** `git -C '<otro>' push` en `tests/review-loop-trigger.tests.ps1` | mutante = reintroducir SOLO la rama `git -C` del 3b: el gemelo se pone **rojo** y el fixture viejo del `cd` sigue **verde** — o sea, medido, el viejo no protegía esa forma |
+| Media | la ventana de binarios de 8000 B no la fija ningún test | fixture con el primer NUL en el byte **5460** y 420 líneas | mutante 8000 → 4096: **rojo** |
+| Media | el UTF-8 del hook no tiene fixture con ruta de repo no-ASCII | caso con repo bajo `…ñandu…` y code page **850 forzada dentro del hijo**, con control positivo | mutante = angostar el forzado al solo `ls-files`: **rojo** (dispara cuando no debe) |
+| Media-baja | `tests/review-marker.tests.ps1` — el `$hu.Count` no muerde | `@($prop.Value \| Where-Object { $_ })`: un valor nulo cuenta 0 | mutante = el `advance` escribe la clave en `$null`: pre-fix imprime `ok: … fichó un untracked (1)` **mintiendo**, post-fix `FAIL: … (0)` |
+| Baja | setup muerto en los fixtures de `--base` | se sacó el `git -C $t branch develop` de los **tres** (el hallazgo nombraba dos) | medido: las 3 formas × con/sin la rama → los 6 asserts pasan igual. El hook **no valida** que la base exista |
+| Baja ×3 | `docs/TESTING.md` desfasada | ver abajo | — |
+
+**Las correcciones de `docs/TESTING.md`**: el bullet del costo aceptado ahora declara los **dos**
+fixtures y por qué hacen falta los dos; la lista de patrones sin fixture vive **en un solo lugar**
+(las dos discrepaban sobre `*.lock`; el único lockfile con fixture es `package-lock.json`, por
+`*lock.json`); el bullet de `$(...)` pasó de "límite sin repro" a **límite con repro ejecutable**, y
+el bullet del comando normalizado dejó de leerse como "el bypass por texto entrecomillado está
+cerrado", porque no lo está.
+
+### El hallazgo 19 (`$(...)`) quedó reproducido sobre la función real
+
+Corrido contra el `Hide-Literals` del hook, no sobre una reimplementación:
+
+```
+push=False commit=True   <- git commit -m "$(sed 's/"/x/' f)" && git push      # push REAL perdido
+push=False commit=False  <- echo "$(sed 's/"/x/' f)" && git commit -m cierre   # cierre declarado perdido
+push=True  commit=True   <- git commit -m "wrote $(echo "git push") today"     # dispara salteando gate/frescura/techo
+push=True  commit=True   <- git commit -m "fecha $(date +"%F")" && git push    # uso NATURAL: correcto
+```
+
+La última fila es la que acota la severidad a media: con número **par** de comillas dobles el
+recorrido se re-alinea solo. **Sigue sin arreglar** — es de lógica, va a A2b, y la opción elegida
+está escrita en `docs/TESTING.md`: no modelar `$()`, sino calcular las banderas también sobre el
+comando crudo cuando aparece `$(` o un backtick y quedarse con el **OR**.
+
+### Tests
+
+- **Suite completa 12/12 verde**, corrida entera esta sesión (las dos del review-loop por separado,
+  las otras 10 en un loop). Runner por archivo: `pwsh -NoProfile -File tests/<archivo>.tests.ps1`.
+- `tests/review-loop-trigger.tests.ps1`: **62 asserts** (eran 57; +4 nuevos, +1 guard).
+  `tests/review-marker.tests.ps1`: **67 asserts**, todos verdes.
+- **4 mutantes verificados, los 4 mueren** (uno por fix de fixture). Ninguno sobrevivió.
+- Los mutantes se corrieron **siempre en copias del scratchpad**, nunca sobre el árbol: al cierre
+  `git status` muestra los mismos 26 modificados, ningún archivo nuevo ni borrado.
+- Repos temporales (`$TEMP/rlt-test-*`, `rm-test-*`): **0** al cerrar.
+
+### ⚠️ El cap sigue agotado — lo que esta sesión escribió NO lo revisó ningún turno
+
+Es la razón por la que sólo se tocaron tests y prosa. El delta desde el marcador (`78b8a9b`) son
+**69 líneas de lógica de test** + prosa (`docs/TESTING.md` + este handoff). Bien bajo el techo.
+
+### Bugs
+
+- **Cerrados esta sesión**: la **alta B** y 6 hallazgos más del turno 5 (tabla de arriba).
+- **Abiertos del turno 5, todos de lógica → van a A2b**: la **alta A** (resolución de base del
+  hook), `$(...)` en `Hide-Literals`, la cuarentena del `advance`, el `gh repo view` delante del
+  fallback local, y las bajas restantes (heredocs sin enmascarar, `$base` sin verificar, cuarentena
+  que sólo atrapa el JSON que lanza, exit code de `ls-files` fuera de `$measurable`,
+  `git -C my\ dir push`, hash vacío permanente en `review-marker.ps1:195-198`).
+- **Sin resolver**: la contradicción de medición del comentario `review-marker.ps1:37-38` (si un
+  `pwsh` hijo con stdout redirigido hereda o no el 65001). El fix es correcto en las dos lecturas;
+  lo que puede estar mal es el comentario que lo justifica. Hace falta una medición limpia.
+- **Sigue abierto**: los 15 hallazgos de A1b; `copy-scaffold.ps1` pisa el `.gitignore` del destino;
+  `core.autocrlf` con hashes mixtos en los manifests; el `.bootstrap-manifest.json` de la **raíz**
+  sin resellar (AC de A7); el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Antes de tocar código
+
+- **El `alignment-gate` frena el primer edit.** El paso 1 está cerrado (grill 11/8, PRD e issues
+  aprobados 12/8): decilo y reintentá, **no ofrezcas grill**.
+- **Esta sesión NO necesitó espejar ni regenerar manifests**: sólo se tocaron `tests/` y
+  `docs/TESTING.md`, que no están sujetos a la regla del espejo. En cuanto A2b toque el hook o
+  `review-marker.ps1`, vuelve a aplicar: editar la copia de `bootstrap-personal-project` (es a donde
+  apuntan los tests), espejar con `Copy-Item` a las otras dos del scaffold **al final**, y replicar
+  la lógica —no copiar el archivo— en la copia raíz del hook, que va en español. Después,
+  `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una skill por vez.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+- **Los reviewers corren en SOLO LECTURA y experimentan en copias del scratchpad.**
+- Correr las dos suites del review-loop encadenadas **tarda más de 2 min**: una por vez, timeout amplio.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.**
+- **Nada de esto va a Zoho.**
+- Quiere **impacto medido antes de cambiar el proceso**.
+- Criterio: "el menor tiempo posible pero que la revisión sea completa y acertada".
+- Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto.
+
+### Próximos pasos — en orden
+
+1. **Abrir A2b — "resolución de base del hook"** como slice propio con cap de 5 turnos propio.
+   Arreglar ahí la **alta A**: `.claude/hooks/review-loop-trigger.ps1:166` hace `exit 0` **antes**
+   del gate del trailer cuando la base no resuelve, así que en un repo cuya base no se llama
+   `main`/`master`/`develop` el hook queda mudo — y el bug se esconde justo en GitHub, donde
+   `gh repo view` lo rescata. Fix preferido: **delegar la base al marcador** (`-Action base`), que ya
+   resuelve esos repos con `Get-OtherRefs` + `merge-base --octopus`; elimina la asimetría en vez de
+   duplicarla. Entran también `$(...)`, la cuarentena del `advance` y sacar el `gh repo view` de
+   delante del fallback local.
+2. **Commitear** cuando el usuario lo pida. Sugerido: `fix(review-loop): correcciones de los turnos
+   2-5 sobre el disparo por cierre de slice`, con trailer `Slice-Close:` sólo si se considera cierre.
+3. Después **A3** (`.scratch/review-cost-redesign/issues/03-corrida-de-review-incremental.md`), luego
+   A4/A5, luego A6, y **A7 al final** (requiere presencia humana: deploya a `~/.claude/skills`).
+4. **A1b** cuando se quiera; sigue con 15 hallazgos y el nudo de diseño sin resolver.
+5. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- El marcador sigue en **`78b8a9b`**. **No se avanzó** esta sesión: la corrida de review del turno 5
+  ya lo había avanzado, y lo que se escribió después (los fixes de arriba) es delta sin revisar —
+  correctamente, porque el cap está agotado y nadie lo revisó.
+- El techo se mide a mano contra la copia canónica ×1. Los fixes de esta sesión no se espejan, así
+  que canónico y bruto coinciden: **69 líneas de lógica**.
+- Los PRDs e issues viven en `.scratch/`, **gitignoreado**: existen sólo en el working tree.
+  Señalado desde el 12/8, **sigue sin decidirse**.
+- Los 4 mutantes se verificaron con el criterio correcto (una línea que **empieza** con `FAIL:`), no
+  con el `-split 'FAIL:'` que daba falsos "MUERE".
+
+---
+
+# Session Handoff — 2026-08-14 parte 3 (TURNO 5 CORRIDO — el cap se agotó SIN cerrar limpio)
+
+## ▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — el review-loop terminó por CAP, no por limpio
+
+Rama **`feat/marcador-de-revision`**. Último commit sigue siendo **`e320510`** (A2). Encima siguen los
+**26 archivos modificados sin commitear** (fixes de los turnos 1-4). **Esta sesión NO tocó una sola
+línea de código**: corrió el turno 5, encontró 19 hallazgos y no aplicó ninguno (razón abajo).
+
+```
+e320510  feat(review-loop): disparo por cierre de slice declarado          <- A2
+67ae410  fix(review-loop): correcciones del ciclo de revision sobre el marcador
+326aee3  feat(review-loop): marcador de revision y turno incremental       <- A1
+```
+
+### ⚠️ Lo primero que hay que saber: el rango contiene SÓLO este handoff, y eso NO es "limpio"
+
+```powershell
+pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range   # 78b8a9b…, exit 0
+git --no-pager diff --stat 78b8a9b                                     # sólo docs/SESSION_HANDOFF.md
+```
+
+El marcador se avanzó `2585e54` → **`78b8a9b`** al terminar la corrida de review (paso 3 del loop:
+tres reviewers corrieron y devolvieron informe, así que corresponde avanzarlo). Quedó vacío en ese
+momento; **lo único que entró después son las 262 líneas de prosa de este handoff**, que el reviewer
+puede saltear: **cero líneas de lógica sin revisar**.
+
+Que el rango no traiga código **no significa que el slice esté limpio**: hay **19 hallazgos abiertos,
+2 de ellos altas**, y el código que los contiene ya fue leído. No cerrar el loop por eso.
+
+**El cap de 5 turnos está AGOTADO.** Cualquier fix que se escriba de acá en adelante **no lo revisa
+ningún turno**. Eso es el límite conocido del mecanismo y hay que decirlo al reportar.
+
+### Qué hizo esta sesión
+
+Turno 5 con 4 focos declarados (hook post-borrado del 3b, marcador, tests/`TESTING.md`, espejado).
+**Corrieron 3 reviewers de 4**; el foco de espejado lo cubrió el agente principal con comandos de
+comparación, no un subagente. La corrida costó **7 caídas por `529 Overloaded`** antes de que la API
+se estabilizara — falla del servidor, no de los prompts. Los tres informes que llegaron son de
+corridas completas, cada una con el repo verificado intacto al inicio y al final.
+
+### 🔴 Las 2 ALTAS
+
+**A) El hook queda mudo en un repo cuya base no se llama `main`/`master`/`develop`** —
+`.claude/hooks/review-loop-trigger.ps1:157-167` ×4. La resolución de base sólo conoce `origin/HEAD`,
+`gh repo view` y esos tres literales; si ninguno responde, `exit 0` en la línea 163 **antes** del gate
+del trailer y del techo. Reproducido dos veces, independientemente:
+
+```
+repo con base 'trunk', rama feat/y, commit con "Slice-Close: la feature y"
+  marcador -Action range  ->  5effd494…  exit 0     <- resuelve perfecto
+  hook     git commit     ->  SILENCIO              <- pierde el cierre DECLARADO
+  control: git branch -m trunk main -> DISPARA
+```
+
+Es el falso negativo mudo que este slice existe para eliminar, en el caso que el `CLAUDE.md` promete
+soportar ("funciona en repos locales sin remoto"). Hay **asimetría entre las dos mitades del motor**:
+el marcador SÍ resuelve ese repo (`Get-OtherRefs` + `merge-base --octopus`; sus comentarios nombran
+`trunk`, `dev`, `release`), el hook no. Y el bug **se esconde justo en GitHub**, donde `gh repo view`
+lo rescata. Fixes posibles, de mejor a peor: delegar la base al marcador (agregarle `-Action base`);
+extender el fallback con `for-each-ref` como `Get-OtherRefs`; o —el más barato— cuando el trailer
+está declarado y no resuelve base, disparar igual.
+
+**B) El fixture del "costo aceptado" pinea sólo la mitad del bloque borrado** —
+`docs/TESTING.md:112` + `tests/review-loop-trigger.tests.ps1:121-124`. El doc afirma que existe
+"para que reintroducir el bloque no pase inadvertido", y no lo logra: el bloque borrado probaba
+**primero** `git -C <ruta>` y sólo caía al `cd`; el fixture usa nada más `cd '$otro' && git push`.
+**Mutante vivo verificado**: reintroducir *sólo* la rama `git -C` deja la **suite completa en verde**.
+El otro fixture que menciona `-C` usa `git -C '$t' push` con `$t` = *este* repo, que resuelve al mismo
+toplevel y no discrimina. Es la única defensa contra reintroducir la clase de código que el usuario
+decidió borrar. **Fix**: el assert gemelo, que es literalmente el borrado con la polaridad invertida —
+`$otro = New-Repo; $t = New-Repo; Fire $t "git -C '$otro' push"` → `Assert ($o -match "additionalContext")`.
+
+### 🟠 Las 5 MEDIAS
+
+| Dónde | Qué | Evidencia |
+|---|---|---|
+| hook `:158` | `gh repo view` es una **llamada de red en cada commit** cuando `origin/HEAD` no está seteado (lo normal en `git init` + `remote add`; sólo `clone` lo setea), y corre **antes** del fallback local que lo resolvería gratis | medido: ~700-1000 ms extra por commit |
+| hook `:282,286` | La ventana de binarios de **8000 B no la fija ningún test** ni figura en el bloque de no-cubiertos. El único fixture pone el NUL en el offset 3 | revertir 8000 → 4096 sobrevive la suite entera |
+| hook `:23` | La mitad "toda llamada a git" del **UTF-8 del hook** no tiene fixture (el marcador sí lo recibió). Ningún fixture de trigger usa ruta de repo no-ASCII | angostar el alcance al `ls-files` sobrevive. Si regresa: bajo `C:\Users\Martín\…` la red mide la rama entera en silencio |
+| hook, `Hide-Literals` | **El hallazgo 19 (`$(...)`) YA TIENE REPRO** — ver abajo | dos reviewers convergen |
+| `review-marker.ps1:264-271` | `advance` **pisa un estado ilegible** y destruye `marker:*` / `untracked:*` de las otras ramas y el dedupe del hook, **sin cuarentena**. El hook implementa el `.bad` para este mismo archivo: el marcador es la mitad asimétrica | repro corrido; este repo tiene claves de 4 ramas |
+
+### 🟡 El hallazgo 19 dejó de estar "sin repro" — y es peor de lo que se creía
+
+El handoff anterior lo dejó declarado sin acción por falta de repro ejecutable. Se encontró, y no es
+sólo el falso positivo que se sospechaba: **también pierde disparadores reales**.
+
+```bash
+git commit -m "$(sed 's/"/x/' f)" && git push      # $isPush=False   <- push REAL perdido
+echo "$(sed 's/"/x/' f)" && git commit -m cierre   # $isCommit=False <- cierre declarado perdido
+git commit -m "wrote $(echo "git push") today"     # dispara salteando gate, frescura y techo
+```
+
+Mecanismo: una comilla **doble** dentro de comillas **simples** dentro de una sustitución `$(...)`
+deja el total de dobles en número **impar**; el walker se desalinea y se traga el resto de la línea.
+**Medición que acota la severidad a media**: los usos naturales (`date +"%F"`, `basename "$PWD"`,
+`cat msg.txt`) tienen número **par**, se re-alinean solos y **no** pierden disparadores.
+
+Opciones, con la recomendación en la primera:
+1. **No modelar `$()`**: si el comando contiene `$(` o backtick, calcular las banderas también sobre
+   el comando crudo y quedarse con el **OR**. Convierte todo falso negativo en falso positivo (la
+   dirección que el proyecto ya declaró segura), ~2 líneas, sin walker nuevo.
+2. Modelar `$(...)` con paréntesis balanceados antes de caminar los literales. Correcto, pero es
+   volver al pozo del parseo.
+3. Dejarlo declarado en `docs/TESTING.md`, ahora **con** el repro, y arreglarlo en slice propio.
+
+### ⚪ Media-bajas (2) y bajas (10)
+
+- **Media-baja** — `$base` nunca se verifica que resuelva (`--base $(git config x)` inyecta `$(git`
+  en el mensaje; `--base no-such-branch` pasa tal cual).
+- **Media-baja** — **los heredocs no se enmascaran**, aunque el paso 6 los vende como forma soportada:
+  `git commit -F- <<'EOF'` con "git push" en el cuerpo prende `$isPush` y saltea gate, frescura y
+  techo. Reproducido. Dirección segura.
+- Cuarentena que sólo atrapa el JSON que **lanza excepción**: un `[1,2,3]` válido no lanza y el paso 7
+  escribe de vuelta propiedades de reflexión de .NET (`Length`, `IsReadOnly`, `SyncRoot`…).
+- Exit code de `ls-files` fuera de `$measurable` (la mitad trackeada está protegida, la untracked no).
+- `git -C my\ dir push` (espacio escapado sin comillas) pliega a `git dir push` y nunca dispara.
+- `tests/review-marker.tests.ps1:491` — el `Assert ($hu.Count -eq 1)` **sigue sin morder** pese al
+  arreglo del turno 4: quedó el `Count` encima de la misma variable, y `@($null).Count` vale 1.
+  Imprime `ok: … fichó un untracked (1)` justo cuando no se fichó nada.
+- Setup muerto en los dos fixtures nuevos de `--base` (`:447`, `:454`): crean `branch develop` pero
+  el hook nunca valida que la base exista; corridos sin la rama, los asserts pasan igual.
+- `docs/TESTING.md:131` desfasada de `:111` (dos listas del mismo hecho que discrepan sobre `*.lock`).
+- `docs/TESTING.md:126` subdeclara `$(...)`: la línea 108 se lee como "el bypass del gate por texto
+  entrecomillado está cerrado", y no lo está.
+- `review-marker.ps1:195-198` — hash vacío permanente para archivos ilegibles (symlink roto, o pwsh
+  en Linux): la entrada `path|` es estable y `Test-NewUntracked` nunca dispara para ediciones
+  posteriores. No reproducible en Windows.
+- `tests/review-marker.tests.ps1:496-527` — el caso de ruta no-ASCII invoca el marcador **en-proceso**
+  (`& '$marker'`), pero producción lo invoca como `pwsh -NoProfile -File`. Y falta el caso
+  5.1 + no-ASCII + code page OEM, que son las máquinas destino del scaffold. Las tres variantes se
+  probaron a mano y **pasan**: es un hueco de cobertura, no un defecto.
+
+### ⚠️ Contradicción de medición, SIN RESOLVER
+
+`review-marker.ps1:37-38` afirma que "un `pwsh` hijo con stdout redirigido no hereda el 65001 del
+padre y reporta OEM". El turno 4 lo midió así; el reviewer del turno 5 midió **lo contrario**
+(`parent=65001 → child=65001`) y atribuye el bug a que la consola default de Windows ya es OEM.
+**El fix es correcto en las dos lecturas**; lo que está mal es el comentario que lo justifica.
+Consecuencia práctica: si el segundo tiene razón, `chcp 65001` en la terminal **sí** es una mitigación
+válida, y el comentario induce a creer que no. No se resolvió: hace falta una medición limpia.
+
+### Por qué NO se aplicó ningún fix (decisión declarada)
+
+El paso 5 del loop exige un test en RED antes de cada fix, y el cap ya está agotado: **lo que se
+escriba ahora no lo revisa nadie**. Dos hallazgos tocan la zona que produjo 8 altas en 3 turnos, sobre
+la que el usuario ya tomó una decisión de política (borrar antes que parchar). Escribir esos fixes sin
+revisor es el modo de falla que el mecanismo existe para prevenir, así que se elevó a decisión del
+usuario. El usuario respondió: **actualizar el handoff y seguir en terminal nueva** con el criterio
+del agente.
+
+Los hallazgos se parten limpio en dos grupos por riesgo:
+
+- **Seguros sin revisor** (tests y prosa: agregan red, no cambian producción): el fixture gemelo
+  `git -C` (**cierra la alta B**), el fixture de la ventana de 8000 B, el fixture de UTF-8 del hook,
+  el `$hu.Count`, el setup muerto de `--base`, y las tres correcciones de `docs/TESTING.md`.
+- **Cambian lógica, piden turno propio**: la resolución de base (**alta A**), `$(...)` en
+  `Hide-Literals`, la cuarentena del `advance`, y el `gh repo view`.
+
+### Lo que se verificó LIMPIO
+
+- **Espejado byte-idéntico** en las 3 copias del scaffold para hook, `review-marker.ps1`,
+  `review-loop.md` y `SKILL.md`. La copia raíz del hook difiere sólo en 3 comentarios traducidos y el
+  `$msg` — el drift deliberado.
+- **Los 3 `.bootstrap-manifest.json` están al día** (hashes correctos para los 5 archivos tocados en
+  las 3 skills). Ojo al verificarlo: `gen-manifest.ps1` usa `Get-FileHash` **crudo**, sin normalizar
+  CRLF; normalizar da falsos "desalineado".
+- **Ninguna prosa quedó mintiendo** sobre el paso 3b borrado, y no quedaron rastros de las variables
+  eliminadas (`Read-Path`, `$trg`, `$here`/`$there`) en ninguna copia ni en los tests.
+- El costo aceptado está declarado en el encabezado del hook ×4, en `docs/TESTING.md:112` y en el
+  fixture.
+- `$stateWritable` saltea **sólo** la escritura (verificado con el `.bad` bloqueado por
+  `FileShare.None`). Bordes de la frescura medidos con `GIT_COMMITTER_DATE` (−1700 s dispara /
+  −1801 s no / futuro rechazado por `Abs()`); `--amend` refresca `%ct`. La ventana de 8000 B
+  **coincide con git** (un NUL en el byte 6000 es binario para `--numstat`). Las 16 llamadas a git del
+  marcador están cubiertas por el forzado de encoding, y `[Console]::OutputEncoding` +
+  `[Text.UTF8Encoding]::new($false)` son la propiedad y el constructor correctos.
+- Sin backtracking catastrófico: el regex de plegado sobre 100 KB sin espacios tarda 12 ms;
+  `Hide-Literals` es lineal (300 ms sobre 200 KB).
+- El delta **NO removió** nada del marcador: al contrario, elimina un peligro latente — un nombre de
+  rama no-ASCII decodificado como mojibake rompía las exclusiones `$_ -ne $branch` de
+  `Get-NamedBases`/`Get-OtherRefs` y podía dejar que la propia rama ganara el octopus.
+
+### Tests
+
+- **`tests/review-loop-trigger.tests.ps1`: 57 asserts verdes.**
+  **`tests/review-marker.tests.ps1`: 81 asserts verdes.** Corridos de verdad esta sesión, desde una
+  copia del scratchpad, una suite por vez.
+- **La suite completa (12 archivos) NO se corrió esta sesión**, pero **no se tocó código**, así que el
+  12/12 verde del handoff anterior sigue valiendo.
+- **13 mutaciones verificadas: 10 mueren, 3 sobreviven** (ventana de 8000, alcance del UTF-8 del hook,
+  atribución por `git -C`) — son las tres medias/alta de arriba.
+- **Límite declarado y verificado como honesto**: colapsar el `$end` de la comilla sin cerrar a
+  `[Math]::Min($j, $s.Length - 1)` sobrevive la suite, exactamente como `docs/TESTING.md:125` declara.
+- Correr las dos suites del review-loop encadenadas **tarda más de 2 min**: una por vez, timeout amplio.
+
+### Antes de tocar código
+
+- **El `alignment-gate` frena el primer edit.** El paso 1 está cerrado (grill 11/8, PRD e issues
+  aprobados 12/8): decilo y reintentá, **no ofrezcas grill**.
+- **Regla del espejo**: hook, `review-marker.ps1`, `review-loop.md` y `review-loop/SKILL.md` van a las
+  **4 copias**. Editar la de `bootstrap-personal-project` (es a donde apuntan los tests) y espejar con
+  `Copy-Item` a las otras dos del scaffold. El `review-marker.ps1` de la raíz es **byte-idéntico**, se
+  copia igual. **El hook de la raíz va en español**: replicar la lógica, no copiar el archivo.
+- **Espejar SIEMPRE al final**, después del último edit del canónico.
+- **Manifests generados**: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una
+  skill por vez, antes de commitear. Están al día al estado actual.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+- **Los reviewers corren en SOLO LECTURA y experimentan en copias del scratchpad.** Los tres de esta
+  sesión verificaron `git status` idéntico al inicio y al final. Mantener esa instrucción: la
+  contaminación entre paralelos ya arruinó una corrida.
+- Repos temporales de prueba (`$TEMP/rlt-*`, `rm-test-*`, `t5*`) borrados; quedaron 0.
+
+### Bugs
+
+- **Arreglados**: los 11 del turno 2, los 11 del turno 3 y los 18 del turno 4.
+- **Abiertos, nuevos**: los **19 del turno 5** (arriba), 2 altas + 5 medias + 2 media-bajas + 10 bajas.
+- **Sigue abierto**: los 15 hallazgos de A1b.
+- **Sigue abierto**: `copy-scaffold.ps1` pisa el `.gitignore` del proyecto destino.
+- **Sigue abierto**: `core.autocrlf` con hashes mixtos en los manifests.
+- **Sigue abierto**: el `.bootstrap-manifest.json` de la **raíz** no se reselló (AC de A7).
+- **Sigue abierto**: el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.**
+- **Nada de esto va a Zoho.**
+- Quiere **impacto medido antes de cambiar el proceso**.
+- Criterio: "el menor tiempo posible pero que la revisión sea completa y acertada".
+- Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto.
+
+### Próximos pasos — el plan recomendado, en orden
+
+1. **Aplicar el grupo seguro** (tests y prosa, 7 hallazgos). Cierra la **alta B** y no necesita
+   revisor porque no cambia producción. Empezar por el **fixture gemelo `git -C`**, que hoy es la
+   única defensa contra reintroducir el bloque borrado y no muerde. Cada fixture nuevo, verificado en
+   RED antes (mutar producción en una copia del scratchpad, ver el assert rojo, restaurar).
+2. **Abrir A2b — "resolución de base del hook"** como slice propio con su propio cap de 5 turnos, y
+   arreglar ahí la **alta A**. Es la única que deja el mecanismo muerto en un repo real, y hoy ningún
+   test la detecta. Fix preferido: delegar la base al marcador (`-Action base`), que ya tiene la
+   lógica correcta — elimina la asimetría en vez de duplicarla.
+3. En A2b entran también las otras tres de lógica: `$(...)` en `Hide-Literals` (opción 1 de arriba),
+   la cuarentena del `advance`, y sacar el `gh repo view` de delante del fallback local.
+4. **Commitear** cuando el usuario lo pida. Sugerido: `fix(review-loop): correcciones de los turnos
+   2-5 sobre el disparo por cierre de slice`, con trailer `Slice-Close:` sólo si se considera cierre.
+5. Después **A3** (`.scratch/review-cost-redesign/issues/03-corrida-de-review-incremental.md`), luego
+   A4/A5, luego A6, y **A7 al final** (requiere presencia humana: deploya a `~/.claude/skills`).
+6. **A1b** cuando se quiera; sigue con 15 hallazgos y el nudo de diseño sin resolver.
+7. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- El marcador está en **`78b8a9b`** y el rango sale **vacío con exit 0**. **Eso NO es "el loop cerró
+  limpio"**: el cap se agotó con 19 hallazgos abiertos.
+- El techo de ~400 líneas se mide a mano contra la copia canónica ×1. Este rango midió **344**
+  canónicas (bruto 824/398 con el espejado ×4 y los handoffs), bajo el techo. La regla del `CLAUDE.md`
+  no exime explícitamente las copias espejadas, así que una lectura literal pondría el bruto encima.
+- Los PRDs e issues viven en `.scratch/`, **gitignoreado**: existen sólo en el working tree.
+  Señalado desde el 12/8, **sigue sin decidirse**.
+- El foco de espejado del turno 5 lo cubrió el agente principal con comandos de comparación, no un
+  subagente dedicado (el 4º reviewer murió por 529 y no se relanzó). Lo verificado está listado arriba.
+- Los 19 hallazgos vienen con repro ejecutable o mutante verificado, **pero ninguno pasó por un pase
+  de confianza formal con scorers**; la alta A se verificó dos veces de forma independiente.
+
+---
+
+# Session Handoff — 2026-08-14 parte 2 (los 19 hallazgos del turno 4, resueltos; falta el TURNO 5)
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — la tarea es el turno 5 del `/review-loop`, y es el ÚLTIMO del cap
+
+Rama **`feat/marcador-de-revision`**. Último commit sigue siendo **`e320510`** (A2). Encima hay
+**26 archivos modificados sin commitear**: los fixes de los turnos 1, 2, 3 **y 4** del `/review-loop`.
+Suite completa **12/12 verde**, corrida entera al cierre de esta sesión.
+
+```
+e320510  feat(review-loop): disparo por cierre de slice declarado          <- A2
+67ae410  fix(review-loop): correcciones del ciclo de revision sobre el marcador
+326aee3  feat(review-loop): marcador de revision y turno incremental       <- A1
+```
+
+**No hay ninguna decisión pendiente del usuario.** La que bloqueaba (paso 3b del hook) se tomó y se
+ejecutó — ver abajo.
+
+### Lo primero: el turno 5
+
+```powershell
+pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range   # da 2585e54..., exit 0
+```
+
+El marcador quedó en **`2585e54`** a propósito y **no hay que avanzarlo antes de revisar**: el rango
+es exactamente lo que esta sesión escribió, que es lo que el turno 5 tiene que leer.
+
+**Ojo con el ruido del rango**: adentro entran también ~380 líneas de `docs/SESSION_HANDOFF.md` (el
+handoff anterior + éste), escritas después de que el marcador avanzara. Es prosa de handoff, no
+lógica: el reviewer la puede saltear. La lógica real del rango son **341 líneas canónicas ×1**
+(hook 136, tests 157, marcador 32, `docs/TESTING.md` 16), bajo el techo de ~400. El bruto con el
+espejado ×4 da 1057.
+
+**El turno 5 es el último del cap.** Al cerrarlo hay que reportar el estado del cap explícitamente:
+sus propios fixes, si los hay, no los va a revisar nadie. Es el límite conocido del mecanismo.
+
+### La decisión que se tomó y se ejecutó: se borró el paso 3b
+
+El usuario eligió la **opción 1: borrar el bloque de atribución por parseo entero** (~45 líneas ×4).
+Se ejecutó. Lo que queda protegiendo al hook son señales **observables**, no parseo:
+
+- **frescura del HEAD** (`git log -1 --format=%ct`, ventana de 1800 s con `Abs()`) para los commits;
+- **dedupe por SHA** en `review-loop-state.json` para todo lo demás.
+
+**Costo aceptado y declarado**: un `git push` corrido en OTRO repo desde una sesión abierta acá
+dispara un review-loop de más. Hay un **fixture que lo fija** (`review-loop-trigger.tests.ps1`), para
+que reintroducir el bloque no pase inadvertido: si alguien lo vuelve a agregar, ese assert se pone
+rojo y hay que discutirlo.
+
+**Ojo — el borrado NO se llevó los 7 hallazgos del grupo B, se llevó 5.** Los otros dos vivían en
+`Hide-Literals`, que el **paso 2** sigue necesitando para el gate del trailer. Uno se arregló
+(`'\''`), el otro quedó declarado sin acción (ver abajo).
+
+### Los 18 hallazgos cerrados, cada uno con RED verificado antes del fix
+
+| Sev | Dónde | Qué era | Fix |
+|---|---|---|---|
+| **Alta** | `review-marker.ps1` ×4 | `rev-parse --show-toplevel` y `--git-dir` leídos fuera del ajuste de encoding: bajo ruta no-ASCII las **tres** acciones daban exit 2 en silencio, `advance` no avanzaba nunca y el loop revisaba la rama entera para siempre | UTF-8 forzado **una sola vez** al tope del script (siempre corre como proceso hijo efímero). El save/restore local de `Get-UntrackedList` quedó redundante y se borró |
+| **Alta ×5** | hook ×4 | todo el parser del 3b: `$trg` tomaba el primer disparador, el salto de línea no separaba segmentos, `(?i)` leía `-c` como `-C`, el regex del `cd` no cubría subshell/`pushd`, `--git-dir=` no atribuía | **borrado** (decisión del usuario) |
+| **Alta** | hook ×4 | `Hide-Literals` con `'\''` (el idioma de bash para un apóstrofe): la comilla suelta se tomaba por apertura, el resto del mensaje quedaba expuesto y `git push` en el texto prendía `$isPush`, salteando el gate del trailer, la frescura **y** el techo | la barra invertida **fuera** de literal escapa al carácter siguiente |
+| Media-Alta | hook ×4 | el guard de cuarentena era **código muerto**: con `SilentlyContinue` el `Move-Item` no lanza y el `catch { exit 0 }` nunca corría. Y su diseño era incorrecto: suprimir el disparo por una falla de I/O es el lado peligroso | `-ErrorAction Stop` + flag `$stateWritable`, que saltea la **escritura** del paso 7 y sigue hasta el paso 8 |
+| Media | hook ×4 | `--base` leído del `$cmd` crudo: `--base "develop"` entrecomillado se ignoraba, y un `--base` citado en `--title` ganaba por ser el primer match → rango contra una rama inexistente | la bandera se ubica sobre `$scan` y el valor se lee de `$cmd` **por índice** (por eso `Hide-Literals` sigue preservando la longitud) |
+| Media | `review-marker.tests.ps1` | el guard del `advance` desde subdirectorio no guardaba: `@($null).Count` vale **1**. Y el `ReadAllText` iba sin `Test-Path` con `$ErrorActionPreference = "Stop"` | se mira la **propiedad** del JSON, no el Count; lectura afuera del Assert con `Test-Path` |
+| Media | `review-loop-trigger.tests.ps1` | el fixture del untracked acentuado no verificaba que la code page se hubiera forzado (el `catch {}` se tragaba la falla) | `Assert` de que `[Console]::OutputEncoding.CodePage -eq 850` |
+| Media | `review-loop-trigger.tests.ps1` | el fixture del `git -C` citado no distinguía nada | se fue junto con el 3b |
+| Baja | hook ×4 | ventana de detección de binarios de 4096 B; git usa ~8000, así que un NUL más allá contaba como texto e inflaba el techo | 8000 B, y el comentario dejó de mentir |
+| Baja | hook ×4 | off-by-one en la rama de comilla sin cerrar (`Min($j, len-1)` dejaba el último carácter sin enmascarar) | los dos finales (cerrado / sin cerrar) quedaron separados explícitamente |
+| Baja | `review-loop-trigger.tests.ps1` | setup muerto en el fixture de la rama huérfana (la primera copia del marcador la borraba el `reset --hard`) | se copia **después** del `--orphan` |
+| Baja | `docs/TESTING.md` | decía "los tres casos" y enumeraba dos; faltaba `*.lock`; describía mal el agujero de `--git-dir`/`--work-tree`; la rama de comilla sin cerrar no estaba declarada | corregidos, más los bullets nuevos |
+
+### 🟡 El hallazgo 19, declarado SIN ACCIÓN
+
+`Hide-Literals` y la sustitución de comandos **`$(...)`**: bash reinicia el contexto de comillas
+adentro y la función no lo modela. El hallazgo del turno 4 lo agrupaba con `'\''`, pero **el repro
+ejecutable era sólo del segundo**. No se encontró un comando que reproduzca el de `$(...)`, así que
+**no se tocó el código**: está anotado como límite conocido en `docs/TESTING.md`, no como cubierto.
+Si el turno 5 encuentra el repro, ahí sí vale arreglarlo.
+
+### Decisiones tomadas esta sesión
+
+| # | Decisión | Quién |
+|---|---|---|
+| 1 | Borrar el paso 3b entero en vez de seguir parchándolo (3 turnos seguidos con altas en la misma zona; sus fallas eran falsos negativos mudos) | **usuario** |
+| 2 | El costo del borrado (un push ajeno dispara acá) se fija con un **fixture propio**, no sólo con un comentario | agente |
+| 3 | El encoding se fuerza **una vez al tope** de cada script en vez de alrededor de cada llamada a git: son procesos hijos efímeros y el patrón duplicado ya había dejado dos llamadas afuera | agente |
+| 4 | La cuarentena fallida saltea la **escritura**, no el disparo — perder un cierre declarado es peor que perder el dedupe | agente |
+| 5 | `$(...)` no se toca sin repro: cambiar código sin evidencia contradice el criterio de impacto medido del usuario | agente, declarado |
+
+### Bugs
+
+- **Arreglados**: los 11 del turno 2, los 11 del turno 3 y los **18 del turno 4** (tabla de arriba).
+- **Abierto, declarado**: el hallazgo 19 (`$(...)` en `Hide-Literals`), sin repro.
+- **Sigue abierto**: los 15 hallazgos de A1b.
+- **Sigue abierto**: la escritura del estado no es atómica (declarado en `docs/TESTING.md`).
+- **Sigue abierto**: `copy-scaffold.ps1` pisa el `.gitignore` del proyecto destino.
+- **Sigue abierto**: `core.autocrlf` con hashes mixtos en los manifests.
+- **Sigue abierto**: el `.bootstrap-manifest.json` de la **raíz** no se reselló (AC de A7). Los 3
+  manifests de las skills SÍ se regeneraron esta sesión (`tools/gen-manifest.ps1`).
+- **Sigue abierto**: el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Tests
+
+- **Suite completa 12/12 verde**. Runner por archivo: `pwsh -NoProfile -File tests/<archivo>.tests.ps1`.
+  Correr las dos suites del review-loop encadenadas **tarda más de 2 min**: correrlas por separado o
+  con timeout amplio.
+- `tests/review-loop-trigger.tests.ps1`: se agregaron 5 asserts (apóstrofe a la bash, `--base` ×2,
+  cuarentena bloqueada ×2), se borraron los 5 del 3b y se agregó el del costo aceptado.
+- `tests/review-marker.tests.ps1`: caso nuevo de **ruta no-ASCII** con code page 850 forzada dentro
+  del `pwsh` hijo, con **control positivo** de que la code page se forzó de verdad.
+- **RED verificado antes de cada fix.** El del marcador reprodujo exactamente el bug: `exit 2`.
+- **Trampa nueva**: `pwsh -Command "& script"` devuelve **su propio** código (1 ante cualquier error),
+  no el del script. Sin `; exit $LASTEXITCODE` al final, un assert de exit code no distingue el
+  `exit 2` del script de un fallo del host.
+
+### Antes de tocar código
+
+- **El `alignment-gate` frena el primer edit.** El paso 1 está cerrado (grill 11/8, PRD e issues
+  aprobados 12/8): decilo y reintentá, **no ofrezcas grill**.
+- **Regla del espejo**: el hook, `review-marker.ps1`, `review-loop.md`, `review-loop/SKILL.md` van a
+  las **4 copias**. Editar la de `bootstrap-personal-project` (es a donde apuntan los tests) y espejar
+  con `Copy-Item` a las otras dos del scaffold. **El `review-marker.ps1` de la raíz está en inglés y
+  es byte-idéntico**: se copia igual que las otras. **El hook de la raíz va en español**: replicar la
+  lógica, no copiar el archivo. `tests/review-loop-incremental.tests.ps1` compara la lógica de las 4 y
+  `mirror.tests.ps1` la byte-identidad de las 3 del scaffold.
+- **Espejar SIEMPRE al final**, después del último edit del canónico: esta sesión un edit de comentario
+  posterior al `Copy-Item` puso `mirror.tests.ps1` en rojo.
+- **Manifests generados**: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una
+  skill por vez, antes de commitear. Ya están regenerados al estado actual.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+- Los repos temporales de prueba (`$TEMP/rlt-*`, `rm-test-*`) se borran al terminar. Al cierre de esta
+  sesión quedaron 0.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.**
+- **Nada de esto va a Zoho.**
+- Quiere **impacto medido antes de cambiar el proceso**.
+- Criterio: "el menor tiempo posible pero que la revisión sea completa y acertada".
+- Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto. Fue el motivo de
+  este handoff: pidió explícitamente correr el turno 5 del loop **en la terminal nueva**.
+
+### Próximos pasos
+
+1. **Turno 5 del `/review-loop`** sobre el rango del marcador (`2585e54...`). Es el **último del cap**;
+   al cerrarlo, reportar el estado del cap y qué queda sin revisar.
+2. **Commitear** cuando el usuario lo pida (sugerido: `fix(review-loop): correcciones de los turnos
+   2-5 sobre el disparo por cierre de slice`, con trailer `Slice-Close:` sólo si se considera cierre
+   de slice).
+3. Después **A3** (`.scratch/review-cost-redesign/issues/03-corrida-de-review-incremental.md`), luego
+   A4/A5, luego A6, y **A7 al final** (requiere presencia humana: deploya a `~/.claude/skills`).
+4. **A1b** cuando se quiera; sigue con 15 hallazgos y el nudo de diseño sin resolver.
+5. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- El marcador está en `2585e54` y **no se avanzó**: el rango del turno 5 es exactamente lo que esta
+  sesión escribió, más la prosa de los dos handoffs.
+- Los PRDs e issues viven en `.scratch/`, **gitignoreado**: existen sólo en el working tree.
+  Señalado desde el 12/8, **sigue sin decidirse**.
+- El techo de ~400 líneas se mide a mano contra la copia canónica ×1. Este rango mide **341**
+  canónicas, bajo el techo. La regla del `CLAUDE.md` no exime explícitamente las copias espejadas,
+  así que una lectura literal pondría el bruto (1057) por encima.
+- Los 18 fixes tienen RED verificado, pero **ningún reviewer los leyó todavía**: eso es el turno 5.
+
+---
+
+# Session Handoff — 2026-08-14 (turnos 2 y 3 del review-loop aplicados; turno 4 REVISADO SIN FIXES)
+
+## ▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — hay UNA decisión del usuario pendiente antes de codear
+
+Rama **`feat/marcador-de-revision`**. Último commit sigue siendo **`e320510`** (A2). Encima hay
+**26 archivos modificados sin commitear**: los fixes de los turnos 1, 2 y 3 del `/review-loop`.
+Suite completa **12/12 verde** (corrida entera al cierre del turno 3; después no se tocó código).
+
+```
+e320510  feat(review-loop): disparo por cierre de slice declarado          <- A2
+67ae410  fix(review-loop): correcciones del ciclo de revision sobre el marcador
+326aee3  feat(review-loop): marcador de revision y turno incremental       <- A1
+```
+
+### ⚠️ Lo primero: el marcador está avanzado y el rango sale VACÍO — eso NO es "limpio"
+
+```powershell
+pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range   # da vacío, exit 0
+```
+
+El marcador quedó en **`2585e54`**, avanzado después de la corrida de review del turno 4 y **antes**
+de aplicar sus fixes (es el paso 3 del loop). Como los fixes del turno 4 **todavía no se escribieron**,
+el rango está vacío. **No cerrar el loop por eso.** En cuanto se escriban los fixes, el rango pasa a
+ser exactamente esos fixes y el turno 5 los revisa.
+
+### ⚠️ La decisión pendiente (bloquea los fixes del parser, no los demás)
+
+Se le preguntó al usuario y **cortó la sesión antes de responder**. Hay que volver a preguntarle.
+
+El **paso 3b del hook** (`.claude/hooks/review-loop-trigger.ps1`) averigua si el comando de git corrió
+en **otro repo**, parseando la línea de comando de bash con regex. Medición de los tres turnos:
+
+| Turno | Altas en ese parser |
+|---|---|
+| 2 | 1 — `$isPush` evaluado sobre el comando crudo (el texto del `-m` prendía la bandera) |
+| 3 | 3 — comillas escapadas `\"`, apóstrofes, y el 3b que quedó sin migrar a `$scan` |
+| 4 | 4 — `$trg` toma el primer disparador, el salto de línea no separa segmentos, `(?i)` lee `-c` como `-C`, y `Hide-Literals` se rompe con `'\''` y `$(...)` |
+
+Dato que inclina la balanza: **ese bloque existe sólo para evitar disparar de más**, pero sus fallas
+son **falsos negativos** (pierde cierres declarados en silencio), que es la dirección peligrosa.
+
+Las tres opciones que se le plantearon, con la recomendación puesta en la primera:
+
+1. **Borrar el bloque 3b entero** (~60 líneas ×4 copias). Los commits siguen protegidos por la
+   frescura del HEAD (`git log -1 --format=%ct`) y el dedupe por SHA, que son señales **observables**
+   y no parseo. Costo: un `git push` hecho en otro repo desde una sesión abierta acá dispararía un
+   review-loop de más. Elimina 5 de las 8 altas y la clase de bug entera.
+   **Ojo**: `Hide-Literals` **no** se puede borrar — el paso 2 lo necesita para que un mensaje de
+   commit que diga "git push" no saltee la puerta del trailer. Pero se simplifica mucho: sin la
+   atribución ya no hace falta preservar la longitud ni recuperar rutas por índice.
+2. **Señal observable**: para push, verificar `git rev-parse @{u}` contra HEAD. No parsea nada, pero
+   no funciona en repos locales sin remote, que el scaffold soporta hoy.
+3. **Seguir parchando** el parser en el turno 5 (último del cap).
+
+### Qué se hizo esta sesión
+
+**Turno 2 del `/review-loop`** (5 focos: bugs, reglas, historia, contratos, tests) — 18 hallazgos,
+11 arreglados. **Turno 3** (4 focos) — 15 hallazgos, 11 arreglados. **Turno 4** (3 focos: parser,
+conteo/estado, tests/docs) — 19 hallazgos, **0 arreglados** (es lo que queda por hacer).
+
+**Arreglado en el turno 2** (cada uno con RED verificado antes del fix):
+
+| Sev | Qué era | Fix |
+|---|---|---|
+| Alta | `$isPush` se evaluaba sobre el comando crudo, que incluye el texto del `-m`: un commit cuyo mensaje mencionaba "git push" salteaba el gate del trailer, la frescura **y** el techo | matchear sobre el comando normalizado |
+| Alta | `-- .` es pathspec relativo al cwd → desde un subdirectorio el techo medía sólo ese subárbol | `git -C $root` |
+| Alta | `ls-files` relativo al cwd + `Join-Path $root` → desde un subdirectorio no contaba ningún untracked | `git -C $root` |
+| Media | el conteo de untracked era absoluto e ignoraba la huella `untracked:<rama>` del marcador | descuenta los que el marcador ya cubrió |
+| Media | las exclusiones se aplicaban sólo a la mitad trackeada | `$skipPat` compartido; se sumaron `pnpm-lock.yaml`, `bun.lockb`, `go.sum` |
+| Media | `Get-Content` leía binarios enteros (4,9 s medidos con 12 MB) en cada commit | se saltean binarios |
+| Media | la detección de `cd` era ciega al orden | el `cd` sólo cuenta si precede al git |
+| Media | `git -C <repo> push` no matcheaba nada | se pliegan las opciones globales de git |
+| Media | 5 piezas sin test (mutantes vivos): `Abs()`, borde inferior del techo, guard `$here/$there`, `.bad` sin control positivo | fixture para cada una |
+| Media | `Code()` corta en `$msg =`: el bloque de emisión de la copia raíz no lo cubría nadie | asserts ×4 + chequeo de sintaxis con el parser de PowerShell |
+| Baja | `README.md` describía el disparo viejo; `TESTING.md` documentaba 7 comportamientos sobre 25 asserts | corregidos |
+
+**Arreglado en el turno 3** (las 4 primeras eran fixes rotos del turno 2):
+
+| Sev | Qué era | Fix |
+|---|---|---|
+| Alta | el blanqueo de literales por regex fallaba con `\"` (volvía a saltear el gate) y con apóstrofes (`-m "don't" && git push` se tragaba un push real) | `Hide-Literals`, que recorre los literales respetando el escape y **preserva la longitud** |
+| Alta | el paso 3b había quedado leyendo `$cmd` crudo y sin guard de posición para `-C` | lee `$scan`, acotado al **segmento** del disparador, con `Read-Path` recuperando por índice |
+| Alta | `$seen` comparaba sólo el path: un untracked que **creció** desde el marcador era invisible | se compara la entrada entera `path\|sha256`, igual que `Test-NewUntracked` |
+| Alta | untracked con nombre no-ASCII contaban **0**: faltaba forzar `[Console]::OutputEncoding` | se fuerza UTF-8 alrededor del `ls-files`, como ya hacía el marcador |
+| Media | exit 2 del marcador: el fallback `<base>...HEAD` falla con `fatal: no merge base` y el conteo daba 0 | `$measurable`; si el conteo no es confiable, dispara |
+| Media | el `$msg` de la copia raíz se podía reescribir para ordenar `main...HEAD` con las 3 suites verdes | assert anclado al bloque del mensaje en las 4 copias |
+| Media | el marcador fichaba las huellas relativas al cwd; el hook las lee relativas a la raíz | `review-marker.ps1` normaliza `$dir` al toplevel |
+| Media | huella usada aunque `git gc` hubiera podado el marcador | se valida con `cat-file -e` antes de confiar en ella |
+| Baja | handle sin `finally`; `--git-dir=x` sin plegar; `-split '\|'` por el primer pipe | corregidos |
+
+### 🔴 Los 19 hallazgos del turno 4 — SIN ARREGLAR, todos reproducidos en vivo
+
+**Grupo A — independientes de la decisión, se pueden arreglar ya:**
+
+| Sev | Dónde | Qué |
+|---|---|---|
+| **Alta** | `.claude/scripts/review-marker.ps1:45` ×4 | **Regresión del turno 3.** El `$top = git rev-parse --show-toplevel` quedó FUERA del ajuste de `[Console]::OutputEncoding` que el propio archivo aplica a su `ls-files`. En un repo con ruta no-ASCII (`C:\Users\Martín\…`) `$dir` queda mojibake y el marcador da **exit 2 en las tres acciones**: `advance` nunca avanza y el loop revisa la rama entera para siempre, en silencio. Medido: un `pwsh` hijo con stdout redirigido reporta cp=850 aunque el padre esté en 65001 — que es exactamente cómo el hook invoca al marcador. Adyacente: `review-marker.ps1:38` (`--git-dir`) tiene la misma exposición y alimenta `$statePath` |
+| Media-Alta | `.claude/hooks/review-loop-trigger.ps1:94` ×4 | El guard de cuarentena escrito en el turno 3 es **código muerto**: con `$ErrorActionPreference = "SilentlyContinue"` el `Move-Item` no lanza excepción terminante y el `catch { exit 0 }` nunca corre. Fix: `-ErrorAction Stop`. **Y el fix del turno 3 estaba mal pensado**: suprimir el disparo por una falla de I/O contradice "disparar de más es seguro". Lo correcto es un flag `$stateWritable` que saltee la **escritura** del paso 7 y siga hasta el paso 8 |
+| Media | hook `:145` | `--base` se lee del `$cmd` **crudo**: `--base "develop"` entrecomillado se ignora (cae al fallback), y un `--base` citado en `--title` gana por ser el primer match → el mensaje inyectado manda a un rango contra una rama inexistente. Es el único renglón que rompe la regla que el comentario del paso 2 declara |
+| Baja | hook `:287-293` | La ventana de detección de binarios es de 4096 B y git usa ~8000: un NUL entre medio cuenta como texto. Cuenta de más (molesto). El comentario afirma consistencia con `--numstat` y no la hay |
+| Media | `tests/review-marker.tests.ps1:481` | El guard positivo del `advance` desde subdirectorio **no guarda**: `@($st."untracked:feat/x").Count -eq 1` da 1 también cuando la clave no existe (`@($null).Count` = 1). Además el `ReadAllText` va sin `Test-Path` y con `$ErrorActionPreference = "Stop"` abortaría la corrida |
+| Media | `tests/review-loop-trigger.tests.ps1:422` | El fixture del untracked acentuado no verifica que la code page se haya forzado: si el `[Console]::OutputEncoding = 850` falla, el `catch {}` se lo traga y el caso pasa sin ejercitar nada. Falta `Assert ([Console]::OutputEncoding.CodePage -eq 850)` |
+| Media | `tests/review-loop-trigger.tests.ps1:332` | El fixture del `git -C` citado en el mensaje **no muerde**: el disparador matchea en índice 0 y la cita queda fuera del segmento, así que `$scan` y `$cmd` dan lo mismo. Mutación que sobrevive: que el 3b lea `$cmd` en las 4 ocurrencias. El caso que sí distingue necesita el literal ANTES del disparador, p. ej. `echo "x && cd '<otro>'" && git commit -m cierre` |
+| Baja | `tests/review-loop-trigger.tests.ps1:232` | En el fixture de la rama huérfana, la primera copia del marcador es setup muerto (el `--orphan` + `reset --hard` la borra). El resto del caso sí llega adonde dice |
+| Baja | `docs/TESTING.md` | Dice "los tres casos" y enumera dos; falta `*.lock` en la lista de patrones sin fixture; describe mal el agujero de `--git-dir`/`--work-tree` (no es falta de fixture: la atribución **no existe** para esa forma); y la rama de comilla sin cerrar de `Hide-Literals` no está declarada |
+
+**Grupo B — dependen de la decisión sobre el paso 3b:**
+
+| Sev | Qué | Comando que lo reproduce |
+|---|---|---|
+| Alta | `$trg` toma el **primer** disparador, no el operativo | `git -C '<otro>' commit -m x && git push` → silencio (debería disparar) |
+| Alta | el salto de línea no está en los separadores de segmento, así que el `-C` de la línea anterior sangra | `git -C '<otro>' fetch` ⏎ `git commit -m cierre` (con trailer) → silencio. Inconsistente consigo mismo: el regex del `cd` sí usa `(?im)` y `^` |
+| Alta | `(?i)` hace que `-c` (config override) se lea como `-C` (destino) **y tape el fallback del `cd`** | `cd '<otro>' && git -c user.email=x push` → dispara (debería callar). `git -c` es uso normal: el propio `New-Repo` de la suite lo usa |
+| Alta | `Hide-Literals` expone el mensaje con `'\''` (el idioma de bash para un apóstrofe) y con `$(...)` | `git commit -m 'fix: it'\''s ready to git push now'` → dispara salteando el gate entero |
+| Baja | el regex del `cd` no cubre subshell ni `pushd`, y cuenta un `cd` de pipeline (que corre en subshell y no cambia el cwd) | `(cd '<otro>' && git push)` y `pushd '<otro>' && git push` → disparan; `cd '<otro>' \| tee log && git push` → silencio |
+| Baja | `--git-dir=`/`--work-tree=` se reconocen para plegar y para `$trg`, pero **no** para atribuir | `git --git-dir='<otro>/.git' --work-tree='<otro>' push` → dispara atribuyendo mal |
+| Baja | off-by-one en la rama de comilla sin cerrar: `$end = Min($j, $s.Length - 1)` deja el último carácter sin enmascarar | el comentario dice "se come el resto" y no es lo que hace |
+
+### Decisiones tomadas esta sesión
+
+| # | Decisión | Quién |
+|---|---|---|
+| 1 | Los reviewers corren con instrucción explícita de **solo lectura** y experimentan en copias del scratchpad. Resolvió la contaminación entre paralelos de la sesión anterior: los 4 turnos verificaron `git status` limpio | agente |
+| 2 | El turno 4 usó **3 focos** en vez de 5, apuntados donde el material se concentra (parser, conteo/estado, tests/docs). Declarado porque un cap silencioso se lee como "se cubrió todo" | agente |
+| 3 | Se tocó `review-marker.ps1` (anclaje al toplevel) aunque no es parte de A2: es un bug que este slice destapó y el fix es de 2 líneas. **No** se tocó `Get-SliceBase`, que sigue reservada a A1b | agente, declarado |
+| 4 | La lectura del estado JSON se movió del paso 7 al paso 3a (el techo necesita la huella). Efecto observable declarado: un estado ilegible ahora se aparta como `.bad` también en caminos que no disparan | agente |
+| 5 | El parseo de la línea de comando se elevó a **decisión del usuario** en vez de seguir parchando: 3 turnos consecutivos con altas en la misma zona | agente |
+
+### Bugs
+
+- **Arreglados**: los 11 del turno 2 y los 11 del turno 3 (tablas de arriba), cada uno con RED verificado.
+- **Abiertos**: los **19 del turno 4** (tablas de arriba).
+- **Sigue abierto**: los 15 hallazgos de A1b.
+- **Sigue abierto**: la escritura del estado no es atómica (declarado en `docs/TESTING.md`).
+- **Sigue abierto**: `copy-scaffold.ps1` pisa el `.gitignore` del proyecto destino.
+- **Sigue abierto**: `core.autocrlf` con hashes mixtos en los manifests.
+- **Sigue abierto**: el `.bootstrap-manifest.json` de la **raíz** no se reselló (AC de A7). Hoy además no registra las versiones nuevas de los 3 archivos tocados, así que un `upgrade-bootstrap` sobre este repo los vería como `customized`.
+- **Sigue abierto**: el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Tests
+
+- **Suite completa 12/12 verde**. Runner por archivo: `pwsh -NoProfile -File tests/<archivo>.tests.ps1`.
+  Hay un runner de todos en el scratchpad de la sesión (`suite.ps1`), no está en el repo.
+- `tests/review-loop-trigger.tests.ps1` pasó de 25 a **~45 asserts**.
+- **Mutación**: 13 mutantes verificados en el turno 2 (12 mueren, 1 sobrevive: el centinela `$LASTEXITCODE = 99`, declarado como redundancia en `docs/TESTING.md`), y 8 en el turno 3 (los 8 mueren).
+- **⚠️ Trampa nueva, en el verificador de mutación, no en los tests**: partir la salida con `$out -split 'FAIL:'` da un falso "MUERE" cuando **no** hay ningún FAIL — el único segmento resultante contiene todos los `ok:` y matchea igual. El criterio correcto es una línea que **empieza** con `FAIL:`. Las primeras verificaciones de la sesión se rehicieron por esto.
+- **⚠️ Dos fixtures propios que no distinguían nada**, encontrados y corregidos dentro de la sesión: uno usaba `commit --allow-empty` (el marcador daba rango vacío y el hook salía antes del bloque bajo prueba) y otro creaba un binario de 300 KB de ceros **sin saltos de línea** (leído como texto contaba 1 línea, así que pasaba con y sin la detección de binarios).
+
+### Antes de tocar código
+
+- **El `alignment-gate` puede frenar el primer edit.** El paso 1 está cerrado (grill 11/8, PRD e issues aprobados 12/8): decilo y reintentá, no ofrezcas grill.
+- **Regla del espejo**: el hook, `review-marker.ps1`, `review-loop.md`, `review-loop/SKILL.md` van a las **4 copias**. Editar la de `bootstrap-personal-project` (es a donde apuntan los tests) y espejar con `Copy-Item` a las otras dos del scaffold; la copia de la **raíz** va en **español** — replicar la lógica, no copiar el archivo. `tests/review-loop-incremental.tests.ps1` compara la lógica de las 4.
+- **Manifests generados**: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una skill por vez, antes de commitear. Ya están regenerados al estado actual.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+- **Verificar mutantes sin dejar el árbol sucio**: los scripts de mutación con `try/finally` **no restauran si el proceso se mata** (pasó dos veces esta sesión: quedó la copia de `bootstrap-personal-project` mutada). Correr en foreground con timeout amplio, o restaurar desde una copia hermana intacta.
+- Los repos temporales de prueba (`$TEMP/rlt-*`, `rm-test-*`, `dbg*`) se borran al terminar. Al cierre de esta sesión quedaron 0.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.**
+- **Nada de esto va a Zoho.**
+- Quiere **impacto medido antes de cambiar el proceso**.
+- Criterio: "el menor tiempo posible pero que la revisión sea completa y acertada".
+- Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto. Fue el motivo de este handoff.
+
+### Próximos pasos
+
+1. **Preguntarle al usuario la decisión del paso 3b** (las 3 opciones de arriba). Bloquea el grupo B.
+2. **Arreglar el grupo A**, que no depende de esa decisión. Empezar por la **alta del marcador**
+   (`$top` mojibake), que hoy deja el slice entero muerto en cualquier repo con ruta no-ASCII.
+3. Aplicar el grupo B según lo decidido, con RED verificado por fix.
+4. **Turno 5 del `/review-loop`** — es el último del cap. Al cerrarlo, reportar el estado del cap.
+5. **Commitear** cuando el usuario lo pida (sugerido: `fix(review-loop): correcciones de los turnos 2-4 sobre el disparo por cierre de slice`, con trailer `Slice-Close:` sólo si se considera cierre de slice).
+6. Después **A3**, luego A4/A5, luego A6, y **A7 al final** (requiere presencia humana: deploya a `~/.claude/skills`).
+7. **A1b** cuando se quiera; sigue con 15 hallazgos y el nudo de diseño sin resolver.
+8. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- El marcador está avanzado a `2585e54` y el rango sale **vacío con exit 0** porque los fixes del
+  turno 4 no se escribieron todavía. **Eso no es "el loop cerró limpio".**
+- Los PRDs e issues viven en `.scratch/`, **gitignoreado**: existen sólo en el working tree.
+  Señalado desde el 12/8, **sigue sin decidirse**.
+- El techo de ~400 líneas se mide a mano contra la copia canónica ×1. El rango del turno 4 medía
+  **325 líneas canónicas**, bajo el techo. La regla del `CLAUDE.md` no exime explícitamente las
+  copias espejadas, así que una lectura literal pondría el rango bruto (742) por encima.
+- Los 19 hallazgos del turno 4 salieron de 3 reviewers; **ninguno pasó por un pase de confianza
+  formal**, pero todos vienen con reproducción ejecutable verificada por el reviewer que los reportó.
+
+---
+
+# Session Handoff — 2026-08-13 parte 3 (A2 commiteado + turno 1 del review-loop SIN COMMITEAR)
+
+## ▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — seguir por el turno 2 del loop
+
+Rama **`feat/marcador-de-revision`**. **A2 está commiteado** (`e320510`) y encima hay **los fixes del
+turno 1 del `/review-loop`, SIN COMMITEAR**: 19 archivos, 588 inserciones. Suite **12/12 verde**.
+El loop **no cerró**: el turno 1 corrió entero (5 focos + pase de confianza + fixes), y sus fixes
+son delta que **no revisó nadie**.
+
+```
+e320510  feat(review-loop): disparo por cierre de slice declarado          <- A2
+67ae410  fix(review-loop): correcciones del ciclo de revision sobre el marcador
+326aee3  feat(review-loop): marcador de revision y turno incremental       <- A1
+```
+
+**El marcador quedó en `422f2ad`** (avanzado después de la corrida de review y antes de los fixes,
+como manda el paso 3 del loop). O sea: `-Action range` ya devuelve exactamente los fixes del turno 1.
+**El turno 2 es correr `/review-loop` y listo** — el rango sale solo.
+
+### Lo primero: el turno 2
+
+```powershell
+pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range   # debe dar 422f2ad...
+```
+
+Foco sugerido para el turno 2, porque es lo que más cambió y nadie miró: el bloque de la red de
+seguridad del hook (conteo con pathspec de exclusión + untracked), el manejo del estado ilegible
+(`.bad`), y la detección del `cd` fuera del repo.
+
+### Qué se hizo esta sesión
+
+**A2 implementado con `/tdd`** (`.scratch/review-cost-redesign/issues/02-disparo-por-cierre-de-slice.md`),
+5 ciclos RED→GREEN, y commiteado con el trailer — el hook **disparó en vivo**, que era la prueba
+end-to-end del disparo nuevo. Los 12 acceptance criteria del issue están cubiertos.
+
+Después corrió el **turno 1 del `/review-loop`** sobre `9053dc9` (que incluía además los ~55
+renglones del turno 5 de A1 que habían quedado sin revisar — se decidió no avanzar el marcador antes
+de empezar, para cubrirlos). **25 hallazgos únicos, 3 descartados** por el pase de confianza.
+
+**Los 3 descartados, para no volver a perseguirlos:**
+
+| Hallazgo | Puntaje | Por qué se cayó |
+|---|---|---|
+| El regex del trailer no ancla a inicio de línea | 25 | `(?m)^\s*` sí ancla; verificado con 5 variantes |
+| `pwsh` ausente rompe el guard de `$LASTEXITCODE` | 35 | El mecanismo es real pero degrada al lado seguro |
+| El camino `octopus` esconde commits con exit 0 vacío | 20 | No reproduce: el único caso vacío tiene `rev-list --count trunk..HEAD` = 0. Es estructural — que `merge-base --octopus <refs> HEAD == HEAD` exige que HEAD sea ancestro de todos los refs, así que no hay nada que esconder |
+
+**Arreglados en el turno 1, cada uno con RED verificado antes del fix:**
+
+| Sev | Qué era | Fix |
+|---|---|---|
+| Alta | el hook trataba `exit 0 + vacío` del marcador ("nada sin revisar") como "indeterminable" y caía al rango de la rama → disparaba justo después de que el loop cerraba limpio | `$rangeKnown`: exit 0 vacío sale sin disparar; sólo exit 2 / sin marcador caen al rango de la rama |
+| Alta | `git commit && git push` es UN comando y prende las dos banderas: el gate del trailer salía con exit 0 y se llevaba puesto el disparo del push | `if ($isCommit -and -not ($isPush -or $isPr))` |
+| Media | la ventana de frescura de 120 s se tragaba cierres declarados: PostToolUse corre cuando termina **toda** la llamada de Bash, así que `git commit && npm test` llega tarde | ventana de 1800 s + `[Math]::Abs()` (reloj adelantado) |
+| Media | el techo contaba generados y vendored, que la regla del CLAUDE.md excluye textualmente | pathspec `:(exclude)` — **ojo: `*` pelado, no `**`**, que no matchea en la raíz |
+| Media | el techo era ciego a los untracked, y el paso 5 del loop *ordena* escribir un test nuevo | suma las líneas de `ls-files --others --exclude-standard` |
+| Media | un JSON ilegible hacía que el hook reescribiera el estado con sólo su clave de dedupe, borrando `marker:*` y `untracked:*` de todas las ramas | el corrupto se aparta como `.bad` y se arranca limpio |
+| Media | `Test-Path` sin `-LiteralPath`: bajo una ruta con corchetes el estado se leía como inexistente y el dedupe no existía en cada corrida | `-LiteralPath` |
+| Media | `push` / `gh pr create` corridos en otro repo se seguían atribuyendo acá (la frescura sólo protege commits: un push no mueve HEAD) | detecta `cd <path>` en el comando y compara el toplevel; un subdirectorio del mismo repo sigue disparando |
+| Media | prosa que quedó falsa: `/review-loop` ×8 decía que dispara en cada commit, `CONTEXT.md` declaraba el trailer "sin implementar", `docs/TESTING.md` afirmaba lo contrario del test | corregidas las tres, con assert nuevo que blinda la de `/review-loop` |
+| Media | **tests que no mordían** (ver abajo) | ver abajo |
+| Baja | el encabezado del hook ×4 describía el disparo viejo | reescrito en las 4 |
+
+### ⚠️ Tests que pasaban sin verificar nada (esta clase de bug ya salió 3 sesiones seguidas)
+
+- El assert de la huella acentuada **pasaba aunque el hook no escribiera nada**: sólo comprobaba que
+  el literal siguiera en el archivo. Ahora lleva un **control positivo** (que el estado tenga el SHA
+  de HEAD) antes del assert.
+- El assert de espejado matcheaba el **comentario** que dice `Slice-Close:`, no el gate: se podía
+  borrar el gate dejando el comentario con las 3 suites en verde. Y `-le\s+400` matcheaba `-le 4000`.
+- **La causa raíz**: el hook **no** está en `$mirrored` de `review-loop-incremental.tests.ps1` (la
+  copia de este repo tiene los comentarios en español) y `mirror.tests.ps1` compara sólo las 3 skills
+  entre sí. Ahora hay una comparación de **lógica** (líneas sin comentarios, cortando en `$msg =`
+  porque el mensaje está traducido a propósito) entre las 4 copias.
+- La ventana y el techo **no estaban fijados**: el fixture backdateaba a 2020, así que cualquier
+  ventana < 6 años pasaba. Ahora hay dos bordes (600 s dispara / 5400 s no).
+- **Faltaba la ruta de producción de la red de seguridad**: el único test del disparo era con repo
+  **sin** marcador, que en producción no existe. Se agregó el caso con marcador + >400 sin revisar.
+- `New-Repo` no aislaba el gitconfig global (`commit.gpgsign` y compañía). Ya lo hace.
+
+**Mutantes verificados muertos**: `-le 4000`, `-gt 86400`, y forzar el rango del marcador a algo que
+siempre mida 0.
+
+### Lo que NO se arregló, declarado
+
+- **Alta — la elección de base sobre-revisa**: una rama recién cortada de `develop`, sin un commit
+  propio, ya reporta delta sin revisar, y ese delta es todo lo que `develop` lleve adelantado sobre
+  `main`. Reproducido y puntuado 95. **Va a A1b** (`.scratch/review-cost-redesign/issues/01b-...`,
+  hallazgo #15, escrito con el repro): es la función que el usuario decidió sacar a slice propio, y
+  tocarla acá contradice esa decisión. Es el mismo guard del turno 5 visto del otro lado.
+- **Baja** — la escritura del estado no es atómica (un solo `WriteAllText`, sin temp+move).
+- **Proceso** — el `CLAUDE.md` pide evaluar si un cambio de template aplica al de Forecasting App.
+  Evaluado: **no aplica hoy** — ese repo tiene el hook viejo instalado y un bloque interino que manda
+  no correr `/review-loop`, así que su texto ("dispara en cada `git commit`") sigue siendo cierto
+  **para él**. Al aplicarle `upgrade-bootstrap` (A7) hay que revertir el bloque interino y corregir
+  ese paréntesis en `CLAUDE.md:82` de ese repo.
+
+### Decisiones tomadas esta sesión
+
+| # | Decisión | Quién |
+|---|---|---|
+| 1 | No avanzar el marcador antes de A2, para que el review de A2 cubriera también los ~55 renglones del turno 5 de A1 | agente, declarado |
+| 2 | El trailer se lee del **commit ya creado** (`git log -1 --format=%B`), no se parsea del comando: sobrevive a `-m`, `-F`, heredoc y `--amend` | agente |
+| 3 | El trailer gobierna **sólo** a `git commit`; push y pr create siguen disparando siempre | issue |
+| 4 | La ventana de frescura pasó de 120 s a **1800 s**: el falso negativo (perder un cierre declarado) es mudo y peligroso; el falso positivo lo tapa el dedupe | agente |
+| 5 | El espejado del hook se verifica por **lógica** y no byte a byte, porque el drift de idioma de la copia del repo es deliberado | agente |
+| 6 | El pase de confianza se agrupó en **2 scorers temáticos**, y los hallazgos con repro ejecutable o mutación se dieron por confirmados sin scorer | agente, declarado |
+| 7 | La alta de la elección de base no se arregla acá: va a A1b | agente, por la decisión previa del usuario |
+
+### Bugs
+
+- **Arreglados**: los 11 de la tabla de arriba, cada uno con test en RED verificado.
+- **Sigue abierto**: los 15 hallazgos de A1b (14 + el #15 nuevo).
+- **Sigue abierto**: escritura no atómica del estado del hook.
+- **Sigue abierto**: `copy-scaffold.ps1` pisa el `.gitignore` del proyecto destino.
+- **Sigue abierto**: `core.autocrlf` con hashes mixtos en los manifests.
+- **Sigue abierto**: el `.bootstrap-manifest.json` de la **raíz** no se reselló (AC de A7).
+- **Sigue abierto**: el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Tests
+
+- **Suite completa 12/12 verde** al cierre. Runner por archivo:
+  `pwsh -NoProfile -File tests/<archivo>.tests.ps1`.
+- `tests/review-loop-trigger.tests.ps1` pasó de 12 a **25 asserts**.
+- **Trampa nueva que apareció**: tres asserts del bloque de atribución compartían repo y SHA, así que
+  el 2º y el 3º pasaban por el **dedupe**, no por la lógica. Se corrigió con un repo fresco por caso.
+- **Trampa nueva 2**: un `Assert` que lee un archivo inexistente **aborta la corrida entera** y se
+  lleva puestos los tests de abajo. La lectura va afuera del Assert, no adentro de un `if`.
+
+### Antes de tocar código
+
+- **El `alignment-gate` va a frenar el primer edit.** El paso 1 está cerrado (grill 11/8, PRD e
+  issues aprobados 12/8): decilo y reintentá, no ofrezcas grill.
+- **Regla del espejo**: el hook, `review-marker.ps1`, `review-loop.md`, `review-loop/SKILL.md`,
+  `tdd.md` y `tdd/SKILL.md` van a las **4 copias**. Editar la de `bootstrap-personal-project` (es a
+  donde apuntan los tests) y espejar. El hook de este repo va en **español**: replicar la lógica, no
+  copiar el archivo.
+- **Manifests generados**: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`,
+  una skill por vez, antes de commitear.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+- **Los reviewers que mutan archivos contaminan a los que corren en paralelo**: el foco de tests dejó
+  el hook mutado mientras los otros cuatro leían, y tres reportaron como hallazgo un `86400` y un
+  `-le 40` que eran mutantes. Verificar `git status` limpio antes de creerle a un hallazgo de valor.
+- Los repos temporales de prueba se borran al terminar (`$TEMP/rlt-*`). Esta sesión quedaron 7
+  huérfanos por una corrida abortada; ya se borraron.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.**
+- **Nada de esto va a Zoho.**
+- Quiere **impacto medido antes de cambiar el proceso**.
+- Criterio: "el menor tiempo posible pero que la revisión sea completa y acertada".
+- Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto.
+
+### Próximos pasos
+
+1. **Turno 2 del `/review-loop`** — el marcador ya está en `422f2ad` y devuelve los fixes del turno 1.
+2. **Commitear los fixes del turno 1** cuando el usuario lo pida (sugerido: `fix(review-loop):
+   correcciones del turno 1 sobre el disparo por cierre de slice`, con trailer `Slice-Close:` sólo
+   si se lo considera cierre de slice).
+3. Después **A3** (depende sólo de A1), luego A4/A5, luego A6, y **A7 al final** (requiere presencia
+   humana: deploya a `~/.claude/skills`).
+4. **A1b** cuando se quiera; ahora tiene 15 hallazgos y el nudo de diseño sigue sin resolver.
+5. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- Los PRDs e issues viven en `.scratch/`, **gitignoreado**: los 16 archivos existen sólo en el
+  working tree. Señalado desde el 12/8, **sigue sin decidirse**.
+- El techo de ~400 líneas se mide a mano contra la copia canónica ×1. A2 canónico ≈ 123 líneas; los
+  fixes del turno 1 ≈ 200. **Medido esta sesión: el hook cuenta 2.78× lo canónico en este repo** por
+  el espejado ×4, así que su techo efectivo son ~144 líneas canónicas.
+- El turno 2 no corrió: los fixes del turno 1 no los revisó nadie.
+
+---
+
+# Session Handoff — 2026-08-13 parte 2 (A1 cerrado y commiteado; arrancar A2)
+
+## ▶▶▶▶▶▶▶ ESTADO AL RETOMAR — la tarea es A2, empezar por acá
+
+Rama **`feat/marcador-de-revision`**, **working tree limpio**, suite **12/12 verde**.
+**A1 está terminado y commiteado.** La tarea de esta sesión nueva es **A2 — Disparo por cierre de
+slice** (`.scratch/review-cost-redesign/issues/02-disparo-por-cierre-de-slice.md`).
+
+```
+67ae410  fix(review-loop): correcciones del ciclo de revision sobre el marcador   <- los 5 turnos
+326aee3  feat(review-loop): marcador de revision y turno incremental              <- A1
+b962d45  docs(review-cost): glosario del ciclo de revision, ADR-0001 y handoff
+```
+
+### Lo que hay que hacer: A2
+
+El issue está completo y aprobado, con 12 acceptance criteria. Resumen de las tres piezas:
+
+1. **El disparo deja de ocurrir en cada `git commit`** y pasa a ocurrir cuando se declara el cierre de
+   slice con un trailer `Slice-Close:` en el mensaje del commit.
+2. **Red de seguridad**: si el delta sin revisar supera ~400 líneas, dispara igual (olvidarse del
+   trailer no puede dejar un slice gigante sin revisar).
+3. **Bug a arreglar** (reproducido en vivo el 11/8): el hook **atribuye commits de otros repos**.
+   Confía en `$evt.cwd` (cwd de la sesión) en vez de verificar dónde corrió el comando; un `git commit`
+   en un repo de `mktemp -d` disparó la orden de revisar el rango de este repo. Fix acordado: comparar
+   `git log -1 --format=%ct` contra el momento del evento; si el HEAD del repo no es reciente, el
+   commit fue en otro lado y no dispara.
+
+Archivos: `.claude/hooks/review-loop-trigger.ps1` (**81 líneas**, ×4 copias byte-idénticas) y
+`tests/review-loop-trigger.tests.ps1` (**69 líneas**, runner sin Pester, repos git temporales).
+
+**Ojo con una cosa**: el hook ya fue tocado por A1 (ahora pide el rango al marcador en vez de inyectar
+`main...HEAD`). La copia de este repo está en **español** y las 3 del scaffold en **inglés** — es drift
+previo y **esperado**; `mirror.tests.ps1` sólo compara las 3 skills entre sí, y ésas sí son idénticas.
+
+### Qué se hizo en la sesión anterior (A1, cerrado)
+
+Se corrió el **turno 5 del `/review-loop`** — el último, ya que 5 es el tope. Corrieron los **5 focos**
+(bugs, reglas del CLAUDE.md, historia, contratos, tests), a diferencia del turno 4, donde el de tests
+murió por límite de sesión. **24 hallazgos únicos, 3 descartados** por el pase de confianza → 1 alta +
+10 medias + 10 bajas.
+
+**La alta era una regresión que el propio loop se metió en los turnos 3/4.** Al elegir la base del
+slice por "gana el merge-base más cercano", cualquier rama nombrada que ya contenga HEAD puntúa
+distancia 0, gana siempre, y la base colapsa a HEAD: el rango deja de mostrar los commits del slice y
+`range` sale con **exit 0**, que para el caller significa "rango confiable". O sea, el loop cerraba
+reportando limpio un slice que nadie leyó. Reproducido corriendo las dos versiones del script sobre el
+mismo fixture (rama mergeada a `develop` y trabajo que sigue encima):
+
+| | rango emitido | qué ve el reviewer |
+|---|---|---|
+| versión `1d66cf3` | la base correcta | `s1.txt s2.txt` |
+| versión de los turnos 3/4 | **HEAD** | nada (árbol limpio) |
+
+**Se cerraron 4 hallazgos, cada uno con RED verificado antes del fix:**
+
+| Sev | Qué era | Fix |
+|---|---|---|
+| Alta | el colapso de la base a HEAD | HEAD queda como **último recurso** en la elección de base, nunca por delante de un candidato con delta commiteado |
+| Media | el paso 1 del loop ordenaba `fall back to the branch range` en exit 2 — justo lo que la sección reescrita en ese mismo delta prohíbe. En las **8 copias** | remite a la sección de exit codes en vez de nombrar el rango de la rama |
+| Media | el JSON de estado se escribía sin BOM en `pwsh` y se leía con la code page ANSI en PowerShell 5.1: con un untracked acentuado, esa rama **no podía volver a cerrar nunca** | lectura y escritura con `[IO.File]::ReadAllText`/`WriteAllText` + UTF-8 explícito |
+| Baja | `review-loop.md` y `TESTING.md` afirmaban cosas que dejaron de ser ciertas, y `TESTING.md` declaraba cubierto lo que ningún test toca | prosa corregida + sección nueva **"Lo que este archivo de tests NO cubre"**, con los mutantes que sobreviven |
+
+### ⚠️ Decisión del usuario que se ejecutó, y el desvío que hubo que declararle
+
+El usuario eligió **revertir la elección de base y sacarla a slice propio**. Al ejecutar la reversión
+literal a `1d66cf3` apareció que **esa versión tiene su propio agujero** (en un repo de una sola rama
+emite HEAD con exit 0, escondiendo los commits) y que revertir **ponía 8 asserts en RED** que habría
+que borrar. Se le informó y se entró con un **guard de 6 líneas** en lugar de la reversión de 60.
+Ningún test existente pasa por ese camino, así que no rompió nada.
+
+**No repetir el intento de revertir a `1d66cf3`** — está documentado por qué no sirve.
+
+### El slice nuevo que quedó escrito: A1b
+
+`.scratch/review-cost-redesign/issues/01b-eleccion-de-base-del-slice.md` — **14 hallazgos**, con el
+nudo de diseño arriba de todo, que hay que resolver **antes** de codear:
+
+```
+A) rama base `dev`, con `feature/a` creada en la punta        -> se quiere: rango = HEAD (exit 0)
+B) rama `feat/x` con 1 commit, y un `git branch wip` en HEAD  -> se quiere: exit 2 (indeterminable)
+```
+
+Son **el mismo estado de git** y hoy nada los distingue. Cualquier regla que satisfaga A rompe B. Por
+eso esa función se rompió dos veces en cinco turnos. B falla en la dirección peligrosa, así que si hay
+que sacrificar uno, es A. **A1b no bloquea a A2 ni a A3.**
+
+### ⚠️ Lo que quedó sin revisar (declarado, no es omisión)
+
+El marcador está en **`9053dc9`** y el delta contra él son **los fixes del turno 5**: 216 líneas / 18
+archivos, ~55 canónicas ×1. **Ese pedazo no lo revisó ningún reviewer.** Es el límite conocido del cap:
+cada turno revisa los fixes del anterior, así que el último siempre queda descubierto. El hook va a
+volver a pedir `/review-loop`; su propia condición de parada ("o el tope de 5 turnos") ya está cumplida
+para A1. Dos formas de cerrarlo, ninguna urgente: un turno acotado sobre esos 55 renglones (el marcador
+ya tiene el rango exacto), o dejarlo para el review de A1b, que va a tocar esa misma función.
+
+**Al arrancar A2 conviene avanzar el marcador primero** (`-Action advance`), para que el rango de A2
+sea el delta de A2 y no arrastre los fixes de A1.
+
+### Decisiones tomadas esta sesión
+
+| # | Decisión | Quién |
+|---|---|---|
+| 1 | Arreglar sólo la alta + los fixes chicos aislados; la elección de base sale a slice propio (A1b) | usuario |
+| 2 | **El techo de A1 se acepta como está** (~900 líneas canónicas, el doble de las ~400). No se parte | usuario |
+| 3 | Guard mínimo en lugar de la reversión literal a `1d66cf3`, porque la reversión reintroduce un agujero y rompe 8 asserts | agente, informado al usuario |
+| 4 | No correr un turno 6: el cap de 5 se alcanzó y el cap existe por la medición de costo | agente, declarado |
+| 5 | El pase de confianza se agrupó en 4 scorers por tema en vez de 24 (uno por hallazgo) | agente, declarado |
+
+### Bugs
+
+- **Arreglados esta sesión**: los 4 de la tabla de arriba, cada uno con test en RED verificado.
+- **Sigue abierto**: los 14 hallazgos de A1b (ver el issue).
+- **Sigue abierto**: `copy-scaffold.ps1` pisa el `.gitignore` del proyecto destino.
+- **Sigue abierto**: `core.autocrlf` con hashes mixtos en los manifests (`gen-manifest.ps1` hashea
+  bytes crudos).
+- **Sigue abierto**: el `.bootstrap-manifest.json` de la **raíz** no se reselló (es AC de A7). Ojo: los
+  4 archivos de la raíz que figuran en él ya **no** matchean sus hashes, así que hoy un
+  `compare-scaffold` los vería como `customized`. Además `.claude/scripts/review-marker.ps1` **no
+  figura** en ese manifest (archivo nuevo).
+- **Sigue abierto**: el hook `review-loop-trigger.ps1` usa `Get-Content`/`Set-Content` sobre el mismo
+  `review-loop-state.json` que el marcador. Si alguna vez corre bajo PowerShell 5.1 puede corromper la
+  huella de untracked al reescribir el JSON. **Esto lo toca A2** — vale arreglarlo de paso.
+- **Sigue abierto**: el diff de `fix/review-loop-motor-invocable` nunca pasó por reviewer.
+
+### Tests
+
+- **Suite completa 12/12 verde**, corrida entera al cierre. Cero tests fallando.
+- Runner por archivo: `pwsh -NoProfile -File tests/<archivo>.tests.ps1` (imprimen `TODOS LOS TESTS
+  PASARON` o `N test(s) FALLARON`). No hay runner único.
+- Tests nuevos de esta sesión: candidato que contiene HEAD (`review-marker.tests.ps1`), cruce
+  pwsh↔PowerShell 5.1, y el assert negativo del paso 1 en `review-loop-incremental.tests.ps1`.
+- **Trampa que apareció otra vez**: el primer intento del test de la alta usaba `$r -ne HEAD`, que
+  **también se cumple con el rango vacío** — pasaba sin verificar nada. Se corrigió comprobando primero
+  que hay rango. Ver `docs/TESTING.md`, sección "Lo que este archivo de tests NO cubre".
+
+### Antes de tocar código
+
+- **El `alignment-gate` va a frenar el primer edit de código.** El paso 1 está cerrado (grill 11/8, PRD
+  e issues aprobados 12/8) y A2 ya está diseñado en su issue: **decilo y reintentá, no ofrezcas grill**.
+- **Regla del espejo**: `review-loop-trigger.ps1` (lo que toca A2), `review-marker.ps1`,
+  `review-loop.md`, `review-loop/SKILL.md`, `slice-review.md` y `slice-review/SKILL.md` van a las
+  **4 copias**. Editar la de `bootstrap-personal-project` (es a donde apuntan los tests) y espejar.
+  El comando y el SKILL.md difieren **sólo** en la línea `description`.
+- **Manifests generados**: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una
+  skill por vez, antes de commitear.
+- Editar skills acá **no tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8).
+- Los repos temporales de prueba se borran al terminar.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.**
+- **Nada de esto va a Zoho.**
+- Quiere **impacto medido antes de cambiar el proceso**.
+- Criterio: "el menor tiempo posible pero que la revisión sea completa y acertada".
+- Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto. Fue el motivo de
+  este handoff.
+
+### Próximos pasos
+
+1. **Implementar A2** con `/tdd` sobre `.scratch/review-cost-redesign/issues/02-disparo-por-cierre-de-slice.md`.
+   Un test a la vez (RED → GREEN). Avanzar el marcador antes de empezar.
+2. Al cerrar A2: `/review-loop` sobre el delta (el marcador ya funciona y está probado en vivo).
+3. Después **A3** (depende sólo de A1), luego A4/A5, luego A6, y **A7 al final** (requiere presencia
+   humana: deploya a `~/.claude/skills`).
+4. **A1b** cuando se quiera; no bloquea nada. Empezar por resolver el nudo de diseño.
+5. Track B (B1/B2) lo lleva el usuario en otra terminal; **vence el 10/9**.
+
+### Supuestos declarados
+
+- Los PRDs e issues viven en `.scratch/`, que está **gitignoreado** (`.gitignore:23`). Los 16 archivos
+  (incluido el A1b nuevo) existen **sólo en el working tree**. Si se pierde el directorio, se pierde
+  toda la planificación del track. Señalado desde el 12/8, **sigue sin decidirse**.
+- El techo de ~400 líneas se mide a mano contra la copia canónica ×1; no hay tooling que lo verifique.
+- Los fixes del turno 5 no los revisó nadie (ver arriba).
+
+---
+
 # Session Handoff — 2026-08-13 (A1 commiteado + 4 turnos de review-loop sobre él)
 
 ## ▶▶▶▶▶▶ ESTADO AL RETOMAR — decir "continuemos" y seguir desde acá

@@ -1,8 +1,26 @@
-# Hook PostToolUse (matcher Bash). Si el comando ejecutado fue `gh pr create` o `git push`
-# en un branch que NO es la base, inyecta a Claude la orden de correr /review-loop sobre el
-# diff del branch. Deduplica por SHA en .git/review-loop-state.json para no disparar dos
-# veces sobre el mismo commit. Cualquier camino que no aplique termina en exit 0 silencioso.
+# Hook PostToolUse (matcher Bash). Inyecta a Claude la orden de correr /review-loop sobre el delta
+# sin revisar cuando se cierra un slice en un branch que NO es la base. Dispara en `gh pr create`,
+# en `git push`, y en un `git commit` que DECLARA el cierre con un trailer `Slice-Close:` — un
+# commit sin el trailer dispara sólo como red de seguridad, cuando el delta sin revisar pasa el
+# techo de ~400 líneas. A los commits se les verifica además la frescura, porque el evento trae el
+# cwd de la sesión y un commit hecho en otro repo se le atribuiría a éste.
+# Comparte .git/review-loop-state.json con el marcador de revisión: deduplica por SHA ahí y nunca
+# destruye las claves del marcador. Cualquier camino que no aplique termina en exit 0 silencioso.
+#
+# Lo que este hook a propósito NO hace: averiguar en qué repo corrió el comando parseando la línea
+# de comando de bash. Ese bloque existía para no disparar cuando un `git push` se corría en otro
+# lado desde una sesión abierta acá, y en tres turnos de revisión produjo ocho hallazgos altos
+# propios — todos FALSOS NEGATIVOS que descartaban un cierre de slice declarado en silencio. Las
+# señales que quedan son observables en vez de parseadas: la frescura del HEAD
+# (`git log -1 --format=%ct`) para los commits y el dedupe por SHA para todo lo demás. El costo
+# aceptado es un review-loop de más cuando el push sí corrió en otro repo, que es la dirección segura.
 $ErrorActionPreference = "SilentlyContinue"
+
+# git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Un hook
+# corre como proceso hijo con stdout redirigido, así que no hereda una consola en UTF-8: lo necesita
+# TODA llamada a git cuya salida pueda traer una ruta, no sólo el `ls-files` del techo. Bajo una ruta
+# no-ASCII, `rev-parse --show-toplevel` volvía mojibake y el marcador ya no se podía encontrar.
+try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
 
 # 1. Leer el evento del hook por stdin
 $raw = [Console]::In.ReadToEnd()
@@ -12,9 +30,57 @@ $cmd = $evt.tool_input.command
 if (-not $cmd) { exit 0 }
 
 # 2. Filtrar: gh pr create / git push / git commit
-$isPr     = $cmd -match '\bgh\s+pr\s+create\b'
-$isPush   = $cmd -match '\bgit\s+push\b'
-$isCommit = $cmd -match '\bgit\s+commit(?![\w-])'   # excluye git commit-graph y similares
+# Todas las decisiones de acá abajo leen el comando NORMALIZADO, nunca el crudo: el comando crudo
+# trae el texto del `-m`, así que un commit cuyo mensaje apenas menciona `git push` prendía $isPush
+# y salteaba la puerta del trailer entera del paso 6: sin gate, sin ventana de frescura y sin techo.
+#
+# Neutralizar el texto entrecomillado con un `-replace` pelado no alcanza, y las dos formas en que
+# falla están reproducidas: `-m "... \"git push\" ..."` corta el match en la comilla escapada y deja
+# el texto expuesto (dispara cuando no debe), y un apóstrofe adentro de comillas dobles
+# (`-m "don't" && git push`) hace que el patrón de comilla simple empareje de un apóstrofe al otro y
+# se coma el push REAL del medio (no dispara cuando debe). Por eso los literales se recorren: bash
+# escapa con `\` adentro de comillas dobles, y adentro de comillas simples no escapa nada.
+#
+# El resultado conserva la LONGITUD ORIGINAL — el interior se reemplaza carácter por carácter con
+# U+0001 —, así que un índice de $scan también es un índice de $cmd, que es como el paso 4 recupera
+# el valor real de `--base` de adentro de un literal que esta función a propósito no puede leer.
+function Hide-Literals([string]$s) {
+    $out = [char[]]$s
+    $i = 0
+    while ($i -lt $s.Length) {
+        $q = $s[$i]
+        # AFUERA de un literal, la barra invertida escapa al carácter siguiente, y saltear esa regla
+        # no es cosmético: `'\''` es como bash escribe un apóstrofe (cierra, comilla escapada, vuelve
+        # a abrir). Leída como comilla de apertura, la comilla suelta empareja con la SIGUIENTE, el
+        # resto del mensaje queda expuesto, y un `-m "... git push ..."` prende $isPush y saltea la
+        # puerta del trailer entera. Verificado con `git commit -m 'fix: it'\''s ready to git push now'`.
+        if ($q -eq '\') { $i += 2; continue }
+        if ($q -ne "'" -and $q -ne '"') { $i++; continue }
+        $j = $i + 1
+        while ($j -lt $s.Length) {
+            if ($q -eq '"' -and $s[$j] -eq '\' -and $j + 1 -lt $s.Length) { $j += 2; continue }
+            if ($s[$j] -eq $q) { break }
+            $j++
+        }
+        # Dos finales distintos, separados a propósito: un literal cerrado termina EN la comilla de
+        # cierre, y uno sin cerrar se come el resto de la línea — la lectura segura de un comando
+        # roto. Colapsarlos en un solo `Min($j, longitud - 1)` dejaba el último carácter sin
+        # enmascarar, que no es lo que decía el comentario.
+        $end = if ($j -lt $s.Length) { $j } else { $s.Length }
+        for ($k = $i + 1; $k -lt $end; $k++) { $out[$k] = [char]1 }
+        $i = $end + 1
+    }
+    return (-join $out)
+}
+$scan = Hide-Literals $cmd
+# `git -C <path> push` no matcheaba ningún patrón, así que un push legítimo nunca cerraba el ciclo.
+# Las opciones globales de git se pliegan para que el subcomando quede pegado a `git`. Esta copia
+# del comando se usa SOLO para las banderas: el plegado corre los offsets, así que el paso 4
+# trabaja sobre $scan.
+$folded   = $scan -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
+$isPr     = $folded -match '\bgh\s+pr\s+create\b'
+$isPush   = $folded -match '\bgit\s+push\b'
+$isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-graph y similares
 if (-not ($isPr -or $isPush -or $isCommit)) { exit 0 }
 
 # 3. Ubicarse en el repo (cwd del evento)
@@ -26,9 +92,57 @@ if (-not [System.IO.Path]::IsPathRooted($gitDir)) { $gitDir = Join-Path $cwd $gi
 $branch = (git rev-parse --abbrev-ref HEAD 2>$null)
 if (-not $branch -or $branch -eq "HEAD") { exit 0 }
 
+# 3a. Cargar el estado compartido. Se lee antes del paso 6 porque el techo necesita la huella de
+# untracked del marcador, y otra vez en el paso 7 para el dedupe por SHA: leerlo una sola vez
+# mantiene los dos en sincronía.
+# Es el mismo archivo que escribe el marcador de revisión. Se lee y se escribe UTF-8 explícito:
+# Get-Content / Set-Content usan la code page ANSI bajo Windows PowerShell 5.1, y eso convierte la
+# huella acentuada de untracked del marcador en mojibake — esa rama no puede volver a cerrar nunca.
+# -LiteralPath: sin eso, un repo bajo una ruta con corchetes se lee como "no hay archivo de estado"
+# en CADA corrida, así que el dedupe deja de existir en silencio y el estado se pisa entero.
+$statePath = Join-Path $gitDir "review-loop-state.json"
+$state = @{}
+$stateWritable = $true
+if (Test-Path -LiteralPath $statePath) {
+    try {
+        ([IO.File]::ReadAllText($statePath) | ConvertFrom-Json).PSObject.Properties |
+            ForEach-Object { $state[$_.Name] = $_.Value }
+    } catch {
+        # Estado ilegible: las claves `marker:*` / `untracked:*` del marcador viven en este mismo
+        # archivo, y reescribirlo con sólo la clave de dedupe las borraría de todas las ramas sin
+        # dejar rastro. Se aparta para que siga siendo recuperable, y se arranca limpio.
+        $state = @{}
+        # Si la cuarentena misma falla — la causa más probable es el marcador teniendo el archivo
+        # tomado a mitad de una reescritura, porque esa escritura no es atómica — hay que dejar el
+        # archivo QUIETO: pisarlo en el paso 7 destruye justo lo que la cuarentena preserva. Saltear
+        # la escritura es todo el remedio; saltear el DISPARO, como hacía la versión anterior
+        # (`catch { exit 0 }`), cambiaba un archivo recuperable por un cierre de slice descartado en
+        # silencio, que es la dirección peligrosa. Perder el dedupe sólo implica que el commit
+        # siguiente puede disparar dos veces.
+        # -ErrorAction Stop es lo que hace alcanzable este catch: con $ErrorActionPreference en
+        # SilentlyContinue, la falla del Move-Item no es terminante y el catch nunca corría.
+        try { Move-Item -LiteralPath $statePath -Destination "$statePath.bad" -Force -ErrorAction Stop }
+        catch { $stateWritable = $false }
+    }
+}
+
 # 4. Resolver la base branch (NO hardcodear main)
+# La BANDERA se ubica sobre $scan y su valor se lee de $cmd en el mismo índice — el único lugar
+# donde hay que recuperar un valor real de atrás de la máscara. Matchear el comando crudo fallaba
+# de las dos maneras: un `--base "develop"` entrecomillado no matcheaba nada (la clase de caracteres
+# corta en la comilla) y caía al fallback, y un `--base` apenas mencionado adentro de `--title`
+# ganaba por ser el primer match, así que el mensaje inyectado apuntaba a un rango contra una rama
+# que no existe.
 $base = $null
-if ($isPr -and $cmd -match '--base[ =]+([^\s''"]+)') { $base = $matches[1] }
+if ($isPr) {
+    $bm = [regex]::Match($scan, '--base(?:\s+|=)')
+    if ($bm.Success) {
+        $tail = $cmd.Substring($bm.Index + $bm.Length)
+        if ($tail -match '^(?:''([^'']*)''|"([^"]*)"|([^\s;&|]+))') {
+            foreach ($g in 1, 2, 3) { if (-not $base -and $matches[$g]) { $base = $matches[$g] } }
+        }
+    }
+}
 if (-not $base) {
     $head = (git symbolic-ref --short refs/remotes/origin/HEAD 2>$null)
     if ($head) {
@@ -58,58 +172,141 @@ if (($branch -eq $base) -or ($base -eq "origin/$branch")) { exit 0 }
 # 6. Un commit dispara solo cuando el cierre de slice está DECLARADO con un trailer `Slice-Close:`.
 # El trailer se lee del commit recién creado, no se parsea del comando, así que funciona igual con
 # `-m`, `-F archivo`, un heredoc o `--amend`.
-if ($isCommit) {
+# `git commit && git push` es UN solo comando de Bash y prende las dos banderas, así que la puerta
+# del trailer sólo gobierna al commit cuando es el único disparador: el push dispara
+# incondicionalmente, como lo hacía antes de A2.
+if ($isCommit -and -not ($isPush -or $isPr)) {
     # El evento trae el cwd de la SESIÓN, no el directorio donde corrió el comando: sin esto, un
     # `git commit` dentro de otro repo se le atribuye a éste. Si el HEAD de este repo no es
     # reciente, el commit ocurrió en otro lado.
+    #
+    # La ventana es generosa a propósito. Esto es PostToolUse: corre cuando termina TODA la llamada
+    # de Bash, así que `git commit ... && npm test` sella el commit minutos antes de que llegue el
+    # evento, y una ventana angosta se tragaría un cierre declarado — un falso negativo que nadie
+    # ve. El HEAD de un repo ajeno tiene horas o días, así que 30 min los separa igual, y el dedupe
+    # por SHA de abajo evita que el mismo commit dispare dos veces. Abs() para que un reloj
+    # adelantado no pase de largo el chequeo.
     $ct = (git log -1 --format=%ct 2>$null)
     if (-not $ct) { exit 0 }
-    if (([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$ct) -gt 120) { exit 0 }
+    if ([Math]::Abs([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$ct) -gt 1800) { exit 0 }
 
     $body = ((git log -1 --format=%B 2>$null) -join "`n")
     if ($body -notmatch '(?m)^\s*Slice-Close:') {
         # Red de seguridad: olvidarse del trailer no puede dejar un slice gigante sin revisar. Si
         # el delta SIN REVISAR ya pasa el techo de ~400 líneas del CLAUDE.md, dispara igual.
         $range = $null
+        $rangeKnown = $false
         $root = (git rev-parse --show-toplevel 2>$null)
         if ($root) {
             $marker = Join-Path $root ".claude/scripts/review-marker.ps1"
             if (Test-Path -LiteralPath $marker) {
+                # Centinela: si `pwsh` no está en el PATH el error se traga y $LASTEXITCODE
+                # conservaría el 0 de la llamada a git de arriba, que se leería como exit 0 exitoso.
+                $global:LASTEXITCODE = 99
                 $r = (& pwsh -NoProfile -File $marker -Action range -RepoDir $root 2>$null)
-                if ($LASTEXITCODE -eq 0 -and $r) { $range = ([string]$r).Trim() }
+                if ($LASTEXITCODE -eq 0) {
+                    $rangeKnown = $true
+                    if ($r) { $range = ([string]$r).Trim() }
+                }
             }
         }
-        # Sin marcador (scaffold viejo) o sin rango todavía: se cae al rango de la rama.
+        # El contrato del marcador tiene tres salidas y colapsarlas es el bug que existe para
+        # evitar. Exit 0 + vacío significa que no hay NADA sin revisar: no hay nada que la red deba
+        # atrapar, así que no se dispara — si no, cada commit apenas el loop cierra limpio volvería
+        # a disparar sobre la rama entera, que es justo el gasto que este slice elimina.
+        if ($rangeKnown -and -not $range) { exit 0 }
+        # Sin marcador (scaffold viejo), exit 2 (indeterminable) o pwsh ausente: se cae al rango de
+        # la rama — disparar de más es la dirección segura.
         if (-not $range) { $range = "$base...HEAD" }
+        # El techo cuenta líneas de LÓGICA: el CLAUDE.md excluye por nombre los generados, el código
+        # vendored, los lockfiles y los snapshots. Contarlos hace disparar slices que sí cumplen.
+        # `*` pelado y no `**`: los comodines de pathspec ya cruzan `/`, mientras que `**/nombre` no
+        # matchea ese nombre en la raíz del repo — verificado, el manifest se seguía contando.
+        $skipPat = @('*.bootstrap-manifest.json', 'docs/vendor/*', '*.lock', '*lock.json',
+                     '*lock.yaml', '*.lockb', 'go.sum', '*.snap')
+        $skip = $skipPat | ForEach-Object { ":(exclude)$_" }
         $lines = 0
-        foreach ($row in (git diff --numstat $range 2>$null)) {
+        # `git -C $root` en los dos conteos: los pathspec y `ls-files` se resuelven contra el cwd del
+        # proceso git, y el evento trae el cwd de la SESIÓN, que en un monorepo es un subdirectorio.
+        # Sin anclar, el techo medía sólo ese subárbol y la red de seguridad desaparecía en silencio.
+        $rows = @(git -C $root diff --numstat $range -- . @skip 2>$null)
+        # Si el conteo es confiable siquiera. El rango de fallback `<base>...HEAD` falla de plano en
+        # historias no relacionadas (`fatal: no merge base`), y con el error tragado eso se leía como
+        # "0 líneas": el techo desapareciendo justo en el camino donde el marcador ya había dicho que
+        # no puede determinar el rango.
+        $measurable = ($LASTEXITCODE -eq 0)
+        foreach ($row in $rows) {
             $cols = ($row -split "`t")
             if ($cols.Count -ge 2) {
                 foreach ($n in $cols[0..1]) { if ($n -match '^\d+$') { $lines += [int]$n } }
             }
         }
-        if ($lines -le 400) { exit 0 }
+        # `git diff` nunca muestra los untracked, y el paso 5 del loop ORDENA escribir un test
+        # nuevo, que nace sin trackear: un slice hecho de archivos nuevos medía 0. Pero lo que
+        # cuenta es untracked DESDE EL MARCADOR: el marcador guarda su propia huella en
+        # `untracked:<rama>` justo para eso. Contarlos en absoluto hacía que un archivo nuevo ya
+        # revisado volviera a disparar la red en cada commit posterior, para siempre.
+        # La huella se indexa por la entrada ENTERA `path|sha256`, igual que la compara el propio
+        # Test-NewUntracked del marcador. Indexar sólo por el path hacía que un archivo fichado con
+        # una línea y crecido después a 600 se salteara para siempre: la red perdiéndose justo el
+        # caso para el que existe. Un archivo sin cambios hashea igual y sigue matcheando, así que el
+        # bug de "el test nuevo ya revisado vuelve a disparar para siempre" sigue muerto.
+        # Y la huella sólo significa algo mientras su marcador viva: si `git gc` podó el objeto del
+        # marcador, el rango vuelve a la base del slice, así que descontar contra una huella muerta
+        # sería contar de menos justo cuando el rango se agrandó.
+        $seen = @{}
+        $mk = [string]$state["marker:$branch"]
+        if ($mk) {
+            git -C $root cat-file -e "$mk^{commit}" 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                foreach ($e in @($state["untracked:$branch"])) { if ($e) { $seen[[string]$e] = $true } }
+            }
+        }
+        # core.quotepath apagado para que git no C-quotee un nombre no-ASCII ("\303\261andu.txt"),
+        # que fallaría el Test-Path y sumaría CERO al techo. La otra mitad del mismo problema — la
+        # decodificación — se resuelve una sola vez al tope de este archivo.
+        $others = @(git -C $root -c core.quotepath=false ls-files --others --exclude-standard 2>$null |
+                    Where-Object { $_ })
+        foreach ($f in $others) {
+            # Las mismas exclusiones de arriba: se aplicaban sólo a la mitad trackeada, así que un
+            # `package-lock.json` sin trackear disparaba sobre un slice que sí cumple la regla.
+            if (@($skipPat | Where-Object { $f -like $_ }).Count) { continue }
+            $p = Join-Path $root $f
+            if (-not (Test-Path -LiteralPath $p)) { continue }
+            # Los binarios no son líneas de lógica, y `git diff --numstat` ya reporta `-` para ellos
+            # del lado trackeado, así que saltearlos acá deja las dos mitades consistentes. Además
+            # evita que una captura de 12 MB cueste segundos en CADA git commit (medido: 4,9 s).
+            # La ventana es de 8000 bytes porque es lo que escanea el propio git buscando un NUL; con
+            # 4096, un archivo cuyo primer NUL cae más allá contaba como texto e inflaba el techo,
+            # mientras el comentario de arriba afirmaba que las dos mitades coincidían.
+            $buf = New-Object byte[] 8000
+            $fs = $null
+            try {
+                $fs = [IO.File]::OpenRead($p)
+                $n  = $fs.Read($buf, 0, 8000)
+            } catch { continue } finally { if ($fs) { $fs.Close() } }
+            if ([Array]::IndexOf($buf, [byte]0, 0, $n) -ge 0) { continue }
+            # Hasheado igual que lo hace el marcador, para que las entradas comparen byte a byte.
+            $h = ""
+            try { $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } catch { }
+            if ($seen[("{0}|{1}" -f $f, $h)]) { continue }
+            $lines += @(Get-Content -LiteralPath $p -TotalCount 401 2>$null).Count
+        }
+        if ($measurable -and $lines -le 400) { exit 0 }
     }
 }
 
-# 7. Dedupe por SHA del HEAD del branch
+# 7. Dedupe por SHA del HEAD del branch (el estado ya se cargó en el paso 3a)
 $sha = (git rev-parse HEAD 2>$null)
 if (-not $sha) { exit 0 }
-$statePath = Join-Path $gitDir "review-loop-state.json"
-$state = @{}
-# Es el mismo archivo que escribe el marcador de revisión. Se lee y se escribe UTF-8 explícito:
-# Get-Content / Set-Content usan la code page ANSI bajo Windows PowerShell 5.1, y eso convierte la
-# huella acentuada de untracked del marcador en mojibake — esa rama no puede volver a cerrar nunca.
-if (Test-Path $statePath) {
-    try {
-        ([IO.File]::ReadAllText($statePath) | ConvertFrom-Json).PSObject.Properties |
-            ForEach-Object { $state[$_.Name] = $_.Value }
-    } catch { $state = @{} }
-}
 if ($state[$branch] -eq $sha) { exit 0 }     # ya disparado para este commit
 $state[$branch] = $sha
-$json = ([pscustomobject]$state) | ConvertTo-Json -Depth 6
-[IO.File]::WriteAllText($statePath, $json, (New-Object Text.UTF8Encoding($false)))
+# No se escribe si falló la cuarentena de un estado ilegible: ver el paso 3a. Disparar sin dejar la
+# entrada de dedupe es inofensivo; pisar un archivo que no se pudo respaldar, no.
+if ($stateWritable) {
+    $json = ([pscustomobject]$state) | ConvertTo-Json -Depth 6
+    [IO.File]::WriteAllText($statePath, $json, (New-Object Text.UTF8Encoding($false)))
+}
 
 # 8. Inyectar la instrucción a Claude
 $msg = "Cerraste un commit/slice en el branch '$branch' (base '$base'). " +

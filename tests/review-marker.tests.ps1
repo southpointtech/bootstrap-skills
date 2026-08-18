@@ -470,4 +470,63 @@ Assert ($r -eq "") "en una rama sin delta contra su base, el rango queda vacío"
 Assert ($script:lastExit -eq 0) "una rama sin delta cierra el loop (exit 0), no queda indeterminable"
 Remove-Item -Recurse -Force $t
 
+# `advance` corrido desde un SUBDIRECTORIO (monorepo: la sesión abierta en `app/`) tiene que fichar
+# los untracked con la ruta relativa a la RAÍZ del repo. `ls-files` lista sólo el subárbol del cwd y
+# con rutas relativas a él, así que la huella quedaba con otra base que la que lee el hook — que sí
+# ancla a la raíz — y ninguna de las dos volvía a matchear: un untracked ya revisado seguía contando
+# como delta sin revisar para siempre.
+$t = New-Repo
+New-Item -ItemType Directory -Path (Join-Path $t "app") -Force | Out-Null
+"nuevo" | Set-Content (Join-Path $t "app/nuevo.txt")
+Marker (Join-Path $t "app") advance | Out-Null
+# La lectura va afuera del Assert y con Test-Path: con $ErrorActionPreference = "Stop", un
+# ReadAllText sobre un archivo inexistente aborta la corrida entera y se lleva los tests de abajo.
+$stPath = Join-Path $t ".git/review-loop-state.json"
+Assert (Test-Path -LiteralPath $stPath) "guard: el advance desde el subdirectorio escribió el estado"
+$st = if (Test-Path -LiteralPath $stPath) { [IO.File]::ReadAllText($stPath) | ConvertFrom-Json } else { $null }
+# El guard mira la PROPIEDAD, no el Count: `@($null).Count` vale 1, así que preguntarle el Count a
+# una clave inexistente daba 1 y el guard pasaba en verde justo cuando el advance no fichó nada.
+$prop = if ($st) { $st.PSObject.Properties["untracked:feat/x"] } else { $null }
+Assert ($null -ne $prop) "guard: el estado tiene la huella de untracked de la rama"
+# El filtro no es cosmético: `@($null).Count` vale 1, así que una clave presente pero con valor
+# nulo daba Count 1 y este guard imprimía "fichó un untracked (1)" justo cuando no se fichó nada.
+# Con el filtro, un valor nulo cuenta 0 y el assert muerde.
+$hu = @($prop.Value | Where-Object { $_ })
+Assert ($hu.Count -eq 1) "guard: el advance desde el subdirectorio fichó un untracked ($($hu.Count))"
+Assert ($hu[0] -like "app/nuevo.txt|*") "la huella de untracked se ficha relativa a la raíz del repo, no al cwd"
+Remove-Item -Recurse -Force $t
+
+# --- Ruta no-ASCII: el marcador resuelve el repo aunque la code page NO sea UTF-8 ---
+# git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Un pwsh
+# hijo con stdout redirigido — que es exactamente como el hook invoca al marcador — no hereda el
+# 65001 del padre, así que `rev-parse --show-toplevel` volvía mojibake: $dir dejaba de ser un repo y
+# las TRES acciones salían con exit 2 en silencio. `advance` no avanzaba nunca y el loop volvía a
+# revisar la rama entera en cada turno, sin que nada lo dijera.
+# El fixture fuerza la code page DENTRO del hijo para que el caso sea determinístico en cualquier
+# máquina. El control positivo va primero: si `GetEncoding(850)` fallara, el `catch` se lo tragaría y
+# el caso pasaría en verde sin ejercitar nada — que es la trampa que ya apareció tres veces.
+$cp = ((& pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); [Console]::OutputEncoding.CodePage") | Out-String).Trim()
+Assert ($cp -eq "850") "control positivo: el pwsh hijo del fixture corre en code page 850 (dio '$cp')"
+# El nombre se arma por punto de código y no como literal: así el caso no depende de con qué
+# encoding se guardó ESTE archivo ni de con cuál lo lea el runner.
+$enye = [string][char]0x00F1
+$uacc = [string][char]0x00FA
+$t = Join-Path ([IO.Path]::GetTempPath()) ("rm-test-" + $enye + "and" + $uacc + "-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $t | Out-Null
+Init-Repo $t "master"
+"base" | Set-Content (Join-Path $t "file.txt")
+git -C $t add -A; git -C $t commit -q -m base
+git -C $t checkout -q -b feat/x
+# El `exit $LASTEXITCODE` final es necesario: sin él, `pwsh -Command` devuelve su propio código (1
+# ante cualquier error) y el assert no distinguiría el exit 2 del marcador de un fallo del host.
+$acc = & pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); & '$marker' -Action advance -RepoDir '$t'; exit `$LASTEXITCODE"
+$accExit = $LASTEXITCODE
+$acc = (($acc | Out-String)).Trim()
+Assert ($accExit -eq 0) "bajo ruta no-ASCII y code page OEM, advance no sale con exit 2 (dio $accExit)"
+Assert ($acc -match '^[0-9a-f]{40}$') "bajo ruta no-ASCII, advance emite un marcador ('$acc')"
+# El estado tiene que aterrizar DENTRO del repo: con $gitDir mojibake se escribía en una ruta
+# paralela inexistente, así que el marcador se perdía entre turnos aunque advance dijera que sí.
+Assert (Test-Path -LiteralPath (Join-Path $t ".git/review-loop-state.json")) "bajo ruta no-ASCII, el estado se escribe dentro del repo"
+Remove-Item -Recurse -Force -LiteralPath $t
+
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

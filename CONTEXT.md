@@ -73,11 +73,11 @@ Cuando se dice "corré el review", se habla de `/review-loop`. Cuando se dice "e
 ## Estado de implementación de los términos
 
 El glosario define el vocabulario **decidido**, que no es lo mismo que shippeado. Hoy están
-implementados el **marcador de revisión**, el **delta sin revisar**, el **turno** incremental y el
-**pase de confianza**. Siguen decididos pero **sin implementar**: el **trailer de cierre** — la
-línea `Slice-Close:` en el mensaje del commit con la que el **cierre de slice** va a pasar a
-declararse a mano, en lugar de que el hook dispare en cada commit —, el **pase de coherencia** y la
-**mutación acotada**. El diálogo de abajo habla del diseño completo, no del comportamiento de hoy.
+implementados el **marcador de revisión**, el **delta sin revisar**, el **turno** incremental, el
+**pase de confianza** y el **trailer de cierre** — la línea `Slice-Close:` en el mensaje del commit
+con la que el **cierre de slice** se declara a mano, en lugar de que el hook dispare en cada commit.
+Siguen decididos pero **sin implementar**: el **pase de coherencia** y la **mutación acotada**. El
+diálogo de abajo habla del diseño completo, no del comportamiento de hoy.
 
 ## Example dialogue
 

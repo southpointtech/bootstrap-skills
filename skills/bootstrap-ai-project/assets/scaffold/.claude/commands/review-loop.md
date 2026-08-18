@@ -126,13 +126,18 @@ to **stdout**, which looks exactly like a range if you only read stdout.
 
 ## When the hook triggered this loop
 
-The `review-loop-trigger` hook fires on `gh pr create` / `git push` / `git commit` in a feature
-branch and reports the branch and its base. That tells you *which slice* closed; it does not change
-where the range comes from — still `-Action range`. The reported base only matters as the fallback
-above, and watch it on long-lived branches: `main...HEAD` can drag in commits from earlier slices.
+The `review-loop-trigger` hook fires on `gh pr create` / `git push` in a feature branch, and on a
+commit that DECLARES the close of a slice with a `Slice-Close:` trailer in its message. A commit
+without that trailer does not fire it — unless the unreviewed delta has already passed the
+~400-line safety net, which fires anyway so that forgetting the trailer cannot leave a big slice
+unreviewed. The hook reports the branch and its base. That tells you *which slice* closed; it does
+not change where the range comes from — still `-Action range`. The reported base only matters as
+the fallback above, and watch it on long-lived branches: `main...HEAD` can drag in commits from
+earlier slices.
 
 If the commit is only a deliberately failing test (TDD RED) with no implementation code to review
-yet, close the loop with no action: there is nothing to fix yet.
+yet, close the loop with no action: there is nothing to fix yet. The trailer belongs on the commit
+that finishes the slice, so a RED commit normally does not declare a close at all.
 
 ## The loop
 

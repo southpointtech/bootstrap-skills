@@ -32,12 +32,29 @@ param(
 )
 $ErrorActionPreference = "SilentlyContinue"
 
+# git writes UTF-8 and PowerShell decodes child output with Console::OutputEncoding, so EVERY git
+# call whose output can carry a path needs this — not just `ls-files`, which is the only one that
+# used to have it. A child `pwsh` with stdout redirected (exactly how the trigger hook invokes this
+# script) does not inherit the parent's 65001 and reports an OEM code page instead, so this cannot
+# be left to the environment. Under a non-ASCII path (`C:\Users\Martín\…`) `rev-parse
+# --show-toplevel` came back mangled: $dir stopped being a repo, $statePath pointed at a directory
+# that does not exist, and all THREE actions exited 2 — `advance` never advancing, the marker never
+# persisting, and the loop re-reviewing the whole branch every turn with nothing to say so.
+# Set once and not restored: this script always runs as a short-lived child process.
+try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+
 $dir = if ($RepoDir) { $RepoDir } else { (Get-Location).Path }
 if (-not (Test-Path -LiteralPath $dir)) { exit 2 }
 
 $gitDir = (git -C $dir rev-parse --git-dir 2>$null)
 if (-not $gitDir) { exit 2 }                          # not a git repo
 if (-not [IO.Path]::IsPathRooted($gitDir)) { $gitDir = Join-Path $dir $gitDir }
+# From here on everything works from the REPO ROOT. `ls-files` lists only the cwd's subtree and
+# emits paths relative to it, so run from a subdirectory (a monorepo session opened in `app/`) the
+# untracked fingerprint was recorded on a different base than the trigger hook reads it on — the
+# hook anchors to the root — and neither side ever matched again.
+$top = (git -C $dir rev-parse --show-toplevel 2>$null)
+if ($top) { $dir = $top }
 
 $branch = (git -C $dir rev-parse --abbrev-ref HEAD 2>$null)
 if (-not $branch -or $branch -eq "HEAD") { exit 2 }   # detached HEAD: the caller decides
@@ -164,20 +181,13 @@ function Get-SliceBase {
 # leaves the range non-empty forever — the loop can then never close on "nothing new", and hands
 # the reviewer the same stray files every turn. Hence the snapshot taken at `advance`.
 function Get-UntrackedList {
-  # Two separate things mangle a non-ASCII path here, and both end the same way — the path does
-  # not exist on disk, its hash stays empty, and later edits to that file are invisible to the
-  # next turn. In a Spanish-speaking codebase `ñandú.txt` is a routine filename.
-  #   1. `ls-files` C-quotes it ("\303\261andu.txt") unless core.quotepath is off.
-  #   2. git writes UTF-8 bytes, and PowerShell decodes child output with Console::OutputEncoding
-  #      — on a default Windows console that is an OEM code page, which garbles them.
-  $prevEnc = $null
-  try { $prevEnc = [Console]::OutputEncoding; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
-  try {
-    $paths = @(git -C $dir -c core.quotepath=false ls-files --others --exclude-standard 2>$null |
-               Where-Object { $_ })
-  } finally {
-    if ($prevEnc) { try { [Console]::OutputEncoding = $prevEnc } catch { } }
-  }
+  # A non-ASCII path gets mangled here in two separate ways, and both end the same: the path does
+  # not exist on disk, its hash stays empty, and later edits to that file are invisible to the next
+  # turn. In a Spanish-speaking codebase `ñandú.txt` is a routine filename. The decoding half is
+  # handled once at the top of the script; what is left is git's own quoting:
+  # `ls-files` C-quotes the name ("\303\261andu.txt") unless core.quotepath is off.
+  $paths = @(git -C $dir -c core.quotepath=false ls-files --others --exclude-standard 2>$null |
+             Where-Object { $_ })
   $out = @()
   foreach ($p in ($paths | Sort-Object)) {
     $full = Join-Path $dir $p

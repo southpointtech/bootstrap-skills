@@ -20,6 +20,25 @@ function Idx([string]$s, [string]$pattern) {
   $m = [regex]::Match($s, $pattern)
   if ($m.Success) { return $m.Index } else { return -1 }
 }
+# El CÓDIGO del archivo: sin comentarios ni líneas vacías. El hook no puede compararse byte a byte
+# entre las 4 copias porque la de este repo tiene los comentarios en español (drift previo,
+# deliberado), pero su LÓGICA sí tiene que ser la misma: sin esta comparación, la copia que
+# efectivamente dispara acá podía quedarse con otro techo y otra ventana con la suite en verde.
+# El texto del mensaje inyectado queda FUERA: está traducido en la copia de este repo a propósito.
+# Lo que cubre a ese texto es el assert de que nombra al marcador, más el test de comportamiento de
+# review-loop-trigger.tests.ps1. Lo que se compara acá es toda la lógica de decisión: quién dispara.
+function Code([string]$p) {
+  $txt = [IO.File]::ReadAllText($p)
+  $cut = $txt.IndexOf('$msg =')
+  if ($cut -ge 0) { $txt = $txt.Substring(0, $cut) }
+  # También se saca el comentario de FIN de línea (traducido igual que los de arriba). Se exige
+  # que venga con 2+ espacios delante, que es la convención del archivo, para no cortar un `#`
+  # que viviera dentro de un literal.
+  $lines = $txt -split "`r?`n" |
+    ForEach-Object { ($_ -replace '\s{2,}#.*$', '').Trim() } |
+    Where-Object { $_ -ne '' -and -not $_.StartsWith('#') }
+  return ($lines -join "`n")
+}
 
 # Las 4 raíces que tienen que llevar el marcador y el loop idénticos.
 $roots = @()
@@ -63,6 +82,15 @@ foreach ($r in $roots) {
     Assert ($txt -match '(?is)do\s+not\s+close\s+the\s+loop') "$($r.Name): $rel prohíbe cerrar el loop con rango indeterminable"
     # RED obligatorio: el fix arranca por un test que falla sin el fix.
     Assert ($txt -match '(?i)\bfails? without the fix\b') "$($r.Name): $rel exige RED en los fixes del loop"
+    # El disparo dejó de ser "cualquier commit": este archivo es el que lee el agente cuando el hook
+    # lo despertó, así que si acá sigue diciendo que dispara por commit, el agente no se entera nunca
+    # de que el cierre se declara. Se ancla en la sección del hook, no en el archivo entero.
+    $hookAt = $txt.IndexOf('## When the hook triggered this loop')
+    Assert ($hookAt -ge 0) "$($r.Name): $rel tiene la sección del disparo por hook"
+    if ($hookAt -ge 0) {
+      $sec = $txt.Substring($hookAt, [Math]::Min(1200, $txt.Length - $hookAt))
+      Assert ($sec -match 'Slice-Close:') "$($r.Name): $rel dice que el cierre de slice se declara con el trailer"
+    }
 
     # El ORDEN es el invariante que sostiene todo el diseño: el marcador avanza DESPUÉS de la
     # corrida de review y ANTES de los fixes. Al revés, el turno siguiente recibe un rango vacío
@@ -106,13 +134,52 @@ foreach ($r in $roots) {
   Assert (Test-Path -LiteralPath $hook) "$($r.Name): existe .claude/hooks/review-loop-trigger.ps1"
   if (Test-Path -LiteralPath $hook) {
     $htxt = [IO.File]::ReadAllText($hook)
-    Assert ($htxt -match 'review-marker\.ps1') "$($r.Name): el hook manda el rango al marcador"
-    # El cierre de slice es un acto DECLARADO: sin el trailer, un commit cualquiera no dispara.
-    Assert ($htxt -match 'Slice-Close:') "$($r.Name): el hook exige el trailer Slice-Close en un commit"
-    # ...pero olvidarse del trailer no puede dejar un slice gigante sin revisar.
-    Assert ($htxt -match '(?m)-le\s+400') "$($r.Name): el hook conserva la red de seguridad del techo"
+    # Este assert tiene que mirar el MENSAJE inyectado, no el archivo entero: el hook nombra a
+    # review-marker.ps1 también dentro de la red de seguridad, así que se podía reescribir el
+    # mensaje para ordenar `git diff <base>...HEAD` — la regresión "el hook contradice al loop" que
+    # esta sección existe para evitar — y las tres suites quedaban en verde (verificado por mutación).
+    $msgAt = $htxt.IndexOf('$msg =')
+    Assert ($msgAt -ge 0) "$($r.Name): el hook arma un mensaje inyectado"
+    if ($msgAt -ge 0) {
+      $msgBlock = $htxt.Substring($msgAt)
+      Assert ($msgBlock -match 'review-marker\.ps1') "$($r.Name): el MENSAJE inyectado manda el rango al marcador"
+      Assert ($msgBlock -match '-Action range')      "$($r.Name): el MENSAJE inyectado nombra el verbo range"
+      Assert ($msgBlock -match '/review-loop')       "$($r.Name): el MENSAJE inyectado ordena correr /review-loop"
+    }
+    # Los asserts van sobre el CÓDIGO, no sobre el archivo entero: un `-match 'Slice-Close:'` suelto
+    # lo satisface el comentario que está arriba del gate, así que se podía borrar el gate dejando
+    # el comentario y las tres suites quedaban en verde (verificado por mutación).
+    $hcode = Code $hook
+    Assert ($hcode -match 'Slice-Close:') "$($r.Name): el hook exige el trailer Slice-Close en un commit"
+    # El valor va anclado: `-le\s+400` sin frontera matchea también `-le 4000`.
+    Assert ($hcode -match '(?m)-le\s+400\b') "$($r.Name): el hook conserva la red de seguridad del techo en 400"
     # El evento trae el cwd de la SESIÓN, no el directorio donde corrió el comando.
-    Assert ($htxt -match '--format=%ct') "$($r.Name): el hook verifica que el commit ocurrió en ESTE repo"
+    Assert ($hcode -match '--format=%ct') "$($r.Name): el hook verifica que el commit ocurrió en ESTE repo"
+    # El valor exacto lo fijan los dos bordes de review-loop-trigger.tests.ps1; acá sólo se verifica
+    # que la ventana siga existiendo y que las 4 copias lleven la misma (lo segundo lo cierra la
+    # comparación de lógica del final).
+    Assert ($hcode -match '-gt\s+1800\b') "$($r.Name): el hook conserva la ventana de frescura en 30 min"
+    # Exit 0 + vacío del marcador es "no hay nada sin revisar", no "no pude determinar el rango".
+    Assert ($hcode -match '\$rangeKnown') "$($r.Name): el hook distingue el exit 0 vacío del marcador"
+    # El techo se mide sobre el repo entero: los pathspec y `ls-files` se resuelven contra el cwd
+    # del proceso git, y el evento trae el cwd de la SESIÓN, que puede ser un subdirectorio.
+    Assert ($hcode -match 'git -C \$root diff --numstat') "$($r.Name): el hook ancla el conteo del techo a la raíz del repo"
+    Assert ($hcode -match 'git -C \$root -c core\.quotepath=false ls-files') "$($r.Name): el hook ancla el listado de untracked a la raíz del repo"
+    # Lo que cuenta es untracked SIN REVISAR: los que el marcador ya cubrió no son delta.
+    Assert ($hcode -match 'untracked:\$branch') "$($r.Name): el hook descuenta los untracked que el marcador ya cubrió"
+
+    # `Code()` corta en `$msg =`, así que TODO el bloque de emisión queda fuera de la comparación de
+    # lógica del final. Sin estos asserts, romper el emisor de una sola copia (otro hookEventName,
+    # borrar additionalContext, borrar el ConvertTo-Json) deja las tres suites en verde y esa copia
+    # deja de inyectar la orden en silencio — el "emisor sin receptor" que este contrato evita.
+    Assert ($htxt -match 'hookEventName\s*=\s*"PostToolUse"') "$($r.Name): el hook emite como PostToolUse"
+    Assert ($htxt -match 'additionalContext\s*=\s*\$msg')     "$($r.Name): el hook emite el mensaje en additionalContext"
+    Assert ($htxt -match 'ConvertTo-Json -Depth 4 -Compress') "$($r.Name): el hook serializa la salida que Claude Code lee"
+    # Y que la cola parsee: un error de sintaxis después del corte de `Code()` no lo ve ninguna otra
+    # comparación, y un hook que no parsea simplemente no dispara nunca.
+    $perr = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($hook, [ref]$null, [ref]$perr) | Out-Null
+    Assert (@($perr).Count -eq 0) "$($r.Name): el hook parsea sin errores de sintaxis"
   }
 }
 
@@ -143,6 +210,18 @@ foreach ($rel in $mirrored) {
   Assert ($hashes.Count -eq 4) "las 4 copias de $name existen ($($hashes.Count))"
   Assert ((($hashes.Values | Select-Object -Unique).Count) -eq 1) "las 4 copias de $name son idénticas en contenido"
 }
+
+# El hook no entra en $mirrored (la copia de este repo tiene los comentarios en español), así que
+# su LÓGICA se compara aparte. Sin esto, `mirror.tests.ps1` compara las 3 skills entre sí y la copia
+# que realmente dispara en este repo no entra en ninguna comparación: se le podía cambiar el techo a
+# 4000 y borrarle el gate del trailer con las tres suites en verde.
+$hookCode = @{}
+foreach ($r in $roots) {
+  $p = Join-Path $r.Path ".claude\hooks\review-loop-trigger.ps1"
+  if (Test-Path -LiteralPath $p) { $hookCode[$r.Name] = Code $p }
+}
+Assert ($hookCode.Count -eq 4) "las 4 copias del hook existen ($($hookCode.Count))"
+Assert ((($hookCode.Values | Select-Object -Unique).Count) -eq 1) "las 4 copias del hook tienen la misma lógica (comentarios aparte)"
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
