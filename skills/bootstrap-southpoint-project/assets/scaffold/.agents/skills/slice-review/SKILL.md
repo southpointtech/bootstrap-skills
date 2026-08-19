@@ -15,9 +15,11 @@ confidence pass before it reaches the report. That second pass is what keeps the
 
 ## Step 1 — Resolve what to review
 
-If `$ARGUMENTS` is `--coherence`, do not resolve a delta range here: skip Steps 1–5 below and run
-the **Coherence pass** section at the end instead. That is the one mode that reviews the whole
-slice at once rather than the unreviewed delta.
+If `$ARGUMENTS` is `--coherence`, do not resolve a delta range here: jump straight to the
+**Coherence pass** section at the end. That section reviews the whole slice at once rather than the
+unreviewed delta, and it states which steps it replaces (this delta resolution and Step 4's
+five-way fan-out) and which it reuses (Step 1's `ls-files`, Step 3's shared context, Step 5's
+confidence pass, Step 6's report).
 
 Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
 ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
@@ -144,7 +146,8 @@ strongest model; the three that require reading logic and predicting failure do.
 
 ## Step 5 — Confidence pass (filter false positives)
 
-Reviewers over-report. For each finding returned in Step 4, dispatch a **parallel** subagent that
+Reviewers over-report. For each finding returned by the reviewers — Step 4's focuses, or the
+coherence focus — dispatch a **parallel** subagent that
 receives the finding plus the diff and scores it 0-100 — **the confidence pass runs on Opus 5**, the
 same as the judgment reviewers: it is the only filter for false positives, costs ~3% of the run, and
 is not where to save tokens. Give it this rubric verbatim:
@@ -197,8 +200,14 @@ It differs from the per-turn review in four ways:
 
   Review `git diff <base>` (plus the untracked files from Step 1's `ls-files`). This is the one run
   that re-reads already-reviewed code on purpose, because a whole-slice defect is invisible in any
-  single delta. If the base is undeterminable (exit 2) fall back to the branch range and say the
-  pass could not be anchored; if the marker script is missing, use the slice's branch range.
+  single delta. If the base is undeterminable (exit 2), the base is exactly what could not be
+  resolved, so **do not reach for** `git diff <base>...HEAD` (the same rule as Step 1's exit-2
+  case): say the coherence pass could not be anchored and skip it for this close, or fall back to
+  `git diff HEAD` / `git show HEAD` as a partial sanity read, stating it is not a whole-slice
+  coherence read. If instead the marker **script is missing**, the base *can* still be resolved by
+  name, so use the slice's branch range (`git diff <base>...HEAD`). If the resolved base equals HEAD
+  (a base-branch slice with only uncommitted work), `git diff <base>` shows just the working tree —
+  note the pass saw only that.
 - **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on **Sonnet 5**,
   with the shared context from Step 3 (including the same write prohibition it carries), and this
   focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the

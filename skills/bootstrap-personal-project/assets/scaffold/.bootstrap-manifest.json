@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-08-19+50506bd",
+  "version": "2026-08-19+1b34144",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -15,7 +15,7 @@
     ".agents/skills/setup-matt-pocock-skills/issue-tracker-local.md": "5f7f87f14a6f391f9b44ee61b1c2fc3d78faa35a51f678112c4f5e3170785674",
     ".agents/skills/setup-matt-pocock-skills/SKILL.md": "27ec3d9dcb2ba611974de2df015f7c958c663c7d0cbeb776ecd7fbdfb0f726a1",
     ".agents/skills/setup-matt-pocock-skills/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
-    ".agents/skills/slice-review/SKILL.md": "fd8f014c5e8dfa4fd8a1caf83b7cec30d533204005288925668bce42e975ac7d",
+    ".agents/skills/slice-review/SKILL.md": "32c86db45b4f9fa8dee15a26ad3636a19e99e6aafdc998c56cb98920befbdc77",
     ".agents/skills/tdd/deep-modules.md": "76a813f34910d2431478652a92080d74e325b0f09e6ca3df39cf4d7b170576b7",
     ".agents/skills/tdd/interface-design.md": "560c35db2cae66ebfa1b0f120d287666d7a12039ddda4b59613207ddf290fed4",
     ".agents/skills/tdd/mocking.md": "73a10b6a26b56197c738a764c1e4205af98c74553f4a713795997f6bc35b917d",
@@ -33,7 +33,7 @@
     ".claude/commands/handoff.md": "4292d4cf171abc00882d115b985a3945fb2b9bb67ebacd5e251bd7e5439ec106",
     ".claude/commands/review-loop.md": "26f1cdc2d392bf744ad90296d1cea1695a35fe97271e5b105799b70fc59914ba",
     ".claude/commands/setup-matt-pocock-skills.md": "c38ea757d33d7b6aad5c51d90d8a0e9a91ffb50a0fd2792a1361eb828b51045a",
-    ".claude/commands/slice-review.md": "590b787110c899a3b56128f99b5a947fa1dcffa7f6cb6f9db692e6023ace3c56",
+    ".claude/commands/slice-review.md": "43540bec4b9cee3e86c8530c6c8d44e0d09ca26274c717305889f00eec12da78",
     ".claude/commands/tdd.md": "6e86d59b011f7d5c34814655828a122bc23f95a2ae67d06eff0f996b808200f1",
     ".claude/commands/to-issues.md": "666fee6aabef2d1e00e3ff4ea91af68ebb03b2d8a1fd30a79f408e5e8f31fb7c",
     ".claude/commands/to-prd.md": "9453d5caaa191ff8ce5529e38608b1255c68e738e4aa7bb2b23ca0dd4d2c4138",

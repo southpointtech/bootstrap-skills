@@ -164,8 +164,9 @@ foreach ($p in $slicePairs) {
 
 # Extrae el cuerpo de una seccion markdown: desde su header `## <titulo>` hasta el proximo `## ` o
 # el fin del archivo. Cadena vacia si la seccion no existe (y todos los asserts anclados muerden).
-function Section([string]$txt, [string]$headerPattern) {
-  $m = [regex]::Match($txt, "(?im)^##\s+$headerPattern.*?(?=^##\s|\z)", 'Singleline')
+function Section([string]$txt, [string]$header) {
+  # $header es un titulo LITERAL: se escapa para que un ':' u otro metacaracter no rompa el regex.
+  $m = [regex]::Match($txt, "(?im)^##\s+$([regex]::Escape($header)).*?(?=^##\s|\z)", 'Singleline')
   if ($m.Success) { return $m.Value } else { return "" }
 }
 
@@ -210,6 +211,18 @@ foreach ($p in $slicePairs) {
     # Step 1 rutea --coherence a la seccion en vez de tratarlo como un rango de diff.
     Assert ($txt -match '(?i)if .\$ARGUMENTS. is .--coherence') `
       "$($p.label)/${rel}: Step 1 rutea --coherence a la seccion del pase (no como rango de diff)"
+
+    # --- Turno 1 del review-loop sobre A4: correcciones de coherencia interna ---
+    # M1 (contratos+bugs convergen) — el ruteo de --coherence NO puede mandar a saltear los steps
+    #   que el pase REUSA: Step 3 (contexto compartido), Step 5 (pase de confianza) y Step 6
+    #   (reporte). "skip Steps 1-5" los tragaba y un agente literal saltearia la confianza (AC6).
+    Assert ($txt -notmatch '(?i)skip Steps 1') `
+      "$($p.label)/${rel}: el ruteo de --coherence no manda a saltear los steps que el pase reusa (Step 3/5/6)"
+    # M2 (historia) — en exit 2 la base es JUSTO lo irresoluble: no arrastrar git diff <base>...HEAD
+    #   (misma regla que el Step 1). La frase 'do not reach for' tiene que vivir DENTRO de la seccion
+    #   del pase, no solo en el Step 1 (por eso se ancla en $coh, no en $txt).
+    Assert ($coh -match '(?i)do not reach for') `
+      "$($p.label)/${rel}: el pase de coherencia no cae al branch range cuando la base es irresoluble (exit 2)"
   }
 }
 
