@@ -190,24 +190,31 @@ set out to do. Invoke it as `/slice-review --coherence`.
 
 It differs from the per-turn review in four ways:
 
-- **Target: the full slice range**, not the delta — the whole change from the slice's base, plus
-  its untracked files. Resolve the base with the marker, so this pass sees the same slice the loop
-  is closing:
+- **Target: the full slice range**, not the delta — the whole change from the **start of the closing
+  slice**, plus its untracked files. Anchor it with the marker's `slice-base`, so on a stacked branch
+  (several slices on one feature branch) this pass reads only the slice being closed, not the whole
+  branch — the difference between the closing slice's ~250 lines and the branch's several thousand:
 
   ```powershell
-  pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action base    # bare ref: the slice base
+  pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action slice-base   # bare ref: start of the closing slice
   ```
 
-  Review `git diff <base>` (plus the untracked files from Step 1's `ls-files`). This is the one run
-  that re-reads already-reviewed code on purpose, because a whole-slice defect is invisible in any
-  single delta. If the base is undeterminable (exit 2), the base is exactly what could not be
-  resolved, so **do not reach for** `git diff <base>...HEAD` (the same rule as Step 1's exit-2
-  case): say the coherence pass could not be anchored and skip it for this close, or fall back to
-  `git diff HEAD` / `git show HEAD` as a partial sanity read, stating it is not a whole-slice
-  coherence read. If instead the marker **script is missing**, the base *can* still be resolved by
-  name, so use the slice's branch range (`git diff <base>...HEAD`). If the resolved base equals HEAD
-  (a base-branch slice with only uncommitted work), `git diff <base>` shows just the working tree —
-  note the pass saw only that.
+  `slice-base` returns the point the loop's first turn recorded as this slice's start, and falls back
+  to the branch base when there is none (the branch's first slice, or a standalone run with nothing
+  recorded), so it is always at least as tight as the branch base. Review `git diff <base>` (plus the
+  untracked files from Step 1's `ls-files`). This is the one run that re-reads already-reviewed code
+  on purpose, because a whole-slice defect is invisible in any single delta. If the base is
+  undeterminable (exit 2), the base is exactly what could not be resolved, so **do not reach for**
+  `git diff <base>...HEAD` (the same rule as Step 1's exit-2 case): say the coherence pass could not
+  be anchored and skip it for this close, or fall back to `git diff HEAD` / `git show HEAD` as a
+  partial sanity read, stating it is not a whole-slice coherence read. If instead the marker
+  **script is missing**, the base *can* still be resolved by name, so use the slice's branch range
+  (`git diff <base>...HEAD`). If the resolved base equals HEAD (a base-branch slice with only
+  uncommitted work), `git diff <base>` shows just the working tree — note the pass saw only that.
+  If the anchor resolves but `git diff <base>` shows **changes you did not make** — a stale snapshot
+  that `commit --amend`/`rebase`/`reset` left no longer an ancestor of HEAD — ignore it and review
+  the slice's branch range (`git diff <branch-base>...HEAD`); here the branch base does resolve,
+  unlike the exit-2 case.
 - **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on **Sonnet 5**,
   with the shared context from Step 3 (including the same write prohibition it carries), and this
   focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the

@@ -590,4 +590,57 @@ $origStill = [IO.File]::ReadAllText($statePath)
 Assert ($origStill -match 'otra-rama') "con la cuarentena bloqueada, advance NO pisa el estado original (queda recuperable)"
 Remove-Item -Recurse -Force $t
 
+# ============ A4b — anclaje del pase de coherencia al slice que cierra ============
+# En una rama con slices APILADOS, `slice-base` ancla en el inicio del slice que cierra —el marcador
+# capturado por `open` al arrancar el loop— no en la base de la rama. `base` sigue devolviendo la base
+# de rama. Sin esto la coherencia sobre-scopeaba a toda la rama (medido: 9613/56) en vez del slice
+# (248/5). Este tracer prueba las dos mitades a la vez: slice-base ajustado, base intacto.
+$t = New-Repo                                       # feat/x sobre master, con file.txt commiteado
+"s1" | Set-Content (Join-Path $t "s1.txt")          # slice-1
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null                        # el loop del slice-1 avanza el marcador a su cierre
+$m1 = Marker $t get
+"s2" | Set-Content (Join-Path $t "s2.txt")           # slice-2 apilado encima
+git -C $t add -A; git -C $t commit -q -m slice2
+Marker $t open | Out-Null                            # loop del slice-2 turno 1: open captura fin-de-slice-1
+$sb = Marker $t 'slice-base'
+Assert ($sb -eq $m1) "slice-base ancla en el marcador capturado por open (inicio del slice que cierra)"
+$sbNames = ((git -C $t diff --name-only $sb) -join "`n")
+Assert (($sbNames -match "s2\.txt") -and ($sbNames -notmatch "s1\.txt")) "en rama apilada, slice-base lee solo el slice que cierra"
+$baseNames = ((git -C $t diff --name-only (Marker $t base)) -join "`n")
+Assert (($baseNames -match "s1\.txt") -and ($baseNames -match "s2\.txt")) "base sigue devolviendo la base de rama (rama entera), sin cambios"
+Remove-Item -Recurse -Force $t
+
+# --- Primer slice de la rama: sin marcador, open no escribe y slice-base cae a la base de rama ---
+# Es el AC del primer slice: no hay slice anterior del cual arrancar, así que la coherencia mira desde
+# la base de rama. open leído sin marcador previo no debe dejar un slice-open espurio.
+$t = New-Repo
+"slice" | Set-Content (Join-Path $t "file.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t open | Out-Null                            # no hay marcador previo → no escribe slice-open
+$base = (git -C $t merge-base master HEAD)
+Assert ((Marker $t 'slice-base') -eq $base) "primer slice (sin marcador previo), slice-base cae a la base de rama"
+Remove-Item -Recurse -Force $t
+
+# --- slice-base ignora un slice-open que ya no resuelve (rebase/gc) y cae a la base de rama ---
+# Si un rebase reescribió la historia o gc podó el objeto, el snapshot deja de resolver: la dirección
+# segura es revisar de más (la rama), nunca leer un diff con hunks fantasma contra un ref muerto.
+$t = New-Repo
+"slice" | Set-Content (Join-Path $t "file.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+$gitDir = (git -C $t rev-parse --git-dir)
+$statePath = Join-Path $t (Join-Path $gitDir "review-loop-state.json")
+Set-Content -LiteralPath $statePath -Value '{ "slice-open:feat/x": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }' -Encoding UTF8
+$base = (git -C $t merge-base master HEAD)
+Assert ((Marker $t 'slice-base') -eq $base) "slice-base ignora un slice-open irresoluble y cae a la base de rama"
+Remove-Item -Recurse -Force $t
+
+# --- slice-base sin base determinable: exit 2, no 0 ---
+# Misma razón que range/base: exit 0 vacío significaría "nada que revisar" y cerraría el pase de
+# coherencia sobre un slice que nadie ancló. Repo de una sola rama, sin refs contra las cuales medir.
+$t = New-RepoOn "master"
+Marker $t 'slice-base' | Out-Null
+Assert ($script:lastExit -eq 2) "slice-base sin base determinable sale con exit 2"
+Remove-Item -Recurse -Force $t
+
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

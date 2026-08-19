@@ -12,6 +12,13 @@
 #   -Action base     -> the slice base (a merge-base commit), for the trigger hook to delegate to
 #                       when its own named-branch lookup fails. Same exit contract as `range`:
 #                       0 + a ref when resolvable, 2 + no output when no base can be determined.
+#   -Action open     -> records where the CLOSING slice starts (the marker at the loop's first turn,
+#                       before the first `advance`), so the coherence pass reads only that slice and
+#                       not the whole stacked branch. Stored as `slice-open:<branch>`, and only while
+#                       the marker resolves; a missing/pruned marker records nothing.
+#   -Action slice-base -> the start of the closing slice, for the coherence pass: the `slice-open`
+#                       snapshot when it resolves, otherwise the branch base (Get-SliceBase, exactly
+#                       what `base` returns). Same exit contract as `base`. A superset of `base`.
 #
 # Exit codes are part of the contract, because "nothing new to review" and "I cannot tell" must
 # never look the same to the caller — a caller that conflates them closes the loop reporting a
@@ -25,12 +32,13 @@
 # For `get` and `advance`, exit 2 means the same "not applicable", but `0 + no output` from `get`
 # only means "no marker stored yet" — the normal state of a first turn, never a reason to close.
 #
-# State lives in the git directory (.git/review-loop-state.json) under `marker:<branch>` keys,
-# so it never shows up in the slice diff and never gets committed. Git forbids ':' in branch
-# names, so these keys cannot collide with the trigger hook's dedupe entries in the same file.
+# State lives in the git directory (.git/review-loop-state.json) under `marker:<branch>`,
+# `untracked:<branch>` and `slice-open:<branch>` keys, so it never shows up in the slice diff and
+# never gets committed. Git forbids ':' in branch names, so these keys cannot collide with the
+# trigger hook's dedupe entries in the same file.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet("get", "range", "advance", "base")][string]$Action,
+  [Parameter(Mandatory = $true)][ValidateSet("get", "range", "advance", "base", "open", "slice-base")][string]$Action,
   [string]$RepoDir
 )
 $ErrorActionPreference = "SilentlyContinue"
@@ -232,6 +240,51 @@ switch ($Action) {
     # Same exit contract: a resolvable ref, or exit 2 + nothing when no base can be determined — so
     # the caller never reads "no base" as "nothing to review". Emits a commit (the merge-base), which
     # the hook uses only as a diff endpoint, never as a branch-name guard.
+    $b = Get-SliceBase
+    if (-not $b) { exit 2 }
+    Write-Output $b
+    exit 0
+  }
+
+  "open" {
+    # Record where the CLOSING slice starts, so the coherence pass can anchor there instead of the
+    # branch base. On a stacked branch (several slices on one feature branch) the branch base
+    # over-scopes to the whole branch — the measured 9613 lines vs the slice's 248. The slice starts
+    # where the last review run left off: the stored marker at the moment this loop began, BEFORE the
+    # first `advance` moves it forward. The loop calls this once, on its first turn.
+    #
+    # Store the marker only while it resolves. A missing marker (the branch's first slice) or one
+    # pruned by `git gc` leaves slice-open unset, and `slice-base` then falls back to the branch base
+    # — reviewing too much, never too little. The key is `slice-open:<branch>`; git forbids ':' in
+    # branch names, so it cannot collide with the hook's dedupe entries, same as the other keys.
+    $state = Read-State
+    $sha = $state[$key]
+    if (-not ($sha -and (Resolve-Commit $sha))) { exit 0 }   # nothing solid to record; read-time fallback covers it
+    # Same corrupt-state quarantine as `advance`: never silently clobber other branches' keys.
+    $writable = $true
+    if ($script:stateCorrupt -and (Test-Path -LiteralPath $statePath)) {
+      try { Move-Item -LiteralPath $statePath -Destination "$statePath.bad" -Force -ErrorAction Stop }
+      catch { $writable = $false }
+    }
+    $state["slice-open:$branch"] = $sha
+    if ($writable) {
+      $json = ([pscustomobject]$state) | ConvertTo-Json
+      [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
+    }
+    Write-Output $sha
+    exit 0
+  }
+
+  "slice-base" {
+    # The base for the coherence pass: the start of the slice that is closing. Prefer the slice-open
+    # snapshot `open` recorded on the loop's first turn — on a stacked branch that is the inner
+    # slice's start, not the branch base. Fall back to the branch base (Get-SliceBase, exactly what
+    # `base` returns) when there is no snapshot (first slice, or standalone with none recorded) or it
+    # no longer resolves (pruned by gc, or a rebase rewrote it): reviewing the whole branch is the
+    # safe over-scope direction. Same exit contract as `base`/`range`: a ref, or exit 2 + nothing when
+    # no base can be determined at all — so the caller never reads "no base" as "nothing to review".
+    $so = (Read-State)["slice-open:$branch"]
+    if ($so -and (Resolve-Commit $so)) { Write-Output $so; exit 0 }
     $b = Get-SliceBase
     if (-not $b) { exit 2 }
     Write-Output $b

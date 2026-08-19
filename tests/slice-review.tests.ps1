@@ -183,9 +183,18 @@ foreach ($p in $slicePairs) {
       "$($p.label)/${rel}: el pase de coherencia es un foco unico de solo lectura"
     Assert ($coh -match '(?i)full slice range') `
       "$($p.label)/${rel}: el pase de coherencia mira el rango completo del slice"
-    # El rango completo se resuelve con la base del marcador (-Action base), no el delta.
-    Assert ($coh -match '-Action base') `
-      "$($p.label)/${rel}: el pase de coherencia resuelve la base con el marcador (-Action base)"
+    # A4b — el rango completo se ancla en el INICIO DEL SLICE (-Action slice-base), no en la base de
+    # rama (-Action base): en una rama apilada la base de rama sobre-scopea a toda la rama. slice-base
+    # cae a la base de rama cuando no hay snapshot, así que sigue cubriendo el primer slice.
+    Assert ($coh -match '-Action slice-base') `
+      "$($p.label)/${rel}: el pase de coherencia ancla en el inicio del slice (-Action slice-base)"
+    # No debe quedar el -Action base viejo dentro de la seccion (seria anclar en la rama entera).
+    Assert (-not ($coh -match '-Action base\b')) `
+      "$($p.label)/${rel}: el pase de coherencia ya no ancla en la base de rama (-Action base)"
+    # A4b — caveat de amend/rebase: si el snapshot resuelve pero quedo no-ancestro, el diff trae hunks
+    # que no hiciste; ahi SI se cae al branch range (la base de rama resuelve, distinto del exit 2).
+    Assert ($coh -match '(?i)changes you did not make') `
+      "$($p.label)/${rel}: el pase de coherencia tiene el caveat de amend/rebase (hunks que no hiciste)"
 
     # AC2 — declara explicitamente que no ejecuta nada.
     Assert ($coh -match '(?i)executes nothing') `

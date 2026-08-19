@@ -145,7 +145,11 @@ One turn = one complete pass through these steps:
 
 1. Ask the marker for the range (`-Action range`). **Empty with exit 0 → the loop is done; close
    it. Empty with exit 2 → undeterminable; recover as the exit-code section above says, and do
-   not close.**
+   not close.** On the **first turn only**, once there is something to review, record where this
+   slice starts so the coherence pass at close reads only this slice and not the whole stacked
+   branch: `-Action open`. It snapshots the marker as it stands right now — the previous slice's
+   close — and the `advance` in step 3 then moves the marker forward but leaves that snapshot put.
+   A missing or pruned marker records nothing, and the coherence pass falls back to the branch base.
 2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
    files the range does not carry.
 3. Advance the marker (`-Action advance`) — but **only if a reviewer actually ran and returned a

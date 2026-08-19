@@ -108,6 +108,7 @@ foreach ($r in $roots) {
       # **0** en ese caso (no -1), así que leerlo crudo hacía pasar todos los `-ge 0` y volvía
       # tautológica la comparación de orden — se podía borrar el paso 1 entero y quedaba verde.
       $iRange   = Idx $steps '-Action\s+range'
+      $iOpen    = Idx $steps '-Action\s+open'
       $iReview  = Idx $steps 'Run\s+\*{0,2}`?/slice-review'
       $iAdvance = Idx $steps '-Action\s+advance'
       $iFix     = Idx $steps 'fails?\s+without\s+the\s+fix'
@@ -115,6 +116,11 @@ foreach ($r in $roots) {
       Assert ($iReview -ge 0) "$($r.Name): $rel corre el reviewer dentro del turno"
       Assert ($iAdvance -ge 0) "$($r.Name): $rel avanza el marcador dentro del turno"
       Assert ($iFix -ge 0) "$($r.Name): $rel exige RED dentro del turno"
+      # A4b — el turno 1 captura el inicio del slice (-Action open) para que la coherencia ancle ahí y
+      # no en la base de rama. Debe ir DESPUÉS del rango y ANTES del advance: open snapshotea el
+      # marcador tal como está (el cierre del slice anterior); el advance recién lo mueve.
+      Assert ($iOpen -ge 0) "$($r.Name): $rel captura el inicio del slice (-Action open) en el turno 1"
+      Assert (($iOpen -gt $iRange) -and ($iAdvance -gt $iOpen)) "$($r.Name): $rel captura slice-open después del rango y antes del advance"
       Assert (($iRange -ge 0) -and ($iReview -gt $iRange)) "$($r.Name): $rel pide el rango antes de la corrida de review"
       Assert (($iReview -ge 0) -and ($iAdvance -gt $iReview) -and ($iFix -gt $iAdvance)) "$($r.Name): $rel avanza el marcador después del review y antes de los fixes"
       # Los pasos no pueden contradecir a la sección de exit codes, que manda revisar el árbol y

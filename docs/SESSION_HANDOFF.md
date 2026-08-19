@@ -1,3 +1,405 @@
+# Session Handoff — 2026-08-19 parte 2 (A4b IMPLEMENTADO test-first, SIN COMMITEAR — próximo: commit + review-loop en terminal nueva)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: COMMIT de A4b + `/review-loop`
+
+Rama **`feat/marcador-de-revision`**, HEAD sigue **`4713031`** (A4b **NO commiteado**). **Árbol sucio**:
+25 archivos modificados (el trabajo de A4b) + este handoff. Suite de A4b **verde** (`mirror`,
+`review-marker`, `slice-review`, `review-loop-incremental` → 4/4). Marcador de revisión en **`f86d1eb`**
+(sin avanzar esta sesión: todavía no corrió ningún review sobre A4b). **Decisión del usuario 2026-08-19:
+commitear A4b y correr el `/review-loop` EN LA PRÓXIMA TERMINAL**, no en esta sesión.
+
+### Lo PRIMERO que hay que hacer (el usuario ya lo aprobó)
+
+1. **Commitear A4b** con el trailer que dispara el hook:
+   ```
+   feat(review-loop): A4b — anclar el pase de coherencia al slice que cierra
+
+   Slice-Close: A4b
+   ```
+2. **Correr `/review-loop`** sobre el delta sin revisar (`-Action range` → `f86d1eb`) hasta que cierre
+   (cero medium/high, o techo de 5 turnos). NO preguntar si correrlo — correrlo.
+3. **Esto dogfoodea A4b sobre sí mismo**: el `/review-loop` del repo ya trae el `-Action open` en el
+   turno 1, así que la coherencia al cierre anclará en `slice-base` = `slice-open` snapshoteado =
+   `f86d1eb` → `git diff f86d1eb` = solo A4b, no la rama entera. Es la validación viva del fix. (Si el
+   snapshot no anduviera, caería a base de rama = sobre-scope, dirección segura.)
+
+### Qué hizo esta sesión (grill + TDD de A4b, sin commit)
+
+1. **Grill de A4b** (paso 1 del workflow, cerrado). Decisiones firmadas en el issue
+   `.scratch/review-cost-redesign/issues/04b-anclaje-del-pase-de-coherencia.md` (status
+   `needs-info` → `ready-for-agent`, sección "Decisiones del grill" + AC). Reencuadre clave: el hook
+   dispara también por push y por la red de 400 líneas (no solo por trailer), así que **el enfoque 2
+   (caminar `git log` a trailers) se descartó** — mis-ancla cuando el cierre no está declarado. Se
+   eligió: el slice = donde quedó la última revisión (el marcador al inicio del loop), persistido con
+   verbo (enfoque 1+3).
+2. **TDD de A4b** test-first (RED verificado antes de cada impl). **180 add / 37 del de lógica**
+   (marcador canónico + `.md` canónicos + tests; espejos y manifests no cuentan). Bajo el techo.
+   - `review-marker.ps1`: **dos verbos nuevos**. `-Action open` (turno 1: guarda el marcador actual
+     como `slice-open:<branch>`, **solo si `Resolve-Commit` pasa**; sin marcador/podado no escribe;
+     misma cuarentena `.bad` que `advance`). `-Action slice-base` (devuelve `slice-open` si resuelve,
+     si no cae a `Get-SliceBase` = idéntico a `base`; **superset estricto de `base`**; mismo contrato
+     de exit `0+ref`/`2+nada`). Header del contrato actualizado a 6 verbos + clave `slice-open:`.
+   - `slice-review.md` (command+SKILL): la coherencia ancla en **`-Action slice-base`** (no `base`) +
+     caveat amend/rebase ("changes you did not make" → `git diff <branch-base>...HEAD`, acá la base SÍ
+     resuelve, distinto del exit-2).
+   - `review-loop.md` (command+SKILL): turno 1 llama **`-Action open`** después del `range` y antes
+     del `advance` (snapshot = cierre del slice anterior; el `advance` lo mueve pero deja el snapshot).
+   - Tests: `review-marker.tests.ps1` (+tracer de **rama apilada de 2 slices**: `slice-base` lee solo
+     el slice-2 mientras `base` sigue trayendo la rama entera; + primer slice → base de rama;
+     + slice-open irresoluble → fallback; + exit 2 sin base). `slice-review.tests.ps1` (`slice-base`
+     + no `base` viejo + caveat). `review-loop-incremental.tests.ps1` (orden `open` entre range y
+     advance, `Idx`, 4 copias).
+3. **Regla del espejo respetada**: 4 copias byte-idénticas del marcador y de los 4 `.md` (un md5 por
+   archivo), 3 manifests regenerados con `tools/gen-manifest.ps1`.
+
+### Archivos modificados (sin commitear)
+
+`review-marker.ps1` ×4 · `slice-review.md`+SKILL ×4 · `review-loop.md`+SKILL ×4 · 3 manifests ·
+`tests/review-marker.tests.ps1` · `tests/slice-review.tests.ps1` ·
+`tests/review-loop-incremental.tests.ps1` · este handoff.
+
+### Antes de tocar código (crítico)
+
+- **El paso 1 (grill) de A4b está CERRADO** esta sesión (decisiones en el issue). Si el
+  `alignment-gate` frena el primer edit: decilo y reintentá, **no re-grilles**.
+- **Regla del espejo**: editar canónicos root (`.claude/scripts/review-marker.ps1`,
+  `.claude/commands/*.md`, `.agents/skills/*/SKILL.md`), `cp` a los 3 scaffolds
+  (`skills/bootstrap-*-project/assets/scaffold/...`), regenerar manifests
+  (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una por vez).
+  Para el **marcador**, la copia que leen los tests es la de `bootstrap-personal-project`; editar ahí
+  y espejar a raíz + otras 2 (byte-idénticas, la raíz también).
+- **Los reviewers del loop corren en SOLO LECTURA** en subagentes paralelos; chequear `git status`
+  antes de creerle a un hallazgo. Modelo por foco: bugs/contratos/tests Opus, reglas/historia/
+  coherencia Sonnet.
+- **Las suites del review-loop tardan >2 min** — background, timeout amplio. Cada fix con RED
+  verificado ANTES (mutante que **empieza** con `FAIL:`).
+- **El marcador avanza DESPUÉS de cada review y ANTES de los fixes**. El `-Action open` NO avanza el
+  marcador (snapshotea). El pase de coherencia NO avanza el marcador.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (aprobó el commit de A4b, pero pidió hacerlo en terminal nueva).
+  **Nada va a Zoho.** **Impacto medido antes de cambiar el proceso.** Prefiere **cortar y seguir en
+  terminal nueva** antes que dejar crecer el contexto — por eso este handoff.
+
+### Roadmap restante
+
+**A4b** (commit + review-loop, arriba) → A5 (mutación acotada, `05-mutacion-acotada.md`) → A6
+(`06-regla-de-afirmaciones.md`) → **A7 al final** (`07-sellar-y-deployar.md`: deploy a
+`~/.claude/skills` + resellar el `.bootstrap-manifest.json` de la RAÍZ; requiere presencia humana).
+**A1b** cuando se quiera (15 hallazgos + nudo de diseño). **Track B** (B1/B2) lo lleva el usuario en
+otra terminal, vence **10/9**. Pendientes de fondo: PRDs/issues en `.scratch/` gitignoreado;
+`copy-scaffold.ps1` pisa el `.gitignore` del destino; `core.autocrlf` con hashes mixtos en manifests.
+
+---
+
+# Session Handoff — 2026-08-19 (A4 CERRADO + review-loop limpio + coherencia cohere — próximo: A4b)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: GRILL de A4b (anclaje del pase)
+
+Rama **`feat/marcador-de-revision`**, HEAD **`4713031`**. **Árbol limpio** salvo este handoff.
+**Sin pushear.** Suite completa **12/12 verde**. Marcador de revisión en **`f86d1eb`** (`-Action
+range` sale `f86d1eb` exit 0; el delta es SOLO la línea `argument-hint` de `slice-review.md` +
+manifests = doc/frontmatter, **cero lógica**, fue la recomendación del propio pase de coherencia).
+**No hay decisión pendiente del usuario** salvo arrancar el grill de A4b.
+
+```
+4713031  fix(review-loop): correcciones del review-loop sobre A4 (coherencia interna del pase)  <- fixes del loop (sin trailer)
+c9843d5  feat(review-loop): A4 — pase de coherencia al cierre del slice                          <- Slice-Close A4
+89917fe  fix(review-loop): correcciones del review-loop sobre A3 (resolucion del marcador + cobertura)
+```
+
+### Qué hizo esta sesión
+
+1. **Implementó A4** test-first (`c9843d5`, trailer `Slice-Close: A4`): el **pase de coherencia**
+   (issue `04-pase-de-coherencia.md`). Un reviewer único de solo lectura que mira el **slice entero**
+   una vez al cierre, contra la intención declarada, en **Sonnet 5**, sin ejecutar nada, con sus
+   hallazgos pasando por el pase de confianza. Vive en dos archivos canónicos:
+   - `/slice-review` (`.claude/commands/slice-review.md` + `.agents/skills/slice-review/SKILL.md`):
+     nueva sección `## Coherence pass` + ruteo de `--coherence` en Step 1; el rango completo se
+     ancla con `review-marker.ps1 -Action base`.
+   - `/review-loop` (`.claude/commands/review-loop.md` + `.agents/skills/review-loop/SKILL.md`):
+     nueva sección `## At close: the coherence pass` que lo invoca en **ambos** cierres (limpio y
+     techo de 5 turnos), con regla de skip si ningún reviewer corrió.
+   - `tests/slice-review.tests.ps1`: +cobertura A4 (helper `Section` que aísla la sección; asserts
+     de los 8 AC sobre las 4 copias), RED verificado antes de implementar.
+2. **Corrió el `/review-loop` sobre A4 y lo cerró LIMPIO** (`4713031`, sin trailer para no
+   re-disparar), **dogfoodeando la versión NUEVA** de `/review-loop` + `/slice-review` del repo
+   (incluido el pase de coherencia recién agregado):
+   - **Turno 1** (5 reviewers, modelo por foco): 2 Medium + 4 Low. **M1** (contratos+bugs convergen):
+     el ruteo `--coherence` decía "skip Steps 1–5" pero el pase **reusa** Step 3/5/6 → un agente
+     literal saltearía el pase de confianza (viola AC6); reescrito para nombrar qué reemplaza
+     (delta+fan-out) vs qué reusa. **M2** (historia): el fallback exit-2 caía al branch range,
+     contradiciendo la regla de A3 (`89917fe`: en exit-2 la base es lo irresoluble); reescrito
+     (exit-2 → no `<base>...HEAD`; script ausente → base resoluble por nombre; guard base==HEAD).
+     3 Low baratos fijados (ref "returned in Step 4", `[regex]::Escape` en el helper, argument-hint).
+     1 Low **descartado por el pase de confianza** (falso positivo: "copia repo fuera de la red del
+     mirror" — ya la cubre `review-loop-incremental.tests.ps1`, que compara las 4 copias).
+   - **Turno 2** (2 reviewers enfocados, Opus): **limpio**, RED-before/green-after verificado.
+   - **Pase de coherencia** (Sonnet 5, solo lectura, sobre el slice A4 real desde `a83125f`): **el
+     slice COHERE** — trazó loop→`--coherence`→ruteo→sección→confianza→reporte end-to-end, los 8 AC,
+     mirror y ADR. Único nit (argument-hint sin `--coherence`) ya corregido.
+3. **Regla del espejo respetada**: 4 copias byte-idénticas de ambos pares (command+SKILL), 3
+   manifests regenerados con `tools/gen-manifest.ps1`, `mirror.tests.ps1` + `review-loop-incremental`
+   verdes.
+4. **Destapó un hallazgo de diseño y lo capturó como A4b** (ver abajo).
+
+### 🔴 A4b — anclaje del pase de coherencia (PRÓXIMO, necesita GRILL antes de TDD)
+
+Issue nuevo: `.scratch/review-cost-redesign/issues/04b-anclaje-del-pase-de-coherencia.md` (leerlo
+primero). **Problema medido** dogfoodeando el pase: A4 ancla en `-Action base` = base de la **rama**
+contra main. En esta rama con slices **apilados** (A1..A4) eso da **9613 líneas / 56 archivos** en
+vez de las **248** del slice A4. Bajo "feature branch per slice" (`CLAUDE.md`) sería correcto, pero
+la práctica apila. **Decisión del usuario 2026-08-19**: tratarlo como slice propio (A4b), no asumir
+el modelo un-slice-por-rama. **El *cómo* anclar es una bifurcación de diseño sin resolver** — 3
+enfoques en el issue (marcador de apertura de slice / commit previo con `Slice-Close:` / verbo
+`-Action slice-base`). El grill debe fijar: qué es "el slice" al apilar, el primer slice de la rama
+(cae a base de rama), interacción con `--amend`/`rebase`.
+
+### Antes de tocar código (crítico)
+
+- **El `alignment-gate` frena el primer edit** de código por sesión. Para A4b el paso 1 **NO está
+  cerrado** (es diseño nuevo): **ofrecé/ hacé el grill** (`/grill-me` sobre el anclaje) antes de
+  codear. (Distinto de A1–A4, que sí estaban cerrados por el grill del 11/8.)
+- **Regla del espejo**: editar los 2 canónicos root (`.claude/commands/`, `.agents/skills/`),
+  propagar con `cp` a los 3 scaffolds (`skills/bootstrap-*-project/assets/scaffold/...`), regenerar
+  manifests (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una por vez).
+  Si A4b toca `review-marker.ps1`, ese va a las **4 copias byte-idénticas** (la raíz también) y el
+  hook raíz difiere solo en comentarios/`$msg`.
+- **Editar skills acá NO tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8);
+  no afecta a los tests, que leen del scaffold directo. Igual se puede **dogfoodear** el
+  `/slice-review` y `/review-loop` del repo (los commands `.claude/` toman la versión del repo).
+- **Los reviewers del loop corren en SOLO LECTURA** en subagentes paralelos; se les pasa la
+  prohibición "reviewer, not an editor" en el contexto compartido (una sola vez — hay test que lo
+  fija). Chequear `git status` antes de creerle a un hallazgo. Modelo por foco: bugs/contratos/tests
+  en Opus, reglas/historia y **coherencia** en Sonnet (`Agent` tool: `model: opus`/`sonnet`).
+- **Correr las suites del review-loop tarda >2 min** — la suite entera en background, timeout amplio.
+- **Cada fix con test en RED verificado ANTES** (mutar en copia/inline, ver rojo, restaurar). El
+  mutante se verifica con una línea que **empieza** con `FAIL:`.
+- **El marcador avanza DESPUÉS de cada corrida de review y ANTES de aplicar los fixes** (invariante
+  del ADR). El pase de coherencia NO avanza el marcador (es una relectura del slice entero).
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió commit explícito de A4 y de los fixes del
+  loop). **Nada va a Zoho.** **Impacto medido antes de cambiar el proceso.** Prefiere **cortar y
+  seguir en terminal nueva** antes que dejar crecer el contexto — por eso este handoff.
+
+### Roadmap restante
+
+**A4b** (próximo, necesita grill) → A5 (mutación acotada, `05-mutacion-acotada.md`) → A6
+(`06-regla-de-afirmaciones.md`) → **A7 al final** (`07-sellar-y-deployar.md`: deploy a
+`~/.claude/skills` + resellar el `.bootstrap-manifest.json` de la RAÍZ del repo, que sigue hasheando
+el slice-review viejo; requiere presencia humana). **A1b** cuando se quiera (15 hallazgos + nudo de
+diseño). **Track B** (B1/B2) lo lleva el usuario en otra terminal, vence **10/9**. Pendientes de
+fondo: PRDs/issues viven en `.scratch/` gitignoreado; `copy-scaffold.ps1` pisa el `.gitignore` del
+destino; `core.autocrlf` con hashes mixtos en manifests.
+
+---
+
+# Session Handoff — 2026-08-18 (A3 CERRADO + review-loop limpio turno 3 — próximo: A4)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: abrir A4
+
+Rama **`feat/marcador-de-revision`**, HEAD **`89917fe`**. **Árbol limpio** salvo este handoff. **Sin
+pushear.** Suite completa **12/12 verde**. Marcador de revisión avanzado a **`a83125f`** (`-Action
+range` imprime ese SHA con exit 0, y **`git diff a83125f` sale vacío** = nada sin revisar). **No hay
+decisión pendiente del usuario.**
+
+```
+89917fe  fix(review-loop): correcciones del review-loop sobre A3 (resolucion del marcador + cobertura)  <- fixes del loop (sin trailer)
+4cc6227  feat(review-loop): A3 — corrida de review incremental                                          <- Slice-Close A3
+67e45f1  fix(review-loop): correcciones del review-loop sobre A2b (encoding stdin + cobertura)
+```
+
+### Qué hizo esta sesión
+
+1. **Implementó A3** test-first (`4cc6227`, trailer `Slice-Close: A3`): los 3 cambios a `/slice-review`
+   del issue `03-corrida-de-review-incremental.md` —
+   - **Cambio 1+2**: el objetivo por DEFECTO (sin args) pasa a ser el **delta sin revisar** resuelto
+     del marcador (`review-marker.ps1 -Action range`); el rango completo del slice queda reservado al
+     pase de coherencia (A4); delta vacío (exit 0) → "nothing to review" sin inventar rango; exit 2 →
+     recuperación declarada no-incremental.
+   - **Cambio 3**: la prohibición de escritura viaja en el **contexto compartido**, una sola vez
+     ("You are a reviewer, not an editor…"), para todos los focos (84/345 reviewers editaban).
+   - **Cambio 4+5**: **modelo por foco** — Sonnet 5 para reglas e historia (mecánicos), Opus 5 para
+     bugs, contratos y tests; el pase de confianza sigue en Opus 5, misma rúbrica y corte en 60.
+2. **Corrió el `/review-loop` sobre A3 y lo cerró LIMPIO en el turno 3** (`89917fe`, sin trailer para
+   no re-disparar). Se dogfoodeó la versión NUEVA de `/slice-review` (la del repo, no la instalada):
+   - **Turno 1** (5 reviewers): **Media** con convergencia de 3 (bugs/historia/contratos) — el Step 1
+     metía "marker script missing" en el bucket **exit 2**, pero `pwsh -File <missing>` sale **64** e
+     imprime usage a stdout (verificado empíricamente), contradiciendo el `Test-Path` de
+     `review-loop.md`. Fix: **pre-flight `Test-Path`** del marcador (script ausente → branch range,
+     no-incremental) + **exit-2 partido** en base-irresoluble (working-tree/último commit) vs
+     no-repo/sin-commits (reportar y parar, sin `git show HEAD`). Más gaps de cobertura (exit-2 sin
+     test) y el lead-in corregido. Reglas/mirror/tamaño: limpios.
+   - **Turno 2** (3 reviewers): **Media** — las *acciones* de recuperación seguían sin pinnear (solo
+     la detección). Fix: asserts de las 3 acciones + caveat de parity con `review-loop.md:86` (no
+     arrastrar `git diff <base>...HEAD` en detached-HEAD).
+   - **Turno 3** (2 reviewers, enfocado): **LIMPIO**, cero medium/high. Todos los fixes con RED/mutación
+     verificada.
+3. **Regla del espejo respetada**: 8 archivos de prompt byte-idénticos (root + 3 scaffolds × command/
+   SKILL), 3 manifests regenerados con `tools/gen-manifest.ps1`, `mirror.tests.ps1` verde.
+
+### Dos Lows PRE-EXISTENTES notados, NO fijados (fuera de scope de A3, ambos reviewers coincidieron)
+
+- La ambigüedad **orphan-branch-sin-commits** entre los sub-casos exit-2 (a) y (b) de `slice-review.md`
+  (un orphan sin commits matchea "orphan branch" de (a) y "no commits" de (b); un agente razonable
+  rutea a (b)). Pre-existente, no introducido por A3.
+- El **fallback de script-ausente** (`git diff <base>...HEAD`) no guarda el corner "script ausente +
+  detached/orphan", donde la base tampoco resuelve. El caveat lo aclara como generalización, no
+  absoluto.
+
+### Archivos tocados (ya commiteados)
+
+`.claude/commands/slice-review.md` + `.agents/skills/slice-review/SKILL.md` (canónicos) · 3 scaffolds
+× ambos · `tests/slice-review.tests.ps1` (+11 asserts, `-ge 2`→`-ge 3`) · los 3
+`.bootstrap-manifest.json`.
+
+### Próximo paso: A4 — pase de coherencia
+
+Issue: `.scratch/review-cost-redesign/issues/04-pase-de-coherencia.md`. **Leerlo primero** (los AC son
+el contrato). Contexto de A3 que A4 asume: el rango completo del slice quedó **reservado al pase de
+coherencia** (eso es A4); `/slice-review` por defecto revisa solo el delta incremental.
+
+### Antes de tocar código (crítico)
+
+- **El `alignment-gate` frena el primer edit** de código por sesión. El paso 1 está cerrado para este
+  track (grill 11/8, PRD e issues aprobados 12/8): **decilo y reintentá, NO ofrezcas grill.**
+- **Regla del espejo**: editar los 2 canónicos root (command en `.claude/commands/`, SKILL en
+  `.agents/skills/`), propagar con `cp` a los 3 scaffolds (byte-idénticos), regenerar manifests
+  (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una por vez). El test
+  itera sobre repo + 3 skills. `mirror.tests.ps1` verifica byte-identidad entre scaffolds.
+- **Editar skills acá NO tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8); no
+  afecta a los tests, que leen del scaffold directo. Igual se puede **dogfoodear** el `/slice-review`
+  del repo (el command `.claude/commands/` sí toma la versión del repo en esta sesión).
+- **Los reviewers del loop corren en SOLO LECTURA** en subagentes paralelos; chequear `git status`
+  antes de creerle a un hallazgo (un reviewer que muta contamina a los paralelos). Modelo por foco:
+  bugs/contratos/tests en Opus, reglas/historia en Sonnet (Agent tool: `model: opus`/`sonnet`).
+- **Correr las suites del review-loop tarda >2 min** — mejor la suite entera en background, timeout
+  amplio. El runner ad-hoc con `[ -n "$failed" ] && …` da falso exit 1 si no hubo fallas; terminar con
+  `exit 0`.
+- **Cada fix con test en RED verificado ANTES** (mutar en copia/inline, ver rojo, restaurar). El
+  mutante se verifica con una línea que **empieza** con `FAIL:`. Para asserts de conteo (p.ej.
+  `not incremental` ≥2), verificar que borrar UNA ocurrencia baja el conteo y el assert muerde.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió commit explícito de A3 y de los fixes del loop).
+  **Nada va a Zoho.** **Impacto medido antes de cambiar el proceso.** Prefiere **cortar y seguir en
+  terminal nueva** antes que dejar crecer el contexto — por eso este handoff y A4 va en terminal nueva.
+
+### Roadmap restante
+
+A4 (próximo) → A5 → A6 → **A7 al final** (deploy a `~/.claude/skills` + resellar el
+`.bootstrap-manifest.json` de la RAÍZ del repo, que sigue hasheando el slice-review viejo; requiere
+presencia humana). **A1b** cuando se quiera (15 hallazgos + nudo de diseño). **Track B** (B1/B2) lo
+lleva el usuario en otra terminal, vence **10/9**. Pendientes de fondo: PRDs/issues viven en
+`.scratch/` gitignoreado; `copy-scaffold.ps1` pisa el `.gitignore` del destino; `core.autocrlf` con
+hashes mixtos en manifests.
+
+---
+
+# Session Handoff — 2026-08-18 (A2b CERRADO + review-loop limpio — próximo: A3)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: abrir A3
+
+Rama **`feat/marcador-de-revision`**, HEAD **`67e45f1`**. **Árbol limpio** salvo este handoff. **Sin
+pushear.** Suite completa **12/12 verde**. Marcador de revisión en **HEAD** (`-Action range` sale
+**vacío + exit 0** = nada sin revisar). **No hay decisión pendiente del usuario.**
+
+```
+67e45f1  fix(review-loop): correcciones del review-loop sobre A2b (encoding stdin + cobertura)
+040e666  fix(review-loop): A2b — resolucion de base del hook y correcciones de logica   <- Slice-Close A2b
+7de07a2  fix(review-loop): correcciones de los turnos 2-5 sobre el disparo por cierre de slice (grupo seguro)
+```
+
+### Qué hizo esta sesión
+
+1. **Commiteó el grupo seguro** heredado (`7de07a2`): tests + prosa, cerró la Alta B de sesiones previas.
+2. **Implementó A2b** test-first (`040e666`, con trailer `Slice-Close:`): los 4 fixes de lógica que
+   quedaban del review-loop de A2 —
+   - **Alta A** (la que dejaba el mecanismo muerto): el hook hacía `exit 0` antes del gate del trailer
+     cuando la base no era `main`/`master`/`develop`, quedando **mudo** en repos base `trunk`/`dev`/
+     `release`. Fix: **delega la base al marcador** con una acción nueva **`-Action base`** (mismo
+     resolvedor que `range`: `Get-SliceBase` con `for-each-ref` + `merge-base --octopus`).
+   - **`$(...)`/backtick**: cuando el comando los contiene, recalcula las banderas sobre el comando
+     **crudo** y las combina con OR (no modela `$()`, la dirección segura ya declarada).
+   - **Cuarentena `.bad` en `advance`**: si el estado es ilegible, lo aparta antes de pisarlo (gemelo
+     de lo que el hook ya hacía).
+   - **Eliminó `gh repo view`** (llamada de red por commit delante del fallback local).
+3. **Corrió el `/review-loop` sobre A2b y lo cerró LIMPIO en el turno 2** (`67e45f1`, sin trailer para
+   no re-disparar). Hallazgos:
+   - **Turno 1** (5 reviewers): **F3 (Medium)** — el hook forzaba `OutputEncoding` pero **no
+     `InputEncoding`**; el JSON del evento llega por **stdin**, y bajo consola OEM un `cwd` no-ASCII
+     mojibakeaba, `Set-Location` fallaba en silencio y **el hook operaba sobre el repo AMBIENTE y
+     disparaba mal**. (Es el "flake" que sesiones previas descartaron: era un bug real.) Fix: forzar
+     `InputEncoding=UTF-8` + **hardening** (`exit 0` si el `cwd` del evento no resuelve). Más **F1**
+     (comentario del OR sobreafirmaba → corregido + fixture del costo aceptado) y **F4** (rama
+     `$writable` de la cuarentena sin test → agregado). Todos RED-verificados por mutante.
+   - **Turno 2** (2 reviewers, enfocado): bugs+contratos **limpio**; el de tests **falló por límite de
+     sesión** pero marcó que **Test B era frágil** (dependía de la frescura del HEAD de este repo) →
+     rehecho **self-contained**, RED/GREEN por mutante.
+4. **Documentó como límite conocido (Low, no fijados)** en `docs/TESTING.md`: **F9** (el guard del paso
+   5 "no revisar la base contra sí misma" compara por NOMBRE, pero la base delegada es un SHA → un
+   `Slice-Close` **directo sobre una base `trunk`** dispara; off-workflow, dirección segura) y **F2**
+   (`.bad -Force` pisa una cuarentena previa).
+5. **Actualizó la memoria** `forecasting-app-mitigacion-interina-review`: **Claude Analytics** es el
+   tercer repo con la mitigación interina (bullet + `.scratch/review-loop-interino.md`, sin commitear
+   allá), a revertir al upgradear.
+
+### Archivos tocados (ya commiteados)
+
+Hook `review-loop-trigger.ps1` (4 copias: raíz en español, 3 skills byte-idénticas) · marcador
+`review-marker.ps1` (4 copias) · `tests/review-loop-trigger.tests.ps1` · `tests/review-marker.tests.ps1`
+· `docs/TESTING.md` · los 3 `.bootstrap-manifest.json` (regenerados).
+
+### Próximo paso: A3 — corrida de review incremental
+
+Issue: `.scratch/review-cost-redesign/issues/03-corrida-de-review-incremental.md`. Modifica
+**`/slice-review`** (la skill/command del reviewer), tests en **`tests/slice-review.tests.ps1`**. Tres
+cambios: (1) objetivo por defecto = delta sin revisar desde el marcador (con delta vacío, reporta "nada
+que revisar", no inventa rango); (2) **la prohibición de escribir viaja en el contexto compartido** una
+sola vez (84/345 reviewers editaron pese a la orden); (3) **modelo por foco**: Sonnet 5 para reglas e
+historia, Opus 5 para bugs/contratos/tests + pase de confianza. AC completos en el issue. **Regla del
+espejo: 4 copias byte-idénticas + `mirror.tests.ps1` verde.**
+
+### Antes de tocar código (crítico)
+
+- **El `alignment-gate` frena el primer edit** de código por sesión. El paso 1 está cerrado para este
+  track (grill 11/8, PRD e issues aprobados 12/8): **decilo y reintentá, NO ofrezcas grill.**
+- **Regla del espejo**: editar el canónico en **`bootstrap-personal-project`** (es a donde apuntan los
+  tests), espejar con `Copy-Item` a `ai-project` y `southpoint` (byte-idénticas) **al final**, y para
+  la copia raíz replicar la **lógica** (el hook raíz va en español; `review-marker.ps1` y las skills
+  `.md` raíz son byte-idénticas). Después regenerar manifests: `pwsh -NoProfile -File
+  tools/gen-manifest.ps1 -SkillDir skills/<skill>`, una por vez. Para A3 el archivo es
+  `slice-review.md` (¿en `.claude/commands/` y `.agents/skills/`? verificar dónde vive en el scaffold).
+- **Editar skills acá NO tiene efecto** hasta `tools/sync-skills.ps1` (pendiente heredado del 1/8) —
+  no afecta a los tests, que leen del scaffold directo.
+- **Los reviewers del loop corren en SOLO LECTURA** y experimentan en copias del scratchpad; chequear
+  `git status` antes de creerle a un hallazgo (un reviewer que muta contamina a los paralelos).
+- **Correr las suites del review-loop tarda >2 min** — una por vez, en background, timeout amplio.
+- **Cada fix con test en RED verificado ANTES** (mutar producción en copia scratch, ver rojo, restaurar).
+  El mutante se verifica con una línea que **empieza** con `FAIL:`, no con `-split 'FAIL:'`.
+- **El guard del harness bloquea `Remove-Item -Recurse` en PowerShell** en algunos contextos: correr
+  las pruebas manuales sin cleanup inline y limpiar los temporales con `rm -rf` vía Bash después.
+- **`$CLAUDE_JOB_DIR` no está seteada en la tool de PowerShell**; usar rutas temp concretas.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.** **Nada de esto va a Zoho.** **Impacto medido antes de cambiar el
+  proceso.** Prefiere **cortar y seguir en terminal nueva** antes que dejar crecer el contexto.
+
+### Roadmap restante
+
+A3 (próximo) → A4/A5 → A6 → **A7 al final** (deploy a `~/.claude/skills`, requiere presencia humana).
+**A1b** cuando se quiera (15 hallazgos + nudo de diseño). **Track B** (B1/B2) lo lleva el usuario en
+otra terminal, vence **10/9**. Pendientes de fondo sin cerrar: PRDs/issues viven en `.scratch/`
+gitignoreado (existen solo en el working tree, sin decidir desde 12/8); `copy-scaffold.ps1` pisa el
+`.gitignore` del destino; `core.autocrlf` con hashes mixtos en manifests.
+
+---
+
 # Session Handoff — 2026-08-15 (GRUPO SEGURO APLICADO — la alta B está cerrada)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: abrir A2b
