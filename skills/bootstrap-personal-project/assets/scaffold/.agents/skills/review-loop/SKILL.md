@@ -169,6 +169,27 @@ After step 5, begin the next turn back at step 1 — which now reviews only the 
 
 Note: `/slice-review` reports findings by severity, not a numeric score — "clean" means the latest review surfaced no medium/high-severity findings (the Greptile 5/5 score does not exist here).
 
+## At close: the coherence pass
+
+However the loop ended — clean, or at the 5-turn cap — run the coherence pass **once** before the
+final report:
+
+```
+/slice-review --coherence
+```
+
+It reads the **whole slice** as a unit against its declared intent (on Sonnet 5, read-only,
+executing nothing), catching the defect that survives every per-turn delta review because it only
+shows in the whole — a slice whose pieces each passed but that does not cohere against what it set
+out to do. Its findings go through the same confidence pass as any other; fix the real ones as in
+step 5 (a test that fails without the fix first), then report.
+
+Run it on **both** exits — clean and cap — because a slice can pass every delta review and still
+fail to cohere as a unit; the cap exit needs it most, since it closes with findings still open.
+Skip it only when no reviewer ever ran this loop: an empty range with nothing to review from the
+first turn (a RED-only commit, or a slice already fully reviewed before the loop began). With
+nothing read, there is no slice to check for coherence.
+
 ## Guardrails
 
 - Reviewers produce false positives — don't blindly accept every finding.

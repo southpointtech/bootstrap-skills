@@ -155,5 +155,100 @@ foreach ($p in $slicePairs) {
   }
 }
 
+# --- A4: pase de coherencia ------------------------------------------------------------------
+# El pase de coherencia mira el SLICE ENTERO una sola vez, al cierre, contra la intencion
+# declarada. Vive en /slice-review (la mecanica) y lo invoca /review-loop al cerrar. Se verifica
+# sobre las 4 copias (repo + 3 skills). Los asserts de contenido se anclan a la SECCION del pase
+# (no al archivo entero): la cadena "coherence pass" ya aparece en A3 ("reserved for the coherence
+# pass"), asi que un match suelto pasaria sin la seccion nueva.
+
+# Extrae el cuerpo de una seccion markdown: desde su header `## <titulo>` hasta el proximo `## ` o
+# el fin del archivo. Cadena vacia si la seccion no existe (y todos los asserts anclados muerden).
+function Section([string]$txt, [string]$headerPattern) {
+  $m = [regex]::Match($txt, "(?im)^##\s+$headerPattern.*?(?=^##\s|\z)", 'Singleline')
+  if ($m.Success) { return $m.Value } else { return "" }
+}
+
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $coh = Section $txt 'Coherence pass'
+
+    # AC1 — existe como seccion propia: foco unico, de solo lectura, sobre el rango completo.
+    Assert ($coh -ne "") "$($p.label)/${rel}: existe la seccion del pase de coherencia (## Coherence pass)"
+    Assert ($coh -match '(?i)single read-only focus') `
+      "$($p.label)/${rel}: el pase de coherencia es un foco unico de solo lectura"
+    Assert ($coh -match '(?i)full slice range') `
+      "$($p.label)/${rel}: el pase de coherencia mira el rango completo del slice"
+    # El rango completo se resuelve con la base del marcador (-Action base), no el delta.
+    Assert ($coh -match '-Action base') `
+      "$($p.label)/${rel}: el pase de coherencia resuelve la base con el marcador (-Action base)"
+
+    # AC2 — declara explicitamente que no ejecuta nada.
+    Assert ($coh -match '(?i)executes nothing') `
+      "$($p.label)/${rel}: el pase de coherencia declara que no ejecuta nada"
+
+    # AC3 — lee el slice contra su intencion declarada (tarea, PRD o mensaje de commit).
+    Assert ($coh -match '(?i)declared intent') `
+      "$($p.label)/${rel}: el pase de coherencia lee contra la intencion declarada"
+    Assert ($coh -match '(?i)the\s+task,\s+the\s+PRD,\s+or\s+the\s+commit\s+message\s+it\s+implements') `
+      "$($p.label)/${rel}: la intencion declarada es la tarea, el PRD o el mensaje de commit"
+
+    # AC4 — corre en Sonnet 5 (anclado a la seccion, no al Sonnet 5 de reglas/historia de A3).
+    Assert ($coh -match '(?i)Sonnet\s*5') `
+      "$($p.label)/${rel}: el pase de coherencia corre en Sonnet 5"
+
+    # AC6 — sus hallazgos pasan por el mismo pase de confianza que cualquier otro.
+    Assert ($coh -match '(?i)same confidence pass') `
+      "$($p.label)/${rel}: los hallazgos del pase de coherencia pasan por el pase de confianza"
+
+    # Contrato de invocacion: se dispara con --coherence.
+    Assert ($coh -match '/slice-review --coherence') `
+      "$($p.label)/${rel}: el pase de coherencia se invoca con /slice-review --coherence"
+    # Step 1 rutea --coherence a la seccion en vez de tratarlo como un rango de diff.
+    Assert ($txt -match '(?i)if .\$ARGUMENTS. is .--coherence') `
+      "$($p.label)/${rel}: Step 1 rutea --coherence a la seccion del pase (no como rango de diff)"
+  }
+}
+
+# AC5 — el loop invoca el pase al cerrar, tanto por limpio como por techo de turnos. Vive en
+# /review-loop (command + SKILL), sobre las 4 copias (repo + 3 skills).
+$loopPairs = @(
+  @{ label = "repo"; files = @(
+      (Join-Path $repo ".claude\commands\review-loop.md"),
+      (Join-Path $repo ".agents\skills\review-loop\SKILL.md")
+  ) }
+)
+foreach ($s in $skills) {
+  $scaffold = Join-Path $s.FullName "assets\scaffold"
+  $loopPairs += @{ label = $s.Name; files = @(
+      (Join-Path $scaffold ".claude\commands\review-loop.md"),
+      (Join-Path $scaffold ".agents\skills\review-loop\SKILL.md")
+  ) }
+}
+
+foreach ($p in $loopPairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { Assert $false "$($p.label): existe review-loop ($rel)"; continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $coh = Section $txt 'At close: the coherence pass'
+
+    Assert ($coh -ne "") "$($p.label)/${rel}: el loop tiene la seccion del pase de coherencia al cierre"
+    Assert ($coh -match '/slice-review --coherence') `
+      "$($p.label)/${rel}: el loop invoca el pase de coherencia (/slice-review --coherence)"
+    # Corre en AMBOS cierres: limpio y por techo de turnos.
+    Assert ($coh -match '(?i)clean, or at the 5-turn cap') `
+      "$($p.label)/${rel}: el loop corre el pase tanto por limpio como por techo de turnos"
+    Assert ($coh -match '(?i)run it on \*\*both\*\* exits') `
+      "$($p.label)/${rel}: el loop corre el pase en ambos cierres explicitamente"
+    # No hay slice que leer si ningun reviewer corrio (rango vacio desde el primer turno).
+    Assert ($coh -match '(?i)skip it only when no reviewer ever ran') `
+      "$($p.label)/${rel}: el loop saltea el pase si ningun reviewer corrio"
+  }
+}
+
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

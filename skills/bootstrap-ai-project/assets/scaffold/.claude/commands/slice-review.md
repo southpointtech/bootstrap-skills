@@ -15,6 +15,10 @@ confidence pass before it reaches the report. That second pass is what keeps the
 
 ## Step 1 — Resolve what to review
 
+If `$ARGUMENTS` is `--coherence`, do not resolve a delta range here: skip Steps 1–5 below and run
+the **Coherence pass** section at the end instead. That is the one mode that reviews the whole
+slice at once rather than the unreviewed delta.
+
 Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
 ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
 came from `/review-loop`'s marker it is a `git stash create` object whose first parent is HEAD, so
@@ -172,3 +176,38 @@ suggested fix. Then state explicitly:
 
 Do not fix anything in this command — reporting is its whole job. Fixing belongs to the caller
 (`/review-loop`) or to the human.
+
+## Coherence pass
+
+Steps 1–6 review the **unreviewed delta**, turn by turn. This pass is the counterpart: once, at the
+close of `/review-loop` (whether it closed clean or hit the 5-turn cap), the slice is read **as a
+whole** against its declared intent. Reviewing by parts lets through the defect that only shows in
+the whole — a slice whose pieces are each fine but that does not cohere as a unit against what it
+set out to do. Invoke it as `/slice-review --coherence`.
+
+It differs from the per-turn review in four ways:
+
+- **Target: the full slice range**, not the delta — the whole change from the slice's base, plus
+  its untracked files. Resolve the base with the marker, so this pass sees the same slice the loop
+  is closing:
+
+  ```powershell
+  pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action base    # bare ref: the slice base
+  ```
+
+  Review `git diff <base>` (plus the untracked files from Step 1's `ls-files`). This is the one run
+  that re-reads already-reviewed code on purpose, because a whole-slice defect is invisible in any
+  single delta. If the base is undeterminable (exit 2) fall back to the branch range and say the
+  pass could not be anchored; if the marker script is missing, use the slice's branch range.
+- **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on **Sonnet 5**,
+  with the shared context from Step 3 (including the same write prohibition it carries), and this
+  focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the
+  commit message it implements — and flag where the pieces do not add up to that intent: an
+  acceptance criterion left unmet, two parts that contradict each other, a capability half-wired,
+  dead scaffolding for a feature that never landed. It is a judgment read against intent, so it runs
+  on Sonnet 5 rather than the lighter audits' model.
+- **It executes nothing.** The executable behaviour was already verified by delta, turn by turn. The
+  coherence pass is a read, not a second full run — that is the whole reason looking at the entire
+  slice stays cheap.
+- Everything else is unchanged: its findings go through the **same confidence pass (Step 5)** and
+  land in the **same report (Step 6)** as any other finding, with the same 60 cutoff and severities.
