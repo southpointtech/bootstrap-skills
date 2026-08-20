@@ -611,6 +611,33 @@ $baseNames = ((git -C $t diff --name-only (Marker $t base)) -join "`n")
 Assert (($baseNames -match "s1\.txt") -and ($baseNames -match "s2\.txt")) "base sigue devolviendo la base de rama (rama entera), sin cambios"
 Remove-Item -Recurse -Force $t
 
+# --- open SÓLO escribe slice-open: no avanza el marcador ni pierde las otras claves del estado ---
+# Dos invariantes que sin assert propio pasan mudos (mutación demostrable): (D) si open avanzara
+# marker:<branch>, el próximo `range` no vería delta y cerraría el slice SIN revisar —el falso negativo
+# que toda esta máquina existe para evitar—; (C) si open reserializara sólo {slice-open}, borraría el
+# dedupe del hook (clave de nombre pelado) y untracked: de otras ramas, que advance NO reescribe.
+$t = New-Repo                                        # rama feat/x sobre master
+"s1" | Set-Content (Join-Path $t "s1.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null                         # deja marker:feat/x + untracked:feat/x
+$m1 = Marker $t get
+# sembrar claves que open NO debe tocar: dedupe del hook para feat/x (nombre pelado) y otra rama
+$gitDir = (git -C $t rev-parse --git-dir)
+$statePath = Join-Path $t (Join-Path $gitDir "review-loop-state.json")
+$st = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+$st | Add-Member -NotePropertyName 'feat/x' -NotePropertyValue 'hookdedupe123' -Force
+$st | Add-Member -NotePropertyName 'untracked:otra-rama' -NotePropertyValue 'unt456' -Force
+($st | ConvertTo-Json) | Set-Content -LiteralPath $statePath -Encoding UTF8
+"s2" | Set-Content (Join-Path $t "s2.txt")
+git -C $t add -A; git -C $t commit -q -m slice2
+Marker $t open | Out-Null                            # turno 1 del slice-2: sólo captura slice-open
+Assert ((Marker $t get) -eq $m1) "open no avanza el marcador (marker:<branch> intacto)"
+$after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert ($after.'slice-open:feat/x' -eq $m1) "open registra el marcador como slice-open:<branch> (invariante positivo)"
+Assert ($after.'feat/x' -eq 'hookdedupe123') "open preserva el dedupe del hook (clave de nombre pelado)"
+Assert ($after.'untracked:otra-rama' -eq 'unt456') "open preserva claves untracked: de otras ramas"
+Remove-Item -Recurse -Force $t
+
 # --- Primer slice de la rama: sin marcador, open no escribe y slice-base cae a la base de rama ---
 # Es el AC del primer slice: no hay slice anterior del cual arrancar, así que la coherencia mira desde
 # la base de rama. open leído sin marcador previo no debe dejar un slice-open espurio.

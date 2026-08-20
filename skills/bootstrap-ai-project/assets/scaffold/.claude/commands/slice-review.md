@@ -213,8 +213,10 @@ It differs from the per-turn review in four ways:
   uncommitted work), `git diff <base>` shows just the working tree — note the pass saw only that.
   If the anchor resolves but `git diff <base>` shows **changes you did not make** — a stale snapshot
   that `commit --amend`/`rebase`/`reset` left no longer an ancestor of HEAD — ignore it and review
-  the slice's branch range (`git diff <branch-base>...HEAD`); here the branch base does resolve,
-  unlike the exit-2 case.
+  the slice's branch range. Do **not** re-run `slice-base` for that base: it hands back the same
+  stale snapshot (it resolved — that is this case's premise). Get the branch base from **`-Action
+  base`** instead (`git diff <base>...HEAD`, where `<base>` is what `base` prints — an ancestor of
+  HEAD here, so it does resolve, unlike the exit-2 case).
 - **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on **Sonnet 5**,
   with the shared context from Step 3 (including the same write prohibition it carries), and this
   focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the

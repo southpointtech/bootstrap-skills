@@ -260,17 +260,13 @@ switch ($Action) {
     $state = Read-State
     $sha = $state[$key]
     if (-not ($sha -and (Resolve-Commit $sha))) { exit 0 }   # nothing solid to record; read-time fallback covers it
-    # Same corrupt-state quarantine as `advance`: never silently clobber other branches' keys.
-    $writable = $true
-    if ($script:stateCorrupt -and (Test-Path -LiteralPath $statePath)) {
-      try { Move-Item -LiteralPath $statePath -Destination "$statePath.bad" -Force -ErrorAction Stop }
-      catch { $writable = $false }
-    }
+    # No corrupt-state quarantine here (unlike `advance`): `$sha` came from the state we just read, so a
+    # corrupt state is empty, `$sha` is null, and the guard above already exited. `advance` needs the
+    # quarantine because its `$sha` (git stash create / HEAD) is independent of the file; `open` has
+    # nothing to snapshot when the file is unreadable, so exiting without writing is the right outcome.
     $state["slice-open:$branch"] = $sha
-    if ($writable) {
-      $json = ([pscustomobject]$state) | ConvertTo-Json
-      [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
-    }
+    $json = ([pscustomobject]$state) | ConvertTo-Json
+    [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
     Write-Output $sha
     exit 0
   }
