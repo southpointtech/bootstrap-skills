@@ -235,6 +235,104 @@ foreach ($p in $slicePairs) {
   }
 }
 
+# --- A5: foco de mutacion acotada ------------------------------------------------------------
+# Un 6º foco que verifica que los tests del slice tienen DIENTES: rompe lineas de logica cambiadas
+# a proposito y mira si algun test se da cuenta. A diferencia de los 5 focos de lectura pura, este
+# EJECUTA, de ahi el worktree aislado. Presupuesto explicito (solo turno 1, <=8 mutantes) para que
+# el costo no crezca con la profundidad del loop. Anclado a la SECCION del foco (## Mutation focus).
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $mut = Section $txt 'Mutation focus'
+
+    # Existe como seccion propia.
+    Assert ($mut -ne "") "$($p.label)/${rel}: existe la seccion del foco de mutacion (## Mutation focus)"
+    # Presupuesto: <=8 mutantes, solo turno 1, prohibido turnos 2+.
+    Assert ($mut -match '(?i)8 mutants') `
+      "$($p.label)/${rel}: declara el tope de 8 mutantes"
+    Assert ($mut -match "(?i)only on the loop.s first turn") `
+      "$($p.label)/${rel}: declara que corre solo en el turno 1"
+    Assert ($mut -match '(?i)prohibited on turns 2') `
+      "$($p.label)/${rel}: declara que esta prohibido en los turnos 2+"
+    # Worktree del estado VIVO del slice, no del SHA del marcador; fuera del repo; con untracked.
+    Assert ($mut -match 'git worktree add --detach') `
+      "$($p.label)/${rel}: construye un worktree aislado (git worktree add --detach)"
+    Assert ($mut -match 'git stash create') `
+      "$($p.label)/${rel}: el worktree parte de un snapshot vivo (git stash create), no del marcador"
+    Assert ($mut -match '(?i)ls-files --others') `
+      "$($p.label)/${rel}: copia los untracked al worktree (los tests nuevos no estan en el snapshot)"
+    Assert ($mut -match '(?i)OUTSIDE the repo|outside the repo') `
+      "$($p.label)/${rel}: el worktree vive fuera del repo"
+    Assert ($mut -match "(?i)use the .*marker only to identify which lines changed") `
+      "$($p.label)/${rel}: el marcador solo identifica las lineas cambiadas, no construye el worktree"
+    # Aislamiento: muta solo en el worktree, el arbol del usuario queda intacto.
+    Assert ($mut -match "(?i)never in the user.s tree") `
+      "$($p.label)/${rel}: muta solo en el worktree, nunca en el arbol del usuario"
+    # Mutantes uno a la vez, solo lineas de logica cambiadas, priorizados por riesgo.
+    Assert ($mut -match '(?i)one at a time') `
+      "$($p.label)/${rel}: aplica los mutantes uno a la vez (no acumulados)"
+    Assert ($mut -match '(?i)logic lines the slice changed') `
+      "$($p.label)/${rel}: muta solo lineas de logica que el slice cambio"
+    Assert ($mut -match '(?i)prioritise by risk|prioritize by risk') `
+      "$($p.label)/${rel}: prioriza por riesgo cuando hay mas de 8 lineas mutables"
+    # Test relevante del diff, nunca la suite entera, 'sin test' es un hallazgo.
+    Assert ($mut -match "(?i)relevant test file from the slice.s own diff") `
+      "$($p.label)/${rel}: el test relevante sale del diff del slice"
+    Assert ($mut -match '(?i)never the whole suite') `
+      "$($p.label)/${rel}: nunca corre la suite entera"
+    Assert ($mut -match '(?i)no test covers the changed logic') `
+      "$($p.label)/${rel}: 'sin test que cubra la logica' es un hallazgo"
+    # Hallazgo = sobreviviente = Medium; no se reportan los que mueren.
+    Assert ($mut -match '(?i)surviving mutant') `
+      "$($p.label)/${rel}: el hallazgo es un mutante sobreviviente"
+    Assert ($mut -match '(?i)survivors at \*\*Medium\*\*') `
+      "$($p.label)/${rel}: el sobreviviente se reporta como Medium"
+    # Mutante equivalente: filtrado por el foco y por el pase de confianza (<60).
+    Assert ($mut -match '(?i)equivalent mutant') `
+      "$($p.label)/${rel}: contempla el mutante equivalente"
+    Assert ($mut -match '(?i)below 60') `
+      "$($p.label)/${rel}: el pase de confianza descarta el equivalente (<60)"
+    # Modelo agnostico: el mas capaz disponible, sin pin de version.
+    Assert ($mut -match '(?i)most capable model available') `
+      "$($p.label)/${rel}: corre en el modelo mas capaz disponible (agnostico, sin pin)"
+    Assert (-not ($mut -match 'Opus 5')) `
+      "$($p.label)/${rel}: el foco de mutacion no pinnea Opus 5 (es agnostico)"
+    # Cleanup del worktree garantizado.
+    Assert ($mut -match 'git worktree remove') `
+      "$($p.label)/${rel}: limpia el worktree al terminar (git worktree remove)"
+  }
+}
+
+# --- A5 ruteo: --mutation en Step 1, despacho condicional en Step 4, exclusivo con --coherence ----
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $s1 = Section $txt 'Step 1 — Resolve what to review'
+    $s4 = Section $txt 'Step 4 — Fan out parallel reviewers'
+
+    # Step 1 reconoce y saca el flag, tratando el resto como el rango.
+    Assert ($s1 -match "(?i)contains .--mutation.") `
+      "$($p.label)/${rel}: Step 1 parsea --mutation"
+    # Standalone opt-in explicito.
+    Assert ($txt -match '/slice-review --mutation') `
+      "$($p.label)/${rel}: standalone se pide con /slice-review --mutation"
+    # Excluyente con --coherence; si ambos, coherence gana.
+    Assert ($s1 -match '(?i)mutually exclusive') `
+      "$($p.label)/${rel}: --mutation y --coherence son excluyentes"
+    Assert ($s1 -match "(?i)--coherence.? wins") `
+      "$($p.label)/${rel}: si llegan ambos, --coherence gana"
+    # Step 4 despacha el 6to foco condicional a --mutation.
+    Assert ($s4 -match '(?i)--mutation') `
+      "$($p.label)/${rel}: Step 4 despacha el foco de mutacion condicional a --mutation"
+    Assert ($s4 -match '(?i)sixth focus') `
+      "$($p.label)/${rel}: Step 4 lo despacha como sexto foco"
+  }
+}
+
 # AC5 — el loop invoca el pase al cerrar, tanto por limpio como por techo de turnos. Vive en
 # /review-loop (command + SKILL), sobre las 4 copias (repo + 3 skills).
 $loopPairs = @(

@@ -21,6 +21,13 @@ unreviewed delta, and it states which steps it replaces (this delta resolution a
 five-way fan-out) and which it reuses (Step 1's `ls-files`, Step 3's shared context, Step 5's
 confidence pass, Step 6's report).
 
+If `$ARGUMENTS` contains `--mutation`, strip that token and treat the rest as the range — it
+combines with a range (`abc123 --mutation`) or stands alone and defaults to the marker delta
+(standalone, opt in with `/slice-review --mutation`). It additionally turns on the **Mutation
+focus** in Step 4's fan-out. `--mutation` and `--coherence` are **mutually exclusive**; if both
+appear, `--coherence` wins and `--mutation` is ignored — they never co-occur in the normal flow
+(mutation is a turn-1 focus, coherence a close-time pass).
+
 Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
 ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
 came from `/review-loop`'s marker it is a `git stash create` object whose first parent is HEAD, so
@@ -144,6 +151,10 @@ strongest model; the three that require reading logic and predicting failure do.
    test, tests asserting on mocks instead of behavior, and tests that would pass even if the feature
    broke.
 
+**If `--mutation` was passed** — only `/review-loop`'s first turn does, or a standalone opt-in —
+dispatch a **sixth focus** in the same parallel message: the **Mutation focus** (see its section
+after Step 6). It verifies the slice's tests have teeth; unlike these five, it executes.
+
 ## Step 5 — Confidence pass (filter false positives)
 
 Reviewers over-report. For each finding returned by the reviewers — Step 4's focuses, or the
@@ -179,6 +190,72 @@ suggested fix. Then state explicitly:
 
 Do not fix anything in this command — reporting is its whole job. Fixing belongs to the caller
 (`/review-loop`) or to the human.
+
+## Mutation focus
+
+The five focuses in Step 4 only **read**. This one **executes**: it checks that the slice's tests
+have teeth by breaking the changed code on purpose and seeing whether a test notices. A test that
+stays green while its code is broken protects nothing — this focus finds those. It is dispatched
+**only when `--mutation` was passed**, as a sixth focus alongside the five, in the same parallel
+message.
+
+The budget is the feature, not a detail, because it is what keeps the one executing focus from
+making the loop expensive:
+
+- **Only on the loop's first turn.** `/review-loop` passes `--mutation` on turn 1 and never after,
+  so the per-turn cost does not grow with the depth of the loop.
+  This focus is **prohibited on turns 2 onward** — turns 2+ never carry the flag.
+- **At most 8 mutants**, one per changed line.
+- **Only the logic lines the slice changed** — not the whole module, not the whole file.
+- **Only the relevant test file**, never the whole suite.
+
+Dispatch it on **the most capable model available** — do not pin a version (the strongest model you
+are running). Give it the shared context from Step 3, the write prohibition included.
+
+**It runs in an isolated git worktree, never in the user's tree.** Mutating code must not touch the
+tree the user works in, and must not corrupt the diff the other five parallel reviewers are reading.
+Build the worktree from the **live slice state**, not from the marker SHA — the marker is a `git
+stash create` object that cannot hold untracked files, and on turn 1 it points at the slice's
+*start*, not its new code, so a checkout of it would contain neither the slice's changes nor its
+brand-new (untracked) test files:
+
+```powershell
+$snap = (git stash create); if (-not $snap) { $snap = "HEAD" }   # captures tracked, uncommitted work
+git worktree add --detach $tmp $snap                             # $tmp is a temp dir OUTSIDE the repo
+git -c core.quotepath=false ls-files --others --exclude-standard # copy each of these into $tmp, same paths
+```
+
+Now `$tmp` holds the slice as it actually stands (tracked + untracked), and the user's tree is
+untouched. Use the **marker only to identify which lines changed** (`git diff <range>` from Step 1),
+never to build the worktree.
+
+**Apply the mutants one at a time** — one mutation, run the relevant test file, revert, then the
+next; never all eight at once (accumulated, you cannot tell which one survived). Mutate only the
+**logic lines the slice changed** (conditionals, comparisons, arithmetic, boolean operators, return
+values, loop bounds — skip pure data, strings, comments, formatting), with the standard operators:
+negate a conditional, move a comparison boundary (`<`↔`<=`, `==`↔`!=`), swap a boolean (`&&`↔`||`),
+replace a return or constant (`return $true`→`$false`, `0`→`1`), delete a statement with an effect.
+When the slice changed more than eight mutable lines, **prioritise by risk** (guards, branch
+conditions, the core computation) with diversity — one mutant per line.
+
+Find the **relevant test file from the slice's own diff** first: test-first means the test ships with
+the code, so the test file the slice added or modified is the one meant to cover it. Fall back to
+naming convention or grepping the changed symbol. Determine how the project runs a **single** test
+file (its framework, `package.json`, or how tests are invoked in the repo) and run only that file —
+never the whole suite. If **no test covers the changed logic**, that is itself a finding; do not run
+the whole suite to compensate.
+
+A **surviving mutant** — the test stayed green though the code was broken — is the finding: this
+changed line can be broken with no test failing. Report survivors at **Medium** (risky logic shipped
+untested); do not report mutants that died (those tests have teeth). Guard against the
+**equivalent mutant**, a mutation that does not actually change behaviour, so its survival is not a
+real gap: drop
+the ones you can identify before reporting, and the **confidence pass (Step 5)** scores an equivalent
+mutant — or one whose line falls outside the slice's changed lines — **below 60**, so it is dropped.
+Everything that survives lands in the same report (Step 6) as any other finding.
+
+**Clean up when done**: `git worktree remove --force $tmp` (and `git worktree prune` if the remove
+fails), so no temporary worktree is left behind.
 
 ## Coherence pass
 

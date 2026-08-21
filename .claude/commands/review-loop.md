@@ -151,7 +151,10 @@ One turn = one complete pass through these steps:
    close — and the `advance` in step 3 then moves the marker forward but leaves that snapshot put.
    A missing or pruned marker records nothing, and the coherence pass falls back to the branch base.
 2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
-   files the range does not carry.
+   files the range does not carry. On the **first turn only**, add `--mutation` so `/slice-review`
+   also runs the **Mutation focus** — it checks the slice's tests have teeth by breaking changed
+   lines and seeing whether a test notices. Later turns must not carry it:
+   the focus is **prohibited on turns 2 onward**, keeping the per-turn cost flat.
 3. Advance the marker (`-Action advance`) — but **only if a reviewer actually ran and returned a
    report**. If the review run failed or was interrupted, leave the marker where it is: advancing
    past code nobody read hides it from every future turn, and there is no verb to walk it back.

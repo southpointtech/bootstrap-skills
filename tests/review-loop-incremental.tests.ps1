@@ -130,6 +130,15 @@ foreach ($r in $roots) {
       # rango de la rama SÍ es correcto (marcador ausente, o marcador que quedó fuera de la
       # historia tras un rebase). Borrar el paso 1 para satisfacerlo rompe el assert de $iRange.
       Assert (-not ($steps -match '(?is)fall\s+back\s+to\s+the\s+branch\s+range')) "$($r.Name): $rel no manda al rango de la rama cuando la base es indeterminable"
+
+      # A5 — el turno 1 pasa --mutation a /slice-review para correr el foco de mutacion (verificar
+      # que los tests tienen dientes); los turnos 2+ NO lo llevan, para que el costo por turno no
+      # crezca con la profundidad del loop. Se ancla a la seccion de los pasos ($steps).
+      Assert ($steps -match '--mutation') "$($r.Name): $rel pasa --mutation a /slice-review en el turno 1"
+      # El flag es solo del turno 1: 'first turn only' cerca del flag lo ata al primer turno.
+      Assert ($steps -match '(?is)first turn only.{0,200}--mutation') "$($r.Name): $rel restringe --mutation al turno 1"
+      # Y declara que en los turnos 2+ el foco esta prohibido (costo por turno plano).
+      Assert ($steps -match '(?i)prohibited on turns 2') "$($r.Name): $rel prohibe la mutacion en los turnos 2+"
     }
   }
 
