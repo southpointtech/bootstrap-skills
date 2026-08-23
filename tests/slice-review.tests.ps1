@@ -250,8 +250,8 @@ foreach ($p in $slicePairs) {
     # Existe como seccion propia.
     Assert ($mut -ne "") "$($p.label)/${rel}: existe la seccion del foco de mutacion (## Mutation focus)"
     # Presupuesto: <=8 mutantes, solo turno 1, prohibido turnos 2+.
-    Assert ($mut -match '(?i)8 mutants') `
-      "$($p.label)/${rel}: declara el tope de 8 mutantes"
+    Assert ($mut -match '(?i)at most\s+8 mutants') `
+      "$($p.label)/${rel}: declara el tope de <=8 mutantes (at most, no 'at least')"
     Assert ($mut -match "(?i)only on the loop.s first turn") `
       "$($p.label)/${rel}: declara que corre solo en el turno 1"
     Assert ($mut -match '(?i)prohibited on turns 2') `
@@ -297,11 +297,35 @@ foreach ($p in $slicePairs) {
     # Modelo agnostico: el mas capaz disponible, sin pin de version.
     Assert ($mut -match '(?i)most capable model available') `
       "$($p.label)/${rel}: corre en el modelo mas capaz disponible (agnostico, sin pin)"
-    Assert (-not ($mut -match 'Opus 5')) `
-      "$($p.label)/${rel}: el foco de mutacion no pinnea Opus 5 (es agnostico)"
+    # Agnostico de verdad: no puede pinnear NINGUN modelo+version (Opus 5, Opus 4.8, Sonnet 5,
+    # Haiku 4.5, GPT-4...), no solo el string "Opus 5" que ya envejecio. Un pin agregado al lado de
+    # "most capable model available" romperia el AC #9 (decision del grill) y este assert lo caza.
+    Assert (-not ($mut -match '(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d')) `
+      "$($p.label)/${rel}: el foco de mutacion no pinnea ningun modelo+version (es agnostico)"
     # Cleanup del worktree garantizado.
     Assert ($mut -match 'git worktree remove') `
       "$($p.label)/${rel}: limpia el worktree al terminar (git worktree remove)"
+    # Fix turno 1 (contratos) — el foco DEBE mutar archivos, asi que la prohibicion de escritura del
+    # contexto compartido necesita una excepcion explicita: puede mutar SOLO dentro de su worktree.
+    # Sin esto, un subagente que obedece la prohibicion no aplica ningun mutante y el foco no produce nada.
+    Assert ($mut -match '(?i)exception to the write prohibition') `
+      "$($p.label)/${rel}: talla una excepcion a la prohibicion de escritura para el foco"
+    Assert ($mut -match '(?i)only inside its isolated worktree') `
+      "$($p.label)/${rel}: la excepcion de escritura es solo dentro del worktree aislado"
+    # Fix turno 2 (contratos) — la excepcion tiene que conceder el MECANISMO, no solo la ubicacion:
+    # el ban de Step 3 prohibe 'Write, Edit, or any file-mutating tool', asi que la excepcion debe
+    # decir explicitamente que el foco PUEDE usar sus herramientas de edicion dentro del worktree,
+    # o un foco obediente a la letra mas fuerte no aplica ningun mutante y produce cero.
+    Assert ($mut -match '(?i)file-editing tools') `
+      "$($p.label)/${rel}: la excepcion concede el mecanismo (usar herramientas de edicion en el worktree)"
+    # Fix turno 1 (bugs) — la receta debe ASIGNAR $tmp; un snippet que usa $tmp sin asignarlo corre
+    # 'git worktree add $tmp' vacio => error de git 'requires a path'.
+    Assert ($mut -match '(?m)\$tmp\s*=') `
+      "$($p.label)/${rel}: la receta asigna `$tmp (no lo usa sin definir)"
+    # Fix turno 1 (bugs) — el worktree no trae deps gitignoradas (node_modules/.venv); si el test no
+    # puede correr por eso, el foco reporta 'no pude ejecutar', no un falso limpio ni un falso hallazgo.
+    Assert ($mut -match '(?i)could not execute') `
+      "$($p.label)/${rel}: si el test no arranca (deps gitignoradas) reporta que no pudo ejecutar"
   }
 }
 
@@ -317,14 +341,20 @@ foreach ($p in $slicePairs) {
     # Step 1 reconoce y saca el flag, tratando el resto como el rango.
     Assert ($s1 -match "(?i)contains .--mutation.") `
       "$($p.label)/${rel}: Step 1 parsea --mutation"
-    # Standalone opt-in explicito.
-    Assert ($txt -match '/slice-review --mutation') `
+    # Standalone opt-in explicito (anclado a Step 1, no al archivo entero).
+    Assert ($s1 -match '/slice-review --mutation') `
       "$($p.label)/${rel}: standalone se pide con /slice-review --mutation"
     # Excluyente con --coherence; si ambos, coherence gana.
     Assert ($s1 -match '(?i)mutually exclusive') `
       "$($p.label)/${rel}: --mutation y --coherence son excluyentes"
     Assert ($s1 -match "(?i)--coherence.? wins") `
       "$($p.label)/${rel}: si llegan ambos, --coherence gana"
+    # Fix turno 1 (bugs+contratos) — 'coherence gana' tiene que estar ENFORCED por el ruteo, no solo
+    # declarado: el chequeo pre-existente de coherencia es igualdad exacta ('is --coherence'), asi que
+    # con ambos flags el bloque de --mutation lo trataria como rango basura. El ruteo debe resolver
+    # --coherence ANTES de tratar el resto como rango.
+    Assert ($s1 -match "(?i)ignore .--mutation. and jump to the Coherence pass") `
+      "$($p.label)/${rel}: el ruteo resuelve --coherence antes que --mutation (coherence gana de verdad)"
     # Step 4 despacha el 6to foco condicional a --mutation.
     Assert ($s4 -match '(?i)--mutation') `
       "$($p.label)/${rel}: Step 4 despacha el foco de mutacion condicional a --mutation"

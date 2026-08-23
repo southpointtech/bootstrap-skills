@@ -21,12 +21,14 @@ unreviewed delta, and it states which steps it replaces (this delta resolution a
 five-way fan-out) and which it reuses (Step 1's `ls-files`, Step 3's shared context, Step 5's
 confidence pass, Step 6's report).
 
-If `$ARGUMENTS` contains `--mutation`, strip that token and treat the rest as the range — it
-combines with a range (`abc123 --mutation`) or stands alone and defaults to the marker delta
-(standalone, opt in with `/slice-review --mutation`). It additionally turns on the **Mutation
-focus** in Step 4's fan-out. `--mutation` and `--coherence` are **mutually exclusive**; if both
-appear, `--coherence` wins and `--mutation` is ignored — they never co-occur in the normal flow
-(mutation is a turn-1 focus, coherence a close-time pass).
+If `$ARGUMENTS` contains `--mutation`, first resolve `--coherence`: if `--coherence` is **also**
+present, ignore `--mutation` and jump to the Coherence pass — `--coherence` wins. (The coherence
+check above matches only a bare `--coherence`, so the tie between the two flags must be broken
+here.) Otherwise strip the `--mutation` token and treat the rest as the range — it combines with a
+range (`abc123 --mutation`) or stands alone and defaults to the marker delta.
+Standalone, opt in with `/slice-review --mutation`. It additionally turns on the **Mutation focus**
+in Step 4's fan-out. `--mutation` and `--coherence` are **mutually exclusive**; they never co-occur
+in the normal flow (mutation is a turn-1 focus, coherence a close-time pass).
 
 Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
 ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
@@ -210,7 +212,11 @@ making the loop expensive:
 - **Only the relevant test file**, never the whole suite.
 
 Dispatch it on **the most capable model available** — do not pin a version (the strongest model you
-are running). Give it the shared context from Step 3, the write prohibition included.
+are running). Give it the shared context from Step 3, with one
+**exception to the write prohibition**: this focus **may** use file-editing tools (Edit, or a
+shell command) to apply its mutations, **only inside its isolated worktree `$tmp`** (below). The
+ban stays absolute for the user's tree and for the shared diff every other reviewer is reading —
+that is what the prohibition protects, and the worktree is outside both.
 
 **It runs in an isolated git worktree, never in the user's tree.** Mutating code must not touch the
 tree the user works in, and must not corrupt the diff the other five parallel reviewers are reading.
@@ -221,7 +227,8 @@ brand-new (untracked) test files:
 
 ```powershell
 $snap = (git stash create); if (-not $snap) { $snap = "HEAD" }   # captures tracked, uncommitted work
-git worktree add --detach $tmp $snap                             # $tmp is a temp dir OUTSIDE the repo
+$tmp  = Join-Path $env:TEMP "sr-mutation-$PID"                   # a fresh temp dir OUTSIDE the repo
+git worktree add --detach $tmp $snap
 git -c core.quotepath=false ls-files --others --exclude-standard # copy each of these into $tmp, same paths
 ```
 
@@ -244,6 +251,12 @@ naming convention or grepping the changed symbol. Determine how the project runs
 file (its framework, `package.json`, or how tests are invoked in the repo) and run only that file —
 never the whole suite. If **no test covers the changed logic**, that is itself a finding; do not run
 the whole suite to compensate.
+
+The worktree carries the slice's tracked and untracked files, but **not gitignored dependencies or
+build artifacts** (`node_modules`, `.venv`, compiled output — `ls-files --others --exclude-standard`
+skips them). If the relevant test file **could not execute** for lack of them, make them available
+(symlink or copy from the main tree) or report that mutation could not execute for this slice —
+never a false clean, and never a false finding.
 
 A **surviving mutant** — the test stayed green though the code was broken — is the finding: this
 changed line can be broken with no test failing. Report survivors at **Medium** (risky logic shipped
