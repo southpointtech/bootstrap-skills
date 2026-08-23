@@ -66,6 +66,7 @@ Recommended transitions:
 ## Hard rules
 
 - Do not assume missing requirements. Ask questions first.
+- Write a verifiable claim only after verifying it. An **assertion** — a checkable statement in a comment, docstring, or commit message — is written only if it was verified; if you did not verify it, do not write it.
 - Prefer vertical slices over horizontal implementation.
 - Keep tasks small enough to avoid long-context degradation.
 - Use Playwright for frontend validation when UI behavior changes.

@@ -148,7 +148,8 @@ strongest model; the three that require reading logic and predicting failure do.
    repeats a pattern that was already corrected here.
 4. **Contracts and callers** *(Opus 5)* — check the change against the code around it: callers of
    every modified signature, comments and docstrings that state invariants, and existing types.
-   Flag silent breaks in behavior a caller depends on.
+   Flag silent breaks in behavior a caller depends on. Also flag **unverified assertions** — a
+   comment, docstring, or commit message that states as fact something the diff does not support.
 5. **Tests** *(Opus 5)* — is the changed logic actually covered? Flag risky logic shipped with no
    test, tests asserting on mocks instead of behavior, and tests that would pass even if the feature
    broke.
