@@ -714,6 +714,24 @@ $after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
 Assert ($after.'slice-open:feat/x' -eq $start) "open write-once: no re-snapshotea el marcador avanzado (ancla en el arranque real)"
 Remove-Item -Recurse -Force $t
 
+# --- open write-once NO reemplaza un slice-open presente-pero-IRRESOLUBLE (gc/rebase) ---
+# Hallazgo del review turno 1: reemplazar el ancla stale con el marcador ACTUAL (ya avanzado en una
+# re-corrida) es under-scope, la dirección intolerable. Dejarla intacta hace que slice-base caiga a la
+# base de rama (over-scope, seguro). El write-once es sobre la PRESENCIA de la clave, no sobre si
+# resuelve. ADR-0002.
+$t = New-Repo
+"s1" | Set-Content (Join-Path $t "s1.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null                          # marker:feat/x resuelve (avanzado)
+$statePath = Join-Path $t (Join-Path (git -C $t rev-parse --git-dir) "review-loop-state.json")
+$st = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+$st | Add-Member -NotePropertyName 'slice-open:feat/x' -NotePropertyValue 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' -Force
+($st | ConvertTo-Json) | Set-Content -LiteralPath $statePath -Encoding UTF8
+Marker $t open | Out-Null                             # NO debe pisar el ancla stale con el marcador avanzado
+$after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert ($after.'slice-open:feat/x' -eq 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef') "open write-once no reemplaza un slice-open irresoluble (evita under-scope; slice-base cae a base de rama)"
+Remove-Item -Recurse -Force $t
+
 # --- Tras close (cierre limpio), el open del slice siguiente SÍ re-snapshotea (flujo multi-slice) ---
 # El write-once no rompe el flujo apilado: cuando un slice cierra limpio, close borra el ancla y el open
 # del slice siguiente escribe el arranque nuevo. Es el AC que garantiza que write-once + close conviven.
@@ -757,6 +775,23 @@ Assert ($after.'marker:otra-rama' -eq 'deadbeef') "close preserva marcadores de 
 Assert ($after.'marker:feat/x' -eq $m1) "close preserva el marcador de la propia rama"
 Marker $t close | Out-Null                            # segunda vez, sin slice-open: no-op
 Assert ($script:lastExit -eq 0) "close es idempotente (segunda llamada sin slice-open sale 0)"
+Remove-Item -Recurse -Force $t
+
+# --- close sobre estado CORRUPTO: no-op seguro, no clobberea el archivo (mata al mutante M8) ---
+# close no tiene cuarentena .bad (a diferencia de advance): un estado ilegible lo devuelve Read-State
+# como @{}, ContainsKey da false y close sale SIN escribir, dejando el archivo intacto y recuperable.
+# Sin el guard ContainsKey, close reserializaría @{} → "{}" y borraría las claves de otras ramas sin
+# rastro (el mutante M8 del foco de mutación sobrevivía porque nada fijaba este contrato).
+$t = New-Repo
+$gitDir = (git -C $t rev-parse --git-dir)
+$statePath = Join-Path $t (Join-Path $gitDir "review-loop-state.json")
+Set-Content -LiteralPath $statePath -Value '{ "marker:otra-rama": "deadbeef", ROTO' -Encoding UTF8
+$before = [IO.File]::ReadAllText($statePath)
+Marker $t close | Out-Null
+Assert ($script:lastExit -eq 0) "close sobre estado corrupto sale 0 (no-op seguro)"
+$stillCorrupt = [IO.File]::ReadAllText($statePath)
+Assert ($stillCorrupt -eq $before) "close NO pisa un estado corrupto (queda byte-idéntico, la clave de otra rama es recuperable)"
+Assert (-not (Test-Path -LiteralPath "$statePath.bad")) "close no crea .bad (sale antes de escribir; no necesita cuarentena)"
 Remove-Item -Recurse -Force $t
 
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

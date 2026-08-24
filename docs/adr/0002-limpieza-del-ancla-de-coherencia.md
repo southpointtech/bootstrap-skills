@@ -30,11 +30,17 @@ trató como slice propio (A4c) en vez de meterlo a mitad de A4b.
 Se limpia el ancla con un verbo nuevo, y se hace `open` idempotente dentro de un mismo slice:
 
 1. **`-Action close`** (nuevo, hace par con `open`): borra `slice-open:<branch>` del estado.
-   Idempotente (no-op si no está). Misma cuarentena `.bad` de estado corrupto que `advance`. Sale
-   **0 siempre**: no poder borrar deja el ancla vieja, que a lo sumo over-scopea — la dirección segura.
-2. **`open` pasa a write-once**: escribe `slice-open` **solo si está sin fijar** (o si el valor
-   guardado ya no resuelve, por `git gc` o un rebase). Si ya está fijado y resuelve, **no-op**. Esto
-   impide que el ancla se mueva hacia adelante dentro del mismo slice, que es la causa raíz del
+   Idempotente (no-op si no está). **No necesita la cuarentena `.bad` de `advance`**: un estado
+   ilegible lo devuelve `Read-State` como `@{}`, así que `close` no encuentra la clave y sale sin
+   escribir, dejando el archivo intacto y recuperable (`advance` sí la necesita porque escribe el
+   marcador incondicionalmente). En el camino normal sale **0**; no poder borrar deja el ancla vieja,
+   que a lo sumo over-scopea — la dirección segura.
+2. **`open` pasa a write-once, sobre la PRESENCIA de la clave, no sobre si resuelve**: escribe
+   `slice-open` **solo si está sin fijar**. Si ya está fijado — resuelva o no — **no-op**. Dejar
+   intacta incluso un ancla stale (que un rebase o `gc` dejó sin resolver) es deliberado: reemplazarla
+   con el marcador actual, que en una re-corrida ya avanzó más allá del arranque del slice,
+   **under-scopearía**; dejarla hace que `slice-base` caiga a la base de rama (over-scope, seguro).
+   Así el ancla nunca se mueve hacia adelante dentro del mismo slice, que es la causa raíz del
    under-scope.
 3. **`/review-loop` llama `-Action close` únicamente en el cierre LIMPIO** (cero hallazgos
    medium/high), **después** del pase de coherencia — que lee `slice-open` vía `slice-base` —, y

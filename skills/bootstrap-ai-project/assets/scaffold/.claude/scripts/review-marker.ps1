@@ -15,10 +15,17 @@
 #   -Action open     -> records where the CLOSING slice starts (the marker at the loop's first turn,
 #                       before the first `advance`), so the coherence pass reads only that slice and
 #                       not the whole stacked branch. Stored as `slice-open:<branch>`, and only while
-#                       the marker resolves; a missing/pruned marker records nothing.
+#                       the marker resolves; a missing/pruned marker records nothing. WRITE-ONCE: if a
+#                       `slice-open` is already stored it is left untouched (even a stale one that no
+#                       longer resolves), so a re-run of an unclosed slice never moves the anchor
+#                       forward. `close` is what clears it for the next slice.
 #   -Action slice-base -> the start of the closing slice, for the coherence pass: the `slice-open`
 #                       snapshot when it resolves, otherwise the branch base (Get-SliceBase, exactly
 #                       what `base` returns). Same exit contract as `base`. A superset of `base`.
+#   -Action close    -> clears the `slice-open:<branch>` anchor so the NEXT slice's `open` records
+#                       fresh. The loop calls it only on a CLEAN close, after the coherence pass;
+#                       never on a cap close. Idempotent, exits 0, and never touches a corrupt state
+#                       (Read-State returns @{} then, so there is no key to clear). See ADR-0002.
 #
 # Exit codes are part of the contract, because "nothing new to review" and "I cannot tell" must
 # never look the same to the caller — a caller that conflates them closes the loop reporting a
@@ -260,15 +267,18 @@ switch ($Action) {
     $state = Read-State
     $sha = $state[$key]
     if (-not ($sha -and (Resolve-Commit $sha))) { exit 0 }   # nothing solid to record; read-time fallback covers it
-    # Write-once within a slice. The loop calls `open` on the first turn of EVERY run, including a
-    # manual re-run of a slice that capped without closing — and by then `advance` has moved the marker
-    # past the slice start. Overwriting an existing anchor would drag it forward and under-scope the
-    # coherence pass, the one intolerable direction (ADR-0002). So if a slice-open is already recorded
-    # AND still resolves, leave it and print it. A clean close clears the anchor (`-Action close`), so
-    # the NEXT slice's `open` finds it unset and records fresh; a stale anchor that no longer resolves
-    # (rebase rewrote it, gc pruned it) is replaced, since over-scoping is the safe fallback direction.
+    # Write-once within a slice, keyed on the PRESENCE of the anchor, not on whether it resolves. The
+    # loop calls `open` on the first turn of EVERY run, including a manual re-run of a slice that
+    # capped without closing — and by then `advance` has moved the marker past the slice start.
+    # Overwriting an existing anchor would drag it forward and under-scope the coherence pass, the one
+    # intolerable direction (ADR-0002). So if a slice-open is already recorded, leave it: exit without
+    # writing (printing it only when it still resolves, for the caller). This holds EVEN for a stale
+    # anchor a rebase or gc left unresolvable — replacing it with `$sha` (the by-now advanced marker)
+    # would under-scope, whereas leaving the stale value makes `slice-base` fall back to the branch
+    # base, the safe over-scope direction. A clean close clears the anchor (`-Action close`), so the
+    # NEXT slice's `open` finds the key absent and records fresh.
     $existing = $state["slice-open:$branch"]
-    if ($existing -and (Resolve-Commit $existing)) { Write-Output $existing; exit 0 }
+    if ($existing) { if (Resolve-Commit $existing) { Write-Output $existing }; exit 0 }
     # No corrupt-state quarantine here (unlike `advance`): `$sha` came from the state we just read, so a
     # corrupt state is empty, `$sha` is null, and the first guard already exited. `advance` needs the
     # quarantine because its `$sha` (git stash create / HEAD) is independent of the file; `open` has

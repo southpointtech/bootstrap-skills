@@ -13,7 +13,7 @@ La unidad de cambio que se implementa y se revisa como un todo, acotada para que
 _Avoid_: feature, tarea, ticket
 
 **Cierre de slice**:
-El momento en que un slice queda listo para revisión. Es un acto declarado, no una consecuencia de haber commiteado o pusheado.
+El momento en que un slice queda listo para revisión. Es un acto declarado, no una consecuencia de haber commiteado o pusheado. El loop distingue dos formas de cierre: **cierre limpio** (la última revisión no dejó hallazgos medium/high) y **cierre por cap** (se agotaron los 5 turnos con hallazgos abiertos); solo el limpio limpia el ancla `slice-open` del pase de coherencia (ADR-0002).
 _Avoid_: terminar, cerrar el commit
 
 **Corrida de review**:
@@ -73,11 +73,12 @@ Cuando se dice "corré el review", se habla de `/review-loop`. Cuando se dice "e
 ## Estado de implementación de los términos
 
 El glosario define el vocabulario **decidido**, que no es lo mismo que shippeado. Hoy están
-implementados el **marcador de revisión**, el **delta sin revisar**, el **turno** incremental, el
-**pase de confianza** y el **trailer de cierre** — la línea `Slice-Close:` en el mensaje del commit
-con la que el **cierre de slice** se declara a mano, en lugar de que el hook dispare en cada commit.
-Siguen decididos pero **sin implementar**: el **pase de coherencia** y la **mutación acotada**. El
-diálogo de abajo habla del diseño completo, no del comportamiento de hoy.
+implementados el **marcador de revisión** (con sus verbos de anclaje `open`/`slice-base` y de
+limpieza `close`), el **delta sin revisar**, el **turno** incremental, el **pase de confianza**, el
+**trailer de cierre** — la línea `Slice-Close:` en el mensaje del commit con la que el **cierre de
+slice** se declara a mano, en lugar de que el hook dispare en cada commit —, el **pase de coherencia**
+y la **mutación acotada**. Lo único que queda del track es el deploy a `~/.claude/skills` (A7). El
+diálogo de abajo habla del diseño completo.
 
 ## Example dialogue
 

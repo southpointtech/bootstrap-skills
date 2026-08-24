@@ -113,8 +113,10 @@ En el marcador (`review-marker.tests.ps1`):
 
 - **`close` borra `slice-open`** — elimina `slice-open:<rama>`, sale con **exit 0** y no avanza ni toca `marker:<rama>`.
 - **`open` es write-once** — con un `slice-open` ya fijado y resoluble, un `open` posterior (una re-corrida de un slice que capeó sin cerrar, con el marcador ya avanzado) **no** re-snapshotea: el ancla queda en el arranque real del slice, matando el under-scope (la dirección peligrosa).
+- **`open` write-once sobre un ancla IRRESOLUBLE** — con un `slice-open` presente pero que ya no resuelve (podado por `gc` / reescrito por rebase), `open` tampoco lo pisa con el marcador avanzado (write-once sobre la **presencia**, no sobre si resuelve); dejarlo hace que `slice-base` caiga a la base de rama (over-scope, seguro) en vez de under-scopear.
 - **`close` + slice nuevo re-snapshotea** — tras un `close` (cierre limpio), el `open` del slice siguiente SÍ escribe el arranque nuevo: write-once no rompe el flujo multi-slice apilado.
 - **`close` preserva las demás claves y es idempotente** — borra solo `slice-open:<rama>` (conserva el dedupe del hook, los marcadores de otras ramas y el propio `marker:<rama>`); una segunda llamada sin `slice-open` es no-op y sale 0.
+- **`close` sobre estado corrupto** — un `review-loop-state.json` ilegible lo deja **byte-idéntico** (no lo reescribe a `{}` ni crea `.bad`): `Read-State` devuelve `@{}`, `close` no encuentra la clave y sale antes de escribir. No necesita la cuarentena de `advance`.
 
 En la prosa del cierre (`review-loop-incremental.tests.ps1`):
 

@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-08-23+f59a25f",
+  "version": "2026-08-24+49cdb7f",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -41,7 +41,7 @@
     ".claude/commands/zoom-out.md": "4fc05cfa89129515f6f01f52a31bbe36f327c54b322dbd3cb2c31f46a824b002",
     ".claude/hooks/alignment-gate.ps1": "8d4006eb57ebd681a3cde1e02baf53f2b79ad8c976aa7e72458bde79eaaef006",
     ".claude/hooks/review-loop-trigger.ps1": "c3d090b6a3c90f0909432181d1453f1790e5750e219e2da7b85cb1feeed34c0e",
-    ".claude/scripts/review-marker.ps1": "5e1e854882ddf9b823f43b9348c28759d929537b69dece9b5ff5412fb81c5a54",
+    ".claude/scripts/review-marker.ps1": "761f837502a92df7fcc3d5ac79894508d75ade4d20bf3cd396ca7033f39cd9b9",
     ".claude/settings.json": "61ad880e8ba44d027929cb7b3a2e3fa656a9c19270699f48b004155ac17df9b6",
     ".gitignore": "a2f91fb6d7b01f1048c42ac565ebab4500af100763d103f4bbc6e14fcd72629a",
     "CLAUDE.md": "f9ad0a804b393d5ca5757184f0d01f8134fef4d4b45568c769bf0e4d5a48e60c",
