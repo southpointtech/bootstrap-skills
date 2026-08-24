@@ -37,8 +37,10 @@ foreach ($c in $claudeFiles) {
 }
 
 # --- Punto 2: la deteccion barata es una linea en el reviewer de contratos (foco 4 de Step 4), sin
-#     foco nuevo. Espejada en las 4 copias de slice-review (mirror.tests.ps1 verifica la byte-identidad,
-#     aca solo se verifica la presencia y que no haya un foco de lectura extra). ---
+#     foco nuevo. La byte-identidad de las 4 copias de slice-review (repo + 3 scaffolds) la verifica
+#     review-loop-incremental.tests.ps1 (mirror.tests.ps1 solo compara los 3 scaffolds ENTRE SI, no la
+#     copia del repo); aca solo se verifica la PRESENCIA de la linea en cada copia y que no haya un
+#     foco de lectura extra. ---
 function Section([string]$txt, [string]$header) {
   $m = [regex]::Match($txt, "(?im)^##\s+$([regex]::Escape($header)).*?(?=^##\s|\z)", 'Singleline')
   if ($m.Success) { return $m.Value } else { return "" }
