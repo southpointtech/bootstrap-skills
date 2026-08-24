@@ -140,6 +140,26 @@ foreach ($r in $roots) {
       # Y declara que en los turnos 2+ el foco esta prohibido (costo por turno plano).
       Assert ($steps -match '(?i)prohibited on turns 2') "$($r.Name): $rel prohibe la mutacion en los turnos 2+"
     }
+
+    # A4c — el cierre LIMPIO limpia el ancla slice-open (-Action close) para que el slice siguiente
+    # arranque fresco; el cierre por CAP NO la limpia, para que una re-corrida del mismo slice sin
+    # cerrar siga anclando en su arranque real (open write-once). Se ancla a la sección "At close",
+    # no al archivo entero: -Action close no puede aparecer en los pasos del turno. Y debe ir DESPUÉS
+    # del pase de coherencia, que lee el ancla vía slice-base. ADR-0002.
+    $closeAt = $txt.IndexOf('## At close')
+    Assert ($closeAt -ge 0) "$($r.Name): $rel tiene la sección de cierre del loop"
+    if ($closeAt -ge 0) {
+      $closeSec = $txt.Substring($closeAt)
+      Assert ($closeSec -match '-Action\s+close') "$($r.Name): $rel limpia el ancla con -Action close al cierre"
+      # \s+ y no espacio literal: la frase se parte según el reflow a 100 columnas.
+      Assert ($closeSec -match '(?is)clean\s+close') "$($r.Name): $rel restringe -Action close al cierre limpio"
+      # El cap NO limpia: la prohibición explícita, no la palabra "cap" suelta (aparece varias veces).
+      Assert ($closeSec -match '(?is)not\b[^.]{0,40}\bcap') "$($r.Name): $rel NO limpia el ancla en el cierre por cap"
+      # Orden: close DESPUÉS de la coherencia (que lee el ancla). Idx devuelve -1 si no hay match.
+      $iCoh   = Idx $closeSec '--coherence'
+      $iClose = Idx $closeSec '-Action\s+close'
+      Assert (($iCoh -ge 0) -and ($iClose -gt $iCoh)) "$($r.Name): $rel limpia el ancla DESPUÉS del pase de coherencia"
+    }
   }
 
   # 3. El hook del disparo no puede ordenar el rango que el loop prohíbe: es lo primero que el

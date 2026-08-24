@@ -61,13 +61,97 @@ El paso 1 del loop tiene que ser **invocable por el agente**. El built-in `/code
 - **Regresión a `/code-review`** — ningún archivo del par (ni el de `review-loop`) *ordena* correr `/code-review`; mencionarlo para explicar por qué no se usa sí está permitido.
 - **El motor del loop** — `review-loop` (command y SKILL.md) corre `/slice-review` como paso numerado. El assert no fija el número: desde el turno incremental el paso 1 es pedirle el rango al marcador y la corrida de review es el paso 2. Lo que se blinda es el motor, no su posición.
 
+## Testeo de la corrida de review incremental (A3)
+
+A3 hizo que el objetivo por defecto de `/slice-review` (sin args) sea el **delta sin revisar** resuelto del marcador, no la vieja cascada working-tree/branch. El contenido del prompt se verifica en `tests/slice-review.tests.ps1` sobre las **cuatro copias** (repo + 3 skills bootstrap), en los dos artefactos de cada ubicación (command para el humano + SKILL.md para autodescubrimiento), que comparten el cuerpo. Casos cubiertos:
+
+- **Objetivo por defecto** — sin args, el default es el delta sin revisar (`review-marker.ps1 -Action range`); el rango completo del slice queda **reservado al pase de coherencia**, no es el default.
+- **Delta vacío** — con delta vacío (exit 0) reporta "nada que revisar" (`everything up to the marker was already reviewed`) en vez de inventar un rango.
+- **Prohibición de escritura** — la prohibición (`reviewer, not an editor`) viaja en el contexto compartido y aparece **exactamente una vez**.
+- **Modelo por foco** — reglas e historia declaran **Sonnet 5**; bugs, contratos y tests declaran **Opus 5**.
+- **Pase de confianza** — corre en Opus 5, con la misma rúbrica y el corte en **60** (`Drop everything below 60`).
+- **Reporte** — sigue diciendo cuántos hallazgos descartó la confianza y qué rango se revisó (regresión de AC6).
+- **Script del marcador ausente** — se maneja pre-flight con `Test-Path`, no se mete en el bucket de exit 2 (`pwsh -File <missing>` sale 64 con usage a stdout, no exit 2 + vacío); su recuperación cae al branch range del slice.
+- **Contrato de exit 2** — separa "no es repo git / sin commits" (reportar y parar, sin llamar `git show HEAD` que falla sin commits) del caso base-indeterminable; la rama de recuperación queda pinneada (`exit 2 + empty`).
+- **Recuperaciones no incrementales** — tanto el script ausente como el exit-2 base-irresoluble declaran que la corrida **no es incremental** (conteo ≥ 2); en base irresoluble no se arrastra `git diff <base>...HEAD` (la base es justo lo irresoluble): working tree, si no el último commit.
+
+## Testeo del pase de coherencia (A4)
+
+A4 agregó un pase de coherencia: un foco **único de solo lectura** que mira el **slice entero** una sola vez, al cierre, contra la intención declarada. La mecánica vive en `/slice-review` y la invoca `/review-loop` al cerrar. Se verifica en `tests/slice-review.tests.ps1`, anclado a la **sección** del pase (`## Coherence pass`), no al archivo entero (la cadena "coherence pass" ya aparece en A3, así que un match suelto pasaría sin la sección nueva), sobre las 4 copias. Casos cubiertos:
+
+- **Sección propia** — foco único de solo lectura (`single read-only focus`) sobre el rango completo del slice (`full slice range`).
+- **No ejecuta nada** — lo declara explícitamente (`executes nothing`).
+- **Intención declarada** — lee el slice contra su intención declarada: la tarea, el PRD o el mensaje de commit que implementa.
+- **Modelo** — corre en Sonnet 5 (anclado a la sección, no al Sonnet 5 de reglas/historia de A3).
+- **Pase de confianza** — sus hallazgos pasan por el mismo pase de confianza que cualquier otro (`same confidence pass`).
+- **Invocación** — se dispara con `/slice-review --coherence`; Step 1 rutea `--coherence` a la sección del pase, no como un rango de diff.
+- **No saltea steps reusados** — el ruteo de `--coherence` no manda a saltear los steps que el pase reusa (Step 3 contexto compartido, Step 5 confianza, Step 6 reporte): un `skip Steps 1-5` haría que un agente literal saltee la confianza (AC6).
+- **Base irresoluble** — en exit 2 la base es justo lo irresoluble: la frase `do not reach for` vive DENTRO de la sección del pase, no solo en el Step 1.
+- **El loop lo invoca al cierre** — verificado en `/review-loop` (command + SKILL, 4 copias), sección `## At close: the coherence pass`: invoca `/slice-review --coherence` en **ambos** cierres (limpio o por el techo de 5 turnos) y lo saltea solo cuando ningún reviewer corrió (rango vacío desde el primer turno).
+
+## Testeo del anclaje del pase de coherencia (A4b)
+
+En una rama con slices **apilados**, la base de rama sobre-scopea la coherencia a toda la rama; A4b la ancla en el **inicio del slice que cierra**. Suma dos verbos al marcador — `open` (captura el punto de arranque del slice en el turno 1) y `slice-base` (resuelve ese punto) — verificados en `tests/review-marker.tests.ps1`, y fija el orden del turno en `tests/review-loop-incremental.tests.ps1`. Casos cubiertos.
+
+En el marcador (`review-marker.tests.ps1`):
+
+- **`slice-base` ancla en el inicio del slice** — devuelve el marcador capturado por `open` (el cierre del slice anterior), no la base de rama. En una rama apilada, `slice-base` lee solo el slice que cierra (`s2.txt`, no `s1.txt`), mientras `base` sigue devolviendo la base de rama (la rama entera). El tracer prueba las dos mitades a la vez: slice-base ajustado, base intacto (medido en el fixture del diseño: 9613/56 con base de rama vs 248/5 con slice-base).
+- **`open` sólo escribe `slice-open`** — no avanza el marcador (`marker:<rama>` intacto: si lo avanzara, el próximo `range` no vería delta y cerraría el slice sin revisar) y no pierde las otras claves del estado (preserva el dedupe del hook de nombre pelado y las `untracked:` de otras ramas). Registra el marcador como `slice-open:<rama>`.
+- **Primer slice de la rama** — sin marcador previo, `open` no deja un `slice-open` espurio y `slice-base` cae a la base de rama.
+- **`slice-open` irresoluble** — si un rebase o `git gc` dejó el snapshot sin resolver, `slice-base` lo ignora y cae a la base de rama (la dirección segura: revisar de más, nunca un diff con hunks fantasma contra un ref muerto).
+- **Sin base determinable** — `slice-base` sale con **exit 2**, no 0 (exit 0 vacío cerraría la coherencia sobre un slice que nadie ancló).
+
+En el orden del turno (`review-loop-incremental.tests.ps1`):
+
+- **`-Action open` en el turno 1** — el turno 1 captura el inicio del slice con `open`, y el orden verificado por posición en las 4 copias es range → open → advance (open snapshotea el marcador tal como está, el advance recién lo mueve).
+
+## Testeo de la limpieza del ancla de coherencia (A4c)
+
+Cuando un slice cierra **limpio**, el ancla `slice-open` se borra para que el slice siguiente arranque fresco; un cierre por **cap** la conserva, para que una re-corrida del mismo slice sin cerrar siga anclando en su arranque real en vez de under-scopear (hallazgo B de A4b, `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`). Suma un **séptimo verbo** al marcador, `close`, verificado en `tests/review-marker.tests.ps1`, más la prosa del cierre en `tests/review-loop-incremental.tests.ps1`. Casos cubiertos.
+
+En el marcador (`review-marker.tests.ps1`):
+
+- **`close` borra `slice-open`** — elimina `slice-open:<rama>`, sale con **exit 0** y no avanza ni toca `marker:<rama>`.
+- **`open` es write-once** — con un `slice-open` ya fijado y resoluble, un `open` posterior (una re-corrida de un slice que capeó sin cerrar, con el marcador ya avanzado) **no** re-snapshotea: el ancla queda en el arranque real del slice, matando el under-scope (la dirección peligrosa).
+- **`close` + slice nuevo re-snapshotea** — tras un `close` (cierre limpio), el `open` del slice siguiente SÍ escribe el arranque nuevo: write-once no rompe el flujo multi-slice apilado.
+- **`close` preserva las demás claves y es idempotente** — borra solo `slice-open:<rama>` (conserva el dedupe del hook, los marcadores de otras ramas y el propio `marker:<rama>`); una segunda llamada sin `slice-open` es no-op y sale 0.
+
+En la prosa del cierre (`review-loop-incremental.tests.ps1`):
+
+- **`-Action close` solo en cierre limpio** — la sección "At close" de `review-loop.md`/SKILL llama `close` únicamente en el cierre limpio (no en el cap) y **después** del pase de coherencia (que lee el ancla vía `slice-base`), verificado por posición sobre las 4 copias.
+
+## Testeo del foco de mutación acotada (A5)
+
+A5 agregó un **sexto foco** condicional a `/slice-review` que verifica que los tests del slice tienen dientes: rompe líneas de lógica cambiadas y mira si algún test se da cuenta. A diferencia de los 5 focos de lectura pura, este **ejecuta**, de ahí el worktree aislado. Se verifica en `tests/slice-review.tests.ps1`, anclado a la sección `## Mutation focus` sobre las 4 copias, más el ruteo del flag y el paso del turno 1 en `tests/review-loop-incremental.tests.ps1`. Casos cubiertos:
+
+- **Presupuesto** — a lo sumo **8 mutantes** (`at most`, no "at least"), solo en el turno 1 del loop, prohibido en los turnos 2+ (para que el costo por turno no crezca con la profundidad).
+- **Worktree aislado** — se construye con `git worktree add --detach` desde un snapshot vivo (`git stash create`, no el SHA del marcador), copiando los untracked (`ls-files --others`, porque los tests nuevos no están en el snapshot), FUERA del repo; el marcador solo identifica qué líneas cambiaron.
+- **Aislamiento** — muta solo dentro del worktree, nunca en el árbol del usuario.
+- **Selección de mutantes** — uno a la vez, solo líneas de lógica que el slice cambió, priorizadas por riesgo cuando hay más de 8.
+- **Test relevante** — sale del diff del slice, nunca la suite entera; "ningún test cubre la lógica cambiada" es un hallazgo.
+- **Hallazgo** — un mutante **sobreviviente** se reporta como **Medium**; los que mueren no se reportan. El mutante equivalente se contempla y lo descarta el pase de confianza (<60).
+- **Modelo agnóstico** — corre en el modelo más capaz disponible, sin pin de versión (el assert caza cualquier `opus`/`sonnet`/`haiku`/`claude`/`gpt` seguido de dígito).
+- **Excepción de escritura** — como el foco DEBE mutar, se talla una excepción explícita a la prohibición de escritura del contexto compartido: puede editar SOLO dentro de su worktree aislado, y la excepción concede el **mecanismo** (usar herramientas de edición), no solo la ubicación.
+- **Robustez de la receta** — asigna `$tmp` (no lo usa sin definir); si el test no arranca por deps gitignoradas (node_modules/.venv) reporta "could not execute", no un falso limpio ni un falso hallazgo.
+- **Cleanup** — limpia el worktree con `git worktree remove` al terminar.
+- **Ruteo** — Step 1 parsea `--mutation` (standalone: `/slice-review --mutation`); es **excluyente** con `--coherence` y, si llegan ambos, gana coherence (resuelto ANTES de tratar el resto como rango); Step 4 lo despacha como sexto foco condicional.
+- **En el loop** — el turno 1 pasa `--mutation` a `/slice-review` (`first turn only`); los turnos 2+ no lo llevan (`prohibited on turns 2`), verificado en `review-loop-incremental.tests.ps1`.
+
+## Testeo de la regla de afirmaciones (A6)
+
+A6 fijó la regla de afirmaciones: una afirmación (enunciado verificable en un comentario, docstring o mensaje de commit) se escribe SOLO si se verificó; si no se verificó, no se escribe. Se ataca en dos puntos, con cero agentes dedicados, y `tests/regla-de-afirmaciones.tests.ps1` (runner sin Pester) blinda ambos. Casos cubiertos:
+
+- **Regla dura en las 4 CLAUDE.md** — la regla vive en las reglas del proyecto de los 3 scaffolds + el propio repo (4 archivos **no espejados**: las CLAUDE.md divergen legítimamente y están en la allowlist del mirror, así que son 4 ediciones separadas). Se verifican la mitad positiva (`written only if it was verified`) y la negativa, que es el punto (`do not write it`).
+- **Una línea en el reviewer de contratos** — la detección barata es una línea en el foco 4 de Step 4 de `/slice-review` (que YA corre), sin foco nuevo: el reviewer de contratos marca `unverified assertion`. Se verifica la presencia de la línea en las 4 copias de slice-review (repo + 3 scaffolds); la byte-identidad la cubre `review-loop-incremental.tests.ps1`.
+- **Sin foco de lectura extra** — siguen los 5 focos de lectura numerados (`^5.`) y no se agregó un 6to foco de lectura numerado (`^6.` ausente): el único 6to condicional es el de mutación (A5), que ejecuta y vive en su propia sección, no como item 6 de Step 4.
+
 ## Testeo del marcador de revisión y del turno incremental
 
 El loop revisa el **delta sin revisar**, no el rango completo de la rama en cada turno. Dos runners lo cubren.
 
 `pwsh -NoProfile -File tests/review-marker.tests.ps1` — el script `.claude/scripts/review-marker.ps1` sobre repos git temporales (runner sin Pester). Casos cubiertos:
 
-- **Los cuatro verbos** — `advance` fija un punto de corte resoluble, `get` lo devuelve, `range` dice qué pasarle a `git diff`, y `base` devuelve la base del slice (un merge-base) para que el hook **delegue** la resolución de base cuando sus propias ramas nombradas fallan. `base` comparte el resolvedor de `range` (`Get-SliceBase`) y su contrato de exit codes: 0 + ref resoluble, o **exit 2 + vacío** cuando no hay base determinable — nunca 0 + vacío, que el hook leería como "no hay nada que revisar". Fixture: base `trunk` devuelve el merge-base; repo de una sola rama da exit 2.
+- **Los verbos de rango** (`advance`, `get`, `range`, `base`) — `advance` fija un punto de corte resoluble, `get` lo devuelve, `range` dice qué pasarle a `git diff`, y `base` devuelve la base del slice (un merge-base) para que el hook **delegue** la resolución de base cuando sus propias ramas nombradas fallan. (Los verbos de anclaje `open`/`slice-base` y de limpieza `close` — siete verbos en total — se cubren en las secciones A4b y A4c de arriba.) `base` comparte el resolvedor de `range` (`Get-SliceBase`) y su contrato de exit codes: 0 + ref resoluble, o **exit 2 + vacío** cuando no hay base determinable — nunca 0 + vacío, que el hook leería como "no hay nada que revisar". Fixture: base `trunk` devuelve el merge-base; repo de una sola rama da exit 2.
 - **`advance` es no-invasivo** — no commitea, no mueve HEAD, no toca el árbol de trabajo, y el árbol sucio entra en el punto de corte (`git stash create`, no `rev-parse HEAD`).
 - **`advance` pone en cuarentena un estado ilegible antes de pisarlo** — el archivo compartido guarda las claves `marker:*` / `untracked:*` de todas las ramas y el dedupe del hook. Si queda ilegible (una escritura no atómica pisada a mitad, otra herramienta), `advance` lo movía a `@{}` y reescribía sólo su clave, borrando las demás sin rastro. Ahora lo mueve a `.bad` (recuperable) antes de escribir — la misma cuarentena que el hook ya hacía de su lado; si el `Move-Item` falla (archivo tomado a mitad de escritura), salta la escritura en vez de pisar lo que no pudo respaldar. Fixture: JSON inválido con una clave de otra rama → el `.bad` la conserva y el estado nuevo trae el marcador de la rama actual.
 - **El rango no repite lo ya revisado** y sí trae el delta nuevo, incluidos los fixes **sin commitear** y los **archivos nuevos sin trackear** (que `git diff` nunca muestra).

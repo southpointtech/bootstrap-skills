@@ -149,7 +149,10 @@ One turn = one complete pass through these steps:
    slice starts so the coherence pass at close reads only this slice and not the whole stacked
    branch: `-Action open`. It snapshots the marker as it stands right now — the previous slice's
    close — and the `advance` in step 3 then moves the marker forward but leaves that snapshot put.
-   A missing or pruned marker records nothing, and the coherence pass falls back to the branch base.
+   `open` is **write-once**: if this slice already recorded an anchor — a re-run of a slice that hit
+   the cap without closing — it keeps the original start instead of re-snapshotting the by-now
+   advanced marker, so a re-run never under-scopes the coherence pass. A missing or pruned marker
+   records nothing, and the coherence pass falls back to the branch base.
 2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
    files the range does not carry. On the **first turn only**, add `--mutation` so `/slice-review`
    also runs the **Mutation focus** — it checks the slice's tests have teeth by breaking changed
@@ -196,6 +199,14 @@ fail to cohere as a unit; the cap exit needs it most, since it closes with findi
 Skip it only when no reviewer ever ran this loop: an empty range with nothing to review from the
 first turn (a RED-only commit, or a slice already fully reviewed before the loop began). With
 nothing read, there is no slice to check for coherence.
+
+On a **clean close only** — the latest review found no medium/high findings — clear the slice anchor
+once the coherence pass above has run: `-Action close`. It deletes `slice-open:<branch>` so the next
+slice's first-turn `open` records its own start instead of inheriting this one's. Do **not** clear it
+on a cap close: a slice that hit the 5-turn cap without going clean may be re-run, and keeping the
+anchor lets that re-run stay scoped to the slice's real start (`open` is write-once) rather than
+under-scope to the advanced marker. Order matters — the coherence pass reads the anchor via
+`-Action slice-base`, so `close` runs strictly after it. See `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`.
 
 ## Guardrails
 

@@ -670,4 +670,93 @@ Marker $t 'slice-base' | Out-Null
 Assert ($script:lastExit -eq 2) "slice-base sin base determinable sale con exit 2"
 Remove-Item -Recurse -Force $t
 
+# ============ A4c — limpieza del ancla slice-open al cierre limpio ============
+# `close` borra slice-open:<branch> para que el slice siguiente arranque fresco. Solo el cierre LIMPIO
+# del loop lo llama; el cierre por cap lo conserva, para que una re-corrida manual del mismo slice sin
+# cerrar siga anclando en su arranque real (write-once no-op) en vez de under-scopear. ADR-0002.
+
+# --- Tracer: close borra slice-open, sale 0 y no toca el marcador ---
+$t = New-Repo
+"s1" | Set-Content (Join-Path $t "s1.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null                          # marker:feat/x
+$m1 = Marker $t get
+Marker $t open | Out-Null                             # slice-open:feat/x = $m1
+$gitDir = (git -C $t rev-parse --git-dir)
+$statePath = Join-Path $t (Join-Path $gitDir "review-loop-state.json")
+$before = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert ($before.'slice-open:feat/x' -eq $m1) "precondición: open dejó slice-open:feat/x"
+Marker $t close | Out-Null
+Assert ($script:lastExit -eq 0) "close sale con exit 0"
+$after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert (-not ($after.PSObject.Properties.Name -contains 'slice-open:feat/x')) "close borra slice-open:<branch>"
+Assert ((Marker $t get) -eq $m1) "close no avanza ni toca el marcador (marker:<branch> intacto)"
+Remove-Item -Recurse -Force $t
+
+# --- open es write-once: NO mueve slice-open hacia adelante dentro del mismo slice ---
+# El bug de under-scope (hallazgo B de A4b): si el loop capea sin cerrar y alguien re-corre
+# /review-loop sobre el MISMO slice, el open de la re-corrida NO debe re-snapshotear el marcador ya
+# avanzado. Con slice-open ya fijado y resolviendo, open es no-op y el ancla queda en el arranque real.
+$t = New-Repo
+"s1" | Set-Content (Join-Path $t "s1.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null                          # marker en fin-de-slice-1 = arranque real del slice-2
+$start = Marker $t get
+Marker $t open | Out-Null                             # slice-2 turno 1: slice-open = $start
+"s2" | Set-Content (Join-Path $t "s2.txt")            # el loop del slice-2 avanza (turnos)
+git -C $t add -A; git -C $t commit -q -m s2fix
+Marker $t advance | Out-Null                          # marker AHORA más adelante que $start
+$advanced = Marker $t get
+Assert ($advanced -ne $start) "precondición: el marcador avanzó respecto del arranque del slice"
+Marker $t open | Out-Null                             # re-corrida turno 1: NO debe pisar slice-open
+$statePath = Join-Path $t (Join-Path (git -C $t rev-parse --git-dir) "review-loop-state.json")
+$after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert ($after.'slice-open:feat/x' -eq $start) "open write-once: no re-snapshotea el marcador avanzado (ancla en el arranque real)"
+Remove-Item -Recurse -Force $t
+
+# --- Tras close (cierre limpio), el open del slice siguiente SÍ re-snapshotea (flujo multi-slice) ---
+# El write-once no rompe el flujo apilado: cuando un slice cierra limpio, close borra el ancla y el open
+# del slice siguiente escribe el arranque nuevo. Es el AC que garantiza que write-once + close conviven.
+$t = New-Repo
+"s1" | Set-Content (Join-Path $t "s1.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null
+$startA = Marker $t get
+Marker $t open | Out-Null                             # slice A: slice-open = $startA
+Marker $t close | Out-Null                            # cierre LIMPIO de A: borra el ancla
+"s2" | Set-Content (Join-Path $t "s2.txt")
+git -C $t add -A; git -C $t commit -q -m slice2
+Marker $t advance | Out-Null                          # marcador ahora en fin-de-A = arranque de B
+$startB = Marker $t get
+Assert ($startB -ne $startA) "precondición: el arranque del slice B difiere del de A"
+Marker $t open | Out-Null                             # slice B turno 1: ancla vacía → escribe fresco
+$statePath = Join-Path $t (Join-Path (git -C $t rev-parse --git-dir) "review-loop-state.json")
+$after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert ($after.'slice-open:feat/x' -eq $startB) "tras close, el open del slice siguiente re-snapshotea el arranque nuevo (no rompe multi-slice)"
+Remove-Item -Recurse -Force $t
+
+# --- close borra slice-open pero preserva las demás claves, y es idempotente ---
+# (C) si close reserializara solo {} o la clave equivocada, borraría el dedupe del hook (nombre pelado),
+# los marcadores de otras ramas y el propio marker:<branch> — mutaciones que sin este assert pasan mudas.
+$t = New-Repo
+"s1" | Set-Content (Join-Path $t "s1.txt")
+git -C $t add -A; git -C $t commit -q -m slice1
+Marker $t advance | Out-Null
+$m1 = Marker $t get
+Marker $t open | Out-Null                             # slice-open:feat/x = $m1
+$statePath = Join-Path $t (Join-Path (git -C $t rev-parse --git-dir) "review-loop-state.json")
+$st = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+$st | Add-Member -NotePropertyName 'feat/x' -NotePropertyValue 'hookdedupe123' -Force
+$st | Add-Member -NotePropertyName 'marker:otra-rama' -NotePropertyValue 'deadbeef' -Force
+($st | ConvertTo-Json) | Set-Content -LiteralPath $statePath -Encoding UTF8
+Marker $t close | Out-Null
+$after = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+Assert (-not ($after.PSObject.Properties.Name -contains 'slice-open:feat/x')) "close borra slice-open aun con otras claves presentes"
+Assert ($after.'feat/x' -eq 'hookdedupe123') "close preserva el dedupe del hook (clave de nombre pelado)"
+Assert ($after.'marker:otra-rama' -eq 'deadbeef') "close preserva marcadores de otras ramas"
+Assert ($after.'marker:feat/x' -eq $m1) "close preserva el marcador de la propia rama"
+Marker $t close | Out-Null                            # segunda vez, sin slice-open: no-op
+Assert ($script:lastExit -eq 0) "close es idempotente (segunda llamada sin slice-open sale 0)"
+Remove-Item -Recurse -Force $t
+
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

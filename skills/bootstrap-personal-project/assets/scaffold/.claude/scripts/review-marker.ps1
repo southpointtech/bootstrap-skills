@@ -38,7 +38,7 @@
 # trigger hook's dedupe entries in the same file.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet("get", "range", "advance", "base", "open", "slice-base")][string]$Action,
+  [Parameter(Mandatory = $true)][ValidateSet("get", "range", "advance", "base", "open", "slice-base", "close")][string]$Action,
   [string]$RepoDir
 )
 $ErrorActionPreference = "SilentlyContinue"
@@ -260,8 +260,17 @@ switch ($Action) {
     $state = Read-State
     $sha = $state[$key]
     if (-not ($sha -and (Resolve-Commit $sha))) { exit 0 }   # nothing solid to record; read-time fallback covers it
+    # Write-once within a slice. The loop calls `open` on the first turn of EVERY run, including a
+    # manual re-run of a slice that capped without closing — and by then `advance` has moved the marker
+    # past the slice start. Overwriting an existing anchor would drag it forward and under-scope the
+    # coherence pass, the one intolerable direction (ADR-0002). So if a slice-open is already recorded
+    # AND still resolves, leave it and print it. A clean close clears the anchor (`-Action close`), so
+    # the NEXT slice's `open` finds it unset and records fresh; a stale anchor that no longer resolves
+    # (rebase rewrote it, gc pruned it) is replaced, since over-scoping is the safe fallback direction.
+    $existing = $state["slice-open:$branch"]
+    if ($existing -and (Resolve-Commit $existing)) { Write-Output $existing; exit 0 }
     # No corrupt-state quarantine here (unlike `advance`): `$sha` came from the state we just read, so a
-    # corrupt state is empty, `$sha` is null, and the guard above already exited. `advance` needs the
+    # corrupt state is empty, `$sha` is null, and the first guard already exited. `advance` needs the
     # quarantine because its `$sha` (git stash create / HEAD) is independent of the file; `open` has
     # nothing to snapshot when the file is unreadable, so exiting without writing is the right outcome.
     $state["slice-open:$branch"] = $sha
@@ -355,6 +364,23 @@ switch ($Action) {
       [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
     }
     Write-Output $sha
+    exit 0
+  }
+
+  "close" {
+    # Clear the coherence anchor `slice-open:<branch>` so the NEXT slice starts fresh. The loop calls
+    # this ONLY on a clean close (zero medium/high findings), AFTER the coherence pass has read the
+    # anchor via `slice-base` — never on a cap close. That is the whole point: a cap close leaves the
+    # anchor in place, so a manual re-run of the still-open slice keeps anchoring at the slice's real
+    # start (`open` is write-once and no-ops) instead of under-scoping to the already-advanced marker.
+    # ADR-0002. Idempotent: a missing key is a no-op. An unreadable state parses to @{} (Read-State),
+    # so `ContainsKey` is false and we exit here untouched — no `.bad` quarantine is needed, unlike
+    # `advance`, which writes the marker unconditionally and so must move a corrupt file aside first.
+    $state = Read-State
+    if (-not ($state.ContainsKey("slice-open:$branch"))) { exit 0 }   # nothing to clear
+    $state.Remove("slice-open:$branch") | Out-Null
+    $json = ([pscustomobject]$state) | ConvertTo-Json
+    [IO.File]::WriteAllText($statePath, $json, [Text.UTF8Encoding]::new($false))
     exit 0
   }
 }
