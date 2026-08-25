@@ -131,26 +131,28 @@ concurrently. Give each one the shared context from Step 3 and its own focus. Ea
 of findings; every finding must carry `file:line`, what is wrong, and why it matters.
 
 **Models by focus** — mechanical audits run on a lighter model, judgment calls on the strongest:
-project rules and historical context on **Sonnet 5**; bugs, contracts and tests on **Opus 5**. Pass
-the model explicitly when you dispatch each subagent, so the run does not silently default all five
-focuses to one model. The split is why this step got cheaper without losing precision: the two
+project rules and historical context on **a lighter, faster model**;
+bugs, contracts and tests on **the most capable model available**. Do not pin a version — pick
+whichever of the models you are running is the lightest or the most capable. Pass the model
+explicitly when you dispatch each subagent, so the run does not silently default all five focuses to
+one model. The split is why this step got cheaper without losing precision: the two
 audits that are pattern-matching against a file (`CLAUDE.md` rules, `git log`) do not need the
 strongest model; the three that require reading logic and predicting failure do.
 
-1. **Bugs** *(Opus 5)* — read the changed lines and hunt for real defects: wrong logic, unhandled
+1. **Bugs** *(most capable model)* — read the changed lines and hunt for real defects: wrong logic, unhandled
    errors, null/undefined paths, off-by-one, race conditions, resource leaks, broken async. Focus
    on the change itself, not the whole codebase. Skip nitpicks.
-2. **Project rules** *(Sonnet 5)* — audit the change against the `CLAUDE.md` files. Flag only rules
+2. **Project rules** *(lighter model)* — audit the change against the `CLAUDE.md` files. Flag only rules
    the file actually states, quoting the rule. `CLAUDE.md` is guidance for writing code, so not
    every line is a review criterion.
-3. **Historical context** *(Sonnet 5)* — read `git log`/`git blame` for the modified regions. Flag
+3. **Historical context** *(lighter model)* — read `git log`/`git blame` for the modified regions. Flag
    anything that reintroduces a previously fixed bug, contradicts a deliberate past decision, or
    repeats a pattern that was already corrected here.
-4. **Contracts and callers** *(Opus 5)* — check the change against the code around it: callers of
+4. **Contracts and callers** *(most capable model)* — check the change against the code around it: callers of
    every modified signature, comments and docstrings that state invariants, and existing types.
    Flag silent breaks in behavior a caller depends on. Also flag **unverified assertions** — a
    comment, docstring, or commit message that states as fact something the diff does not support.
-5. **Tests** *(Opus 5)* — is the changed logic actually covered? Flag risky logic shipped with no
+5. **Tests** *(most capable model)* — is the changed logic actually covered? Flag risky logic shipped with no
    test, tests asserting on mocks instead of behavior, and tests that would pass even if the feature
    broke.
 
@@ -162,7 +164,8 @@ after Step 6). It verifies the slice's tests have teeth; unlike these five, it e
 
 Reviewers over-report. For each finding returned by the reviewers — Step 4's focuses, or the
 coherence focus — dispatch a **parallel** subagent that
-receives the finding plus the diff and scores it 0-100 — **the confidence pass runs on Opus 5**, the
+receives the finding plus the diff and scores it 0-100 —
+**the confidence pass runs on the most capable model available**, the
 same as the judgment reviewers: it is the only filter for false positives, costs ~3% of the run, and
 is not where to save tokens. Give it this rubric verbatim:
 
@@ -308,13 +311,16 @@ It differs from the per-turn review in four ways:
   stale snapshot (it resolved — that is this case's premise). Get the branch base from **`-Action
   base`** instead (`git diff <base>...HEAD`, where `<base>` is what `base` prints — an ancestor of
   HEAD here, so it does resolve, unlike the exit-2 case).
-- **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on **Sonnet 5**,
+- **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on
+  **a lighter, faster model**,
   with the shared context from Step 3 (including the same write prohibition it carries), and this
   focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the
   commit message it implements — and flag where the pieces do not add up to that intent: an
   acceptance criterion left unmet, two parts that contradict each other, a capability half-wired,
-  dead scaffolding for a feature that never landed. It is a judgment read against intent, so it runs
-  on Sonnet 5 rather than the lighter audits' model.
+  dead scaffolding for a feature that never landed. It is a judgment read against intent, yet it
+  runs on the lighter, faster model, not the most capable one the logic reviewers use: the
+  whole-slice re-read is kept deliberately cheap, and the per-delta turns already ran the strong
+  model on the executable behaviour.
 - **It executes nothing.** The executable behaviour was already verified by delta, turn by turn. The
   coherence pass is a read, not a second full run — that is the whole reason looking at the entire
   slice stays cheap.

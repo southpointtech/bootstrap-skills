@@ -188,7 +188,8 @@ final report:
 /slice-review --coherence
 ```
 
-It reads the **whole slice** as a unit against its declared intent (on Sonnet 5, read-only,
+It reads the **whole slice** as a unit against its declared intent (on a lighter, faster model,
+read-only,
 executing nothing), catching the defect that survives every per-turn delta review because it only
 shows in the whole — a slice whose pieces each passed but that does not cohere against what it set
 out to do. Its findings go through the same confidence pass as any other; fix the real ones as in

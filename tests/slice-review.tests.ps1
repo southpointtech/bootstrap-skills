@@ -97,17 +97,25 @@ foreach ($p in $slicePairs) {
     Assert ($txt -match '(?i)reviewer, not an editor') `
       "$($p.label)/${rel}: declara la prohibicion de escritura en el contexto compartido"
 
-    # Cambio 4 — cada foco declara su modelo: Sonnet 5 (reglas, historia), Opus 5 (bugs, contratos, tests).
-    Assert ($txt -match '(?i)project rules and historical context on \*\*Sonnet 5\*\*') `
-      "$($p.label)/${rel}: reglas e historia declaran Sonnet 5"
-    Assert ($txt -match '(?i)bugs, contracts and tests on \*\*Opus 5\*\*') `
-      "$($p.label)/${rel}: bugs, contratos y tests declaran Opus 5"
+    # Cambio 4 — cada foco declara su TIER de modelo (agnostico, sin pin de version):
+    # reglas/historia en el modelo mas liviano, bugs/contratos/tests en el mas capaz.
+    Assert ($txt -match '(?i)project rules and historical context on \*\*a lighter, faster model\*\*') `
+      "$($p.label)/${rel}: reglas e historia declaran el modelo mas liviano (agnostico)"
+    Assert ($txt -match '(?i)bugs, contracts and tests on \*\*the most capable model available\*\*') `
+      "$($p.label)/${rel}: bugs, contratos y tests declaran el modelo mas capaz (agnostico)"
 
-    # Cambio 5 — el pase de confianza sigue en Opus 5, con la misma rubrica y el mismo corte en 60.
-    Assert ($txt -match '(?i)the confidence pass runs on Opus 5') `
-      "$($p.label)/${rel}: el pase de confianza corre en Opus 5"
+    # Cambio 5 — el pase de confianza corre en el modelo mas capaz, misma rubrica y corte en 60.
+    Assert ($txt -match '(?i)the confidence pass runs on the most capable model available') `
+      "$($p.label)/${rel}: el pase de confianza corre en el modelo mas capaz (agnostico)"
     Assert ($txt -match 'Drop everything below 60') `
       "$($p.label)/${rel}: el pase de confianza mantiene el corte en 60 (regresion)"
+
+    # Migracion a agnostico — NINGUNA seccion del doc pinnea un modelo+version. Mismo guard que el
+    # foco de mutacion (mas abajo) pero a TODO el archivo: un pin reintroducido en cualquier lado
+    # (Opus 5, Sonnet 5, Opus 4.8, Haiku 4.5, GPT-4...) lo caza. "CLAUDE.md" no matchea (no hay
+    # digito tras el separador opcional); "0-100" tampoco (no lo precede un nombre de modelo).
+    Assert (-not ($txt -match '(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d')) `
+      "$($p.label)/${rel}: el doc no pinnea ningun modelo+version (ruteo agnostico end-to-end)"
 
     # AC6 (regresion) — el reporte sigue diciendo cuantos descarto la confianza y que rango se reviso.
     Assert ($txt -match '(?i)dropped by the confidence pass') `
@@ -206,9 +214,9 @@ foreach ($p in $slicePairs) {
     Assert ($coh -match '(?i)the\s+task,\s+the\s+PRD,\s+or\s+the\s+commit\s+message\s+it\s+implements') `
       "$($p.label)/${rel}: la intencion declarada es la tarea, el PRD o el mensaje de commit"
 
-    # AC4 — corre en Sonnet 5 (anclado a la seccion, no al Sonnet 5 de reglas/historia de A3).
-    Assert ($coh -match '(?i)Sonnet\s*5') `
-      "$($p.label)/${rel}: el pase de coherencia corre en Sonnet 5"
+    # AC4 — corre en el modelo mas liviano (agnostico, sin pin; mismo tier que reglas/historia).
+    Assert ($coh -match '(?i)a lighter, faster model') `
+      "$($p.label)/${rel}: el pase de coherencia corre en el modelo mas liviano (agnostico)"
 
     # AC6 — sus hallazgos pasan por el mismo pase de confianza que cualquier otro.
     Assert ($coh -match '(?i)same confidence pass') `
@@ -397,6 +405,13 @@ foreach ($p in $loopPairs) {
     # No hay slice que leer si ningun reviewer corrio (rango vacio desde el primer turno).
     Assert ($coh -match '(?i)skip it only when no reviewer ever ran') `
       "$($p.label)/${rel}: el loop saltea el pase si ningun reviewer corrio"
+
+    # Migracion a agnostico — el guard file-wide tambien sobre review-loop.md/SKILL, no solo la
+    # seccion At close (esa la cubre review-loop-incremental.tests.ps1 via $closeSec). Simetrico con
+    # el guard de slice-review.md (mas arriba): un pin reintroducido en CUALQUIER seccion del doc
+    # (Opus 5, Sonnet 5, Opus 4.8, Haiku 4.5, GPT-4...) lo caza. "CLAUDE.md"/"0-100" no matchean.
+    Assert (-not ($txt -match '(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d')) `
+      "$($p.label)/${rel}: review-loop no pinnea ningun modelo+version (agnostico end-to-end)"
   }
 }
 

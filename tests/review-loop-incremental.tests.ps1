@@ -159,6 +159,11 @@ foreach ($r in $roots) {
       $iCoh   = Idx $closeSec '--coherence'
       $iClose = Idx $closeSec '-Action\s+close'
       Assert (($iCoh -ge 0) -and ($iClose -gt $iCoh)) "$($r.Name): $rel limpia el ancla DESPUÉS del pase de coherencia"
+      # Migracion a agnostico — la descripcion del pase de coherencia no pinnea un modelo+version;
+      # usa la misma frase agnostica que /slice-review ("a lighter, faster model"). Un pin
+      # reintroducido aca (Sonnet 5, Opus 5, Haiku 4.5...) lo caza. Anclado a la seccion At close.
+      Assert (-not ($closeSec -match '(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d')) "$($r.Name): $rel no pinnea el modelo del pase de coherencia (agnostico)"
+      Assert ($closeSec -match '(?i)a lighter, faster model') "$($r.Name): $rel describe el pase de coherencia en el modelo mas liviano (agnostico)"
     }
   }
 
