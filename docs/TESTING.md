@@ -68,8 +68,8 @@ A3 hizo que el objetivo por defecto de `/slice-review` (sin args) sea el **delta
 - **Objetivo por defecto** — sin args, el default es el delta sin revisar (`review-marker.ps1 -Action range`); el rango completo del slice queda **reservado al pase de coherencia**, no es el default.
 - **Delta vacío** — con delta vacío (exit 0) reporta "nada que revisar" (`everything up to the marker was already reviewed`) en vez de inventar un rango.
 - **Prohibición de escritura** — la prohibición (`reviewer, not an editor`) viaja en el contexto compartido y aparece **exactamente una vez**.
-- **Modelo por foco** — reglas e historia declaran **Sonnet 5**; bugs, contratos y tests declaran **Opus 5**.
-- **Pase de confianza** — corre en Opus 5, con la misma rúbrica y el corte en **60** (`Drop everything below 60`).
+- **Modelo por foco** — reglas e historia declaran **el modelo más liviano y rápido** (`a lighter, faster model`); bugs, contratos y tests declaran **el modelo más capaz disponible** (`the most capable model available`), sin pin de versión (ver la sección de la migración a ruteo agnóstico).
+- **Pase de confianza** — corre en **el modelo más capaz disponible**, con la misma rúbrica y el corte en **60** (`Drop everything below 60`).
 - **Reporte** — sigue diciendo cuántos hallazgos descartó la confianza y qué rango se revisó (regresión de AC6).
 - **Script del marcador ausente** — se maneja pre-flight con `Test-Path`, no se mete en el bucket de exit 2 (`pwsh -File <missing>` sale 64 con usage a stdout, no exit 2 + vacío); su recuperación cae al branch range del slice.
 - **Contrato de exit 2** — separa "no es repo git / sin commits" (reportar y parar, sin llamar `git show HEAD` que falla sin commits) del caso base-indeterminable; la rama de recuperación queda pinneada (`exit 2 + empty`).
@@ -82,7 +82,7 @@ A4 agregó un pase de coherencia: un foco **único de solo lectura** que mira el
 - **Sección propia** — foco único de solo lectura (`single read-only focus`) sobre el rango completo del slice (`full slice range`).
 - **No ejecuta nada** — lo declara explícitamente (`executes nothing`).
 - **Intención declarada** — lee el slice contra su intención declarada: la tarea, el PRD o el mensaje de commit que implementa.
-- **Modelo** — corre en Sonnet 5 (anclado a la sección, no al Sonnet 5 de reglas/historia de A3).
+- **Modelo** — corre en **el modelo más liviano y rápido** (`a lighter, faster model`), anclado a la sección del pase (ver la sección de la migración a ruteo agnóstico).
 - **Pase de confianza** — sus hallazgos pasan por el mismo pase de confianza que cualquier otro (`same confidence pass`).
 - **Invocación** — se dispara con `/slice-review --coherence`; Step 1 rutea `--coherence` a la sección del pase, no como un rango de diff.
 - **No saltea steps reusados** — el ruteo de `--coherence` no manda a saltear los steps que el pase reusa (Step 3 contexto compartido, Step 5 confianza, Step 6 reporte): un `skip Steps 1-5` haría que un agente literal saltee la confianza (AC6).
@@ -146,6 +146,14 @@ A6 fijó la regla de afirmaciones: una afirmación (enunciado verificable en un 
 - **Regla dura en las 4 CLAUDE.md** — la regla vive en las reglas del proyecto de los 3 scaffolds + el propio repo (4 archivos **no espejados**: las CLAUDE.md divergen legítimamente y están en la allowlist del mirror, así que son 4 ediciones separadas). Se verifican la mitad positiva (`written only if it was verified`) y la negativa, que es el punto (`do not write it`).
 - **Una línea en el reviewer de contratos** — la detección barata es una línea en el foco 4 de Step 4 de `/slice-review` (que YA corre), sin foco nuevo: el reviewer de contratos marca `unverified assertion`. Se verifica la presencia de la línea en las 4 copias de slice-review (repo + 3 scaffolds); la byte-identidad la cubre `review-loop-incremental.tests.ps1`.
 - **Sin foco de lectura extra** — siguen los 5 focos de lectura numerados (`^5.`) y no se agregó un 6to foco de lectura numerado (`^6.` ausente): el único 6to condicional es el de mutación (A5), que ejecuta y vive en su propia sección, no como item 6 de Step 4.
+
+## Testeo de la migración a ruteo de modelos agnóstico
+
+El ruteo de modelos por foco pasó de nombres pinneados (`Opus 5` / `Sonnet 5`) a **tiers agnósticos sin versión**, preservando los dos niveles: tier fuerte = **the most capable model available** (bugs, contratos, tests, confianza, mutación), tier liviano = **a lighter, faster model** (reglas, historia, coherencia). La frase del tier fuerte es idéntica a la que ya usaba el foco de mutación (A5), que fue el patrón. Se verifica en `tests/slice-review.tests.ps1` y `tests/review-loop-incremental.tests.ps1` sobre las 4 copias. Casos cubiertos:
+
+- **Frases agnósticas por tier** — en `slice-review.tests.ps1`, el párrafo "Models by focus" rutea reglas e historia a `a lighter, faster model` y bugs/contratos/tests a `the most capable model available`; la confianza declara `the confidence pass runs on the most capable model available` y el pase de coherencia `a lighter, faster model`.
+- **Guard anti-pin file-wide** — más allá de las frases positivas, cada par se chequea entero contra `(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d`: un pin reintroducido en CUALQUIER sección lo caza, no solo en la sección migrada. En `slice-review.tests.ps1` el guard cubre el par slice-review y el par review-loop; `CLAUDE.md` y rangos como `0-100` no matchean (no hay dígito pegado a un nombre de modelo).
+- **Coherencia del loop anclada a la sección** — en `review-loop-incremental.tests.ps1`, la sección `## At close` del par review-loop no pinnea el modelo y describe el pase de coherencia en `a lighter, faster model`.
 
 ## Testeo del marcador de revisión y del turno incremental
 
