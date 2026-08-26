@@ -1,3 +1,94 @@
+# Session Handoff — 2026-08-26 (08a CERRADO + COMMITEADO `f3ed1fe` — review-loop dogfoodeado limpio + coherencia COHERE — próximo: 08b, luego deploy/rollout)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (1) 08b (framing en 6 archivos, apilado sobre 08a), luego deploy + ROLLOUT de B
+
+Rama **`feat/marcador-de-revision`**, HEAD **`f3ed1fe`** (`feat(review-loop): 08a — /code-review como
+foco par acotado del turno-1 (ensemble)`, **sin trailer**). **Árbol limpio.** `range` post-close
+**vacío + exit 0** = nada sin revisar. **Sin pushear.** No hay decisión pendiente salvo arrancar 08b.
+
+### Qué hizo esta sesión (08a — mecánica del ensemble, CERRADA)
+
+El grill del issue 08 ya estaba cerrado (parte 3). Esta sesión implementó **08a** test-first y lo
+cerró con el review-loop dogfoodeando el foco nuevo:
+
+1. **Feasibility VERIFICADA** (regla de afirmaciones): `/code-review` es invocable **desde un
+   subagente** — se despachó uno que lo lanzó como fork y corrió hasta completarse. La premisa
+   "human-only" caducó. ⇒ wiring: foco par en la ola del fan-out de Step 4 (contexto principal), sin
+   fallback.
+2. **Mecánica (test-first, 3 cycles RED→GREEN)**: flag `--code-review` en `/slice-review` (Step 1
+   parse + Step 4 dispatch + sección `## Code-review focus`), simétrico con `--mutation`, turno-1-only,
+   esfuerzo **medium**. **Paso de dedup** nuevo en Step 5 (colación antes del scoring, vs foco de bugs,
+   por defecto subyacente). `/review-loop` pasa `--code-review` en el turno 1. **Guard invertido**
+   (de "prohibido ordenar /code-review" → positivo turno-1/medium). **Framing local** corregida SOLO
+   en `slice-review.md`/`review-loop.md` (los otros 6 archivos → 08b, para no dejar 08a incoherente).
+   **ADR-0003** nuevo. Espejo ×4 + 3 manifests.
+3. **Review-loop dogfoodeado y CERRADO LIMPIO**: turno 1 (5 focos de lectura + el **fork de
+   `/code-review` medium** como 6º foco) → turno 2 (1 **Medium**: concurrencia) → turno 3 (limpio) →
+   coherencia **COHERE** → cierre limpio. El dogfood valió: `/code-review` aportó **2 hallazgos únicos**
+   (scope del rango + duplicación de flags) que ningún otro foco vio.
+4. **Contratos robustos del dogfood** (todos en la mecánica): `/code-review` read-only/**sin `--fix`**;
+   revisa el **working-tree diff** (no toma el stash ref del marcador); **join del fork async** (juntar
+   sus hallazgos antes de Step 5); y **concurrencia del `index.lock`** — ver abajo.
+5. **13 suites verdes**. Commit **`f3ed1fe`** (21 archivos, sin trailer — el loop ya corrió sobre el
+   árbol; con trailer re-dispararía con range vacío).
+
+### 🔴 Gotcha nuevo descubierto (crítico para futuros review-loops con el foco de code-review)
+
+**El fork de `/code-review` corre `git` en el repo real en paralelo.** Esta sesión dejó un
+`.git/index.lock` stale que hizo **fallar en silencio el `git stash create`** del `-Action advance`
+del marcador → cayó a **HEAD** (over-scope). Se detectó (el rango del turno 2 dio el slice entero),
+se removió el lock stale (0 bytes, 16 min → seguro) y se siguió. **Mitigado en la mecánica**: el foco
+y el paso 3 del loop ahora ordenan **dejar terminar el fork y limpiar el lock stale antes de las ops
+del marcador**. Si al retomar un review-loop el `advance` devuelve HEAD y el rango sale enorme,
+sospechar del `index.lock`.
+
+### Roadmap restante (en orden)
+
+- **(1) 08b** — corrección de framing (doc), **apilado sobre 08a**. Los 6 archivos con la premisa
+  caduca: `review-loop.md`/SKILL ×4 (nota: 08a ya corrigió el CUERPO de review-loop; 08b revisa que no
+  quede resto), `README.md`, `public/README.md`, `docs/TESTING.md` (+ documentar los tests nuevos del
+  foco de code-review), `AI_DEVELOPMENT_WORKFLOW.md`, `docs/adr/0001` (corregir la nota fáctica falsa
+  en `0001:15-17` "un reviewer que el agente no podía invocar"). Ningún archivo debe afirmar que
+  `/code-review` es human-only. Actualizar la memoria `slice-review-motor-del-loop.md` al cerrar 08b.
+- **(2) Deploy** (A7-like, con humano): resellar el `.bootstrap-manifest.json` de la RAÍZ +
+  `sync-skills.ps1` a `~/.claude/skills`. Requiere presencia humana.
+- **(3) ROLLOUT de B** — `upgrade-bootstrap` a los 4 repos + revertir la mitigación interina.
+  **🔴 lo frena el clasificador de auto-mode** (edita/gitea otros repos): permiso amplio o sesión
+  dedicada por repo. Los 4 repos (memoria `forecasting-app-mitigacion-interina-review`): **Forecasting
+  App**, **Outsourcing Development** (git en `hssapp/`, usar `-C hssapp`), **claude-analytics** (Claude
+  Analytics — **discrepancia RESUELTA**: `docs/adr/0001:8` lo nombra textual; la parte-2 decía "Call
+  Center" por error), **Survey Clients**.
+- **Follow-up anotado (issue 08 Notas)**: `review-marker.ps1` debería tratar un `git stash create`
+  vacío como **error duro**, no fallback silencioso a HEAD (toca la lógica de ADR-0001 → slice propio
+  de robustez del marcador). Lows viejos: prosa Step 2 slice-review; `autocrlf` date-bump en manifests;
+  `copy-scaffold.ps1` pisa `.gitignore`.
+
+### Antes de tocar código (crítico)
+
+- **08b es doc/framing.** El paso 1 (grill) del issue 08 YA está cerrado. Si el `alignment-gate` frena
+  el primer edit de código, **decilo y reintentá, NO re-grilles**.
+- **Regla del espejo**: canónicos en raíz (`.claude/commands/*.md`, `.agents/skills/*/SKILL.md`), `cp`
+  a los 3 scaffolds, regenerar los 3 manifests (`tools/gen-manifest.ps1 -SkillDir skills/<s>`). **`tests/`
+  y `docs/` NO se espejan.** Manifests **generados**. Identidad por hash normalizado, no `diff` crudo.
+  **⚠️ Line-wrap**: los asserts son `-match` sin singleline; una frase asertada partida en 2 líneas por
+  el reflow FALLA (mordió 1 vez esta sesión: "prohibited on turns 2 onward").
+- **Bash tool = Git Bash**: commits `-m "..."` repetidos, **nunca** here-strings `@'...'@`. Tests Pester
+  v3 con harness propio: FOREGROUND con redirect + grep `^FAIL:`/"TODOS LOS TESTS PASARON". `review-marker`
+  tarda >2min (no la tocó 08a).
+- **Review-loop con el foco de code-review**: al dogfoodearlo, el agente principal (corriendo
+  `/slice-review`) despacha los focos de lectura como subagentes Y invoca `/code-review` (Skill tool,
+  args de esfuerzo `medium`) en el mismo mensaje. **Esperar el fork completo antes del `advance`** (ver
+  el gotcha del index.lock). Reviewers en SOLO LECTURA; `git status` antes de creerle a un hallazgo.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió: commit de 08a). **Nada a Zoho.** **Impacto
+  medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.** **Prefiere Opus
+  4.8 sobre Opus 5.** **Paraleliza todo lo posible.** Prefiere **cortar y seguir en terminal nueva** —
+  por eso este handoff.
+
+---
+
 # Session Handoff — 2026-08-25 parte 3 (TRACK A MERGEADO+PUSHEADO a origin/main + grill del issue 08 CERRADO (08a→08b apilados) + review-loop del push CERRADO LIMPIO — próximo: ROLLOUT de B, luego 08a)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (1) ROLLOUT de B a los 4 repos (bloqueado por el clasificador esta sesión), (2) implementar 08a
