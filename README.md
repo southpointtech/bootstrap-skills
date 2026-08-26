@@ -130,10 +130,16 @@ review-passing code**. The **`review-loop`** skill runs a tight cycle:
                            until no medium/high-severity findings remain (hard cap: 5 turns)
 ```
 
-The reviewer is **`/slice-review`**, a multi-agent reviewer over the *local* diff (parallel reviewers
-with distinct focus areas, then a confidence pass that drops false positives). It exists because
-Claude Code's built-in `/code-review` is marked `disable-model-invocation` — only a human can type
-it — so a loop built on it can never close by itself.
+The backbone reviewer is **`/slice-review`**, a multi-agent reviewer over the *local* diff (parallel
+reviewers with distinct focus areas, then a confidence pass that drops false positives). It's the
+backbone because it does what the built-in `/code-review` doesn't: it enforces this project's
+`CLAUDE.md` hard rules, splits the review across parallel focuses, adds a bounded-mutation focus, and
+runs a whole-slice coherence pass at close — all on a local diff with no PR or remote required. On the
+**first turn only**, the loop *also* folds in the built-in `/code-review` as one more independent
+reviewer (it turned out to be agent-invocable after all), for reviewer diversity. It's bounded to
+turn 1 at medium effort with the aim of staying latency-neutral — a property to be confirmed on the
+first real run against the frozen baseline, not asserted here as measured (see
+`docs/adr/0003-code-review-como-foco-acotado.md`).
 
 What makes it more than "just run a review":
 

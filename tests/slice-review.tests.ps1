@@ -516,5 +516,29 @@ foreach ($p in $loopPairs) {
   }
 }
 
+# --- 08b: framing en AI_DEVELOPMENT_WORKFLOW.md (el unico doc no-par que se copia al scaffold) ------
+# El AC de 08b ("ningun archivo del scaffold afirma que /code-review es human-only") descansaba, para
+# este archivo, en un chequeo a mano: el guard de framing de 08a solo cubre los pares slice/loop, y
+# mirror.tests.ps1 solo exige byte-identidad ENTRE los 3 scaffolds (una reintroduccion simetrica de la
+# premisa pasa mirror verde, y la copia repo-root ni figura ahi). AI_DEVELOPMENT_WORKFLOW.md es el unico
+# doc que 08b corrigio a mano y que se copia a TODOS los proyectos bootstrapeados, asi que el invariante
+# se blinda aca sobre las 4 copias (repo + 3 scaffolds), simetrico con el guard de $loopPairs.
+$workflowDocs = @(@{ label = "repo"; file = (Join-Path $repo "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md") })
+foreach ($s in $skills) {
+  $workflowDocs += @{ label = $s.Name; file = (Join-Path $s.FullName "assets\scaffold\docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md") }
+}
+foreach ($p in $workflowDocs) {
+  $rel = "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md"
+  if (-not (Test-Path -LiteralPath $p.file)) { Assert $false "$($p.label): existe $rel"; continue }
+  $txt = [IO.File]::ReadAllText($p.file)
+  # Guard de framing: la premisa caduca ("restricted to human invocation") NO puede reaparecer.
+  Assert ($txt -notmatch '(?i)restricted to human invocation') `
+    "$($p.label)/${rel}: no afirma que /code-review es human-only (premisa caduca)"
+  # Positivo: describe el ensemble real del turno 1 (que el built-in se suma como reviewer), o el guard
+  # de arriba pasaria verde con la frase simplemente borrada, sin la framing correcta en su lugar.
+  Assert ($txt -match '(?i)folds in the built-in `/code-review`') `
+    "$($p.label)/${rel}: documenta que el turno 1 suma el built-in /code-review (ensemble)"
+}
+
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

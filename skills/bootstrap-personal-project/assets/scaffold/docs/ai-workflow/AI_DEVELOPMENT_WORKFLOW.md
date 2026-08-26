@@ -100,7 +100,7 @@ If tests cannot be run, Claude must explain why.
 
 For important changes, a second review must be performed from a clean context.
 
-Run this as a loop via `/review-loop`: `/slice-review` → fix real findings → re-review, repeating until no medium/high-severity findings remain (or a 5-turn cap). The loop uses `/slice-review` (a local multi-agent reviewer the agent can launch), not the built-in `/code-review`, which is restricted to human invocation.
+Run this as a loop via `/review-loop`: `/slice-review` → fix real findings → re-review, repeating until no medium/high-severity findings remain (or a 5-turn cap). The backbone reviewer is `/slice-review` (a local multi-agent reviewer the agent can launch); on the first turn the loop also folds in the built-in `/code-review` as one more independent reviewer.
 
 The reviewer must check:
 

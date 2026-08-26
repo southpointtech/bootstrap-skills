@@ -54,12 +54,25 @@ La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en ambas ski
 
 ## Testeo del motor del review-loop (`/slice-review`)
 
-El paso 1 del loop tiene que ser **invocable por el agente**. El built-in `/code-review` está marcado `disable-model-invocation` (falla con `Skill code-review cannot be used with Skill tool`), así que un loop apoyado en él nunca cierra solo: el hook `review-loop-trigger` ordena algo imposible de cumplir y el slice termina reportado como "revisado" sin que haya corrido ningún reviewer. Por eso el scaffold trae `/slice-review` (reviewer multi-agente sobre el diff local). Runner: `pwsh -NoProfile -File tests/slice-review.tests.ps1`. Casos cubiertos, en las tres skills bootstrap:
+El paso 1 del loop tiene que ser **invocable por el agente**. `/slice-review` es la columna del motor porque hace cumplir las Hard rules del `CLAUDE.md`, reparte la revisión en focos paralelos, filtra con un pase de confianza y corre un pase de coherencia al cierre — nada de lo cual da el built-in `/code-review`, y todo sobre el diff local sin PR ni remoto. (La vieja premisa de que `/code-review` "no era invocable por el agente" **caducó**: verificado el 2026-08-26, es invocable incluso desde un subagente — ver `docs/adr/0003-code-review-como-foco-acotado.md`. Por eso el turno 1 del loop ahora lo **suma** como reviewer independiente, ver el foco de code-review abajo.) Runner: `pwsh -NoProfile -File tests/slice-review.tests.ps1`. Casos cubiertos, en las tres skills bootstrap:
 
 - **Existencia del par** — `.claude/commands/slice-review.md` y `.agents/skills/slice-review/SKILL.md` presentes.
 - **Invocabilidad** — ambos declaran `description` en el frontmatter y **ninguno** setea `disable-model-invocation: true`.
-- **Regresión a `/code-review`** — ningún archivo del par (ni el de `review-loop`) *ordena* correr `/code-review`; mencionarlo para explicar por qué no se usa sí está permitido.
 - **El motor del loop** — `review-loop` (command y SKILL.md) corre `/slice-review` como paso numerado. El assert no fija el número: desde el turno incremental el paso 1 es pedirle el rango al marcador y la corrida de review es el paso 2. Lo que se blinda es el motor, no su posición.
+
+### Foco de code-review — ensemble (08a)
+
+El guard viejo ("ningún archivo *ordena* correr `/code-review`") **se invirtió**: la premisa de no-invocabilidad caducó y el motor ahora suma `/code-review` como un reviewer independiente más, acotado. Los asserts (en `tests/slice-review.tests.ps1`, sobre las cuatro copias del par `slice-review`) blindan esa mecánica:
+
+- **Sección propia** — existe `## Code-review focus` en el prompt de `/slice-review`.
+- **Acotado al turno 1** — el foco declara que corre **solo en el turno 1** (`only on the loop's first turn`) y está **prohibido en los turnos 2+** (`prohibited on turns 2`), simétrico con el foco de mutación.
+- **Esfuerzo medium** — el foco corre a `medium effort` (acotado, no high/max), para no volverse la lane más lenta ni dentro del slack del turno 1.
+- **Invocación y flag** — el foco invoca el built-in `/code-review`; Step 1 parsea `--code-review` y Step 4 lo despacha condicional a ese flag (`/review-loop` lo pasa junto a `--mutation` en el turno 1).
+- **Framing coherente** — el doc del par **ya no** afirma que `/code-review` es human-only (`-notmatch 'restricted to human invocation'`); dejar la vieja frase dejaría el slice internamente incoherente con la mecánica que lo invoca.
+- **Dedup** — Step 5 dedupea los hallazgos de `/code-review` contra el foco de bugs (`de-duplicate`/`dedup`), por **defecto subyacente** (`underlying defect`), no solo `file:line` exacto.
+- **Fork join** — el foco espera y junta los hallazgos del fork async **antes** de Step 5 (`collect its findings before`), o el reporte se emitiría con el fork todavía corriendo.
+- **Read-only** — se invoca `/code-review` en solo lectura, **nunca** con `--fix` (`never with --fix`): corre en el árbol real compartido y `--fix` lo mutaría.
+- **Scope aceptado** — `/code-review` revisa el `working-tree diff` (no toma el stash ref del marcador), que puede ser más amplio que el delta; el dedup + la confianza lo absorben.
 
 ## Testeo de la corrida de review incremental (A3)
 

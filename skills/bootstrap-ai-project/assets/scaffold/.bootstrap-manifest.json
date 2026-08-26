@@ -1,7 +1,7 @@
 {
   "variant": "ai",
   "generatedFrom": "bootstrap-ai-project",
-  "version": "2026-08-26+435dd74",
+  "version": "2026-08-26+bfffbc9",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -48,7 +48,7 @@
     "docs/agents/domain.md": "74d9fd35f35245683160091d53dd9ccfa017cf53534339992bab47c0ffb69cee",
     "docs/agents/issue-tracker.md": "9c856ed514eb8dbb3f7218496ede3dfc0b4735a04db95d1497cc90161a9bde50",
     "docs/agents/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
-    "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "2204fca011d0a908844959d6507f696f10b70f9aae6fdc45a35c5bc704e212a7",
+    "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "9816629137b18e42908ee8eda224640720d94b454b480065d5f28373c94dfac3",
     "docs/ai-workflow/DEPLOYMENT_RULES.md": "4cbf6e426287237293c2106d382cc7a4c7188171a9b1b01032de207371fc13e6",
     "docs/ai-workflow/PRD_TEMPLATE.md": "8b88dcfd6337fa3924093c77c5be9a789316fb774f0e7c33c26c4cb87890565f",
     "docs/ai-workflow/QA_CHECKLIST.md": "f40eacead44a17d025077beaab201bf935935a4138c456cf4ad5364bba66443f",

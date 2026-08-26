@@ -13,8 +13,14 @@
 ## Contexto
 
 El 1 de agosto de 2026 el ciclo de revisión empezó a funcionar de verdad: hasta ese día el loop
-apuntaba a un reviewer que el agente no podía invocar, así que cerraba sin revisar nada. Con el fix,
-apareció el costo completo.
+apuntaba al built-in `/code-review` y no producía reviews que lo cerraran, así que cerraba sin
+revisar nada. Con el fix (apuntarlo a `/slice-review`), apareció el costo completo.
+
+> Nota (2026-08-26): la justificación original de este cambio incluía la premisa de que `/code-review`
+> "no era invocable por el agente". Esa premisa **caducó** — se verificó que es invocable, incluso
+> desde un subagente (ver `docs/adr/0003-code-review-como-foco-acotado.md`). La decisión de este ADR
+> sigue válida; solo esa premisa era falsa, y el motor del loop ahora suma `/code-review` como
+> reviewer independiente del turno 1.
 
 Medido sobre 703 transcripts (28.502 llamadas al modelo, 1.393 turnos), en agosto: 357 reviewers,
 8.930 pasos, 8,74M tokens, **67,2 h en serie / 36,3 h de reloj**, y el **46% de todos los tokens de
