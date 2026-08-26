@@ -41,7 +41,11 @@ foreach ($s in $skills) {
         "$($s.Name): $rel no se bloquea con disable-model-invocation"
 
       # Regresión: nada puede ORDENAR correr /code-review (mencionarlo para explicar por qué no, sí).
-      Assert ($txt -notmatch '(?m)^\s*(?:\d+\.\s*)?Run `/code-review`') `
+      # Caza el verbo imperativo (run/invoke/execute/call/launch/use) adyacente a `/code-review`, en
+      # cualquier parte de la línea — no solo "Run" a inicio de línea. La adyacencia (verbo + determinante
+      # opcional + backtick, sin punto ni palabras arbitrarias en medio) evita el falso positivo de
+      # "run. `/code-review`" (fin de oración + mención nueva) y de "the use of `/code-review`".
+      Assert ($txt -notmatch '(?im)\b(?:run|invoke|execute|call|launch|use)\s+(?:the\s+)?(?:built-in\s+)?(?:command\s+)?`/code-review`') `
         "$($s.Name): $rel no ordena correr /code-review"
     }
   }
