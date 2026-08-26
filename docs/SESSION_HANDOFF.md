@@ -1,3 +1,101 @@
+# Session Handoff — 2026-08-26 parte 2 (08b CERRADO + COMMITEADO `2ca95f6` — framing de la premisa caduca + guard del workflow doc; review-loop dogfoodeado limpio + COHERE — TRACK A / issue 08 COMPLETO — próximo: DEPLOY, luego ROLLOUT de B)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (1) DEPLOY (con humano), luego (2) ROLLOUT de B a los 4 repos
+
+Rama **`feat/marcador-de-revision`**, HEAD **`2ca95f6`** (`feat(review-loop): 08b — framing de la
+premisa /code-review caducada + guard del workflow doc`, **sin trailer**). **Árbol limpio.** `range`
+post-close **vacío + exit 0** = nada sin revisar. **Sin pushear.** **08a Y 08b CERRADOS → el issue 08
+está COMPLETO** (solo queda deploy + rollout, ambos operativos). No hay decisión pendiente del usuario
+salvo arrancar el deploy.
+
+### Qué hizo esta sesión (08b — framing, CERRADA)
+
+08a ya estaba cerrado y commiteado (`f3ed1fe`). Esta sesión implementó **08b** (corrección de framing,
+doc) y lo cerró con el review-loop dogfoodeando el ensemble:
+
+1. **Framing corregida** (la premisa "/code-review es human-only / no invocable" caducó): `README.md`
+   (justifica `/slice-review` por su valor real + ensemble del turno 1), `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`
+   (**raíz + 3 scaffolds**, en la allowlist de divergencia del mirror), `docs/TESTING.md` (premisa →
+   valor real; caso "Regresión a /code-review" **invertido**; documentados los tests nuevos del foco),
+   `docs/adr/0001` (nota fáctica corregida sin afirmar la causa caduca + nota de expiración → ADR-0003).
+   **`public/README.md` NO se tocó**: no tenía la premisa (verificado por 3 focos; el conteo de "6
+   archivos" del handoff viejo lo incluía por error). **`review-loop.md`/SKILL ya limpios por 08a.**
+2. **Guard nuevo 08b** en `tests/slice-review.tests.ps1` (bloque al final, `$workflowDocs`): blinda las
+   **4 copias** de `AI_DEVELOPMENT_WORKFLOW.md` (repo + 3 scaffolds) con `-notmatch 'restricted to human
+   invocation'` + positivo `folds in the built-in /code-review` (borrar la frase sin poner la framing
+   correcta también falla). **RED verificado** (inyecté la premisa → 2 asserts fallaron → revertí con
+   Edit reversible → GREEN). Motivo: el guard de 08a solo cubría los pares slice/loop, y mirror solo
+   exige byte-identidad ENTRE scaffolds — el workflow doc quedaba sin blindar.
+3. **3 manifests regenerados** (`gen-manifest.ps1`; solo el hash del workflow doc + version stamp, sin
+   ruido de autocrlf).
+4. **Review-loop dogfoodeado (ensemble) CERRADO LIMPIO**: turno 1 (5 focos de lectura + fork de
+   `/code-review` medium) → **3 hallazgos reales**: (A) `README.md` "almost no cost" sin hedge —regla de
+   afirmaciones, 2 focos—; (B) `docs/adr/0001` "los primeros reviewers de la historia del repo"
+   sobre-generalizaba —2 focos—; (C) faltaba guard de test del workflow doc —1 foco—. **Fixes**: A hedge
+   de latencia (a confirmar, no medido), B acotado a lo medido, C el guard nuevo. → turno 2 (3 focos)
+   **limpio** → coherencia **COHERE** (5 AC) → `close` limpio.
+   - **Descartados**: (D) el diff de review excluyó scaffolds/manifests —deliberado, espejo idéntico al
+     raíz ya revisado—; (#2) `slice-review.md:180` el texto de dedup motiva el solape solo contra "Bugs
+     focus" pero `/code-review` también puede duplicar "Contracts and callers" —**fuera de scope** (es
+     de 08a); anotado como **follow-up Low** en el issue 08—.
+5. **Commit `2ca95f6`** (11 archivos, sin trailer — el loop ya corrió sobre el árbol). **Suites verdes**:
+   `slice-review`, `mirror`, `review-loop-incremental`. Memorias `slice-review-motor-del-loop.md` +
+   `MEMORY.md` actualizadas (08a+08b cerrados).
+
+### 🔴 Gotcha reconfirmado esta sesión (marcador previo a ADR-0003)
+
+El marcador de 08a quedó en `950cc8e2` (un punto **previo** a la creación de `docs/adr/0003` en 08a —
+consistente con el gotcha del `index.lock` que documentó el handoff de 08a). Por eso el delta de 08b
+**incluyó ADR-0003** (114 líneas, de 08a) además de los 5 archivos de 08b. No fue un problema (0003 ya
+se revisó en 08a; re-revisarlo fue barato y COHERE lo confirmó), pero **si al retomar un range sale más
+grande de lo esperado, sospechar del marcador** (ver el follow-up del `git stash create` vacío abajo).
+
+### Roadmap restante (en orden) — issue 08 COMPLETO; queda solo el despliegue de Track A
+
+- **(1) DEPLOY** (A7-like, **con humano presente**): resellar el `.bootstrap-manifest.json` de la **RAÍZ**
+  (`tools/reseal-manifest.ps1`) + `tools/sync-skills.ps1` (regenera los 3 manifests de scaffold y deploya
+  a `~/.claude/skills`). Requiere presencia humana.
+- **(2) ROLLOUT de B** — `upgrade-bootstrap` a los 4 repos + revertir la mitigación interina. **🔴 lo
+  frena el clasificador de auto-mode** (edita/gitea otros repos): permiso amplio o sesión dedicada por
+  repo. Los 4 (memoria `forecasting-app-mitigacion-interina-review`): **Forecasting App**, **Outsourcing
+  Development** (git en `hssapp/`, usar `-C hssapp`), **claude-analytics** (Claude Analytics), **Survey
+  Clients**. Revertir en cada uno: borrar `.scratch/review-loop-interino.md` + quitar el bullet ⚠️
+  INTERINO del `CLAUDE.md`, **solo** tras confirmar que el review-loop nuevo quedó instalado ahí.
+- **Follow-ups anotados en el issue 08 (Notas)**: (a) el texto de dedup de `slice-review.md` motiva el
+  solape solo contra "Bugs focus" (también puede duplicar "Contracts and callers") — refinamiento Low de
+  redacción, toca los 4 espejos + manifests, slice propio; (b) `review-marker.ps1` debería tratar un
+  `git stash create` vacío como **error duro**, no fallback silencioso a HEAD (toca ADR-0001 → slice de
+  robustez); (c) Lows viejos: prosa Step 2 slice-review (`--stat` vs `git show HEAD`); `autocrlf`
+  date-bump en manifests; `copy-scaffold.ps1` pisa `.gitignore`.
+
+### Antes de tocar código (crítico)
+
+- **Deploy y rollout son OPERATIVOS, no diseño.** El paso 1 (grill) del issue 08 está cerrado. Si el
+  `alignment-gate` frena el primer edit de **código** (los `.md`/`docs/` pasan sin frenar), **decilo y
+  reintentá, NO re-grilles** (frenó 1 vez esta sesión sobre el `.ps1` del guard; se reintentó).
+- **Regla del espejo**: canónicos en raíz (`.claude/commands/*.md`, `.agents/skills/*/SKILL.md`), `cp` a
+  los 3 scaffolds, regenerar los 3 manifests (`tools/gen-manifest.ps1 -SkillDir skills/<s>`). **`tests/`
+  y `docs/` del REPO NO se espejan**, pero `assets/scaffold/docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`
+  SÍ existe en los 3 scaffolds (en la **allowlist de divergencia** de `mirror.tests.ps1:23` — pueden
+  divergir; NO exige byte-identidad). Manifests **generados**, identidad por hash normalizado.
+- **⚠️ Line-wrap**: los asserts de los `.tests.ps1` son `-match` sin singleline; una frase asertada
+  partida en 2 líneas por el reflow FALLA. Mantener contigua la frase asertada.
+- **Bash tool = Git Bash**: commits `-m "..."` repetidos, **nunca** here-strings `@'...'@`. Tests Pester
+  v3 con harness propio: FOREGROUND con redirect + grep `^FAIL:`/"TODOS LOS TESTS PASARON". `review-marker`
+  tarda; las otras ~30-120s.
+- **Review-loop con foco de code-review** (si se dogfoodea de nuevo): esperar el fork completo antes del
+  `advance`; chequear `.git/index.lock` stale antes de las ops del marcador; reviewers en SOLO LECTURA;
+  `/code-review` read-only nunca `--fix`.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió: commit de 08b). **Nada a Zoho.** **Impacto medido
+  antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.** **Prefiere Opus 4.8
+  sobre Opus 5.** **Paraleliza todo lo posible.** Prefiere **cortar y seguir en terminal nueva** — por
+  eso este handoff.
+
+---
+
 # Session Handoff — 2026-08-26 (08a CERRADO + COMMITEADO `f3ed1fe` — review-loop dogfoodeado limpio + coherencia COHERE — próximo: 08b, luego deploy/rollout)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (1) 08b (framing en 6 archivos, apilado sobre 08a), luego deploy + ROLLOUT de B
