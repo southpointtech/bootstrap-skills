@@ -15,14 +15,19 @@ Iterate review → fix → re-review on a small change until it is clean: zero m
 
 Do not use on huge diffs (thousands of lines) or for unclear product decisions.
 
-## The reviewer: `/slice-review`, not `/code-review`
+## The reviewer: `/slice-review` as backbone, `/code-review` as a turn-1 extra
 
-Every turn of this loop runs **`/slice-review`** — a multi-agent reviewer over the local diff.
+Every turn of this loop runs **`/slice-review`** — a multi-agent reviewer over the local diff. It is
+the backbone: it enforces this project's `CLAUDE.md` hard rules, splits the review across parallel
+focuses, filters findings through a confidence pass, and runs a whole-slice coherence pass at close —
+none of which the built-in `/code-review` does.
 
-Do **not** substitute the built-in `/code-review`: it is marked `disable-model-invocation`, so the
-agent cannot launch it (`Skill code-review cannot be used with Skill tool`). A loop built on it can
-never close on its own, which is how a slice ends up reported as "reviewed" with no reviewer having
-run. `/code-review` remains available for a human to type.
+On the **first turn only**, the loop **also** runs the built-in **`/code-review`** as one more
+independent reviewer, folded into `/slice-review`'s fan-out via `--code-review` (see its Code-review
+focus). The built-in turned out to be agent-invocable after all, so adding it costs almost nothing
+but buys reviewer diversity — a second, differently-tuned reviewer maintained by Anthropic. It is
+bounded to turn 1 at medium effort with the intent of staying latency-neutral — to be confirmed on
+the first real run against the frozen baseline (see `docs/adr/0003-code-review-como-foco-acotado.md`).
 
 ## Pre-flight: is the diff small enough?
 
@@ -154,13 +159,17 @@ One turn = one complete pass through these steps:
    advanced marker, so a re-run never under-scopes the coherence pass. A missing or pruned marker
    records nothing, and the coherence pass falls back to the branch base.
 2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
-   files the range does not carry. On the **first turn only**, add `--mutation` so `/slice-review`
-   also runs the **Mutation focus** — it checks the slice's tests have teeth by breaking changed
-   lines and seeing whether a test notices. Later turns must not carry it:
-   the focus is **prohibited on turns 2 onward**, keeping the per-turn cost flat.
+   files the range does not carry. On the **first turn only**, add **`--mutation` and
+   `--code-review`** so `/slice-review` also runs the **Mutation focus** — which checks the slice's
+   tests have teeth by breaking changed lines and seeing whether a test notices — and adds the
+   built-in **`/code-review`** as an extra independent reviewer. Later turns must not carry either
+   flag: both focuses are **prohibited on turns 2 onward**, keeping the per-turn cost flat.
 3. Advance the marker (`-Action advance`) — but **only if a reviewer actually ran and returned a
    report**. If the review run failed or was interrupted, leave the marker where it is: advancing
    past code nobody read hides it from every future turn, and there is no verb to walk it back.
+   On turn 1, first make sure the `/code-review` fork has **fully finished** and no stale
+   `.git/index.lock` remains — it runs `git` concurrently, so a lock left behind makes `git stash
+   create` fail silently and `advance` fall back to HEAD, over-scoping the next turn.
    Do this **after the review run and BEFORE applying fixes**: the reviewer has now seen everything
    up to this point, and the fixes you are about to write become the next turn's unreviewed delta.
    Advancing after fixing would hand the next turn an empty range and the fixes would never be

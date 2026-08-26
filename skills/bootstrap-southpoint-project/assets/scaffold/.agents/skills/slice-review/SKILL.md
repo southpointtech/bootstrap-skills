@@ -1,13 +1,17 @@
 ---
 name: slice-review
-description: Run a multi-agent code review over a local diff (no PR or remote required) and report findings by severity with a confidence pass that filters false positives. Use as step 1 of the review-loop, or standalone to review a finished slice. Trigger when the user says "revisá este diff", "pasale el reviewer a este slice", "code review de lo que acabo de commitear", "revisá el commit antes de mergear", "corré el reviewer sobre la rama", or wants a review of a local change without opening a PR. Use this instead of the built-in /code-review, which is restricted to human invocation.
+description: Run a multi-agent code review over a local diff (no PR or remote required) and report findings by severity with a confidence pass that filters false positives. Use as step 1 of the review-loop, or standalone to review a finished slice. Trigger when the user says "revisá este diff", "pasale el reviewer a este slice", "code review de lo que acabo de commitear", "revisá el commit antes de mergear", "corré el reviewer sobre la rama", or wants a review of a local change without opening a PR. This is the review-loop's backbone reviewer; the loop also folds in the built-in /code-review as an extra first-turn reviewer.
 ---
 
 # Slice Review
 
-An agent-invocable code reviewer for **local** diffs. Unlike the built-in `/code-review` (which is
-restricted to human invocation and assumes a GitHub PR), this command can be launched by the agent
-itself, so `/review-loop` can actually close its loop.
+An agent-invocable code reviewer for **local** diffs. Unlike the built-in `/code-review` (which
+assumes a GitHub PR), this command works on a local diff with no PR or remote, splits the review
+across parallel focuses, filters findings through a confidence pass, and enforces this project's
+`CLAUDE.md` hard rules. `/review-loop` runs it every turn as its backbone; on the first turn it
+**also** adds the built-in `/code-review` itself as one more independent reviewer (see the
+**Code-review focus**), since that command turned out to be agent-invocable too — so the loop can
+actually close on its own.
 
 Reviewers run as parallel subagents with distinct focus areas, then every finding goes through a
 confidence pass before it reaches the report. That second pass is what keeps the loop from
@@ -25,10 +29,21 @@ If `$ARGUMENTS` contains `--mutation`, first resolve `--coherence`: if `--cohere
 present, ignore `--mutation` and jump to the Coherence pass — `--coherence` wins. (The coherence
 check above matches only a bare `--coherence`, so the tie between the two flags must be broken
 here.) Otherwise strip the `--mutation` token and treat the rest as the range — it combines with a
-range (`abc123 --mutation`) or stands alone and defaults to the marker delta.
+range (`abc123 --mutation`), stands alone and defaults to the marker delta, or co-occurs with
+`--code-review` (turn 1 passes both): strip whichever focus flags are present and treat the
+remainder as the range.
 Standalone, opt in with `/slice-review --mutation`. It additionally turns on the **Mutation focus**
 in Step 4's fan-out. `--mutation` and `--coherence` are **mutually exclusive**; they never co-occur
 in the normal flow (mutation is a turn-1 focus, coherence a close-time pass).
+
+If `$ARGUMENTS` contains `--code-review`, resolve `--coherence` first the same way: if `--coherence`
+is **also** present, `--coherence` wins — ignore `--code-review` and jump to the Coherence pass.
+Otherwise strip the `--code-review` token and treat the rest as the range. Unlike the pair above, it
+is **not** mutually exclusive with `--mutation`: turn 1 of `/review-loop` passes **both** together,
+so both tokens can be present at once — strip whichever are there and treat the remainder as the
+range. Standalone, opt in with `/slice-review --code-review`. It additionally adds the built-in
+**`/code-review`** as an extra reviewer in Step 4's fan-out (see the **Code-review focus** section).
+Like `--mutation`, it is a turn-1-only focus.
 
 Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
 ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
@@ -160,7 +175,22 @@ strongest model; the three that require reading logic and predicting failure do.
 dispatch a **sixth focus** in the same parallel message: the **Mutation focus** (see its section
 after Step 6). It verifies the slice's tests have teeth; unlike these five, it executes.
 
+**If `--code-review` was passed** — only `/review-loop`'s first turn does, or a standalone opt-in —
+also add the built-in **`/code-review`** as an extra reviewer in the same parallel message, invoked
+via the Skill tool (it runs as a background fork), at **medium** effort. It is not a `general-purpose`
+subagent like the others — it is Anthropic's own reviewer, added for reviewer diversity. See the
+**Code-review focus** section after Step 6.
+
 ## Step 5 — Confidence pass (filter false positives)
+
+**First, de-duplicate.** When `--code-review` ran, the built-in `/code-review`'s findings overlap the
+**Bugs focus** — both hunt defects in the changed lines, so the same bug often arrives twice. Before
+scoring, collapse findings that name the **same underlying defect** into one — match on the defect
+itself, not just an identical `file:line` (the two reviewers word it differently and may point at
+lines a few apart). Keep the clearer write-up and drop the rest. This is a **collation step that
+runs before the per-finding scoring fan-out below**, in the same turn (no extra round-trip) —
+collapse duplicates first, then score what remains. Without it the report double-counts and the loop
+fixes the same thing twice.
 
 Reviewers over-report. For each finding returned by the reviewers — Step 4's focuses, or the
 coherence focus — dispatch a **parallel** subagent that
@@ -273,6 +303,49 @@ Everything that survives lands in the same report (Step 6) as any other finding.
 
 **Clean up when done**: `git worktree remove --force $tmp` (and `git worktree prune` if the remove
 fails), so no temporary worktree is left behind.
+
+## Code-review focus
+
+This focus adds the built-in **`/code-review`** as one more independent reviewer in the turn-1
+fan-out, alongside the five read-only focuses (six, with mutation). It is invoked via the Skill tool
+and runs as a **background fork** — not a `general-purpose` subagent like the others. It is Anthropic's
+own reviewer — tuned differently and improved with each release — so running it as a peer buys
+reviewer diversity for almost nothing. `/slice-review` stays the backbone: it is what enforces the
+`CLAUDE.md` hard rules (mirror, assertions, the ~400-line ceiling, model routing) and provides the
+multi-focus split, the confidence pass, and the coherence pass, none of which the built-in gives.
+
+How to invoke it, precisely:
+
+- **Read-only — never with `--fix`.** It does not receive Step 3's shared write prohibition and it
+  runs in your **real working tree**, concurrently with the readers. `--fix` would let it mutate that
+  tree mid-review, corrupting the diff every other reviewer is reading — the exact hazard Step 3
+  guards against. Invoke it for findings only.
+- **It reviews the working-tree diff**, its natural target — it cannot take the marker's `git stash
+  create` ref, so it is not handed the exact unreviewed delta the other focuses get. On turn 1 the
+  slice's new work is in the tree, so this is close; where it is broader, the dedup and confidence
+  pass below absorb the out-of-scope extra. Accept the mismatch rather than forcing the ref.
+- **Collect its findings before Step 5, and let it fully finish before the marker moves.** Because it
+  is a background fork, its report arrives asynchronously (a later notification), not synchronously
+  with the subagent batch. Wait for it and gather its findings before moving to Step 5 — proceeding to
+  dedup/scoring/report while the fork is still running drops its findings silently, and the ensemble
+  adds nothing. It also runs `git` in the **real repo**, so let the fork **fully finish** (not merely
+  deliver findings) before `/review-loop` advances the marker: a still-running or crashed fork can
+  leave a stale `.git/index.lock` that makes the marker's `git stash create` fail silently. Clear a
+  stale lock before continuing.
+
+The budget is what keeps this extra reviewer from making the loop slower:
+
+- **Only on the loop's first turn**, and **prohibited on turns 2 onward** — `/review-loop` passes
+  `--code-review` on turn 1 and never after, so turns 2+ never carry the flag and the per-turn cost
+  does not grow with the depth of the loop. Symmetric with the Mutation focus.
+- **Medium effort — not high or max.** Bounded so it does not become the slowest lane even within
+  turn 1's slack behind the mutation focus (worktree + suite ×≤8). The intent is a latency-neutral
+  turn; that it holds is to be confirmed on the first real run against the frozen baseline (see
+  ADR-0003), not asserted here as measured. Pass the effort explicitly when invoking it.
+
+Its findings go through the **same confidence pass (Step 5)** as any other, with the same 60 cutoff
+and the same severities, and land in the **same report (Step 6)**. Because they overlap the Bugs
+focus, Step 5 first de-duplicates them against it so the report does not double-count.
 
 ## Coherence pass
 

@@ -1,9 +1,10 @@
 # tests/slice-review.tests.ps1 — runner sin Pester. Correr: pwsh -NoProfile -File tests/slice-review.tests.ps1
-# El motor del review-loop tiene que ser invocable POR EL AGENTE. El built-in /code-review está
-# marcado disable-model-invocation ("Skill code-review cannot be used with Skill tool"), así que un
-# loop que dependa de él nunca puede cerrarse solo — el hook review-loop-trigger ordena algo
-# imposible y el slice termina reportado como "revisado" sin que ningún reviewer haya corrido.
-# Este test blinda el reemplazo (/slice-review) y evita la regresión a /code-review.
+# El motor del review-loop tiene que ser invocable POR EL AGENTE. /slice-review es la columna
+# vertebral: es lo unico que hace cumplir las Hard rules del CLAUDE.md (espejo, afirmaciones, techo
+# ~400, ruteo) y aporta el reparto multi-foco + pase de confianza + coherencia. El built-in
+# /code-review resulto SER invocable por el agente (verificado 2026-08-26: corrio como fork desde un
+# subagente), asi que el loop lo SUMA como reviewer independiente acotado al turno 1 (foco par,
+# esfuerzo medium) para diversidad de reviewers — no lo reemplaza. Ver ADR-0003.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $skills = @(Get-ChildItem (Join-Path $repo "skills") -Directory | Where-Object Name -like "bootstrap-*-project")
@@ -40,13 +41,11 @@ foreach ($s in $skills) {
       Assert ($txt -notmatch '(?m)^disable-model-invocation:\s*true') `
         "$($s.Name): $rel no se bloquea con disable-model-invocation"
 
-      # Regresión: nada puede ORDENAR correr /code-review (mencionarlo para explicar por qué no, sí).
-      # Caza el verbo imperativo (run/invoke/execute/call/launch/use) adyacente a `/code-review`, en
-      # cualquier parte de la línea — no solo "Run" a inicio de línea. La adyacencia (verbo + determinante
-      # opcional + backtick, sin punto ni palabras arbitrarias en medio) evita el falso positivo de
-      # "run. `/code-review`" (fin de oración + mención nueva) y de "the use of `/code-review`".
-      Assert ($txt -notmatch '(?im)\b(?:run|invoke|execute|call|launch|use)\s+(?:the\s+)?(?:built-in\s+)?(?:command\s+)?`/code-review`') `
-        "$($s.Name): $rel no ordena correr /code-review"
+      # 08a — el guard viejo se INVIRTIO. La premisa "/code-review es human-only / no invocable"
+      # caduco (verificado 2026-08-26), asi que ya NO se prohibe ordenar /code-review: el loop lo
+      # invoca a proposito como foco acotado a turno-1/medium. Que SE invoque a proposito lo aseveran
+      # positivamente los asserts del bloque "08a: /code-review como foco par" (mas abajo, sobre
+      # $slicePairs y $loopPairs). Aca solo queda que el doc no se auto-bloquee (disable-model-invocation).
     }
   }
 
@@ -375,6 +374,88 @@ foreach ($p in $slicePairs) {
   }
 }
 
+# --- 08a: /code-review como foco par acotado a turno-1 (ensemble) --------------------------------
+# La premisa "/code-review es human-only / no invocable" CADUCO (verificado 2026-08-26: invocable
+# desde un subagente, corrio como fork hasta completarse). El review-loop lo suma como reviewer
+# independiente en el turno 1 (foco par en la ola del fan-out), esfuerzo medium, latency-neutral en
+# el slack detras del foco de mutacion. Anclado a la SECCION del foco (## Code-review focus) y a Step 1/4.
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $s1  = Section $txt 'Step 1 — Resolve what to review'
+    $s4  = Section $txt 'Step 4 — Fan out parallel reviewers'
+    $s5  = Section $txt 'Step 5 — Confidence pass (filter false positives)'
+    $cr  = Section $txt 'Code-review focus'
+
+    # Existe como seccion propia.
+    Assert ($cr -ne "") "$($p.label)/${rel}: existe la seccion del foco de code-review (## Code-review focus)"
+    # Gate: solo turno 1, prohibido turnos 2+ (simetrico con la mutacion).
+    Assert ($cr -match "(?i)only on the loop.s first turn") `
+      "$($p.label)/${rel}: el foco de code-review corre solo en el turno 1"
+    Assert ($cr -match '(?i)prohibited on turns 2') `
+      "$($p.label)/${rel}: el foco de code-review esta prohibido en los turnos 2+"
+    # Esfuerzo acotado a medium. El assert se ancla a "medium effort", no al token suelto "medium"
+    # (que pasaria con "not medium - use high"); dientes reales sobre el tier elegido (tests F3+).
+    Assert ($cr -match '(?i)medium effort') `
+      "$($p.label)/${rel}: el foco de code-review corre a esfuerzo medium (acotado)"
+    # Invoca el built-in /code-review (invocable por el agente; la premisa de no-invocabilidad caduco).
+    Assert ($cr -match '/code-review') `
+      "$($p.label)/${rel}: el foco invoca el built-in /code-review"
+    # Step 1 parsea --code-review.
+    Assert ($s1 -match '(?i)--code-review') `
+      "$($p.label)/${rel}: Step 1 parsea --code-review"
+    # Step 4 despacha el foco de code-review condicional a --code-review.
+    Assert ($s4 -match '(?i)--code-review') `
+      "$($p.label)/${rel}: Step 4 despacha el foco de code-review condicional a --code-review"
+    # Framing (coherencia de 08a): el doc ya no afirma que /code-review es human-only / no invocable.
+    # La premisa caduco; dejar la vieja frase dejaria el slice internamente incoherente (la mecanica
+    # lo invoca). El resto de la framing (README, TESTING, ADR-0001, etc.) es 08b.
+    Assert ($txt -notmatch '(?i)restricted to human invocation') `
+      "$($p.label)/${rel}: el doc ya no afirma que /code-review es human-only (framing coherente con la mecanica)"
+
+    # 08a dedup — /code-review solapa el foco de bugs; sin dedup entran hallazgos duplicados al
+    # reporte. El paso de dedup vive en el pase de confianza (Step 5, latency-neutral), contrasta
+    # contra el foco de bugs y dedupea por DEFECTO SUBYACENTE (no solo file:line exacto).
+    Assert ($s5 -match '(?i)de-duplicat|dedup') `
+      "$($p.label)/${rel}: Step 5 tiene un paso de dedup de hallazgos"
+    Assert ($s5 -match '(?i)underlying defect') `
+      "$($p.label)/${rel}: el dedup es por defecto subyacente (no solo file:line exacto)"
+    Assert ($s5 -match '(?i)Bugs focus') `
+      "$($p.label)/${rel}: el dedup contrasta los hallazgos de code-review contra el foco de bugs"
+
+    # 08a turno 1 (fork join; bugs+contratos+code-review, 4x) — /code-review corre como FORK async;
+    # hay que esperar su reporte y juntar sus hallazgos ANTES de Step 5, o se emite el reporte con el
+    # fork corriendo y sus hallazgos se pierden (el modo de falla que el loop existe para evitar).
+    Assert ($cr -match '(?i)collect its findings before') `
+      "$($p.label)/${rel}: el foco espera y junta los hallazgos del fork de code-review antes de Step 5"
+    # 08a turno 1 (read-only; contratos) — /code-review no recibe la prohibicion de escritura de Step 3
+    # y corre en el arbol real; hay que invocarlo read-only, NUNCA con --fix (mutaria el arbol compartido).
+    Assert ($cr -match '(?i)never with .--fix') `
+      "$($p.label)/${rel}: el foco invoca /code-review read-only, nunca con --fix"
+    # 08a turno 1 (scope; code-review) — /code-review no toma el stash ref del marcador; revisa el
+    # working-tree diff, que puede ser mas amplio que el delta. Aceptado (dedup + confianza lo absorben).
+    Assert ($cr -match '(?i)working-tree diff') `
+      "$($p.label)/${rel}: el foco documenta que /code-review revisa el working-tree diff (no el stash ref)"
+    # 08a turno 1 (precedencia; tests+contratos) — simetrico con el guard de --mutation (mas arriba):
+    # --coherence gana sobre --code-review y hay que pinnearlo, o una regresion que borre la clausula
+    # de precedencia pasa verde. Misma clase de defecto que el fix M del turno 1 de A5.
+    Assert ($s1 -match '(?i)ignore .--code-review. and jump to the Coherence pass') `
+      "$($p.label)/${rel}: Step 1 pinnea que --coherence gana sobre --code-review"
+    # 08a turno 1 (co-ocurrencia; tests+bugs) — el turno 1 pasa AMBOS flags juntos (--mutation y
+    # --code-review); comportamiento load-bearing sin cobertura hasta ahora.
+    Assert ($s1 -match '(?i)passes \*\*both\*\* together') `
+      "$($p.label)/${rel}: Step 1 documenta que el turno 1 pasa ambos flags juntos"
+    # 08a turno 2 (concurrencia; contratos) — /code-review corre git en el repo real en paralelo; su
+    # index.lock stale hizo fallar en silencio el stash-create del marcador (advance -> HEAD, over-scope).
+    # El foco debe advertir que hay que dejar terminar el fork y limpiar un lock stale antes de las ops
+    # del marcador. Guard: la seccion menciona index.lock.
+    Assert ($cr -match '(?i)index\.lock') `
+      "$($p.label)/${rel}: el foco advierte de la contencion de index.lock del fork vs el marcador"
+  }
+}
+
 # AC5 — el loop invoca el pase al cerrar, tanto por limpio como por techo de turnos. Vive en
 # /review-loop (command + SKILL), sobre las 4 copias (repo + 3 skills).
 $loopPairs = @(
@@ -416,6 +497,22 @@ foreach ($p in $loopPairs) {
     # (Opus 5, Sonnet 5, Opus 4.8, Haiku 4.5, GPT-4...) lo caza. "CLAUDE.md"/"0-100" no matchean.
     Assert (-not ($txt -match '(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d')) `
       "$($p.label)/${rel}: review-loop no pinnea ningun modelo+version (agnostico end-to-end)"
+
+    # 08a — el loop pasa --code-review en el PASO del loop (turno 1, junto a --mutation), no solo en la
+    # narrativa del header. Anclado a la seccion "The loop" (tests F2): la mencion del header podria
+    # quedar mientras el paso del loop se revierte, y el assert file-wide pasaria igual.
+    $theLoop = Section $txt 'The loop'
+    Assert ($theLoop -match '(?i)--code-review') `
+      "$($p.label)/${rel}: el loop pasa --code-review en el paso del loop (turno 1)"
+    # 08a turno 2 (concurrencia; contratos) — antes de avanzar el marcador (stash create), el paso del
+    # loop debe asegurar que el fork de /code-review termino y no quedo un index.lock stale, o el advance
+    # falla en silencio y cae a HEAD (over-scope del proximo turno). Guard: el paso menciona index.lock.
+    Assert ($theLoop -match '(?i)index\.lock') `
+      "$($p.label)/${rel}: el paso del loop advierte del index.lock del fork antes de avanzar el marcador"
+    # Framing (coherencia de 08a): el loop ya no afirma que el built-in /code-review no se puede lanzar
+    # (la premisa caduco 2026-08-26). El error fabricado "cannot be used with Skill tool" era falso.
+    Assert ($txt -notmatch '(?i)cannot be used with Skill tool') `
+      "$($p.label)/${rel}: el loop ya no afirma que /code-review no es invocable (premisa caduca)"
   }
 }
 
