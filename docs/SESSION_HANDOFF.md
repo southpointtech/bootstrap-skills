@@ -1,3 +1,767 @@
+# Session Handoff — 2026-08-25 parte 3 (TRACK A MERGEADO+PUSHEADO a origin/main + grill del issue 08 CERRADO (08a→08b apilados) + review-loop del push CERRADO LIMPIO — próximo: ROLLOUT de B, luego 08a)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (1) ROLLOUT de B a los 4 repos (bloqueado por el clasificador esta sesión), (2) implementar 08a
+
+Rama **`feat/marcador-de-revision`**. **Track A COMPLETO, MERGEADO a `main` (fast-forward) y PUSHEADO
+a `origin/main`** (`7993f68..2f94108`, remoto `origin` = southpointtech, único remoto). El review-loop
+que disparó el push **cerró LIMPIO** (1 turno). **Lo único que queda del pedido B es el ROLLOUT**, que
+el clasificador de auto-mode frenó esta sesión.
+
+### 🔴 Bloqueo de entorno descubierto esta sesión (crítico para el próximo)
+
+El **clasificador de auto-mode denegó**: (a) lanzar un **fork/Agent autónomo** que hiciera
+merge/push/rollout ("Blocked by classifier"), y (b) **`git push`** hasta que el usuario dio permiso
+explícito por chat (ahí sí pasó). **Los subagentes de SOLO LECTURA (reviewers del slice-review) SÍ se
+lanzaron** sin problema. Consecuencia: **el rollout (que edita/gitea otros repos) va a chocar el mismo
+muro** — hacerlo con permiso Bash amplio para `git`/edición, o en sesión dedicada por repo.
+
+### Qué hizo esta sesión
+
+1. **B — merge + push HECHOS.** `main` se avanzó a `2f94108` con `git branch -f main
+   feat/marcador-de-revision` (**fast-forward, SIN checkout** — para no tocar el working tree mientras
+   corría el grill; era ff porque `HEAD..main` estaba vacío). `git push origin main` → `7993f68..2f94108`.
+   Tests previos: **13/13 suites verdes**. **`origin` es el único remoto** (southpointtech); no existe
+   remoto `MartinDele703` (la nota vieja del handoff sobre el 403 no aplica: push directo funcionó).
+2. **B — ROLLOUT: PENDIENTE.** `upgrade-bootstrap` a los 4 repos bootstrapeados + revertir la
+   mitigación interina. Fuente de verdad de los repos = memoria `forecasting-app-mitigacion-interina-review`
+   (4 repos: **Forecasting App**, **Outsourcing Development** —git en `hssapp/`, Claude corre en la
+   raíz, usar `-C hssapp`—, **claude-analytics** (Claude Analytics), **Survey Clients**). El handoff
+   parte 2 decía "Call Center" en vez de Claude Analytics — **discrepancia a resolver, no adivinar**.
+   Revertir en cada uno: borrar `.scratch/review-loop-interino.md` + quitar el bullet ⚠️ INTERINO del
+   `CLAUDE.md` (sin commitear en los 4), **solo después** de confirmar que el review-loop nuevo quedó
+   instalado ahí.
+3. **Grill del issue 08 CERRADO** (skill `grill-with-docs`). Decisiones firmadas en
+   `.scratch/review-cost-redesign/issues/08-framing-premisa-code-review-caducada.md` (secciones
+   "Decisiones del grill" + "Slices" + AC + Notas). Criterio elegido por el usuario: **calidad a largo
+   plazo, ignorando costo de desarrollo, con gate duro: el review-loop NO debe tardar más.** Decisiones:
+   - **(c) ENSEMBLE, no (a)**: el motor del `review-loop` = `/slice-review` de columna vertebral **+
+     `/code-review` como reviewer independiente sumado** (mejora gratis vía Anthropic; diversidad de
+     reviewers = más calidad; slice-review sigue siendo columna porque es lo único que hace cumplir las
+     Hard rules del `CLAUDE.md` + focos + confianza + coherencia). **La premisa "/code-review es
+     human-only" CADUCÓ** (verificado: es invocable por el agente).
+   - **code-review corre SOLO en el turno 1**, foco par en la ola paralela, **en el slack detrás del
+     foco de mutación** (la lane más lenta) → **latency-neutral por construcción**. Esfuerzo **medium**.
+     NO en turnos 2+.
+   - Sus hallazgos pasan por el **pase de confianza (Step 5) existente**. **Hace falta un DEDUP nuevo**
+     (hoy NO existe — verificado en slice-review.md Steps 5-6) contra el foco de bugs, dentro de la ola
+     del pase de confianza.
+   - **El guard anti-`/code-review` de `tests/slice-review.tests.ps1` se INVIERTE** (de "prohibido
+     ordenar code-review" a "invocado a propósito, acotado turno-1/medium"), test-first.
+   - **DOS slices apilados: 08a (mecánica, código+tests) primero, 08b (framing en 6 archivos) después**
+     (08b redacta la realidad nueva; depende de 08a). **ADR-0003 nuevo** (`docs/adr/0003-code-review-como-foco-acotado.md`)
+     dentro de 08a; 08b corrige además la nota fáctica falsa dentro de ADR-0001.
+   - **Feasibility a verificar test-first antes de sellar 08a**: que `/code-review` sea invocable desde
+     el contexto donde corre `/slice-review`; si no, fallback a que `/review-loop` lo orqueste en paralelo.
+4. **Review-loop disparado por el push → CERRADO LIMPIO (1 turno).** Delta revisado = `0379d82..HEAD`
+   (lógica real = 6 líneas del guard de AC8 en `tests/slice-review.tests.ps1`; el resto, 4 manifests
+   generados + handoff, no cuenta). 6 focos + confianza + coherencia. **Cero Medium/High.** Confianza:
+   A (sin fixture positivo, preexistente) **18→descartado**, C (verbos no exhaustivos, limitación
+   inherente) **20→descartado**, B (imperativo negado `Do not run \`/code-review\`` matchea) **87→sobrevive
+   pero Low**. Coherencia **COHERE** + un 2º gap latente (`\s+` cruza newlines). **Cero fixes**: los 2
+   Low son latentes (suite verde, corpus no los dispara) sobre un guard que **08a reescribe** → **ambos
+   deferidos a 08a**, registrados en el issue 08 (sección Notas). Marcador: `open`→`advance`→`close`
+   limpio; `range` post-close **vacío + exit 0**.
+
+### Roadmap restante (en orden)
+
+- **(1) ROLLOUT de B** (arriba) — necesita permiso amplio o sesión dedicada por el bloqueo del clasificador.
+- **(2) 08a** — mecánica del ensemble (feasibility test-first → foco code-review turno-1/medium +
+  dedup + flip del guard + ADR-0003 + tests). `/to-issues` para formalizar 08a/08b, luego `/tdd` sobre 08a.
+- **(3) 08b** — corrección de framing en los 6 archivos, apilado sobre 08a.
+- Lows viejos de fondo: gap de prosa Step 2 de `slice-review.md`; `core.autocrlf` con date-bump en
+  manifests (ensucia el tree en cada sync); `copy-scaffold.ps1` pisa el `.gitignore` del destino.
+
+### Antes de tocar código (crítico)
+
+- **El clasificador de auto-mode frena acciones hacia afuera** (Agent autónomo con git/push, `git push`
+  sin permiso, y muy probablemente el rollout que edita otros repos). Los subagentes de SOLO LECTURA sí
+  corren. Pedir permiso/hacerlo en sesión dedicada, no reintentar a ciegas.
+- **08a necesita paso 1 (grill) YA HECHO** — las decisiones están firmadas en el issue 08. Si el
+  `alignment-gate` frena el primer edit de código, decilo y reintentá, **no re-grilles**. La feasibility
+  de invocabilidad de `/code-review` se verifica test-first DENTRO de 08a antes de sellar la mecánica.
+- **Regla del espejo**: canónicos en raíz (`.claude/commands/*.md`, `.agents/skills/*/SKILL.md`), `cp`
+  a los 3 scaffolds, regenerar los 3 manifests (`tools/gen-manifest.ps1 -SkillDir skills/<s>`). **`tests/`
+  y `docs/` NO se espejan.** Manifests **generados**. Identidad por hash normalizado, no `diff` crudo.
+- **Bash tool = Git Bash**: commits `-m "..."` repetidos, nunca here-strings `@'...'@`. Tests Pester v3
+  con harness propio: FOREGROUND con redirect + grep `^FAIL:`/"TODOS LOS TESTS PASARON". Los background
+  se matan (salvo el que corrí con run_in_background esta sesión, que sí completó).
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió: commit final de todo). **Nada a Zoho.** **Impacto
+  medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.** **Prefiere Opus
+  4.8 sobre Opus 5.** **Paraleliza todo lo posible.** Prefiere **cortar y seguir en terminal nueva**.
+
+---
+
+# Session Handoff — 2026-08-25 parte 2 (ITEM 2 + A7 DEPLOY + AC8 CERRADOS — hallazgo mayor: la premisa /code-review-human-only CADUCÓ → issue 08; próximo: merge/push/rollout o grill de A8)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (B) merge→main + push + rollout, o (A) grill de diseño del issue 08
+
+Rama **`feat/marcador-de-revision`**, HEAD **`2f94108`**. **Árbol limpio salvo este handoff.** Track A
+**COMPLETO** (A1–A7). El deploy a `~/.claude/skills` **corrió y se verificó**. **Sin pushear.** **Sin
+mergear a main.** No hay decisión pendiente salvo elegir el próximo frente.
+
+```
+2f94108  fix(review-loop): endurecer el guard anti-/code-review (hallazgo AC8)   <- sin trailer
+16cc286  chore(review-loop): A7 — sellar y deployar Track A + doc de migración    <- sin trailer
+5fe2df4  feat(review-loop): ruteo de modelos agnostico en slice-review/review-loop
+```
+
+### Qué hizo esta sesión
+
+1. **Item 2 (TESTING.md stale) — CERRADO limpio.** Fixeó `docs/TESTING.md:71,72,85` (esquema viejo
+   "Sonnet 5"/"Opus 5" → frases agnósticas) + agregó sección `## Testeo de la migración a ruteo de
+   modelos agnóstico`. Review-loop: **turno 1 limpio** (6 focos, 0 hallazgos; contratos verificó las
+   7 afirmaciones del doc contra los tests) + **coherencia COHERE** + `close`. `docs/` no se espeja.
+2. **A7 (sellar y deployar) — HECHO + verificado** (con el usuario presente). Resello manifest raíz
+   (`reseal-manifest.ps1`, 51 archivos, `2026-08-25+a5bde47`); `sync-skills.ps1` regeneró los 3
+   manifests de scaffold (solo bump de fecha, hashes idénticos) y deployó las 5 skills que el repo
+   posee a `~/.claude/skills`. **Verificado**: instalado con 0 pins viejos, frases agnósticas, verbo
+   `close`, fecha de hoy. Suite **13/13 verde**. Commit `16cc286` (sin trailer). AC de A7 todos ✓.
+3. **AC8 (el commit base `8cc6e9e`, 1/8, nunca revisado) — revisado retroactivamente** (5 focos,
+   cada hallazgo marcado SURVIVES/SUPERSEDED en HEAD). Cero medium/high sobreviven. Un Low fixeado:
+   la regex anti-`/code-review` de `tests/slice-review.tests.ps1:44` se endureció (caza run/invoke/
+   execute/call/launch/use adyacente, RED-first, sin falso positivo) — commit `2f94108`.
+4. **🔴 HALLAZGO MAYOR — la premisa CADUCÓ.** La justificación de todo `/slice-review` ("el built-in
+   `/code-review` es human-only / `disable-model-invocation`, el agente no puede lanzarlo") es
+   **FALSA hoy**: invocar `/code-review` con la Skill tool **lo lanzó y corrió una review completa**
+   (2 evidencias: se lanzó + terminó con hallazgos). La memoria `slice-review-motor-del-loop.md` ya
+   pedía verificarlo antes de cerrar Track A — ahora verificado, actualizada. La framing falsa vive
+   en 6 archivos (`review-loop.md`/SKILL ×4, `README.md`, `public/README.md`, `docs/TESTING.md`,
+   `AI_DEVELOPMENT_WORKFLOW.md`, `docs/adr/0001`). **Re-anotado como issue 08** (`needs-info`):
+   corrección de framing, ENTRELAZADA con una decisión de diseño a grillar — ¿el review-loop debería
+   usar `/code-review` ahora que es invocable, o quedarse con `/slice-review` (cuyo valor —focos
+   paralelos + confianza + sin PR— no depende de la premisa)? El usuario eligió: **follow-up con
+   grill primero**, no reescribir hoy.
+
+### Roadmap restante
+
+- **A (issue 08)** — corrección de framing de la premisa caduca. **Necesita grill de diseño** primero
+   (`/code-review` vs `/slice-review` vs ambos). Doc que toca 4 espejos + manifests + su review-loop.
+- **B — pasos manuales fuera de alcance de A7 (PRD)**: **merge** `feat/marcador-de-revision` → `main`;
+   **push** (solo cuenta el remoto `southpointtech`; `MartinDele703` da 403); **rollout** con
+   `upgrade-bootstrap` a los bootstrapeados (hssapp/Outsourcing, Forecasting App, Survey Clients,
+   Call Center) + **revertir la mitigación interina** en Forecasting App y Outsourcing (memoria
+   `forecasting-app-mitigacion-interina-review`).
+- Low no accionado (AC8): gap de prosa Step 2 de `slice-review.md` (`--stat` no aplica al fallback
+   `git show HEAD`); un agente lo adapta. Pendientes de fondo viejos: `core.autocrlf` con date-bump
+   en manifests (cada sync ensucia el tree); `copy-scaffold.ps1` pisa `.gitignore` del destino.
+
+### Antes de tocar código (crítico)
+
+- **El deploy YA cambió tu tooling vivo**: proyectos bootstrapeados de ahora en más traen el
+   review-loop incremental + ruteo agnóstico; los ya bootstrapeados NO cambian hasta el rollout (B).
+- **Issue 08 necesita grill** (decisión de diseño abierta): si el `alignment-gate` frena el primer
+   edit, **ofrecé/hacé el grill**, no reintentes a ciegas (a diferencia de los slices ya alineados).
+- **Regla del espejo**: canónicos en raíz (`.claude/commands/*.md`, `.agents/skills/*/SKILL.md`),
+   `cp` a los 3 scaffolds, regenerar los 3 manifests (`tools/gen-manifest.ps1 -SkillDir skills/<s>`).
+   **`tests/` y `docs/` NO se espejan.** Manifests **generados**. Identidad de copias por hash
+   normalizado (`mirror`/`review-loop-incremental`), no `diff` crudo (CRLF root vs LF).
+- **Bash tool = Git Bash**: commits `-m "..."` repetidos, nunca here-strings `@'...'@`. Tests Pester
+   v3 con harness propio: FOREGROUND con redirect + grep `^FAIL:`/"TODOS LOS TESTS PASARON". Los
+   background se matan. `review-marker`/`review-loop-trigger` tardan >2 min.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió A7 + el fix de regex). **Nada a Zoho.**
+   **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.**
+   **Prefiere Opus 4.8 sobre Opus 5.** **Paraleliza todo lo posible.** Prefiere **cortar y seguir en
+   terminal nueva**.
+
+---
+
+# Session Handoff — 2026-08-25 (MIGRACIÓN A AGNÓSTICO: review-loop CERRADO LIMPIO + coherencia COHERE + COMMITEADA — próximo: TESTING.md stale (Low) o A7 (deploy, con humano))
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: item 2 (TESTING.md stale, Low) o item 3 (A7 deploy, con humano)
+
+Rama **`feat/marcador-de-revision`**, HEAD **`5fe2df4`** (`feat(review-loop): ruteo de modelos
+agnostico en slice-review/review-loop`, **sin trailer**). **Árbol limpio salvo este handoff.** El
+review-loop de la migración **cerró LIMPIO** (2 turnos + coherencia COHERE) y **se commiteó**.
+Marcador: **`-Action range` sale VACÍO + exit 0** = nada sin revisar. **Sin pushear.** **No hay
+decisión pendiente del usuario** salvo arrancar el próximo item.
+
+```
+5fe2df4  feat(review-loop): ruteo de modelos agnostico en slice-review/review-loop   <- migracion (SIN trailer)
+4045903  fix(review-loop): correcciones del review-loop sobre A4c
+e38115f  feat(review-loop): A4c — limpiar el ancla slice-open al cierre limpio        <- Slice-Close: A4c
+```
+
+### Qué hizo esta sesión
+
+1. **Continuó y cerró el review-loop de la migración a modelo-agnóstico** (venía a mitad del turno 1,
+   con los 6 reviewers SIN despachar). Marcador: `open` (write-once, ya estaba) → 6 focos turno 1 →
+   `advance` → fix → `advance` → turno 2 → coherencia → `close`.
+   - **Turno 1** (6 focos, incl. mutación; opus para bugs/contratos/tests/mutación, sonnet para
+     reglas/historia): **1 Medium** (foco tests). `review-loop.md`/SKILL solo tenían guard anti-pin
+     acotado a la sección `## At close` (`review-loop-incremental.tests.ps1:165`, vía `$closeSec`); el
+     cuerpo (líneas 1-181) quedaba sin cubrir → un pin reintroducido ahí, consistente en las 4 copias,
+     pasaba mirror + todos los guards. **Fixeado**: guard file-wide nuevo en el loop `loopPairs` de
+     `tests/slice-review.tests.ps1:409-415`, simétrico al de `slice-review.md`. **RED-verificado** (pin
+     inyectado en "The reviewer", fuera de At close → falla el guard nuevo; el viejo `$closeSec` no lo
+     cazaba). Bugs/contratos/reglas/historia/mutación: limpios (la mutación mutó prosa a pins en
+     worktree aislado y confirmó dientes en ambos guards).
+   - **⚠️ Incidente recuperado**: durante la verificación RED, un `git checkout -- .claude/commands/review-loop.md`
+     revirtió por error el cambio de migración del **canónico** `review-loop.md` (la línea de coherencia
+     volvió a "on Sonnet 5"). Se **detectó y restauró** (mirror byte-idéntico lo confirma). LECCIÓN:
+     no usar `git checkout` para revertir mutaciones RED sobre archivos con cambios sin commitear; usar
+     Edit reversible.
+   - **Turno 2** (delta = las 7 líneas del guard nuevo): **limpio** (scope `$txt` file-wide correcto,
+     regex con dientes, `.claude/scripts` bien rechazado por el `\d`, comentarios verificados).
+   - **Coherencia** (sonnet, slice entero desde slice-base `083268e`): **COHERE** — migración completa
+     en las 4 canónicas, dos tiers bien mapeados sin invertir, el párrafo reescrito de coherencia
+     (`slice-review.md` ~L314-323) resuelve una inconsistencia latente previa ("Sonnet 5 rather than
+     the lighter audits' model" era auto-contradictorio) en vez de introducir una.
+   - **Cierre**: `-Action close` borró el ancla `slice-open` (cierre limpio, tras la coherencia).
+     `slice-base` ahora cae al branch base `43166da`.
+2. **Commiteó la migración** (`5fe2df4`, sin trailer — el loop ya corrió sobre el árbol; con trailer
+   re-dispararía el hook y `range` saldría del delta post-close = vacío). 21 archivos = 4 canónicos
+   .md + 6 scaffolds .md + 3 manifests + 2 tests.
+3. **Suites finales verdes**: `slice-review`, `review-loop-incremental`, `mirror` (3/3).
+
+### Roadmap restante — 2 items (el usuario los dejó para esta terminal nueva)
+
+- **Item 2 — `docs/TESTING.md` stale (Low)**: `docs/TESTING.md:71-72,85` todavía documenta el esquema
+  viejo ("Sonnet 5"/"Opus 5") por foco; tras la migración describe un ruteo que ya no coincide con
+  `slice-review.md`/SKILL. Follow-up chico (fuera de los archivos del slice, por eso no se tocó).
+  Además `TESTING.md` no tiene sección para esta migración (ni para A3–A6). Es su propio micro-slice.
+- **Item 3 — A7** (`07-sellar-y-deployar.md`, `ready-for-human`): deploy a `~/.claude/skills` +
+  resellar el `.bootstrap-manifest.json` de la **RAÍZ**. **Requiere presencia humana.** Va al final.
+
+### Antes de tocar código (crítico)
+
+- **Migración CERRADA y COMMITEADA.** El paso 1 (grill) NO aplica al item 2 (es doc trivial). Si el
+  `alignment-gate` frena el primer edit de código: decilo y reintentá, **no grilles** (speed-bump de
+  una vez; en esta sesión frenó el edit de tests y se reintentó).
+- **Regla del espejo**: canónicos en raíz (`.claude/commands/*.md`, `.agents/skills/*/SKILL.md` —
+  comparten CUERPO, difieren en frontmatter), `cp` a los 3 scaffolds, regenerar los 3 manifests
+  (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`). **`tests/` y `docs/` NO
+  se espejan** (item 2 es solo `docs/TESTING.md`, sin manifests). Los manifests son **generados**.
+- **`diff` crudo miente por line endings** (CRLF root vs LF): la identidad de las 4 copias la validan
+  `mirror.tests.ps1` + `review-loop-incremental.tests.ps1` con hash **normalizado**, NO `diff`.
+- **Bash tool = Git Bash**: commits con `-m "..."` repetidos, nunca here-strings `@'...'@`. Tests =
+  Pester v3 con harness propio: FOREGROUND con redirect (`> out.txt 2>&1`, el background se mata acá)
+  y grepear `^FAIL:` / "TODOS LOS TESTS PASARON". `review-marker` tarda >2 min.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió commit explícito de la migración). **Nada a
+  Zoho.** **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de
+  diseño.** **Prefiere Opus 4.8 sobre Opus 5.** **Paraleliza todo lo posible.** Prefiere **cortar y
+  seguir en terminal nueva** — por eso este handoff.
+
+---
+
+# Session Handoff — 2026-08-24 parte 2 (MIGRACIÓN A AGNÓSTICO implementada test-first + VERDE — review-loop a MEDIO ARRANCAR: turno 1 con reviewers SIN despachar)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: DESPACHAR los 6 reviewers del turno 1 del review-loop
+
+Rama **`feat/marcador-de-revision`**, HEAD sigue **`4045903`** (NADA commiteado esta sesión). **Árbol
+sucio: 22 archivos** = 21 de la migración (16 docs + 3 manifests + 2 tests) + este handoff. **Suites
+verdes**: `slice-review`, `mirror`, `review-loop-incremental` (3/3). **Sin decisión pendiente del
+usuario** salvo continuar el loop.
+
+**Marcador**: `-Action range` = **`083268e8db51e011ca4e076890965ad56dc745a7`** (exit 0). **`-Action
+open` YA corrió** este turno (snapshoteó `083268e` como `slice-open`; es **write-once**, re-correrlo
+al retomar es no-op seguro). El marcador **NO se avanzó todavía** (el `advance` va DESPUÉS del review).
+
+### Lo PRIMERO que hay que hacer (continuar el turno 1 del review-loop)
+
+El loop quedó **a mitad del turno 1**: rango tomado + `open` hecho + diff capturado, pero **los
+reviewers NO se despacharon**. Continuar:
+
+1. **Re-tomar el rango** (`-Action range`) por si `083268e` fue podado (caería a slice-base; usar lo
+   que devuelva). Re-capturar el diff (el `$TEMP/slice.diff` de la sesión anterior NO sobrevive):
+   `git --no-pager diff <range> -- ':!*/assets/scaffold/*' ':!docs/SESSION_HANDOFF.md'`. **Sin
+   untracked.** Los scaffolds se excluyen del review a propósito: son **espejo byte-idéntico**
+   (verificado por md5 + `mirror.tests.ps1`); los manifests son **generados**. El diff canónico+tests
+   son ~239 líneas, muy por debajo de 400.
+2. **Despachar 6 focos en paralelo** (turno 1 lleva `--mutation`), solo lectura, un mensaje:
+   bugs/contratos/tests/confianza/**mutación** en **`opus`** (4.8), reglas/historia/**coherencia** en
+   **`sonnet`** — dogfoodeando el ruteo agnóstico recién migrado (el prompt dice "most capable"/"lighter",
+   el despacho real usa los modelos disponibles). **Mutación probablemente short-circuitea**: slice de
+   prosa (.md) + asserts (.ps1), sin lógica ejecutable propia que mutar (no toca `review-marker.ps1`).
+3. **`-Action advance`** SOLO si un reviewer corrió y devolvió reporte, **DESPUÉS del review y ANTES
+   de los fixes**. Fixear solo hallazgos reales (RED-first). Loop hasta cerrar limpio o cap 5.
+4. **Al cierre**: `/slice-review --coherence` (modelo liviano = `sonnet`, solo lectura) UNA vez;
+   en cierre **limpio** `-Action close`.
+
+### Qué hizo esta sesión (migración a modelo-agnóstico, test-first, SIN commit)
+
+**Intención del slice**: migrar el ruteo de modelos por foco de nombres pinneados (Opus 5 / Sonnet 5)
+a **tiers agnósticos sin versión**, preservando los DOS niveles. Frases elegidas: tier fuerte =
+**"the most capable model available"** (idéntica a la del foco de mutación, L215, que ya era
+agnóstica y fue el patrón); tier liviano = **"a lighter, faster model"**.
+
+1. **`slice-review.md` + SKILL (canónicos)** — 9 de-pins: párrafo "Models by focus" (reglas/historia
+   → liviano; bugs/contratos/tests → capaz + cláusula "do not pin a version"); los 5 tags inline de
+   los focos (`*(most capable model)*` / `*(lighter model)*`); confianza ("runs on the most capable
+   model available"); coherencia L311 ("on a lighter, faster model"). **L316-317 reword semántico**
+   (no swap): un swap literal daba "lighter rather than lighter"; ahora contrasta el tier liviano de
+   coherencia contra "the most capable one the logic reviewers use".
+2. **`review-loop.md` + SKILL (canónicos)** — **scope extendido** (no estaba en el plan original): la
+   descripción del pase de coherencia en la sección "At close" (L191) también pinneaba "on Sonnet 5"
+   → de-pinneada a "on a lighter, faster model". Es la MISMA feature; dejarla rompía el agnóstico
+   end-to-end (y la coherencia del propio slice). Un pin, cohesivo.
+3. **Espejo**: `cp` a los 3 scaffolds (16 docs con 1 md5 por artefacto), 3 manifests regenerados.
+4. **Tests (test-first, RED verificado antes)**:
+   - `slice-review.tests.ps1`: migró los 4 asserts de nombres pinneados a las frases agnósticas +
+     **guard anti-pin file-wide** nuevo (`-not ($txt -match '(?i)(opus|sonnet|haiku|claude|gpt)[- ]?\d')`)
+     — un pin reintroducido en CUALQUIER sección lo caza ("CLAUDE.md" y "0-100" no matchean).
+   - `review-loop-incremental.tests.ps1`: 2 asserts nuevos en el bloque `$closeSec` (no pinnea +
+     usa "a lighter, faster model").
+5. **Verificación**: barrido `grep` repo-wide confirmó **0 pins** en artefactos shippeados
+   (`.claude`, `.agents`, scaffolds; excluyendo `CLAUDE.md`/`claude-code`/manifests). 3 suites verdes.
+
+### Archivos modificados (22, sin commitear)
+
+`slice-review.md`+SKILL ×4 · `review-loop.md`+SKILL ×4 (=16 docs) · 3 manifests ·
+`tests/slice-review.tests.ps1` · `tests/review-loop-incremental.tests.ps1` · este handoff.
+
+### Antes de tocar código (crítico)
+
+- **Paso 1 (grill) NO aplica**: la decisión (agnóstico, dos tiers, sin pin) ya estaba tomada. El
+  `alignment-gate` frenará el primer edit de código en la sesión nueva (es una sesión fresca): **decilo
+  y reintentá, NO grilles** (pasó esta sesión, es speed-bump de una vez).
+- **⚠️ Line-wrap** (costó 2 rondas esta sesión): los asserts son `-match` sin singleline. Cualquier
+  frase asertada ("the most capable model available", "a lighter, faster model") **partida en 2 líneas**
+  por el reflow a ~100 col FALLA. Al editar, mantener la frase asertada contigua en una sola línea.
+- **Regla del espejo**: canónicos en raíz (`.claude/commands/*.md`, `.agents/skills/*/SKILL.md` —
+  comparten CUERPO, difieren en frontmatter), `cp` a los 3 scaffolds, regenerar los 3 manifests
+  (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`). 1 md5 por artefacto entre
+  las 4 copias. Los manifests son **generados**.
+- **Bash tool = Git Bash**: commits con `-m "..."` repetidos, nunca here-strings `@'...'@`. Tests =
+  **Pester v3** con harness propio: correr en FOREGROUND con redirect (`> out.txt 2>&1`, el background
+  se mata acá) y grepear `^FAIL:` / "TODOS LOS TESTS PASARON". (`review-marker` tarda >2 min; las otras
+  ~30-90s.)
+- **Reviewers en SOLO LECTURA** en subagentes paralelos; `git status` antes de creerle a un hallazgo.
+  Marcador: `open` (write-once) ya corrió; `advance` DESPUÉS del review y ANTES de los fixes; la
+  coherencia NO avanza; `close` solo en cierre limpio tras la coherencia.
+- **Commit (cuando el usuario lo pida)**: el loop corre sobre el árbol SIN commitear, así que un commit
+  al final NO necesita el trailer para "disparar" el loop (ya corrió). Con trailer `Slice-Close:` el
+  hook re-dispararía y `range` saldría del delta post-advance. Decidir con el usuario; sugerido
+  `feat(review-loop): ruteo de modelos agnóstico en slice-review/review-loop` — **preguntar** si con o
+  sin trailer.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.** **Nada a Zoho.** **Impacto medido antes de cambiar el proceso.**
+  **Decidir lo técnico, preguntar lo de diseño.** **Prefiere Opus 4.8 sobre Opus 5.** **Paraleliza
+  todo lo posible.** Prefiere **cortar y seguir en terminal nueva** — por eso este handoff.
+
+### Roadmap restante (después de cerrar esta migración)
+
+- **A1b** (elección de base / 15 hallazgos + nudo de diseño), cuando se quiera.
+- **A7** (`07-sellar-y-deployar.md`, `ready-for-human`): deploy a `~/.claude/skills` + resellar el
+  `.bootstrap-manifest.json` de la RAÍZ. **Requiere presencia humana.** Al final.
+- Pendientes de fondo (Low): `docs/TESTING.md` sin sección para esta migración; PRDs/issues en
+  `.scratch/` gitignoreado; `copy-scaffold.ps1` pisa el `.gitignore` del destino; `core.autocrlf` con
+  hashes mixtos en manifests. **Forecasting App**: al upgradear, llevar la regla de afirmaciones (A6).
+
+---
+
+# Session Handoff — 2026-08-24 (A4c CERRADO: implementado + review-loop limpio 2 turnos + coherencia + close dogfoodeado + COMMITEADO — próximo: migración a agnóstico o A7)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: SLICE de migración a modelo-agnóstico (elegido), o A7 (deploy, con humano)
+
+Rama **`feat/marcador-de-revision`**, HEAD **`4045903`** (`fix(review-loop): correcciones del
+review-loop sobre A4c`, sin trailer). **Árbol limpio salvo este handoff.** El marcador se avanzó a
+HEAD al cerrar: **`-Action range` sale VACÍO + exit 0** = nada sin revisar. **Sin pushear.** **No hay
+decisión pendiente del usuario** salvo arrancar el próximo slice.
+
+```
+4045903  fix(review-loop): correcciones del review-loop sobre A4c        <- fixes del loop (sin trailer)
+e38115f  feat(review-loop): A4c — limpiar el ancla slice-open al cierre limpio   <- Slice-Close: A4c
+6cccea9  fix(review-loop): correcciones del review-loop sobre A6
+```
+
+### Qué hizo esta sesión
+
+1. **Grill de A4c CERRADO** (paso 1): decisiones firmadas en
+   `.scratch/review-cost-redesign/issues/04c-limpieza-del-slice-open-al-cierre.md` (sección
+   "Decisiones del grill", status `ready-for-agent`). Se descartó el candidato 2 (guard por
+   ancestría: no distingue re-corrida de slice-nuevo). Elegido candidato 1: verbo `close` + `open`
+   write-once + borrar solo en cierre limpio. **ADR-0002 nuevo** (`docs/adr/0002-limpieza-del-ancla-de-coherencia.md`).
+2. **Implementó A4c test-first** (`e38115f`, `Slice-Close: A4c`): **7º verbo `-Action close`** en
+   `review-marker.ps1` (borra `slice-open:<branch>`, idempotente, exit 0, sin cuarentena `.bad`
+   porque un estado corrupto lo devuelve `Read-State` como `@{}` y sale antes de escribir); **`open`
+   write-once**; `/review-loop` llama `close` **solo en cierre limpio, tras la coherencia, nunca en
+   cap** (sección "At close" de `review-loop.md`/SKILL). Espejo ×4 + 3 manifests. `docs/TESTING.md`
+   sección A4c + fix del conteo de verbos (4→7).
+3. **Dogfoodeó A4c con el `/review-loop` y cerró LIMPIO** (`4045903`, sin trailer):
+   - **Turno 1** (6 focos, incl. mutación): 5 hallazgos reales fixeados. **(A)** el write-once original
+     no-opeaba solo si el ancla *resolvía* → un ancla stale/irresoluble se sobreescribía con el
+     marcador ya avanzado = **under-scope**; fix: no-op sobre la **PRESENCIA** de la clave (RED→GREEN).
+     **(B)** ADR-2 afirmaba cuarentena `.bad` en `close` (falsa, A6, triple-converge) → corregido.
+     **(C)** header de verbos sin `close`/write-once → agregado. **(E)** `CONTEXT.md` glosario "cierre
+     de slice" (limpio/cap) + línea de estado stale → actualizado. **(F)** test de `close` sobre estado
+     corrupto → **mata al mutante M8** (verificado: RED al quitar el guard `ContainsKey`). Mutantes M3/M4
+     descartados por equivalentes (salida muerta de `open`, loop fire-and-forget).
+   - **Turno 2** (3 focos: bugs+contratos, afirmaciones/A6 sobre los docs, tests): **cero medium/high**.
+     2 Low: dejé el assert `.bad` (guarda direccional de la decisión del ADR), saqué un assert
+     tautológico.
+   - **Coherencia** (Sonnet, sobre el slice A4c real desde `6cccea9` — `slice-base` daba `b4223d0`, el
+     ancla legacy over-scopeada de A5/A6 que cerraron con el loop viejo sin `close`): **EL SLICE COHERE**,
+     5 AC trazados. Único gap: 2 casos de test sin listar en `TESTING.md` → corregido.
+   - **Cierre = dogfood en vivo**: `-Action close` **borró el ancla legacy `b4223d0`** → el próximo
+     slice ancla fresco. El mecanismo de A4c se validó sobre sí mismo.
+4. **Suites finales verdes**: `review-marker`, `review-loop-incremental`, `mirror`, `slice-review`,
+   `regla-de-afirmaciones` (5/5).
+
+### Roadmap restante — 2 items
+
+- **Migración a modelo-agnóstico** (SLICE elegido esta sesión, NO empezado): `slice-review.md` Step 4
+  todavía hardcodea "Opus 5"/"Sonnet 5" por foco (líneas ~134-165 + 311/317 de coherencia; la 215 de
+  mutación YA es agnóstica y es el patrón a copiar). **Decisión del usuario 2026-08-24: ruteo
+  AGNÓSTICO** ("most capable model available" para bugs/contratos/tests/confianza/mutación; "a
+  lighter, faster model" para reglas/historia/coherencia — preservar los DOS niveles, sin pin de
+  versión). Self-contained, bajo riesgo, **no necesita grill** (es técnico). Toca `slice-review.md` +
+  SKILL ×4 + 3 manifests + quizás `tests/slice-review.tests.ps1` si asERTa nombres de modelo (chequear
+  primero). **NO toca los archivos de A4c → sin conflicto de espejo.** El paso 1 (grill) NO aplica;
+  si el `alignment-gate` frena el primer edit, decilo y reintentá.
+- **A7** (`07-sellar-y-deployar.md`, `ready-for-human`): deploy a `~/.claude/skills` + resellar el
+  `.bootstrap-manifest.json` de la **RAÍZ**. **Requiere presencia humana.** Va al final.
+
+Pendientes de fondo (Low): PRDs/issues en `.scratch/` gitignoreado; `copy-scaffold.ps1` pisa el
+`.gitignore` del destino; `core.autocrlf` con hashes mixtos en manifests. **Forecasting App**: al
+upgradear ese repo, llevar la regla de afirmaciones (A6) y evaluar el resto del scaffold nuevo.
+
+### Antes de tocar código (crítico)
+
+- **A4c CERRADO.** El próximo slice (migración) tiene el paso 1 (grill) **NO aplicable** (es técnico,
+  decisión ya tomada): si el `alignment-gate` frena el primer edit, decilo y reintentá, **no grilles**.
+- **Regla del espejo de slice-review**: canónico en **raíz** (`.claude/commands/slice-review.md`,
+  `.agents/skills/slice-review/SKILL.md` — comparten CUERPO, difieren en frontmatter), `cp` a los 3
+  scaffolds, regenerar los 3 manifests (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir
+  skills/<skill>`). 1 md5 por artefacto entre las 4 copias. Los manifests son **generados**.
+- **Bash tool = Git Bash**, NO PowerShell: mensajes de commit con `-m "..."` repetidos, nunca
+  here-strings `@'...'@`. Tests son **Pester v3** con harness propio `ok:`/`FAIL:`: correr
+  `pwsh -NoProfile -File tests/<t>.tests.ps1` en FOREGROUND con redirect (`> out.txt 2>&1`, el
+  background se mata acá) y grepear `^FAIL:` / "TODOS LOS TESTS PASARON". **La suite `review-marker`
+  tarda >2 min** — usar timeout 420000.
+- **Reviewers en SOLO LECTURA** en subagentes paralelos; `git status` antes de creerle a un hallazgo.
+  El marcador **avanza DESPUÉS de cada review y ANTES de los fixes**; `-Action open` (turno 1) y la
+  coherencia NO avanzan; `-Action close` corre solo en cierre limpio tras la coherencia.
+- **Modelo por foco (para el review-loop de la migración)**: como la migración cambia justamente ese
+  ruteo en el prompt, para *dogfoodear* usá los modelos disponibles vía Agent tool (`opus`=4.8 para
+  bugs/contratos/tests/mutación/confianza, `sonnet` para reglas/historia/coherencia) — el prompt
+  agnóstico y el despacho real conviven.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió commit explícito de A4c y de los fixes del loop).
+  **Nada a Zoho.** **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo
+  de diseño** (modelo/costo/scope). **Prefiere Opus 4.8 sobre Opus 5.** **Paraleliza todo lo posible.**
+  Prefiere **cortar y seguir en terminal nueva** — por eso este handoff.
+
+---
+
+# Session Handoff — 2026-08-23 (A5 fixes COMMITEADOS + A6 IMPLEMENTADO y review-loop CERRADO LIMPIO + COHERE — próximo: A4c o A7)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: elegir A4c (grill) o A7 (deploy, con humano)
+
+Rama **`feat/marcador-de-revision`**, HEAD **`6cccea9`** (`fix(review-loop): correcciones del
+review-loop sobre A6`, sin trailer). **Árbol limpio salvo este handoff.** Marcador: **`-Action range`
+sale VACÍO + exit 0** = nada sin revisar (el loop de A6 cerró). slice-base = `b4223d0`. **Sin
+pushear.** **No hay decisión pendiente del usuario** salvo elegir el próximo slice.
+
+```
+6cccea9  fix(review-loop): correcciones del review-loop sobre A6   <- fix del loop (sin trailer)
+12242bc  feat(review-loop): A6 — regla de afirmaciones             <- Slice-Close: A6
+dfb2dc6  fix(review-loop): correcciones del review-loop sobre A5   <- fixes de A5 (sin trailer)
+89360a0  feat(review-loop): A5 — foco de mutacion acotada          <- Slice-Close: A5
+```
+
+### Qué hizo esta sesión
+
+1. **Commiteó los 12 fixes del review-loop de A5** (`dfb2dc6`, sin trailer) tras verificar
+   `slice-review`+`review-loop-incremental`+`mirror` en verde. (Ojo: el primer intento salió con `@`
+   de subject por usar sintaxis PowerShell `@'...'@` en la **Bash tool** (Git Bash) — corregido con
+   `--amend`. En la Bash tool usar `-m "..."` múltiples, no here-strings de PowerShell.)
+2. **Implementó A6 test-first** (`12242bc`, `Slice-Close: A6`): la **regla de afirmaciones**. Dos
+   puntos, cero agentes dedicados: (a) una regla dura en las Hard rules de las **4 CLAUDE.md** (repo
+   + 3 scaffolds; edición separada, divergen por allowlist del mirror) — *"Write a verifiable claim
+   only after verifying it. An assertion … is written only if it was verified; if you did not verify
+   it, do not write it."*; (b) una línea en el **reviewer de contratos** (foco 4 de Step 4 de
+   slice-review) — *"Also flag unverified assertions — a comment, docstring, or commit message that
+   states as fact something the diff does not support"* — espejada byte-idéntica en las 4 copias.
+   Test nuevo `tests/regla-de-afirmaciones.tests.ps1` (RED 16→GREEN). 3 manifests regenerados.
+3. **Dogfoodeó A6 con el `/review-loop` y cerró LIMPIO**:
+   - **Turno 1** (6 focos, incl. mutación): **1 Medium** (foco tests) — el comentario del test
+     afirmaba que `mirror.tests.ps1` verifica la byte-identidad de las 4 copias de slice-review, pero
+     mirror **solo compara los 3 scaffolds** (no la copia del repo). Afirmación no verificada en un
+     comentario, justo lo que A6 ataca. **Fixeado** (`6cccea9`): la byte-identidad de las 4 copias la
+     verifica **`review-loop-incremental.tests.ps1:211-226`** (verificado). El "gap de cobertura" que
+     el reviewer infería se **descartó por confianza (<60)**: no existe, review-loop-incremental la
+     cubre. Bugs/reglas/historia/contratos: sin hallazgos. **Mutación short-circuiteó** (slice de
+     prosa + presence-test, sin lógica ejecutable que mutar; sin worktree).
+   - **Turno 2** (delta = el fix del comentario): **limpio** (un reviewer verificó las 3 afirmaciones
+     del comentario nuevo contra el código real, todas verdaderas).
+   - **Pase de coherencia** (Sonnet, slice completo desde slice-base `b4223d0`): **EL SLICE COHERE**
+     — los 7 AC trazados y cumplidos.
+   - Suites finales verdes: `regla-de-afirmaciones`, `slice-review`, `mirror`, `review-loop-incremental`.
+4. **Follow-up de Forecasting App anotado, no aplicado** (AC7): en el issue de A6 + ya lo cubre la
+   regla existente del CLAUDE.md del repo ("Si cambiás el CLAUDE.md template, evaluá si aplica al
+   CLAUDE.md real de Forecasting App"). Agregar la regla de afirmaciones allá al upgradear ese repo.
+
+### Roadmap restante — elegir próximo slice
+
+- **A4c** (`04c-limpieza-del-slice-open-al-cierre.md`, status `needs-info`): el verbo `close`/`clear`
+  del marcador (follow-up del hallazgo B de A4b). **Necesita GRILL primero** (el mecanismo/semántica
+  del verbo NO está decidido) → el `alignment-gate` acá SÍ debe correr el grill (a diferencia de
+  A1–A6, cerrados). Es un caso off-workflow de segundo orden.
+- **A7** (`07-sellar-y-deployar.md`): deploy a `~/.claude/skills` + resellar el `.bootstrap-manifest.json`
+  de la **RAÍZ** del repo. **Requiere presencia humana.** Va al final del track.
+- **A1b** cuando se quiera (15 hallazgos + nudo de diseño). **Track B** (B1/B2) lo lleva el usuario en
+  otra terminal, vence **10/9**.
+- Pendientes de fondo: `docs/TESTING.md` sin actualizar desde A2b (A3–A6 agregaron tests sin sección
+  "Testeo de…"; Low, no urgente); la migración del esquema modelo-por-foco viejo ("Opus 5"/"Sonnet 5"
+  en slice-review Step 4) a agnóstico es SU PROPIO slice; PRDs/issues en `.scratch/` gitignoreado;
+  `copy-scaffold.ps1` pisa el `.gitignore` del destino; `core.autocrlf` con hashes mixtos en manifests.
+
+### Antes de tocar código (crítico)
+
+- **A6 CERRADO** (implementado + loop + coherencia). Para **A4c el grill NO está cerrado**: si el
+  `alignment-gate` frena el primer edit, **ofrecé/hacé el grill** (no reintentes a ciegas). Para A7,
+  el paso 1 es operativo (deploy), no diseño.
+- **Regla del espejo de slice-review**: canónico en **raíz** (`.claude/commands/slice-review.md`,
+  `.agents/skills/slice-review/SKILL.md` — comparten CUERPO, difieren en frontmatter), `cp` a los 3
+  scaffolds, regenerar los 3 manifests (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir
+  skills/<skill>`). 1 md5 por artefacto entre las 4 copias (command y SKILL dan hashes DISTINTOS
+  entre sí, iguales dentro de cada tipo). Las **CLAUDE.md divergen** (allowlist del mirror): editar
+  las 4 por separado. Los manifests son **generados**, no a mano.
+- **Bash tool = Git Bash**, NO PowerShell: para mensajes de commit usar `-m "..."` repetidos, nunca
+  `@'...'@`. Pester acá es **v3**: los tests usan su propio harness `ok:`/`FAIL:`, correr con
+  `pwsh -NoProfile -File tests/<t>.tests.ps1` y grepear `^FAIL:` / "TODOS LOS TESTS PASARON" (no
+  `Invoke-Pester -Output`). Correr en FOREGROUND con redirect (el background se mata en este entorno).
+- **Reviewers en SOLO LECTURA** en subagentes paralelos; `git status` antes de creerle a un hallazgo.
+  Modelo por foco: bugs/contratos/tests Opus, reglas/historia/coherencia Sonnet; mutación "most
+  capable available". El marcador **avanza DESPUÉS de cada review y ANTES de los fixes**; `-Action
+  open` (turno 1) y la coherencia NO avanzan.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión pidió commit explícito de los fixes de A5, de A6 y
+  del fix del loop de A6). **Nada a Zoho.** **Impacto medido antes de cambiar el proceso.** **Decidir
+  lo técnico, preguntar lo de diseño** (modelo/costo/scope). **Prefiere Opus 4.8 sobre Opus 5.**
+  Prefiere **cortar y seguir en terminal nueva** — por eso este handoff.
+
+---
+
+# Session Handoff — 2026-08-20 (A4b CERRADO + A5 IMPLEMENTADO y review-loop CERRADO LIMPIO — próximo: COMMIT de los fixes de A5 + A6/A4c)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: COMMITEAR los fixes del review-loop de A5 (sin trailer)
+
+Rama **`feat/marcador-de-revision`**, HEAD **`89360a0`** (`feat(review-loop): A5 — foco de mutacion
+acotada`, con trailer `Slice-Close: A5`). **Árbol sucio: 13 archivos** = 12 de los fixes del
+review-loop de A5 (turnos 1-2) + este handoff. Marcador en **`b4223d0`**; **`-Action range` sale
+VACÍO + exit 0** = nada sin revisar (el loop cerró). **slice-base = `b3e4eae`** = inicio de A5.
+
+**El review-loop de A5 CERRÓ LIMPIO en el turno 3 + la coherencia COHERE.** No hay decisión pendiente
+del usuario salvo pedir el commit. El usuario cortó acá para seguir en terminal nueva.
+
+### Lo PRIMERO que hay que hacer
+
+**Commitear los 12 fixes del loop de A5**, SIN trailer (para no re-disparar el hook). Sugerido:
+`fix(review-loop): correcciones del review-loop sobre A5`. Los 12 archivos:
+`.claude/commands/slice-review.md` + `.agents/skills/slice-review/SKILL.md` (canónicos) · 3 scaffolds
+× (slice-review.md + SKILL.md + `.bootstrap-manifest.json`) = 9 · `tests/slice-review.tests.ps1`.
+(`review-loop.md`/SKILL NO se tocaron en los fixes — ya fueron en `89360a0`.) El handoff va aparte.
+**Verificá antes**: `slice-review` + `review-loop-incremental` + `mirror` en verde (lo estaban al
+cerrar; corré en FOREGROUND con redirect, el background se mata en este entorno).
+
+### Qué hizo esta sesión
+
+1. **Cerró el review-loop de A4b** (venía a medio cerrar): turno 3 limpio + pase de coherencia
+   COHERE. **Hallazgo B → slice propio A4c** (decisión del usuario): issue nuevo
+   `.scratch/review-cost-redesign/issues/04c-limpieza-del-slice-open-al-cierre.md` (`needs-info`,
+   necesita grill del verbo `close`/`clear`). Commiteó los fixes de A4b (`8a50124`, sin trailer).
+2. **Grill de A5 CERRADO** (paso 1): 8 decisiones firmadas en
+   `.scratch/review-cost-redesign/issues/05-mutacion-acotada.md` (sección "Decisiones del grill",
+   status `ready-for-agent`). Reencuadres clave del grill (leer el issue): (a) el gate "solo turno 1"
+   lo dueña `/review-loop` vía flag `--mutation`, no el foco; (b) el worktree se construye del
+   **estado vivo** (`git stash create` + copiar untracked), NO del SHA del marcador (que no captura
+   untracked y en turno 1 apunta al inicio del slice); (c) modelo **agnóstico** ("most capable model
+   available"), no pin — Martín volvió a Opus 4.8; (d) mutación **on-by-default** en el turno 1 del
+   loop (opción A), a MEDIR en la primera corrida real.
+3. **Implementó A5 test-first** (`89360a0`, `Slice-Close: A5`): 6º foco `## Mutation focus` en
+   `/slice-review` (worktree aislado, ≤8 mutantes uno-a-la-vez, test relevante del diff,
+   sobreviviente=Medium, equivalentes descartados por confianza <60) + ruteo `--mutation` en Step 1 +
+   despacho en Step 4; `/review-loop` pasa `--mutation` solo en turno 1. 269 líneas de lógica (bajo
+   el techo). Espejo 4 copias + 3 manifests.
+4. **Dogfoodeó A5 sobre sí mismo** con el `/review-loop` (la validación en vivo): **cerró LIMPIO en
+   el turno 3**. Turno 1 (6 reviewers, incl. el foco de mutación nuevo): 7 hallazgos reales fixeados
+   (ver abajo). Turno 2 (2 reviewers): 1 Medium fixeado (la excepción de escritura concedía ubicación
+   pero no mecanismo → ahora dice "may use file-editing tools ... only inside `$tmp`"). Turno 3
+   (contratos): LIMPIO. Pase de coherencia (Sonnet): **EL SLICE COHERE**.
+   - **Medición del foco de mutación (dogfood)**: en un slice de PROSA (A5 es prompts) el foco
+     short-circuitea correctamente ("sin lógica ejecutable que mutar", ~76s, no creó worktree). La
+     medición real de tiempo del mutate-run-revert **sigue pendiente** de un slice con código real.
+
+### Los 7 hallazgos del turno 1 (todos fixeados, RED-verificados)
+
+Todos en la sección/ruteo de mutación de `slice-review.md`+SKILL y sus tests:
+1. `--coherence` gana no estaba enforced (Step 1 chequeaba igualdad exacta) → el bloque `--mutation`
+   ahora resuelve `--coherence` primero. 2. la prohibición de escritura contradecía al foco (no podía
+   mutar) → excepción tallada. 3. `$tmp` sin asignar → `$tmp = Join-Path $env:TEMP "sr-mutation-$PID"`.
+   4. worktree sin deps gitignoradas (JS/Python) → declara "could not execute" en vez de falso limpio.
+   5. guard anti-pin solo cazaba "Opus 5" → `(opus|sonnet|haiku|claude|gpt)[- ]?\d`. 6. `8 mutants`
+   no anclaba a "at most" → `at most\s+8 mutants`. 7. assert standalone usaba `$txt` → `$s1`.
+   Descartado (<60): techo de 400 (755 crudas pero ~187 lógica única; espejos no cuentan, práctica
+   del proyecto). Low no fijado: el regex anti-pin no cubre Gemini/Llama/o3/Grok (solo Anthropic+GPT).
+
+### Antes de tocar código (crítico)
+
+- **Paso 1 (grill) de A5 CERRADO.** Si el `alignment-gate` frena el primer edit: decilo y reintentá,
+  **no re-grilles** (pasó esta sesión, speed-bump de una vez).
+- **Regla del espejo de slice-review**: canónico en **raíz** (`.claude/commands/slice-review.md`,
+  `.agents/skills/slice-review/SKILL.md` — comparten el CUERPO, difieren en frontmatter), `cp` a los
+  3 scaffolds (`skills/bootstrap-*/assets/scaffold/...`), regenerar los 3 manifests
+  (`pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`). Verificar 1 solo md5 por
+  archivo across las 4 copias. **Cuidado con line-wraps**: los asserts son `-match` sin singleline;
+  una frase asertada partida en 2 líneas por el reflow a ~100 col falla (pasó ~6 veces esta sesión).
+- **Reviewers en SOLO LECTURA** en subagentes paralelos, con la prohibición "reviewer, not an editor"
+  en el contexto compartido. `git status` antes de creerle a un hallazgo. Modelo por foco:
+  bugs/contratos/tests Opus, reglas/historia/coherencia Sonnet. El foco de mutación: "most capable
+  available" (= Opus 4.8 hoy).
+- **⚠️ Los tests en BACKGROUND se matan en este entorno.** Correr en FOREGROUND redirigiendo a
+  archivo (`... > out.txt 2>&1`) y grepear. La suite `review-loop-trigger` sola tarda >2 min (correrla
+  con timeout 400000); las otras van con 240000.
+- **El marcador avanza DESPUÉS de cada review y ANTES de los fixes.** `-Action open` (turno 1) NO
+  avanza. El pase de coherencia NO avanza.
+
+### Preferencias del usuario (vigentes — 2 nuevas esta sesión, en memoria)
+
+- **No commitear sin que lo pida.** **Nada a Zoho.** **Impacto medido antes de cambiar el proceso.**
+  Prefiere **cortar y seguir en terminal nueva**.
+- **NUEVO — Prefiere Opus 4.8 sobre Opus 5** (`memory/prefiere-opus-4-8-sobre-opus-5.md`): volvió a
+  4.8, termina más rápido; Opus 5 le daba muchas vueltas. Al hardcodear "Opus 5" en skills, preguntar
+  si cambiar a 4.8 o dejar agnóstico.
+- **NUEVO — Decidir lo técnico, preguntar lo de diseño** (`memory/decidir-tecnico-preguntar-diseno.md`):
+  en preguntas técnicas confía en mi recomendación (decidir yo); elevar a pregunta solo diseño/
+  producto/preferencia (modelo, costo/tiempo, scope).
+
+### Roadmap restante
+
+**Commit de los fixes de A5** (arriba) → **A6** (`06-regla-de-afirmaciones.md`) o **A4c** (grill del
+verbo `close`/`clear`, follow-up de A4b). **A7 al final** (`07-sellar-y-deployar.md`: deploy a
+`~/.claude/skills` + resellar el `.bootstrap-manifest.json` de la RAÍZ; requiere presencia humana).
+**A1b** cuando se quiera. **Track B** (B1/B2) lo lleva el usuario en otra terminal, vence **10/9**.
+Pendientes de fondo: la migración del esquema modelo-por-foco viejo ("Opus 5"/"Sonnet 5" en
+`slice-review.md` Step 4) a agnóstico es SU PROPIO slice (no se hizo en A5, a propósito); PRDs/issues
+en `.scratch/` gitignoreado; `copy-scaffold.ps1` pisa el `.gitignore` del destino; `core.autocrlf`
+con hashes mixtos en manifests.
+
+---
+
+# Session Handoff — 2026-08-19 parte 3 (A4b COMMITEADO + review-loop turnos 1-2 corridos — próximo: DECIDIR B + cerrar el loop)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: DECISIÓN sobre el hallazgo B, después cerrar el loop
+
+Rama **`feat/marcador-de-revision`**, HEAD **`c80241e`** (A4b commiteado con trailer `Slice-Close: A4b`;
+el hook disparó el `/review-loop`). **Árbol sucio**: 16 archivos modificados (los fixes de los turnos
+1-2 del loop) + este handoff. Suite A4b **4/4 verde** (`mirror`, `review-marker`, `slice-review`,
+`review-loop-incremental`). Marcador en **`35d625a`**; delta sin revisar (turno 3) = **solo
+`tests/review-marker.tests.ps1`** (una línea de assert, trivial). **`-Action slice-base` = `f86d1eb`
+= arranque de A4b** → el anclaje de la coherencia funciona EN VIVO (no toma la rama entera). **NO
+commiteado** (loop a medio cerrar + B sin decidir; el usuario pidió seguir en terminal nueva).
+
+### 🔴 Decisión pendiente del usuario: el hallazgo B (Medium, confianza 62)
+
+**B: `open` sobreescribe `slice-open` sin guard → under-scope al re-correr `/review-loop` sobre un
+slice SIN cerrar.** `review-marker.ps1:267` escribe `slice-open:$branch` incondicionalmente y ningún
+verbo lo limpia al cierre. Si el loop agota el cap de 5 turnos SIN cerrar limpio y alguien re-corre
+`/review-loop` sobre el MISMO slice, el turno-1 `open` re-snapshotea el marcador YA avanzado → la
+coherencia ancla más tarde y lee MENOS que el slice (la dirección "under-scope" que el diseño llama
+peligrosa). **Fuertemente acotado**: nunca dispara en el flujo normal un-loop-por-slice; la coherencia
+a scope completo YA corre en el primer cap-close ANTES de cualquier re-corrida; re-correr un slice sin
+cerrar es off-workflow. **El fix correcto es mecanismo NUEVO** (un verbo `close`/`clear` atado al
+trailer `Slice-Close:` + `open` write-once-hasta-limpiar) — un write-once naive ROMPE el flujo
+multi-slice (cada slice nuevo DEBE re-snapshotear). Fuera del scope de A4b (que es solo *anclaje*).
+**Opciones**: (a) extender A4b ahora con el verbo `close`; (b) abrir slice propio **A4c**; (c)
+aceptarlo como límite conocido documentado. **Mi recomendación: (b) o (c)** — es off-workflow y de
+segundo orden, y "impacto medido antes de cambiar el proceso" desaconseja meter mecanismo nuevo a
+mitad de slice. **Es tu llamada.**
+
+### Después de decidir B: cerrar el loop
+
+1. **Turno 3** (trivial): el delta sin revisar es solo el assert positivo que agregué en el turno 2
+   (`open registra el marcador como slice-open`). Ya está RED/green-verificado por mutación (key-swap
+   y early-exit). Un reviewer enfocado de tests lo cierra en un toque, o se pliega.
+2. **Pase de coherencia** (`/slice-review --coherence`) UNA vez al cierre. Anclará en `slice-base` =
+   `f86d1eb` = **solo A4b** (dogfoodea el propio fix de A4b). Sonnet 5, solo lectura.
+3. **Commitear los fixes del loop** cuando el usuario lo pida. Sugerido: `fix(review-loop):
+   correcciones del review-loop sobre A4b`, **SIN trailer** (para no re-disparar el hook). Si B se
+   arregla acá, mencionarlo; si va a A4c, dejarlo fuera.
+
+### Qué hizo esta sesión (commit A4b + review-loop turnos 1-2)
+
+1. **Commiteó A4b** (`c80241e`, trailer `Slice-Close: A4b`) tras verificar la suite 4/4. El hook
+   `review-loop-trigger` disparó la orden de correr `/review-loop`.
+2. **Dogfoodeó A4b sobre sí mismo**: turno 1 corrió `-Action open` → snapshoteó `f86d1eb` como
+   `slice-open` → `slice-base` pasó de `43166da` (base de rama) a `f86d1eb` (arranque de A4b). **El
+   fix de A4b validado en vivo.**
+3. **Turno 1** (5 reviewers, modelo por foco; pase de confianza en Opus, 0 descartados): 3 Medium
+   (B, C, D) + 2 Low (A, F).
+   - **A (Low, conf 92)** — bloque de cuarentena `.bad` en `open` era **código muerto inalcanzable**
+     (`$sha` sale del estado ya leído; estado corrupto = vacío → sale en el guard antes) + comentario
+     falso "same quarantine as advance". **FIXEADO**: borrado el bloque, comentario correcto.
+   - **C (Medium, conf 85)** — ningún test que `open` preserve `untracked:`/dedupe del hook (mutación
+     "escribir solo slice-open" quedaba verde). **FIXEADO**: bloque de test nuevo, RED-verificado.
+   - **D (Medium, conf 85)** — ningún test que `open` NO avance el marcador (si avanzara, el próximo
+     `range` cerraría sin revisar). **FIXEADO** en el mismo bloque, RED-verificado.
+   - **F (Low, conf 68)** — el caveat amend/rebase nombraba `<branch-base>` sin decir cómo obtenerlo
+     (y `slice-base` devuelve el snapshot stale ahí). **FIXEADO**: apunta a `-Action base`.
+   - **B (Medium, conf 62)** — NO fixeado, ver arriba (decisión del usuario).
+4. **Turno 2** (3 reviewers enfocados): bugs+contratos **limpio**, mirror+reglas **limpio**, tests
+   marcó un Medium (mi bloque C/D no asertaba el positivo `open escribió slice-open`). **Verificado
+   empíricamente** que las 2 mutaciones que nombraba (key-swap y early-exit) **ya las mata el tracer
+   apilado adyacente** (`slice-base -eq $m1`, línea 607) → "already handled elsewhere". Aun así
+   agregué el assert positivo (bloque auto-contenido), RED/green-verificado.
+5. **Regla del espejo respetada**: 4 copias byte-idénticas del marcador y de slice-review .md/SKILL,
+   3 manifests regenerados con `tools/gen-manifest.ps1`. `tests/` no se espeja.
+
+### Archivos modificados (sin commitear, 16)
+
+`review-marker.ps1` ×4 · `slice-review.md`+SKILL ×4 (=8) · 3 manifests · `tests/review-marker.tests.ps1`.
+(review-loop.md/SKILL NO se tocaron este turno.) + este handoff.
+
+### Antes de tocar código (crítico)
+
+- **Paso 1 (grill) de A4b CERRADO.** Si el `alignment-gate` frena el primer edit: decilo y reintentá,
+  **no re-grilles** (pasó esta sesión, es speed-bump de una vez).
+- **Regla del espejo del marcador**: la copia que leen los tests es **`bootstrap-personal-project`**
+  (`tests/review-marker.tests.ps1:5`); editar ahí, mutar/restaurar ahí, y espejar a raíz + otras 2
+  (byte-idénticas, la raíz también) con `cp`, después `md5sum` para confirmar 1 solo hash. slice-review
+  .md/SKILL: canónico en **raíz** (`.claude/commands/`, `.agents/skills/`), `cp` a 3 scaffolds.
+  Regenerar los 3 manifests: `pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir skills/<skill>`.
+- **⚠️ Los tests en BACKGROUND se MATARON dos veces en este entorno** (status `killed`, sin output).
+  Correr las suites en **FOREGROUND redirigiendo a un archivo** (`... > out.txt 2>&1`) y después
+  `grep` el archivo. Timeout amplio (240000). Las 4 suites de A4b juntas tardan ~1-2 min.
+- **Reviewers en SOLO LECTURA** en subagentes paralelos; `git status` antes de creerle a un hallazgo.
+  Modelo por foco: bugs/contratos/tests Opus, reglas/historia/coherencia Sonnet.
+- **Cada fix con RED verificado ANTES** (mutar la copia personal, ver `FAIL:`, restaurar). Verificado
+  esta sesión: mutante-D (avanza marcador), mutante-C (borra claves), mutante key-swap (slice-open→marker).
+- **El marcador avanza DESPUÉS de cada review y ANTES de los fixes.** `-Action open` NO avanza (snapshotea).
+  Esta sesión: avanzó `f86d1eb`→`c80241e` (turno 1) y `c80241e`→`35d625a` (turno 2).
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.** **Nada va a Zoho.** **Impacto medido antes de cambiar el proceso**
+  (aplica a la decisión de B). Prefiere **cortar y seguir en terminal nueva** — por eso este handoff.
+
+### Roadmap restante
+
+**Cerrar el loop de A4b** (decidir B → turno 3 + coherencia → commit) → A5 (mutación acotada,
+`05-mutacion-acotada.md`) → A6 (`06-regla-de-afirmaciones.md`) → **A7 al final**
+(`07-sellar-y-deployar.md`: deploy a `~/.claude/skills` + resellar el `.bootstrap-manifest.json` de la
+RAÍZ; requiere presencia humana). **A1b** cuando se quiera (15 hallazgos + nudo de diseño). **Track B**
+(B1/B2) lo lleva el usuario en otra terminal, vence **10/9**. Pendientes de fondo: PRDs/issues en
+`.scratch/` gitignoreado; `copy-scaffold.ps1` pisa el `.gitignore` del destino; `core.autocrlf` con
+hashes mixtos en manifests.
+
+---
+
 # Session Handoff — 2026-08-19 parte 2 (A4b IMPLEMENTADO test-first, SIN COMMITEAR — próximo: commit + review-loop en terminal nueva)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo paso: COMMIT de A4b + `/review-loop`
