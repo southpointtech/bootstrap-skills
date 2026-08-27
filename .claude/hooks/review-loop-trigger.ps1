@@ -217,6 +217,69 @@ if (-not $base) { exit 0 }
 # 5. No revisar la base contra sí misma (la base puede ser un ref remoto)
 if (($branch -eq $base) -or ($base -eq "origin/$branch")) { exit 0 }
 
+# 5b. Resolver UNA vez el rango sin revisar, para el gate de docs de abajo y para la red de
+# seguridad del paso 6. Antes se resolvía dentro del paso 6, donde sólo llegaba un commit sin
+# trailer. El gate de docs necesita el mismo rango en TODOS los disparadores, y resolverlo dos
+# veces dejaría que las dos mitades discrepen sobre qué es el slice.
+$range = $null
+$rangeKnown = $false
+$root = (git rev-parse --show-toplevel 2>$null)
+if ($root) {
+    $marker = Join-Path $root ".claude/scripts/review-marker.ps1"
+    if (Test-Path -LiteralPath $marker) {
+        # Centinela: si `pwsh` no está en el PATH el error se traga y $LASTEXITCODE seguiría con el
+        # 0 de la llamada a git de arriba, leyéndose como una salida exitosa.
+        $global:LASTEXITCODE = 99
+        $r = (& pwsh -NoProfile -File $marker -Action range -RepoDir $root 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $rangeKnown = $true
+            if ($r) { $range = ([string]$r).Trim() }
+        }
+    }
+}
+
+# 5c. Un slice que es ENTERAMENTE documentación no se gana un turno de review. Este bloque tiene
+# esta forma por dos bugs encontrados a los golpes en un proyecto que corrió una versión anterior, y
+# los dos eran falsos NEGATIVOS — el gate apagando revisiones, que es la única forma en que hace
+# daño.
+#
+# DOC = termina en `.md` Y NADA MÁS. La primera versión trataba todo `docs/` como documentación. En
+# un repo que guarda archivos no-`.md` ahí adentro — diseño congelado, fuentes de un portal, lo que
+# su CLAUDE.md declare fuente de verdad del frontend — un slice de sólo frontend salía sin ninguna
+# revisión y sin ningún síntoma por el cual notarlo.
+#
+# NO cuentan como doc aunque sean `.md` los archivos que gobiernan al agente: `.claude/**` y
+# `.agents/**` (hooks, comandos y los SKILL.md — la skill tdd es donde se define el trailer
+# `Slice-Close:` que este mismo hook lee), cualquier `CLAUDE.md` (las reglas duras), y
+# `docs/ai-workflow/**` + `docs/agents/**`, que el CLAUDE.md declara lectura obligatoria. Romper una
+# regla de ahí tiene el mismo efecto que romper código. Los anclajes son `(^|/)` y no `^`: Claude
+# Code auto-carga el `CLAUDE.md` del directorio en que se trabaja, así que un `^` pelado cubría sólo
+# el de la raíz y dejaba pasar todos los anidados.
+#
+# Se decide sobre el mismo rango que revisaría el loop, nunca sobre el último commit solo: un slice
+# que ya trae código sigue disparando aunque el commit que acaba de entrar sea sólo-docs. Los
+# untracked se suman porque `git diff` nunca los muestra y el paso 5 del loop MANDA escribir un test
+# nuevo, que queda sin trackear hasta que alguien lo commitea — sin ellos, un slice cuyo único
+# código todavía no se commiteó se leía como sólo-docs y salía sin revisar.
+#
+# Conservador a propósito: basta UN archivo no-doc para disparar, y un diff que no resuelve dispara
+# igual (fail-open). `core.quotePath=false` es necesario: git C-quotea los paths no-ASCII y los
+# envuelve en comillas literales, y esas comillas rompen el anclaje `$` de abajo, así que un `.md`
+# con acento se leía como no-doc y cualquier slice de prosa que tuviera uno disparaba igual.
+if ($root) {
+    $govern = '(^|/)\.claude/|(^|/)\.agents/|(^|/)CLAUDE\.md$|^docs/ai-workflow/|^docs/agents/'
+    $docRange = if ($range) { $range } else { "$base...HEAD" }
+    $touched = @(git -C $root -c core.quotePath=false diff --name-only $docRange 2>$null)
+    if ($LASTEXITCODE -eq 0) {
+        $touched += @(git -C $root -c core.quotePath=false ls-files --others --exclude-standard 2>$null)
+        $touched = @($touched | Where-Object { $_ })
+        if ($touched.Count -gt 0) {
+            $nonDoc = $touched | Where-Object { $_ -notmatch '\.md$' -or $_ -match $govern }
+            if (-not $nonDoc) { exit 0 }   # slice sólo-docs: no hay nada que valga un turno de review
+        }
+    }
+}
+
 # 6. Un commit dispara solo cuando el cierre de slice está DECLARADO con un trailer `Slice-Close:`.
 # El trailer se lee del commit recién creado, no se parsea del comando, así que funciona igual con
 # `-m`, `-F archivo`, un heredoc o `--amend`.
@@ -242,22 +305,8 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     if ($body -notmatch '(?m)^\s*Slice-Close:') {
         # Red de seguridad: olvidarse del trailer no puede dejar un slice gigante sin revisar. Si
         # el delta SIN REVISAR ya pasa el techo de ~400 líneas del CLAUDE.md, dispara igual.
-        $range = $null
-        $rangeKnown = $false
-        $root = (git rev-parse --show-toplevel 2>$null)
-        if ($root) {
-            $marker = Join-Path $root ".claude/scripts/review-marker.ps1"
-            if (Test-Path -LiteralPath $marker) {
-                # Centinela: si `pwsh` no está en el PATH el error se traga y $LASTEXITCODE
-                # conservaría el 0 de la llamada a git de arriba, que se leería como exit 0 exitoso.
-                $global:LASTEXITCODE = 99
-                $r = (& pwsh -NoProfile -File $marker -Action range -RepoDir $root 2>$null)
-                if ($LASTEXITCODE -eq 0) {
-                    $rangeKnown = $true
-                    if ($r) { $range = ([string]$r).Trim() }
-                }
-            }
-        }
+        # `$range`, `$rangeKnown` y `$root` vienen del paso 5b, que los resuelve una sola vez para
+        # esta red y para el gate de docs.
         # El contrato del marcador tiene tres salidas y colapsarlas es el bug que existe para
         # evitar. Exit 0 + vacío significa que no hay NADA sin revisar: no hay nada que la red deba
         # atrapar, así que no se dispara — si no, cada commit apenas el loop cierra limpio volvería
