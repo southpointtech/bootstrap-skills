@@ -1,3 +1,274 @@
+# Session Handoff — 2026-08-27 parte 2 (AUDITORÍA de paralelización + estado de skills Pocock — CERO código escrito · decisión firmada: RELEASE YA, separado de la próxima versión — próximo: ROLLOUT empezando por Survey Clients)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — sesión de AUDITORÍA, nada implementado
+
+Rama **`feat/marcador-de-revision`**, HEAD sigue **`cd183fa`** (NADA commiteado esta sesión).
+**Árbol: solo `docs/SESSION_HANDOFF.md` modificado.** **6 commits sin pushear** a `origin/main`
+(`2f94108`). Esta sesión **no tocó código**: fue auditoría + decisión. El usuario cortó para seguir acá.
+
+**Informe navegable publicado**: https://claude.ai/code/artifact/fb942560-a2a9-4bba-b545-dec97d0090e1
+(fuente en el scratchpad de la sesión vieja; para actualizarlo hay que pasar esa `url` a la tool Artifact).
+
+### 🔴 Lo PRIMERO al retomar: el ROLLOUT, empezando por Survey Clients
+
+El usuario aprobó arrancar por **Survey Clients** (el más limpio) y hacerlo en esta terminal.
+**Requiere permiso explícito**: el clasificador frena `git push` y la escritura hacia otros repos.
+
+Orden del release (decidido, no re-discutir):
+1. **Cerrar el marcador colgado** — `range` devuelve `e19b43d` (stash-ref viejo, WIP sobre `f3da553`).
+   El delta sin revisar es solo `.bootstrap-manifest.json` (generado) + el handoff = **cero lógica**.
+2. **Push de los 6 commits** a `origin/main`. El hook va a disparar `/review-loop` en el push; turno
+   corto porque no hay lógica nueva.
+3. **Rollout**: Survey Clients → Forecasting App → Outsourcing (el delicado) → port en SouthPoint-Hub.
+
+### Decisión firmada esta sesión: RELEASE YA, NO esperar a la próxima versión
+
+El usuario preguntó si convenía juntar este release con la próxima versión. **Respuesta: no**, por tres
+razones, la 2 decisiva:
+1. Se están perdiendo **~26 h/mes** de re-review ahora mismo (medido, ver abajo).
+2. **Juntarlos destruye la atribución del A/B.** El "antes" se congeló el 26/8 para medir el loop nuevo;
+   si el marcador incremental y la actualización de skills llegan juntos, no se puede saber cuál mejoró
+   qué (el grill por rondas toca las mismas métricas de turnos/tiempo). Y los transcripts rotan a 30 días.
+3. La próxima versión es grande, requiere grill y depende de reconstruir la base del lockfile.
+
+Costo aceptado: dos pasadas de `upgrade-bootstrap` por repo en vez de una.
+
+### 🔴 AUDITORÍA DE LOS REPOS — el set está CERRADO y verificado (24 repos con el hook)
+
+| Repo | Qué tiene | Acción |
+|---|---|---|
+| **Survey Clients** | interino (183 ln) + bullet `CLAUDE.md:63`, **sin commitear** | Revertir. **El más limpio**: el bullet es una línea AGREGADA (la del scaffold quedó intacta debajo) → el revert es un `-` solo |
+| **Forecasting App** | interino (167 ln) + bullet `CLAUDE.md:82`, **sin commitear** | Revertir. El bullet **reemplazó** la línea del scaffold. 35 entradas sin commitear (casi todo untracked); el único tracked modificado es `CLAUDE.md`. **Su bullet MIENTE sobre el hook**: dice que dispara en `git commit`, pero el hook instalado (72 ln) solo matchea `gh pr create`/`git push` |
+| **Outsourcing Development** | interino (226 ln) + bullet `CLAUDE.md:65` | ⚠️ **EL DELICADO** — ver abajo |
+| **claude-analytics** | nada (migrado 26/8, manifest `2026-08-26+caf5646`, hook de 368 ln) | Listo. Residuo: `.scratch/review-marker.txt` viejo conviviendo con `review-marker.ps1` — limpiable, pero documenta un slice no commiteado: verificar antes de borrar |
+| **SouthPoint-Hub** | **NINGUNA mitigación. Un PARCHE PROPIO de Matías** | ⚠️ **NO REVERTIR — PORTAR** — ver abajo |
+
+**Verificación de exhaustividad**: `review-loop-interino.md` en todo `C:\Repos` (prof. 4) → exactamente
+**3 archivos**; `INTERINO` en todos los `CLAUDE.md` (prof. 3) → exactamente **3**. Sin huérfanos.
+Los tres bullets están **sin commitear**.
+
+#### ⚠️ Outsourcing Development — el único IRREVERSIBLE
+
+- `CLAUDE.md`, `.claude/`, `.agents/`, `.scratch/` y el manifest viven en la **raíz, FUERA de git**
+  (el repo está en `hssapp/`). **Un upgrade destructivo NO se deshace con git.** Copiar antes de tocar.
+- **El bullet NO se revierte a ciegas**: contiene dos hechos de infraestructura que **siguen siendo
+  verdad post-upgrade** — (a) todo comando git lleva `-C "C:\Repos\Outsourcing Development\hssapp"`
+  (sin eso git dice *not a git repository* y ese vacío se lee como "no hay cambios" → review vacío
+  reportado como limpio), y (b) el hook **está inerte** ahí (resuelve el repo por cwd, la sesión corre
+  en la raíz → `exit 0`). Borrar el bullet entero rompe el proyecto aunque el loop nuevo ande.
+- Su interino **no prohíbe `/slice-review`** (ese repo ya lo tiene, scaffold `2026-07-06+5aca4c2`);
+  corrige el **rango** y el **momento**.
+- Su `.claude/commands/review-loop.md` driftea y **afirma que `/code-review` es `disable-model-invocation`**
+  — premisa CADUCADA, ya corregida en el repo fuente (issue 08). Contradicción a resolver en el upgrade.
+- **`hssapp` está 100% limpio en `develop`** (0 entradas) — riesgo de pisar trabajo: el más bajo.
+- **NO borrar** `.scratch/review-rules-escalada.md`: informe con un HIGH resuelto y **deuda abierta con
+  ticket** (`audits-canEditAudits-rbac-real.md`). No es parte de la mitigación.
+- El interino contiene una **revocación de política** que se pierde si se borra el archivo entero:
+  *"dejá de esperarme para commitear"* (2026-08-16) — commit y merge a `develop` sin preguntar; el
+  **deploy sigue necesitando OK explícito**.
+
+#### ⚠️ SouthPoint-Hub — es una FEATURE, no deuda (el repo que el usuario no recordaba)
+
+`C:\Repos\SOUTHPOINTLABS\SouthPoint-Hub`, manifest `2026-06-16+fb4fec0`/southpoint, rama
+`feat/zoho-project-migration`. **Sin interino.** Matías parcheó el hook el **2026-08-14**: bloque `# 5.b`
+que **no dispara review si el slice ENTERO es solo documentación** (decide sobre `base...HEAD`, no sobre
+el último commit → un slice mixto sí dispara). Hook de **113 ln** vs 73 del scaffold.
+
+Superficie del parche (todo fuera del scaffold): `hooks/review-loop-trigger.ps1` (con **BOM UTF-8**),
+`hooks/tests/review-loop-trigger.probes.ps1` (suite propia que **lee** el clasificador en vez de
+copiarlo), `settings.json` (usa **`powershell` 5.1 con `-ExecutionPolicy Bypass`**, NO `pwsh`, + hook
+extra `SessionStart` → `session-start-handoff.ps1`), `commands/handoff.md`, y `CLAUDE.md:69-72` con la
+doctrina en prosa. Commits que muestran lo que costó: `a1bad89` (*"la red que puse para cuidar el filtro
+se probaba a sí misma"*), `21a464e` (*"el filtro que escribí para no revisar docs dejaba sin revisar el
+frontend"*).
+
+**Un upgrade que sobrescriba el hook la borra en silencio** y el síntoma (el loop empieza a dispararse
+en cada `/handoff`) no aparece hasta la sesión siguiente. **Decidir además `powershell` 5.1 vs `pwsh`**:
+si el hook nuevo asume `pwsh` y el `settings.json` dice `powershell`, las probes prueban otro programa.
+**Propuesta abierta**: ese filtro le FALTA al scaffold — candidato a subir al bootstrap.
+
+#### Trampas transversales del rollout
+
+1. **La doctrina de review vive en 3 lugares por repo**, no en uno: `CLAUDE.md`,
+   `.claude/commands/review-loop.md` y `.agents/skills/review-loop/SKILL.md`; en Outsourcing hay un
+   **cuarto**: `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md:104`. Revertir solo el bullet deja los otros
+   contradiciendo al loop nuevo.
+2. **`/code-review` CAMBIÓ DE BANDO**: los 3 interinos lo prohíben; el diseño nuevo lo reintroduce como
+   reviewer extra del turno 1 (`--code-review`). Todo resto de texto interino bloquea esa parte.
+3. **Los `.scratch/review-marker.txt` NO son basura uniforme**: el de Survey Clients (~60 ln) lleva
+   historial de Slices 06/A/B con SHAs y hallazgos descartados. Borrarlos pierde trazabilidad.
+4. **18 repos más con el hook viejo sin mitigar** (incl. `fc-br08`, `fc-darwin-admin`, `fc-master-qa`,
+   `fc-prd`, `fc-train01`, `forecasting-app-fixb/fixd/stage2`, que parecen worktrees/clones de
+   Forecasting). **Decisión pendiente del usuario**: ¿entran al rollout o se dejan morir? Si alguno
+   comparte historia con Forecasting, revertir su `CLAUDE.md` puede propagarse por merge.
+
+### La auditoría de paralelización (lo que originó la sesión)
+
+4 relevamientos en paralelo + **`waves.mjs` corrido por primera vez** (existía desde el baseline y nunca
+se había ejecutado; `node waves.mjs` desde
+`claude-analytics/output/raw/review-cost-snapshot-2026-08-26/`).
+
+**P3 — techo de concurrencia MEDIDO** (387 oleadas, 1136 agentes): 1 agente = 8,4 min wall / 1,0× ·
+2-3 = 11,0 / 1,6× · **4-6 = 8,3 min / 3,1×** · 7-12 = 11,1 / **2,0×**. Una ola de 5 reviewers tarda lo
+mismo que uno solo. **Pasando de 6 la concurrencia CAE y el reloj sube ⇒ NO ensanchar el fan-out.**
+Salvedad: el bucket 7-12 tiene solo 20 oleadas; sirve para no ensanchar, no para afirmar la causa.
+
+**P4 — el desperdicio real**: 25 de 47 rangos revisados >1 vez. Forecasting App `main...HEAD` **36× /
+429 min**, Survey Clients 24× / 243, SouthPoint-Hub 15× / 212, claude-analytics 10× / 135, Bootstrap
+Skills 8× / 106. **~26 h de 83,1 h totales de agosto.** Piso, no cifra exacta (el loop re-revisa
+legítimamente en turnos 2-5). **Lo elimina el rollout.**
+
+**Configuración: NO hay nada seteado.** `settings.json` (repo y 3 scaffolds) tiene **solo los 2 hooks**
+— cero `permissions`, cero `model`, cero límites. **No existe ningún `.claude/agents/`.** De los 11
+comandos, **`/slice-review` es el único con fan-out**, y es por prosa. Dato: el propio `slice-review.md`
+mide que **84 de 345 reviewers usaron Write/Edit** pese a la prohibición (24%).
+
+**7 oportunidades fuera del review** (detalle en el artifact). Top-3: (1) **13 suites de `tests/` en
+paralelo** → de ~8-14 min a ~2,5-3 min, **6-11 min por cierre de slice**, recurrente, cero tokens —
+**BLOQUEADA por un bug**: `tests/export-shareable.tests.ps1:41` escribe `LEAK-TEST.md` **dentro del repo
+real** (no en `%TEMP%`) y en paralelo haría fallar en falso a `mirror` y `shareable-leaks`; si el proceso
+muere antes del `finally` rompe incluso en serie. (2) fan-out de `compare-scaffold.ps1` a N repos
+(congelar el canónico antes: race con `sync-skills.ps1`). (3) `/zoom-out`. **Dejar quieto**: TDD
+red-green, los grills, consentimiento por archivo de upgrade-bootstrap.
+
+### Skills de Pocock — 4 releases atrás, ninguna intacta
+
+**9 de 11 son de `mattpocock/skills`** (propias: `slice-review`, `review-loop`). **Ninguna intacta**: 7
+con `description` reescrita (triggers en español), **`tdd`** con la sección `5. Close the slice`
+inventada acá (define el trailer `Slice-Close:` que dispara el hook — **pisarla rompe la automatización
+y ningún test lo caza**, verifican el hook, no la prosa), **`to-issues`** con la regla de ≤400 líneas.
+
+**`skills-lock.json` NO guarda commit/tag/fecha/URL** → **no hay base para merge de tres vías**.
+**Pero es reconstruible**: clonar upstream con historia y hashear cada versión histórica hasta que
+coincida con el `computedHash` → ese commit es la base. Es el **prerequisito** de cualquier actualización.
+
+Upstream hoy: **25 skills**, plugin oficial. Renames que ROMPEN: `to-prd`→`to-spec`,
+`to-issues`+`to-plan`→`to-tickets`, **`zoom-out` eliminada**. El `CLAUDE.md` todavía recomienda
+`/to-prd` y `/to-issues`. **`grilling` v1.2.0 pasó a rondas por frontier (13 preguntas en ~3 rondas)** y
+lo heredan `grill-me`/`grill-with-docs`/`triage` — **es la paralelización que falta en las fases 1-3**.
+Matt **NO** usa `.claude/agents/` a propósito (neutralidad con Codex) → tensión a decidir, no a resolver
+por defecto.
+
+### 🔴 DECISIÓN PENDIENTE del usuario (quedó sin responder)
+
+Se le preguntó por dónde arrancar la próxima versión (suite paralela+bug / rollout / reconstruir base del
+lockfile / grill del scope completo). **Pidió aclarar algo y derivó al release** — la pregunta sigue
+abierta. **No re-preguntar hasta cerrar el release.**
+
+### Antes de tocar código (crítico)
+
+- **El clasificador frena `git push` y la escritura hacia otros repos.** Los subagentes de solo lectura
+  corren siempre (esta sesión lanzó 8 sin problema). Pedir permiso, no reintentar a ciegas.
+- **`alignment-gate` frenó 1 vez esta sesión** (al escribir el HTML del informe). Es speed-bump de una
+  vez: si el trabajo es operativo/ya alineado, decilo y reintentá, **NO grilles**.
+- **Bash tool = Git Bash**: commits `-m "..."` repetidos, **nunca** `@'...'@`. Tests: `pwsh -NoProfile
+  -File tests/<x>.tests.ps1` en FOREGROUND con redirect, grepear `TODOS LOS TESTS PASARON`/`^FAIL:`.
+- **Memorias nuevas**: `techo-de-concurrencia-4-a-6-agentes`, `skills-pocock-drift-sin-base-de-merge`.
+  Actualizada: `forecasting-app-mitigacion-interina-review` (ojo: **no** menciona SouthPoint-Hub, que se
+  descubrió esta sesión).
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida** (esta sesión no pidió nada). **Nada a Zoho.** **Impacto medido antes
+  de cambiar el proceso** (se cumplió: se corrió `waves.mjs` antes de recomendar). **Decidir lo técnico,
+  preguntar lo de diseño.** **Prefiere Opus 4.8.** **Paraleliza todo lo posible.** **Cortar y seguir en
+  terminal nueva** — por eso este handoff.
+
+---
+
+# Session Handoff — 2026-08-27 (DEPLOY hecho+commiteado `cd183fa` · piloto ROLLOUT Claude Analytics OK · FREEZE del benchmark Track B · review-loop multi-agente DOGFOODEADO E2E limpio · ruteo de modelos verificado — próximo: ROLLOUT a Outsourcing/Forecasting/Survey)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — el usuario tiene MÁS CONSULTAS (no necesariamente código)
+
+Rama **`feat/marcador-de-revision`**, HEAD **`cd183fa`** (`chore(review-loop): sellar y deployar issue 08
+(08a+08b) — resellar manifest raiz`). **Árbol limpio.** **5 commits sin pushear** a `origin/main`
+(southpointtech; `origin/main` en `2f94108`). **Issue 08 COMPLETO Y DEPLOYADO.** El usuario cortó para
+seguir en terminal nueva con más consultas — NO hay una tarea de código a medias.
+
+### Qué hizo esta sesión (todo verificado, nada a medias)
+
+1. **DEPLOY (paso 1) — HECHO + commiteado `cd183fa`.** `tools/sync-skills.ps1` → 5 skills a
+   `~/.claude/skills` (ahora **byte-idénticas al repo**, 0 diferencias). `reseal-manifest.ps1` (está en
+   `skills/upgrade-bootstrap/scripts/`, NO en `tools/` — el handoff viejo apuntaba mal) reselló el
+   `.bootstrap-manifest.json` RAÍZ `2026-08-25+a5bde47` → **`2026-08-26+caf5646`** (5 hashes de 08a/08b).
+   Los 3 manifests de scaffold: sin churn (mismo día + contenido). Pre-flight + **suite completa 13/13
+   verde**.
+2. **ROLLOUT — piloto Claude Analytics HECHO.** `C:\Repos\PERSONAL\claude-analytics` (personal, git raíz).
+   Apliqué el delta de `upgrade-bootstrap` a mano (compare read-only → 3 missing/6 outdated copiados;
+   `CLAUDE.md` mergeado **preservando el bloque propio `## Retomar una sesión` y dropeando el bullet
+   INTERINO**; `.gitignore` es superset propio → skip; `.scratch/review-loop-interino.md` **borrado**;
+   manifest resellado a `2026-08-26+caf5646`). **🔴 Lo commiteó una SESIÓN CONCURRENTE de Track B** que
+   corre en ese repo (reflog: `chore(scaffold): upgrade-bootstrap trae el ciclo slice-review`); ahora
+   Analytics está en rama **`feat/b5-review-cost`** construyendo `src/lib/reports/review-cost.ts`.
+   Verificado: `review-marker.ps1` presente, `review-loop.md`→`slice-review`, INTERINO=0, `range` da SHA
+   real. **OJO: hay otra sesión viva en Analytics** (memoria `sesiones-concurrentes-worktrees`).
+3. **BENCHMARK (Track B) — FREEZE del "antes" HECHO (deadline-crítico).** Los transcripts se borran en
+   rolling de 30 días; **julio YA se perdió** (t0 más viejo extraíble = 2026-08-01). Congelé lo actual en
+   **`claude-analytics/output/raw/review-cost-snapshot-2026-08-26/`** (mismos scripts que el baseline →
+   comparable): 1136 prompts de reviewer, 49843 pasos, 2951 turnos, `PROVENANCE.md`. Descriptivo del
+   snapshot: **Outsourcing = 523 reviewers / 71 h (loop VIEJO) = la mina del "antes"**; Bootstrap Skills =
+   181 (loop nuevo, liviano). **El A/B fuerte = Outsourcing viejo (congelado) vs Outsourcing nuevo (por
+   generar con el rollout).** Track B ya está grillado+desglosado en
+   `claude-analytics/.scratch/review-cost-measurement/` (PRD + 6 issues, incl. `06-comparacion-contra-la-linea-base`).
+4. **VERIFICACIÓN (el usuario la pidió explícita).** (a) Suite 13/13. (b) **Bootstrap+marcador E2E
+   determinístico** en repo descartable (borrado): rango incremental, advance no commitea/no toca árbol,
+   sin trampa del stash vacío. (c) **Review-loop MULTI-AGENTE E2E** en rama descartable `test/review-loop-e2e`
+   (borrada) con un bug real plantado: **3 turnos + coherencia, cerró limpio**. Ejercitó fan-out de 6
+   focos + fork `/code-review`, mutación en worktree aislado (árbol intacto), reviewers read-only,
+   de-dup, RED-first, delta incremental por turno (7→2 líneas, nunca el slice entero), auto-corrección
+   (el turno 2 cazó una debilidad en el test del propio fix), COHERE, `close`. Los 3 inconvenientes del
+   loop viejo (re-review total / code-review human-only / trampa del marcador) **demostrablemente
+   ausentes**. (d) **Ruteo de modelos verificado desde los transcripts**: juicio (bugs/contratos/tests/
+   mutación) = `claude-opus-4-8`; mecánico (reglas/historia/coherencia) = `claude-sonnet-5`. 15/15 correcto.
+
+### Roadmap restante (en orden) — lo que queda es el ROLLOUT a los 3 repos de cliente
+
+Delta medido por repo (compare-scaffold.ps1 contra `~/.claude/skills`, canónico por variante):
+
+| Repo | ruta | variante | missing/outdated/cust | notas |
+|---|---|---|---|---|
+| **Claude Analytics** | `C:\Repos\PERSONAL\claude-analytics` | personal | **HECHO** | — |
+| **Outsourcing Development** | git en `C:\Repos\Outsourcing Development\hssapp` (`-C hssapp`) | southpoint | 1 / 4 / 6 | 🔴 más difícil: framing files (`review-loop`/`slice-review`/workflow) salen **customized** → mergear tomando canónico. **Mejor A/B del benchmark** (523 reviewers viejos). CLAUDE.md/.claude/.scratch en la RAÍZ (fuera de git) |
+| **Forecasting App** | `C:\Repos\SOUTHPOINTLABS\Forecasting App` | southpoint | 4 / 25 / 4 | flagship, master; `settings.json` custom (usar `merge-settings.ps1`) |
+| **Survey Clients** | `C:\Repos\SOUTHPOINTLABS\Survey Clients` | southpoint | 4 / 26 / 3 | sin remote, feat branch |
+
+Por cada uno: `compare-scaffold.ps1` → copiar missing/outdated → **mergear customized por archivo**
+(CLAUDE.md: preservar contenido propio + **dropear bullet INTERINO**; `settings.json`: `merge-settings.ps1`)
+→ **borrar `.scratch/review-loop-interino.md`** → `reseal-manifest.ps1` → verificar (marker presente,
+review-loop→slice-review, INTERINO=0). Los 4 repos: memoria `forecasting-app-mitigacion-interina-review`.
+Revertir el interino SOLO tras confirmar el loop nuevo instalado.
+
+**Después del rollout (para el benchmark):** que los repos pesados corran el loop nuevo en septiembre →
+**re-freeze antes del rot** (mismos scripts) → Track B Slice 2 (clasificar foco/turno, `waves.mjs`) →
+issue-06 comparación Outsourcing-viejo vs Outsourcing-nuevo. **El rollout es el generador del "después".**
+
+### Antes de tocar código (crítico)
+
+- **El clasificador de auto-mode frena escrituras hacia AFUERA** (memoria
+  `clasificador-bloquea-acciones-hacia-afuera`). Pero esta sesión escribió a **Claude Analytics (repo
+  PERSONAL) sin bloqueo**. Los repos de cliente (Forecasting/Survey/Outsourcing) pueden chocar: permiso
+  amplio o sesión dedicada por repo. Los subagentes de solo lectura corren siempre.
+- **Analytics tiene sesión concurrente viva** (Track B). No commitear ahí ni mezclarse con su trabajo.
+- **`reseal-manifest.ps1` y `compare-scaffold.ps1` viven en `skills/upgrade-bootstrap/scripts/`** (NO en
+  `tools/`). `tools/` solo tiene `sync-skills.ps1`, `gen-manifest.ps1`, `export-shareable.ps1`.
+- **alignment-gate** frena el 1er edit de código de la sesión: si es operativo (rollout ya diseñado),
+  decilo y reintentá, NO grilles. **Bash tool = Git Bash**: commits `-m "..."` repetidos, nunca `@'...'@`;
+  `$HOME` de git-bash (`/c/...`) NO se lo pases crudo a pwsh (interpreta `C:\c\...` — costó un CLAUDE.md
+  en 0 bytes esta sesión, recuperado de HEAD). Tests: `pwsh -NoProfile -File tests/<x>.tests.ps1`,
+  grepear `TODOS LOS TESTS PASARON`/`^FAIL:`.
+- **Freeze de transcripts**: usa Node (`node --version` = v22). Los scripts (`extract.mjs`/`agents.mjs`)
+  leen `~/.claude/projects` Y `~/.claude-southpoint/projects` (Southpoint corre bajo la cuenta
+  `.claude-southpoint`). `output/raw/` es gitignoreado.
+
+### Preferencias del usuario (vigentes)
+
+- **No commitear sin que lo pida.** **Nada a Zoho.** **Impacto medido antes de cambiar el proceso.**
+  **Decidir lo técnico, preguntar lo de diseño.** **Prefiere Opus 4.8 sobre Opus 5.** **Paraleliza todo.**
+  **Cortar y seguir en terminal nueva** (por eso este handoff). Pide **verificación real, no afirmaciones**
+  (esta sesión pidió testear el loop end-to-end antes de creerle).
+
+---
+
 # Session Handoff — 2026-08-26 parte 2 (08b CERRADO + COMMITEADO `2ca95f6` — framing de la premisa caduca + guard del workflow doc; review-loop dogfoodeado limpio + COHERE — TRACK A / issue 08 COMPLETO — próximo: DEPLOY, luego ROLLOUT de B)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: (1) DEPLOY (con humano), luego (2) ROLLOUT de B a los 4 repos
