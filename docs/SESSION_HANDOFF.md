@@ -1,3 +1,191 @@
+# Session Handoff — 2026-08-28 (TURNO 5 CORRIDO + SLICE CERRADO Y COMMITEADO `bc973c2` — el loop terminó por CAP, no limpio; próximo: DEPLOY `tools/sync-skills.ps1`)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Rama **`feat/marcador-de-revision`**, HEAD **`bc973c2`** (commit de cierre, **con** trailer
+`Slice-Close:`). `main` = `origin/main` = `feb3f23`; la rama está **4 commits adelante**, **sin
+pushear** y **sin mergear**. El usuario eligió commit sin push: el merge/push queda para él.
+
+**El slice del port de solo-docs está CERRADO.** Marcador en `ab2feb1`, anchor `slice-open` limpio
+(`-Action close` corrido). Nada pendiente de este slice.
+
+### 🔴 EL ÁRBOL NO ESTÁ LIMPIO, Y NO ES DE ESTA LÍNEA DE TRABAJO
+
+Hay **otra sesión de Claude Code del usuario escribiendo sobre este mismo working tree**, confirmado
+por él ("otra sesión mía, dejala"). Apareció durante esta sesión (12:55 en adelante):
+
+- `CONTEXT.md` modificado — 4 entradas de vocabulario de **skills externas** (base de merge, drift,
+  fork propio, skill puntero).
+- `docs/adr/0004-el-refactor-sale-del-ciclo-tdd.md`, `0005-el-lockfile-de-skills-se-verifica-o-no-existe.md`,
+  `0006-conservamos-nuestros-nombres-de-skills.md` — **sin trackear**.
+
+**NO TOCAR NADA DE ESO.** Es la línea de las skills de Pocock, uno de los candidatos de "próxima
+versión". Quedaron fuera del commit a propósito (staging explícito archivo por archivo).
+Consecuencia operativa: `git status` sucio es lo ESPERADO acá; verificar antes de asumir que algo
+lo ensució esta sesión.
+
+### 🔴 Dos cosas que hay que saber sobre el marcador
+
+1. **`-Action advance` NO se puede usar con el árbol sucio.** Corre `git stash create`, que captura
+   el trabajo sin commitear de la otra sesión y lo sella como "ya revisado". Esta sesión avanzó el
+   marcador **escribiendo el SHA de HEAD a mano** en `.git/review-loop-state.json` (clave
+   `marker:<branch>`). Backup del state previo en el scratchpad de la sesión
+   (`review-loop-state.BACKUP-t5.json`), con el valor viejo `7c3262b`.
+2. **El marcador quedó DELIBERADAMENTE atrás, en `ab2feb1`, no en `bc973c2`.** Los fixes del turno 5
+   nunca pasaron por un turno de review (el cap se agotó), así que quedan como **delta no revisado**
+   a propósito. El próximo `/review-loop` los va a mirar — junto con el trabajo de la otra sesión.
+   Si eso molesta, la decisión es del usuario, no la tome el agente solo.
+
+## Lo que se hizo (todo verificado)
+
+### 1. Turno 5 del review-loop — el tope del cap
+
+Rango: `git diff 7c3262b` (11 archivos, ~50 líneas de lógica, sin untracked). 5 focos en paralelo
+(bugs/contratos/tests en el modelo capaz; reglas e histórico en el liviano), **sin** `--mutation` ni
+`--code-review` (prohibidos de turno 2 en adelante). 13 hallazgos dedupeados → pase de confianza con
+6 puntuadores → **3 medium + 7 low**, 3 descartados por debajo de 60.
+
+**NO cerró limpio.** Los turnos 3 y 4 habían dado cero bugs de conducta; el turno 5 encontró 3 medium
+porque miró **comentarios y prosa**, que es de donde salió también lo más valioso de los turnos 1 y 2.
+
+### 2. Los 3 hallazgos descartados valen tanto como los aceptados
+
+- **8/100 — dos reviewers midieron la misma mutación y se contradijeron.** El foco de tests declaró
+  que el cambio `^\s*-\s` → `^-\s` era **inerte** y que su comentario era una afirmación falsa; el
+  foco de bugs midió lo contrario. El dirimidor midió **las dos posiciones** y resolvió: el cambio
+  arregla algo real (una sub-lista **en el medio** del bullet truncaba el recorte a 740 chars); el
+  que lo llamó inerte la había inyectado **al final**, donde efectivamente no cambia nada.
+  🔴 **Si le hubiera creído al primero, habría "arreglado" un comentario correcto y roto un fix real.**
+- **55/100** — que el comentario reescrito sobre-afirmara en `commit && push`: la cláusula es
+  verbatim preexistente y la aclaración vive en el propio paso 6.
+- **20/100** — que el hook español no tuviera cobertura: `tests/review-loop-incremental.tests.ps1`
+  (líneas 44-49, 173, ~264) **sí** lo cubre, comparando la lógica strippeada de las 4 copias.
+
+### 3. Fixes aplicados (9 del turno 5 + 1 de coherencia)
+
+Todos afirmaciones no verificadas, salvo dos de código:
+
+- `docs/TESTING.md` — el mutante citado no aislaba la derivación de rutas. **Remedido acá**: agregar
+  una alternativa cae en rojo **con y sin** derivación (lo caza el assert de las 5 alternativas);
+  el que la aísla es **reemplazar** una (`docs/agents/` → `docs/`), que queda **verde** sin ella.
+- `tests/…:365` **(código)** — early-out `if ($leidas)`. Sin él, `Read-Pat` devolvía `@()`, que se
+  desenrolla a `$null`, y `$null.Count` es 0 ⇒ imprimía **`ok:` en verde** sobre una lectura que
+  nunca ocurrió. Pase falso en un guard cuyo trabajo entero es ser ruidoso.
+- `tests/…:420` **(código)** — el assert de dirección ancla ahora la **cláusula entera**. Anclando
+  sólo la primera punta, el mutante `is code` → `is documentation too` corría la suite **completa en
+  verde** (medido), o sea el bug de la v1 podía volver a declararse sin que nadie lo viera.
+- `tests/…:353` — "veinte líneas más abajo" son **11** (`$skipPat`) y **18** (`$genPat`); y el
+  escenario pasa a futuro, que es lo que es (ninguna lista tiene hoy comentario detrás del `)`).
+- `tests/…:407` — "3 rojos más" son **4**.
+- hook ×4 — la afirmación *"el gate es lo único que todavía puede callar un push"* sobrevivía 55
+  líneas más abajo de donde este mismo slice ya la había corregido. El dedupe por SHA del paso 7
+  corre en **todos** los disparadores.
+- hook ×4 — los `4,9 s` **no se remidieron end-to-end**; lo cronometrado fue el `Get-Content`
+  (16-172 ms). Ahora el comentario y `docs/TESTING.md:284` dicen lo mismo.
+- `docs/TESTING.md` — los dos fixtures untracked fijan mutaciones **disjuntas** (probado por
+  mutación: sacar `$genPat` lo caza sólo el del manifest; poner `$skipPat` sólo el del lockfile).
+  **Ninguno de los dos es podable por redundante.**
+- `docs/TESTING.md` — "Ningún assert la fija" abarcaba de más: sin assert queda sólo la mitad del
+  generado **solo**.
+- `.claude/hooks/review-loop-trigger.ps1:92+` **(del pase de coherencia)** — la copia en español
+  tenía la versión CORTA del comentario del `$(...)`: las 3 del scaffold lo habían actualizado para
+  nombrar el paso 5c y el costo del falso positivo. Alineada a mano.
+
+### 4. Pase de coherencia — cierra, con un hallazgo
+
+Los **4 ajustes acordados verificados EN CÓDIGO** (rango del marcador, `git -C $root`, `$govern`
+generalizado, batería de pruebas). `docs/TESTING.md` describe la suite que existe, caso por caso.
+Los 4 `CLAUDE.md` byte-idénticos en la regla y coherentes con el clasificador. Sin andamiaje muerto.
+
+## 🔴 DEUDA DECLARADA (está en el mensaje de `bc973c2`, no escondida)
+
+1. **El techo del paso 6 no mira los trackeados modificados sin commitear que el paso 5c sí mira.**
+   En el camino **sin marcador**, 600 líneas sin commitear al lado de un commit solo-prosa mantienen
+   el gate abierto pero son **invisibles para el conteo**, así que un commit sin trailer puede medir
+   `≤400` y no disparar — justo lo que la red de ~400 existe para atrapar. Preexistente (esa línea
+   de `numstat` no la tocó el slice) y de alcance estrecho (un repo bootstrapeado siempre trae el
+   marcador). **No se arregló por cap agotado**: es lógica nueva que ya nadie podía revisar.
+2. **El corte del bullet `^-\s` no cierra en `---` ni en encabezados.** Preexistente, el regex viejo
+   tenía la misma debilidad. Cierre barato si se quiere: `(?=^-\s|^#|^---|\z)`.
+3. **Ningún test compara la copia en español del hook contra las del scaffold.** Es el punto ciego
+   que dejó pasar el comentario desactualizado del punto anterior. `mirror.tests.ps1` sólo espeja las
+   3 del scaffold entre sí; `review-loop-incremental.tests.ps1` compara la **lógica** de las 4 pero
+   no los comentarios (correctamente: la ES está en español a propósito).
+
+## Tests corridos (todos verdes, esta sesión)
+
+```
+pwsh -NoProfile -File tests/review-loop-docs-gate.tests.ps1        62 ok  exit 0
+pwsh -NoProfile -File tests/mirror.tests.ps1                       93 ok  exit 0
+pwsh -NoProfile -File tests/review-loop-incremental.tests.ps1     325 ok  exit 0
+pwsh -NoProfile -File tests/shareable-leaks.tests.ps1               6 ok  exit 0
+```
+
+**No se corrió `tests/export-shareable.tests.ps1`** a propósito: tiene el bug conocido de la línea 41
+(escribe `LEAK-TEST.md` **dentro del repo real**) y el árbol tiene trabajo vivo de otra sesión.
+
+Manifests: los 3 del scaffold regenerados con `tools/gen-manifest.ps1 -SkillDir skills/<skill>`; el
+de la RAÍZ resellado con `skills/upgrade-bootstrap/scripts/reseal-manifest.ps1 -ProjectDir . -CanonicalScaffold skills/bootstrap-personal-project/assets/scaffold`. Versión final `2026-08-28+5ca106c`.
+Las 3 copias del scaffold byte-idénticas (`639E5D1D…`).
+
+## Decisiones que el usuario firmó esta sesión
+
+1. **El slice se cierra CON el exceso de tamaño declarado**, no se parte. ~1270 líneas insertadas
+   contra el techo de ~400 (o ~550 contando el hook una sola vez en lugar de sus 4 copias). Razón:
+   partirlo después de implementado exige rehacer la historia y deja cada mitad sin sentido (el hook
+   sin sus tests viola test-first), y buena parte del exceso es el espejado ×4 que exige otra regla
+   del mismo archivo. **Esto cierra la decisión que venía abierta desde el 27/8.**
+2. **Con el cap agotado se arreglan las 3 medium + las low de prosa**, sin turno 6. El endurecimiento
+   de código preexistente queda como deuda.
+3. **El trabajo de la otra sesión no se toca ni se commitea.**
+
+## Próximos pasos
+
+1. **DEPLOY** — `tools/sync-skills.ps1` → `~/.claude/skills`. Hasta que no corra, el scaffold nuevo
+   **no existe** para ningún proyecto. Es el paso 1 y bloquea a los otros dos.
+2. **Segunda pasada de `upgrade-bootstrap`** por los 14 repos (costo ya aceptado en la decisión de
+   "release ya, separado de la próxima versión").
+3. **SouthPoint-Hub** — el repo que motivó el port, todavía en `2026-06-16+fb4fec0`. Corre
+   `powershell` 5.1 con `-ExecutionPolicy Bypass` (no `pwsh`) y su hook tiene **BOM** a propósito.
+   Si entra el hook canónico, `settings.json` debe pasar a `pwsh` **y** `review-marker.ps1` debe
+   estar presente: **las tres cosas juntas o ninguna**. Su probe propia
+   (`hooks/tests/review-loop-trigger.probes.ps1`) es el canario: si post-upgrade dice *"no se pudo
+   leer $govern del hook"*, el gate se borró.
+4. **Merge + push** de la rama a `main` — lo dejó el usuario para él.
+5. **Benchmark Track B**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes
+   del rot → Slice 2 → issue-06 (Outsourcing viejo vs nuevo).
+6. **Pregunta abierta del usuario desde el 27/8, sigue sin responder**: por dónde arrancar la próxima
+   versión (suite paralela + el bug de `tests/export-shareable.tests.ps1:41` / reconstruir la base
+   del lockfile de las skills de Pocock / grill del scope). 🔴 **Ojo: la otra sesión parece estar
+   trabajando justo en la rama de las skills de Pocock** — chequear con el usuario antes de abrirla
+   por duplicado.
+
+## Antes de tocar código (crítico)
+
+- **`git status` sucio es lo esperado**: `CONTEXT.md` + 3 ADRs son de la otra sesión. Stagear siempre
+  **archivo por archivo**, nunca `git add -A` ni `git add .`.
+- **Nunca `-Action advance` con el árbol sucio** — sella el WIP ajeno como revisado. Escribir el SHA
+  de HEAD a mano en `.git/review-loop-state.json`, con backup previo.
+- **Las 4 copias del hook idénticas en LÓGICA**: las 3 del scaffold byte-idénticas
+  (`mirror.tests.ps1`); la del repo en español, sólo difiere en comentarios
+  (`review-loop-incremental.tests.ps1`).
+- **Los manifests son generados.** `tools/gen-manifest.ps1` para los 3 del scaffold,
+  `reseal-manifest.ps1` para el de la raíz. `compare-scaffold.ps1`, `reseal-manifest.ps1` y
+  `merge-settings.ps1` viven en `skills/upgrade-bootstrap/scripts/`, **no** en `tools/`.
+- **Para prosa en español, usar Edit** — los acentos se corrompen al pasar texto por un heredoc.
+  Para mensajes de commit largos: escribir a archivo y `git commit -F <archivo>`.
+- **La suite del gate tarda varios minutos**: no correrla con timeout de 2 min.
+- **alignment-gate** frena el primer edit de código de la sesión. Si el trabajo es operativo, decilo
+  y reintentá; **no grilles**.
+
+## Preferencias del usuario (vigentes)
+
+- **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.**
+  **Prefiere Opus 4.8.** **Paraleliza todo lo posible** (techo medido: 4-6 agentes por ola).
+  **Cortar y seguir en terminal nueva.** **Nada a Zoho.**
+
+---
+
 # Session Handoff — 2026-08-27/28 (ROLLOUT de los 10 repos restantes COMPLETO + port del filtro solo-docs con 4 turnos de review-loop aplicados — próximo: TURNO 5 del loop, que es el tope, y después el deploy)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
