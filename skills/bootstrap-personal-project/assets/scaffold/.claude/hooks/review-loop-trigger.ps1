@@ -2,8 +2,9 @@
 # unreviewed delta when a slice closes on a branch that is NOT the base. It fires on `gh pr create`,
 # on `git push`, and on a `git commit` that DECLARES the close with a `Slice-Close:` trailer — a
 # commit without the trailer fires only as a safety net, once the unreviewed delta passes the
-# ~400-line guide. Commits are also checked for freshness, because the event carries the session's
-# cwd and a commit made in another repo would otherwise be attributed to this one.
+# ~400-line guide. Ahead of all of that, step 5c drops any slice that is entirely documentation, on
+# every trigger including `git push`. Commits are also checked for freshness, because the event
+# carries the session's cwd and a commit made in another repo would otherwise be attributed to it.
 # Shares .git/review-loop-state.json with the review marker: dedupes by SHA there and never
 # destroys the marker's own keys. Any non-applicable path ends in a silent exit 0.
 #
@@ -95,7 +96,8 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-gra
 # The cost is a wider false-POSITIVE surface: a commit whose MESSAGE text mentions "git push" /
 # "gh pr create" inside a `$(...)` now raises $isPush/$isPr from that text, and since step 6's gate is
 # `-not ($isPush -or $isPr)`, such a commit skips the trailer gate, the freshness window AND the
-# ceiling, firing unconditionally (still SHA-deduped to one fire). That is not free — it defeats the
+# ceiling, firing with only step 5c's docs gate left in its way (and still SHA-deduped to one
+# fire). That is not free — it defeats the
 # freshness guard that stops another repo's stale commit from being attributed here — but the worst
 # outcome is one spurious /review-loop, which asks the marker for THIS repo's range and closes on
 # empty: the "review too much" direction the project already declared safe, never a dropped close.
@@ -240,6 +242,81 @@ if ($root) {
     }
 }
 
+# TWO lists, because the two callers below ask different questions of them, and answering both with
+# one list is a bug: it silences review of a lockfile bump that happens to ship next to a README.
+#
+# `$skipPat` — what CLAUDE.md excludes from LINES OF LOGIC. The file still exists and still deserves
+# review; it just contributes 0 to the ~400-line guide of step 6.
+# Plain `*` and not `**`: pathspec wildcards already cross `/`, while `**/name` fails to match that
+# name at the repo root — verified, the manifest kept being counted.
+$skipPat = @('*.bootstrap-manifest.json', 'docs/vendor/*', '*.lock', '*lock.json',
+             '*lock.yaml', '*.lockb', 'go.sum', '*.snap')
+# `$genPat` — what nobody AUTHORED, so it cannot be what makes a slice worth reviewing. Only the
+# gate uses it, and it is deliberately a strict subset: a generated manifest re-sealed alongside a
+# docs edit should not keep firing the loop, but a lockfile is exactly where CLAUDE.md's
+# supply-chain rule gets checked, and vendored source is what a critical library was pinned to.
+# Feeding the gate the whole `$skipPat` made the decision non-monotonic — `package-lock.json` alone
+# fired, the same lockfile plus a README went silent — so adding prose switched review off. What
+# monotonicity is owed to is AUTHORED work: a re-sealed manifest alone still fires and goes quiet
+# next to a README, and that is fine, because there is nothing authored in it to read.
+# One consequence worth naming: a `.md` under `docs/vendor/` is prose to this gate, so a slice made
+# only of vendored documentation is not reviewed.
+$genPat = @('*.bootstrap-manifest.json', '*.snap')
+
+# The untracked files that are NEW since the last review. Filtering is left to the callers, because
+# they filter by DIFFERENT lists (`$genPat` vs `$skipPat`) — folding either one in here would answer
+# both questions with one answer, which is the bug the two lists exist to avoid. `git diff` never
+# shows untracked files, and step 5 of the loop ORDERS writing a new test, which stays untracked
+# until someone commits it — so both callers below need them.
+# What counts is untracked SINCE THE MARKER: the marker records its own `path|sha256` fingerprint in
+# `untracked:<branch>` for exactly this reason. Counting them absolutely made one already-reviewed
+# new file re-fire the net forever, and — until this discount was shared — a single stray untracked
+# file left the docs gate permanently disabled in that repo.
+# The fingerprint is keyed on the WHOLE `path|sha256` entry, exactly as the marker's own
+# Test-NewUntracked compares it. Keying on the path alone meant a file fingerprinted at one line and
+# since grown to 600 was skipped forever. And it only means anything while its marker lives: once
+# `git gc` prunes the marker object the range widens back to the slice base, so discounting against
+# a dead fingerprint would under-count exactly when the range just grew.
+# Hashing is the expensive half, so it runs at most ONCE per event: the successful result is cached.
+# (A failure is not cached — it returns before any hashing, so re-running it costs another `git
+# ls-files` and nothing more.)
+# Returns $null when git could not be asked at all; both callers read that as "cannot tell" and fail
+# open. `,$out` on the way out because PowerShell collapses a bare empty array to $null, which would
+# make "nothing new" indistinguishable from that failure.
+$script:untrackedNewCache = $null
+function Get-UntrackedNew {
+    if ($null -ne $script:untrackedNewCache) { return ,$script:untrackedNewCache }
+    if (-not $root) { return $null }
+    $seen = @{}
+    $markerSha = [string]$state["marker:$branch"]
+    if ($markerSha) {
+        git -C $root cat-file -e "$markerSha^{commit}" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($e in @($state["untracked:$branch"])) { if ($e) { $seen[[string]$e] = $true } }
+        }
+    }
+    # core.quotepath off so git does not C-quote a non-ASCII name ("\303\261andu.txt"), which would
+    # fail Test-Path and be dropped. The decoding half is handled once at the top of this file.
+    $others = @(git -C $root -c core.quotepath=false ls-files --others --exclude-standard 2>$null)
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $out = @()
+    foreach ($f in @($others | Where-Object { $_ })) {
+        $p = Join-Path $root $f
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        # With no fingerprint recorded there is nothing to compare against, so the hash would be
+        # computed only to be thrown away. Skipping it keeps the common path — no marker yet, or a
+        # marker cut with a clean tree — free of reading every untracked file end to end.
+        if ($seen.Count -eq 0) { $out += $f; continue }
+        # Hashed the same way the marker does, so the entries compare byte for byte.
+        $h = ""
+        try { $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } catch { }
+        if ($seen[("{0}|{1}" -f $f, $h)]) { continue }
+        $out += $f
+    }
+    $script:untrackedNewCache = $out
+    return ,$out
+}
+
 # 5c. A slice that is ENTIRELY documentation does not earn a review turn. This block is shaped by
 # two bugs found the hard way in a project that ran an earlier version of it, and BOTH were false
 # NEGATIVES — the gate silently switching reviews off, which is the only way it can hurt.
@@ -259,24 +336,56 @@ if ($root) {
 #
 # Decided over the same range the loop would review, never over the last commit alone: a slice that
 # already carries code keeps firing even when the commit that just landed is docs-only. Untracked
-# files are folded in because `git diff` never shows them and step 5 of the loop ORDERS writing a
-# new test, which stays untracked until someone commits it — without them, a slice whose only code
-# is still uncommitted read as docs-only and went unreviewed.
+# files are folded in for the same reason (see Get-UntrackedNew above), so a slice whose only code
+# is a still-uncommitted new test is not mistaken for prose.
 #
-# Conservative on purpose: ONE non-doc file is enough to fire, and a diff that does not resolve
-# fires too (fail-open). `core.quotePath=false` is required: git C-quotes non-ASCII paths and wraps
-# them in literal quotes, and those quotes break the `$` anchor below, so a `.md` with an accent
-# read as non-doc and every prose slice containing one fired anyway.
+# Conservative on purpose: ONE non-doc file in the slice is enough to leave the gate open, and
+# anything git cannot answer leaves it open too (fail-open). An open gate is not the same as firing:
+# on a commit the trailer gate and the ~400-line net of step 6 still get their say, and on EVERY
+# trigger the SHA dedupe of step 7 does — a second `git push` on the same commit stays silent with
+# the gate wide open, which is the ordinary shape of pushing again after the loop closed.
+# `core.quotepath=false` is required: git C-quotes non-ASCII paths and wraps them in literal quotes,
+# and those quotes break the `$` anchor below, so a `.md` with an accent read as non-doc and every
+# prose slice containing one fired anyway.
 if ($root) {
-    $govern = '(^|/)\.claude/|(^|/)\.agents/|(^|/)CLAUDE\.md$|^docs/ai-workflow/|^docs/agents/'
+    # Every alternative is anchored `(^|/)` and none of them `^`: a bootstrapped project can sit in
+    # a subdirectory of a monorepo, or vendor a second scaffold under one, and a bare `^` covered
+    # only the root copy while every nested one, governing the agent just as much, slipped through
+    # as prose.
+    $govern = '(^|/)\.claude/|(^|/)\.agents/|(^|/)CLAUDE\.md$|(^|/)docs/ai-workflow/|(^|/)docs/agents/'
     $docRange = if ($range) { $range } else { "$base...HEAD" }
-    $touched = @(git -C $root -c core.quotePath=false diff --name-only $docRange 2>$null)
-    if ($LASTEXITCODE -eq 0) {
-        $touched += @(git -C $root -c core.quotePath=false ls-files --others --exclude-standard 2>$null)
-        $touched = @($touched | Where-Object { $_ })
-        if ($touched.Count -gt 0) {
-            $nonDoc = $touched | Where-Object { $_ -notmatch '\.md$' -or $_ -match $govern }
-            if (-not $nonDoc) { exit 0 }   # docs-only slice: nothing worth a review turn
+    # `--no-renames` because with rename detection on, `--name-only` reports only the DESTINATION:
+    # moving code to a `.md` name showed up as a single doc file and silenced the review of what was
+    # removed. Off, the same move lists the old path too, and one non-doc entry is enough.
+    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange -- . 2>$null)
+    $touchedOk = ($LASTEXITCODE -eq 0)
+    # Without a marker the range is `<base>...HEAD`, a range of COMMITS: the working tree is not in
+    # it, so a TRACKED file modified and not yet committed appeared in neither half and a slice
+    # whose only code was uncommitted got suppressed. With a marker there is nothing to add — its
+    # ref is emitted bare precisely so that `git diff <ref>` already covers the tree.
+    if ($touchedOk -and -not $range) {
+        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD -- . 2>$null)
+        $touchedOk = ($LASTEXITCODE -eq 0)
+    }
+    if ($touchedOk) {
+        # `$genPat`, NOT `$skipPat`: see step 5b. Only what nobody authored disappears here.
+        $touched = @($touched | Where-Object { $_ } |
+                     Where-Object { $f = $_; -not (@($genPat | Where-Object { $f -like $_ }).Count) })
+        $nonDoc = @($touched | Where-Object { $_ -notmatch '\.md$' -or $_ -match $govern })
+        # The untracked half can cost a SHA256 per file (only when a fingerprint exists to compare
+        # against), so it is only paid for once the tracked half has come back all prose: a single
+        # non-doc file there already answers the question.
+        if ($nonDoc.Count -eq 0) {
+            $untracked = Get-UntrackedNew
+            if ($null -ne $untracked) {
+                $untracked = @($untracked | Where-Object { $f = $_; -not (@($genPat | Where-Object { $f -like $_ }).Count) })
+                $all = @($touched) + @($untracked)
+                $nonDoc = @($all | Where-Object { $_ -notmatch '\.md$' -or $_ -match $govern })
+                # An empty slice is not a docs-only slice: with nothing in it there is nothing to
+                # judge, so it falls through and fires instead of going quiet. A slice that adds and
+                # removes the same code nets out empty here and must still be reviewed.
+                if ($all.Count -gt 0 -and $nonDoc.Count -eq 0) { exit 0 }
+            }
         }
     }
 }
@@ -285,7 +394,8 @@ if ($root) {
 # The trailer is read from the commit that was just created, not parsed out of the command line,
 # so it works the same for `-m`, `-F file`, a heredoc or `--amend`.
 # `git commit && git push` is ONE bash command and lights up both flags, so the trailer gate only
-# governs a commit that is the sole trigger: the push fires unconditionally, as it did before A2.
+# governs a commit that is the sole trigger: the push skips the trailer gate, as it did before A2.
+# Step 5c's docs gate is the one thing that can still silence a push.
 if ($isCommit -and -not ($isPush -or $isPr)) {
     # The event carries the SESSION cwd, not the directory the command ran in: a `git commit`
     # inside another repo would otherwise be attributed to this one. If this repo's HEAD is not
@@ -317,10 +427,9 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         if (-not $range) { $range = "$base...HEAD" }
         # The guide counts lines of LOGIC: CLAUDE.md excludes generated files, vendored code,
         # lockfiles and snapshots by name. Counting them fires on slices that honour the rule.
-        # Plain `*` and not `**`: pathspec wildcards already cross `/`, while `**/name` fails to
-        # match that name at the repo root — verified, the manifest kept being counted.
-        $skipPat = @('*.bootstrap-manifest.json', 'docs/vendor/*', '*.lock', '*lock.json',
-                     '*lock.yaml', '*.lockb', 'go.sum', '*.snap')
+        # `$skipPat` is defined in step 5b and belongs to THIS caller: the docs gate asks a
+        # different question and filters by `$genPat`. Handing the gate this list is what made its
+        # decision non-monotonic, so do not "unify" them back.
         $skip = $skipPat | ForEach-Object { ":(exclude)$_" }
         $lines = 0
         # `git -C $root` on both counts: pathspecs and `ls-files` resolve against the git process's
@@ -338,41 +447,22 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
                 foreach ($n in $cols[0..1]) { if ($n -match '^\d+$') { $lines += [int]$n } }
             }
         }
-        # `git diff` never shows untracked files, and step 5 of the loop ORDERS writing a new test,
-        # which is untracked until someone commits it: a slice made of new files measured 0. What
-        # counts is untracked SINCE THE MARKER, though — the marker records its own fingerprint in
-        # `untracked:<branch>` for exactly this reason. Counting them absolutely meant one already
-        # reviewed new file re-fired the net on every later commit, forever.
-        # The fingerprint is keyed on the WHOLE `path|sha256` entry, exactly as the marker's own
-        # Test-NewUntracked compares it. Keying on the path alone meant a file fingerprinted at one
-        # line and since grown to 600 was skipped forever — the net missing the very case it exists
-        # for. An unchanged file hashes the same and still matches, so the "already reviewed test
-        # file re-fires forever" bug this discount was written to kill stays dead.
-        # And the fingerprint only means anything while its marker lives: once `git gc` prunes the
-        # marker object the range widens back to the slice base, so discounting against a dead
-        # fingerprint would under-count exactly when the range just grew.
-        $seen = @{}
-        $mk = [string]$state["marker:$branch"]
-        if ($mk) {
-            git -C $root cat-file -e "$mk^{commit}" 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) {
-                foreach ($e in @($state["untracked:$branch"])) { if ($e) { $seen[[string]$e] = $true } }
-            }
-        }
-        # core.quotepath off so git does not C-quote a non-ASCII name ("\303\261andu.txt"), which
-        # would fail Test-Path and contribute ZERO to the guide. The decoding half of that same
-        # problem is handled once at the top of this file.
-        $others = @(git -C $root -c core.quotepath=false ls-files --others --exclude-standard 2>$null |
-                    Where-Object { $_ })
-        foreach ($f in $others) {
-            # The same exclusions as above: they only applied to the tracked half, so an untracked
-            # `package-lock.json` fired the loop on a slice that honours the rule.
+        # The untracked half comes from Get-UntrackedNew (step 5b), which discounts the marker's
+        # `untracked:<branch>` fingerprint; `$skipPat` is applied HERE, because this is the caller
+        # that asks about lines of logic. Both halves of the guide — tracked and untracked — now
+        # exclude the same names. The docs gate does NOT: it asks a different question and filters
+        # by `$genPat`. $null means git could not be asked at all, which makes the whole count
+        # untrustworthy: fail open, like a range that does not resolve.
+        $untracked = Get-UntrackedNew
+        if ($null -eq $untracked) { $measurable = $false; $untracked = @() }
+        foreach ($f in $untracked) {
             if (@($skipPat | Where-Object { $f -like $_ }).Count) { continue }
             $p = Join-Path $root $f
-            if (-not (Test-Path -LiteralPath $p)) { continue }
             # Binary files are not lines of logic, and `git diff --numstat` already reports `-` for
             # them on the tracked side, so skipping them here keeps both halves consistent. It also
-            # keeps a 12 MB screenshot from costing seconds on EVERY git commit (measured: 4.9 s).
+            # keeps a 12 MB screenshot from costing seconds on EVERY git commit (4.9 s when this
+            # guard was written; re-measuring it since has not reproduced that figure, so treat the
+            # number as unattributed and the guard as cheap insurance).
             # The window is 8000 bytes because that is what git itself scans for a NUL; at 4096 a
             # file whose first NUL sits past that mark counted as text and inflated the guide, while
             # the comment above claimed the two halves agreed.
@@ -383,10 +473,6 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
                 $n  = $fs.Read($buf, 0, 8000)
             } catch { continue } finally { if ($fs) { $fs.Close() } }
             if ([Array]::IndexOf($buf, [byte]0, 0, $n) -ge 0) { continue }
-            # Hashed the same way the marker does, so the entries compare byte for byte.
-            $h = ""
-            try { $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } catch { }
-            if ($seen[("{0}|{1}" -f $f, $h)]) { continue }
             $lines += @(Get-Content -LiteralPath $p -TotalCount 401 2>$null).Count
         }
         if ($measurable -and $lines -le 400) { exit 0 }
