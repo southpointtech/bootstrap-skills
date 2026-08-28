@@ -45,30 +45,42 @@ Remove-Item -Recurse -Force $t
 $t2  = NewClone
 $src = Join-Path ([IO.Path]::GetTempPath()) ("export-test-src-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $src | Out-Null
-# Huella de un arbol: ruta relativa + tamano + mtime de cada archivo. El mtime es lo que importa:
-# gen-manifest.ps1 es idempotente, asi que reescribir el manifest da bytes identicos y un hash de
-# contenido no ve la escritura. Se compara como texto y no con -eq entre arrays, que filtra.
+# Huella de un arbol: ruta relativa + tamano + mtime de cada archivo, en orden estable. El mtime es
+# lo que la vuelve sensible a la ESCRITURA y no solo al contenido: gen-manifest.ps1 estampa la fecha
+# del dia en "version", asi que una reescritura cambia los bytes solo si el sello es de otro dia o el
+# scaffold drifteo -- comparar contenido deja pasar la reescritura del mismo dia. Se compara como
+# texto (no con -eq entre arrays, que filtra) y con -ceq, porque -eq entre strings ignora mayusculas
+# y un rename que solo cambia capitalizacion compararia igual.
 function Huella($raiz) {
   Get-ChildItem $raiz -Recurse -File -Force | Sort-Object FullName |
     ForEach-Object { "$($_.FullName.Substring($raiz.Length)) $($_.Length) $($_.LastWriteTimeUtc.Ticks)" }
 }
 try {
-  # Cada destino de Copy-Item ($src\skills y sus hermanos) tiene que no existir todavia: sobre un
-  # destino preexistente, -Recurse anida (skills\skills). Por eso $src se crea vacio recien aca.
+  # $src se creo vacio arriba y cada destino de Copy-Item ($src\skills y sus hermanos) todavia no
+  # existe: sobre un destino preexistente, -Recurse anida (skills\skills).
   foreach ($d in @("skills", "public", "tools")) { Copy-Item (Join-Path $repo $d) (Join-Path $src $d) -Recurse }
-  "contact MartinDele703 for details" | Set-Content (Join-Path $src "skills\bootstrap-ai-project\LEAK-TEST.md")
+
+  # 3a. Corrida COMPLETA sobre la copia: el exportador no escribe en su arbol fuente. Es la propiedad
+  #     que hace que correr la suite no ensucie el repo, y la que a2313ee dejo asentada al mover la
+  #     generacion del manifest al clon. Va sin senuelo a proposito: con el senuelo el exportador
+  #     muere en el gate y nada de lo que viene despues llegaria a medirse.
+  #     Se mide sobre la copia y no sobre el repo -- misma propiedad, porque el exportador deriva su
+  #     raiz de la ubicacion del script y es el mismo codigo -- para no acoplar la suite a un working
+  #     tree vivo, donde un reselado concurrente daria un rojo que acusaria al exportador.
   $fuenteAntes = (Huella $src) -join "`n"
+  Assert ($fuenteAntes.Length -gt 0) "huella: la copia de la fuente no esta vacia"
+  & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "export desde la copia hermetica: exit 0"
+  Assert (((Huella $src) -join "`n") -ceq $fuenteAntes) "el exportador no escribe en su arbol fuente (ni un archivo nuevo, ni un borrado, ni una reescritura identica)"
+
+  # 3b. Con el senuelo en el payload de la fuente, el gate aborta.
+  "contact MartinDele703 for details" | Set-Content (Join-Path $src "skills\bootstrap-ai-project\LEAK-TEST.md")
+  Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "el senuelo se planta en la copia, no en el arbol del repo"
   $salida = & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 2>&1 | Out-String
-  $fuenteDespues = (Huella $src) -join "`n"
   Assert ($LASTEXITCODE -ne 0) "gate: export con marcador inyectado aborta (exit != 0)"
   # Sin esto, cualquier rotura de la copia (una dependencia del exportador fuera de los 3 directorios
   # copiados) aborta con exit != 0 y el caso pasa en verde sin que el gate llegue a correr.
   Assert ($salida -match "LEAK:.*LEAK-TEST\.md") "gate: aborta POR el marcador de fuga, no por otra falla"
-  # El exportador no escribe en su arbol fuente: es la propiedad que hace que correr la suite no
-  # ensucie el repo, y la que a2313ee dejo asentada al mover la generacion del manifest al clon.
-  # Se mide sobre la copia, no sobre el repo: misma propiedad, sin acoplarse a un working tree vivo
-  # que puede estar cambiando por otro trabajo (un reselado concurrente daria un rojo enganoso).
-  Assert ($fuenteAntes -eq $fuenteDespues) "el exportador no escribe en su arbol fuente (ni un archivo nuevo, ni una reescritura identica)"
 } finally {
   Remove-Item -Recurse -Force $src, $t2 -ErrorAction SilentlyContinue
 }
@@ -80,9 +92,9 @@ New-Item -ItemType Directory -Path $t3 | Out-Null
 Assert ($LASTEXITCODE -ne 0) "PublicRepoDir sin .git: aborta"
 Remove-Item -Recurse -Force $t3
 
-# Guard contra una regresion de ESTE archivo, no del exportador: que el caso 3 vuelva a plantar su
-# senuelo dentro del repo, como hacia antes de este slice.
-Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "el senuelo del caso 3 no se planta dentro del arbol del repo"
+# Guard contra una regresion de ESTE archivo, no del exportador: nada crea LEAK-TEST.md salvo el caso
+# 3. Detecta el senuelo que QUEDA en el repo; el que se plante y se limpie lo detecta el assert de 3b.
+Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "ningun senuelo quedo dentro del arbol del repo"
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
