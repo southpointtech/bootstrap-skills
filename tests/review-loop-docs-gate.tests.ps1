@@ -350,9 +350,10 @@ $hookSrc = Get-Content -LiteralPath $hook -Raw
 # `$govern`: no depende de él, y adentro un cambio de forma de `$govern` se llevaba puesto también
 # este chequeo, en silencio.
 function Read-Pat($nombre) {
-  # El `)` de cierre puede traer un comentario detrás. Sin admitirlo, el `.*?` seguía de largo hasta
-  # el próximo `)` a fin de línea — veinte líneas más abajo — y devolvía una lista NO vacía con
-  # basura adentro, que el guard de abajo no distinguía de una lectura sana.
+  # El `)` de cierre puede traer un comentario detrás. Sin admitirlo, el `.*?` seguiría de largo
+  # hasta el próximo `)` a fin de línea — 11 líneas más abajo para `$skipPat`, 18 para `$genPat` —
+  # devolviendo una lista con basura adentro que el guard de abajo no distinguiría de una lectura
+  # sana. Hoy ninguna de las dos listas lleva comentario ahí: esto es contra un cambio futuro.
   $m = [regex]::Match($hookSrc, "(?ms)^\`$$nombre\s*=\s*@\((.*?)\)\s*(#.*)?$")
   if (-not $m.Success) { return @() }
   $items = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
@@ -362,12 +363,20 @@ function Read-Pat($nombre) {
 }
 $skipPat = Read-Pat 'skipPat'
 $genPat  = Read-Pat 'genPat'
-Assert ($skipPat.Count -gt 0 -and $genPat.Count -gt 0) "guard: se leyeron las dos listas del hook (skipPat=$($skipPat.Count), genPat=$($genPat.Count))"
-$fuera = $genPat | Where-Object { $skipPat -notcontains $_ }
-Assert ($fuera.Count -eq 0) "genPat es subconjunto de skipPat [afuera: $($fuera -join ', ')]"
-# Nota: un refactor que exprese la relación en código (`$skipPat = $genPat + @(...)`) va a poner
-# esto en rojo porque Read-Pat no lo va a poder leer. Falla nombrándose, que es la dirección buena.
-Assert ($genPat.Count -lt $skipPat.Count) "genPat es subconjunto ESTRICTO (genPat=$($genPat.Count) < skipPat=$($skipPat.Count))"
+$leidas = ($skipPat.Count -gt 0 -and $genPat.Count -gt 0)
+Assert $leidas "guard: se leyeron las dos listas del hook (skipPat=$($skipPat.Count), genPat=$($genPat.Count))"
+# Sin este `if`, una lectura fallida —regex que no matchea, o desborde cazado por el guard de
+# whitespace— deja las dos listas vacías y el assert de subconjunto imprime `ok:` EN VERDE sobre una
+# lectura que nunca ocurrió: `Read-Pat` devuelve `@()`, que se desenrolla a `$null`, y `$null.Count`
+# es 0, así que `$fuera.Count -eq 0` se cumple vacuamente. Un pase falso en un guard cuyo trabajo
+# entero es ser ruidoso — la misma cascada que el `continue` del loop de los `CLAUDE.md`, más abajo.
+if ($leidas) {
+  $fuera = $genPat | Where-Object { $skipPat -notcontains $_ }
+  Assert ($fuera.Count -eq 0) "genPat es subconjunto de skipPat [afuera: $($fuera -join ', ')]"
+  # Nota: un refactor que exprese la relación en código (`$skipPat = $genPat + @(...)`) va a poner
+  # esto en rojo porque Read-Pat no lo va a poder leer. Falla nombrándose, que es la dirección buena.
+  Assert ($genPat.Count -lt $skipPat.Count) "genPat es subconjunto ESTRICTO (genPat=$($genPat.Count) < skipPat=$($skipPat.Count))"
+}
 if ($hookSrc -notmatch "(?m)^\s*\`$govern\s*=\s*'([^']+)'") {
   Write-Host "FAIL: guard: no se pudo leer `$govern del hook — ¿cambió de forma?"; $script:failures++
 } else {
@@ -404,7 +413,7 @@ if ($hookSrc -notmatch "(?m)^\s*\`$govern\s*=\s*'([^']+)'") {
     $txt = Get-Content -LiteralPath $f -Raw
     $m = [regex]::Matches($txt, '(?ms)^- After implementation, run .*?(?=^-\s|\z)')
     Assert ($m.Count -eq 1) "guard: $etiqueta tiene exactamente un bullet de review-loop (encontrados: $($m.Count))"
-    # Sin este `continue`, un guard en rojo arrastra 3 rojos más por archivo con la misma causa raíz.
+    # Sin este `continue`, un guard en rojo arrastra 4 rojos más por archivo con la misma causa raíz.
     if ($m.Count -ne 1) { continue }
     $bullet = $m[0].Value
     # Las rutas se buscan DENTRO de la lista entre paréntesis, no en el bullet entero: `docs/` está
@@ -417,7 +426,11 @@ if ($hookSrc -notmatch "(?m)^\s*\`$govern\s*=\s*'([^']+)'") {
     Assert ($faltan.Count -eq 0) "$etiqueta enumera en su bullet las rutas de govern [faltan: $($faltan -join ', ')]"
     # La DIRECCIÓN de la regla, no sólo las rutas: sin esto, la prosa podía invertirse ("todo lo que
     # está bajo docs/ cuenta como documentación" = el bug exacto de la v1) y quedar en verde.
-    Assert ($bullet -match [regex]::Escape('`.md` is the only thing that counts as documentation')) "$etiqueta dice que SOLO .md es documentación"
+    # El ancla toma la cláusula ENTERA, no su primera punta: anclando sólo `.md` is the only thing…`
+    # una inversión insertada EN EL MEDIO ("…is documentation too") pasaba entre las dos anclas y
+    # corría la suite completa en verde (medido). Costo aceptado: queda acoplado a la puntuación
+    # exacta de la cláusula, así que un reflow del em-dash da rojo — falla nombrándose.
+    Assert ($bullet -match [regex]::Escape('`.md` is the only thing that counts as documentation — anything else under `docs/` is code')) "$etiqueta dice que SOLO .md es documentación"
     Assert ($bullet -match 'never documentation') "$etiqueta dice que lo que gobierna al agente NUNCA es documentación"
   }
 }

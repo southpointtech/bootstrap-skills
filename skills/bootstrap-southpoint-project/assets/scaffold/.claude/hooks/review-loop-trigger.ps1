@@ -395,7 +395,8 @@ if ($root) {
 # so it works the same for `-m`, `-F file`, a heredoc or `--amend`.
 # `git commit && git push` is ONE bash command and lights up both flags, so the trailer gate only
 # governs a commit that is the sole trigger: the push skips the trailer gate, as it did before A2.
-# Step 5c's docs gate is the one thing that can still silence a push.
+# Step 5c's docs gate can silence a push, but it is not the only thing left: step 7's per-commit
+# dedupe runs on EVERY trigger and silences a second push of the same commit.
 if ($isCommit -and -not ($isPush -or $isPr)) {
     # The event carries the SESSION cwd, not the directory the command ran in: a `git commit`
     # inside another repo would otherwise be attributed to this one. If this repo's HEAD is not
@@ -461,8 +462,9 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
             # Binary files are not lines of logic, and `git diff --numstat` already reports `-` for
             # them on the tracked side, so skipping them here keeps both halves consistent. It also
             # keeps a 12 MB screenshot from costing seconds on EVERY git commit (4.9 s when this
-            # guard was written; re-measuring it since has not reproduced that figure, so treat the
-            # number as unattributed and the guard as cheap insurance).
+            # guard was written; nobody has re-measured that end-to-end cost since — the attempts
+            # timed only the `Get-Content`, at 16-172 ms — so treat the number as unattributed and
+            # the guard as cheap insurance).
             # The window is 8000 bytes because that is what git itself scans for a NUL; at 4096 a
             # file whose first NUL sits past that mark counted as text and inflated the guide, while
             # the comment above claimed the two halves agreed.

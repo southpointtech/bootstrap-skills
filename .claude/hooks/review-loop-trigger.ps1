@@ -95,10 +95,17 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # de la línea, PERDIENDO disparadores reales — `git commit -m "$(sed 's/"/x/' f)" && git push` salía
 # con $isPush FALSE, el push perdido. En vez de modelar `$()` (el pozo del parseo de bash que produjo
 # ocho altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el
-# comando CRUDO y se combinan con OR: todo falso negativo se vuelve falso positivo, la dirección que
-# el proyecto ya declaró segura (un review-loop de más, nunca un cierre perdido). Los usos naturales
-# (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas, se re-alinean solos y no
-# llegan a esta rama.
+# comando CRUDO y se combinan con OR. El costo es una superficie más ancha de falsos POSITIVOS: un
+# commit cuyo MENSAJE mencione "git push" / "gh pr create" adentro de un `$(...)` ahora levanta
+# $isPush/$isPr desde ese texto, y como la puerta del paso 6 es `-not ($isPush -or $isPr)`, ese
+# commit saltea la puerta del trailer, la ventana de frescura Y el techo, y dispara con sólo el gate
+# de docs del paso 5c en el camino (y aun así deduplicado por SHA a un único disparo). Eso no es
+# gratis —anula el guard de frescura que evita atribuirle a este repo el commit viejo de otro— pero
+# el peor resultado es un `/review-loop` de más, que le pide al marcador el rango de ESTE repo y
+# cierra en vacío: la dirección "revisar de más" que el proyecto ya declaró segura, nunca un cierre
+# perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas,
+# se re-alinean solos y no llegan a esta rama. El falso positivo aceptado está fijado por un fixture,
+# así que no puede degradarse a un cambio de conducta silencioso.
 if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
     $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
@@ -399,8 +406,9 @@ if ($root) {
 # `-m`, `-F archivo`, un heredoc o `--amend`.
 # `git commit && git push` es UN solo comando de Bash y prende las dos banderas, así que la puerta
 # del trailer sólo gobierna al commit cuando es el único disparador: el push SALTEA esa puerta,
-# como lo hacía antes de A2. El gate de docs del paso 5c es lo único que todavía puede callar un
-# push.
+# como lo hacía antes de A2. El gate de docs del paso 5c puede callar un push, pero no es lo único
+# que le queda: el dedupe por SHA del paso 7 corre en TODOS los disparadores y calla un segundo push
+# del mismo commit.
 if ($isCommit -and -not ($isPush -or $isPr)) {
     # El evento trae el cwd de la SESIÓN, no el directorio donde corrió el comando: sin esto, un
     # `git commit` dentro de otro repo se le atribuye a éste. Si el HEAD de este repo no es
@@ -466,7 +474,8 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
             # Los binarios no son líneas de lógica, y `git diff --numstat` ya reporta `-` para ellos
             # del lado trackeado, así que saltearlos acá deja las dos mitades consistentes. Además
             # evita que una captura de 12 MB cueste segundos en CADA git commit (4,9 s cuando se
-            # escribió este guard; remedirlo después no reprodujo esa cifra, así que tomala como no
+            # escribió este guard; nadie remidió ese costo end-to-end desde entonces —los intentos
+            # cronometraron sólo el `Get-Content`, 16-172 ms—, así que tomá la cifra como no
             # atribuida y al guard como seguro barato).
             # La ventana es de 8000 bytes porque es lo que escanea el propio git buscando un NUL; con
             # 4096, un archivo cuyo primer NUL cae más allá contaba como texto e inflaba el techo,
