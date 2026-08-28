@@ -60,27 +60,34 @@ try {
   # existe: sobre un destino preexistente, -Recurse anida (skills\skills).
   foreach ($d in @("skills", "public", "tools")) { Copy-Item (Join-Path $repo $d) (Join-Path $src $d) -Recurse }
 
-  # 3a. Corrida COMPLETA sobre la copia: el exportador no escribe en su arbol fuente. Es la propiedad
+  # 3a. Corrida que llega hasta el final: el exportador no escribe en su arbol fuente. Es la propiedad
   #     que hace que correr la suite no ensucie el repo, y la que a2313ee dejo asentada al mover la
   #     generacion del manifest al clon. Va sin senuelo a proposito: con el senuelo el exportador
   #     muere en el gate y nada de lo que viene despues llegaria a medirse.
   #     Se mide sobre la copia y no sobre el repo -- misma propiedad, porque el exportador deriva su
   #     raiz de la ubicacion del script y es el mismo codigo -- para no acoplar la suite a un working
   #     tree vivo, donde un reselado concurrente daria un rojo que acusaria al exportador.
+  #     El export de calentamiento puebla $t2: sobre un clon recien creado, la rama que borra el
+  #     destino previo no se ejecuta, y la corrida medida la dejaria sin cubrir.
+  & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "export de calentamiento sobre la copia hermetica: exit 0"
   $fuenteAntes = (Huella $src) -join "`n"
   Assert ($fuenteAntes.Length -gt 0) "huella: la copia de la fuente no esta vacia"
   & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 | Out-Null
   Assert ($LASTEXITCODE -eq 0) "export desde la copia hermetica: exit 0"
   Assert (((Huella $src) -join "`n") -ceq $fuenteAntes) "el exportador no escribe en su arbol fuente (ni un archivo nuevo, ni un borrado, ni una reescritura identica)"
 
-  # 3b. Con el senuelo en el payload de la fuente, el gate aborta.
+  # 3b. Con el senuelo en el payload de la fuente, el gate aborta. La huella se vuelve a tomar aca
+  #     -- despues de plantar el senuelo -- porque la rama del gate solo corre en esta pasada.
   "contact MartinDele703 for details" | Set-Content (Join-Path $src "skills\bootstrap-ai-project\LEAK-TEST.md")
-  Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "el senuelo se planta en la copia, no en el arbol del repo"
+  Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "ningun senuelo se planto en el arbol del repo"
+  $fuenteAntesGate = (Huella $src) -join "`n"
   $salida = & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 2>&1 | Out-String
   Assert ($LASTEXITCODE -ne 0) "gate: export con marcador inyectado aborta (exit != 0)"
   # Sin esto, cualquier rotura de la copia (una dependencia del exportador fuera de los 3 directorios
   # copiados) aborta con exit != 0 y el caso pasa en verde sin que el gate llegue a correr.
   Assert ($salida -match "LEAK:.*LEAK-TEST\.md") "gate: aborta POR el marcador de fuga, no por otra falla"
+  Assert (((Huella $src) -join "`n") -ceq $fuenteAntesGate) "el exportador tampoco escribe en su arbol fuente cuando aborta por el gate"
 } finally {
   Remove-Item -Recurse -Force $src, $t2 -ErrorAction SilentlyContinue
 }
