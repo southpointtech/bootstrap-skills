@@ -36,16 +36,19 @@ Assert ($LASTEXITCODE -eq 0) "re-export: exit 0"
 Assert (-not (Test-Path "$t\skills\bootstrap-ai-project\HUERFANO.txt")) "re-export: huérfano eliminado (copia limpia)"
 Remove-Item -Recurse -Force $t
 
-# 3. Gate anti-fuga: marcador inyectado en el payload -> aborta
-$t2 = NewClone
-$leakSrc = Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"
-"contact MartinDele703 for details" | Set-Content $leakSrc
-try {
-  & pwsh -NoProfile -File $script -PublicRepoDir $t2 2>&1 | Out-Null
-  Assert ($LASTEXITCODE -ne 0) "gate: export con marcador inyectado aborta (exit != 0)"
-} finally {
-  Remove-Item $leakSrc -Force
-}
+# 3. Gate anti-fuga: marcador en el payload de la FUENTE -> aborta.
+#    La fuente se copia a temp y se corre ESA copia del script (el exportador deriva su raiz de la
+#    ubicacion del script), asi el senuelo nunca se planta dentro del arbol del repo: correr la suite
+#    no ensucia el working tree y los tests pueden correr en paralelo o con trabajo real en vuelo.
+$t2  = NewClone
+$src = Join-Path ([IO.Path]::GetTempPath()) ("export-test-src-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $src | Out-Null
+foreach ($d in @("skills", "public", "tools")) { Copy-Item (Join-Path $repo $d) (Join-Path $src $d) -Recurse }
+"contact MartinDele703 for details" | Set-Content (Join-Path $src "skills\bootstrap-ai-project\LEAK-TEST.md")
+Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "gate: el senuelo no se planta dentro del arbol del repo"
+& pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 2>&1 | Out-Null
+Assert ($LASTEXITCODE -ne 0) "gate: export con marcador inyectado aborta (exit != 0)"
+Remove-Item -Recurse -Force $src
 Remove-Item -Recurse -Force $t2
 
 # 4. No es un clon git -> aborta
