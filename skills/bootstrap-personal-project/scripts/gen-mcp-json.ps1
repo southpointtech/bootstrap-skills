@@ -9,10 +9,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Catalog = [ordered]@{
+  # firebase: la credencial nunca entra al .mcp.json (firebase-tools usa "firebase login" o las
+  # Application Default Credentials del ambiente). Lo unico parametrizado es el directorio que
+  # contiene firebase.json; va con default porque una ${VAR} sin definir queda literal en la config.
   "firebase" = [ordered]@{
-    config          = [ordered]@{ type = "stdio"; command = "npx"; args = @("-y","firebase-tools@latest","experimental:mcp") }
+    config          = [ordered]@{ type = "stdio"; command = "npx"; args = @("-y","firebase-tools@latest","experimental:mcp","--dir",'${FIREBASE_PROJECT_DIR:-.}') }
     requiredEnvVars = @()
-    prereqs         = @("firebase login (una vez)")
+    prereqs         = @("firebase login (una vez)","FIREBASE_PROJECT_DIR solo si firebase.json no esta en la raiz del proyecto (default: el proyecto)")
   }
   "zoho-personal" = [ordered]@{
     config          = [ordered]@{ type = "http"; url = '${ZOHO_PERSONAL_MCP_URL}' }

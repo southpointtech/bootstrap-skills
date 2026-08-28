@@ -6,6 +6,8 @@ Claude must never deploy without explicit human approval.
 
 Never open giant PRs. Keep each PR a small, reviewable unit (target ≤ ~400 lines); when changes depend on each other, prefer a chain of stacked PRs.
 
+A deployment with more than a couple of steps gets written up first from `RUNBOOK_TEMPLATE.md`: it assigns each step to the agent or to a human and gates each phase on a verification. The runbook says who runs what; the rules below say what may be deployed at all, and the runbook never overrides them.
+
 ## Frontend / Hosting
 
 Before deploying a frontend (Firebase Hosting, Azure Static Web Apps, or other):

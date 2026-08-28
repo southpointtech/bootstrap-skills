@@ -99,5 +99,60 @@ $rsh2 = RunScript $shareable @("zoho-personal") $tsh2
 Assert ($rsh2.exit -ne 0) "shareable: zoho-personal invalido en el catalogo compartible"
 Remove-Item -Recurse -Force $tsh2
 
+# --- FIREBASE: en los 3 catalogos, parametrizado por env var y sin credencial en el archivo ---
+# La credencial de Firebase NUNCA entra al .mcp.json: firebase-tools usa las credenciales de
+# 'firebase login' o las Application Default Credentials del ambiente. Lo unico parametrizado es
+# el directorio que contiene firebase.json, por si no esta en la raiz del proyecto (monorepo).
+# Se usa la forma con default (${VAR:-.}) y no ${VAR} a secas: con la variable sin definir,
+# Claude Code deja el texto ${VAR} literal en la config, y un --dir literal no existiria.
+foreach ($case in @(
+  @{ name = "personal";   script = $personal   },
+  @{ name = "southpoint"; script = $southpoint },
+  @{ name = "shareable";  script = $shareable  }
+)) {
+  $tfb = NewTmp
+  $rfb = RunScript $case.script @("firebase") $tfb
+  Assert ($rfb.exit -eq 0) "$($case.name) firebase: exit 0"
+  $fdoc = Get-Content (Join-Path $tfb ".mcp.json") -Raw | ConvertFrom-Json
+  $fb   = $fdoc.mcpServers.firebase
+  Assert ($null -ne $fb) "$($case.name) firebase: presente en el catalogo"
+  $fbArgs = @($fb.args)
+  Assert ($fbArgs -contains "--dir") "$($case.name) firebase: pasa --dir"
+  $dirIdx = [array]::IndexOf($fbArgs, "--dir")
+  Assert ($dirIdx -ge 0 -and $dirIdx + 1 -lt $fbArgs.Count -and $fbArgs[$dirIdx + 1] -eq '${FIREBASE_PROJECT_DIR:-.}') `
+    "$($case.name) firebase: el valor de --dir es la env var expandida con default"
+  Assert ($null -eq $fb.env) "$($case.name) firebase: sin bloque env (la credencial no entra al archivo)"
+  Remove-Item -Recurse -Force $tfb
+}
+
+# --- INVARIANTE B1: toda variable de entorno con pinta de credencial se pasa expandida ---
+# Un literal en 'env' es una fuga: el .mcp.json se commitea. Aplica a los 3 catalogos y a
+# todos sus servidores, no solo a firebase.
+foreach ($case in @(
+  @{ name = "personal";   script = $personal;   servers = @("firebase","zoho-personal","github") },
+  @{ name = "southpoint"; script = $southpoint; servers = @("firebase","domo","zoho-projects","github") },
+  @{ name = "shareable";  script = $shareable;  servers = @("firebase","github") }
+)) {
+  $tinv = NewTmp
+  $rinv = RunScript $case.script $case.servers $tinv
+  Assert ($rinv.exit -eq 0) "$($case.name) invariante: exit 0 generando todo el catalogo"
+  $idoc = Get-Content (Join-Path $tinv ".mcp.json") -Raw | ConvertFrom-Json
+  $offenders = @()
+  $checked   = 0
+  foreach ($srvName in ($idoc.mcpServers.PSObject.Properties.Name)) {
+    $srv = $idoc.mcpServers.$srvName
+    if ($null -eq $srv.env) { continue }
+    foreach ($p in $srv.env.PSObject.Properties) {
+      if ($p.Name -notmatch '(?i)token|secret|password|credential|key') { continue }
+      $checked++
+      if ($p.Value -notmatch '^\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}$') { $offenders += "$srvName.$($p.Name)=$($p.Value)" }
+    }
+  }
+  # Si no se inspecciono ninguna clave, el assert de abajo seria vacuo: fallar en vez de mentir.
+  Assert ($checked -gt 0) "$($case.name) invariante: hay al menos una env var de credencial que inspeccionar ($checked)"
+  Assert ($offenders.Count -eq 0) "$($case.name) invariante: ninguna credencial literal en env ($($offenders -join '; '))"
+  Remove-Item -Recurse -Force $tinv
+}
+
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

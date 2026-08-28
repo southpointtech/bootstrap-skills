@@ -74,6 +74,7 @@ Recommended transitions:
 - For Firebase or Azure backends, identify the target backend before editing.
 - Never deploy to DOMO, Firebase, or Azure without explicit human approval.
 - Never modify secrets, production config, Firestore rules, Azure resources, or DOMO-deployed assets without approval.
+- Never hardcode a secret. Tokens, keys and connection strings live in environment variables or a secret store; tracked files (`.mcp.json`, config, CI) reference them as `${ENV_VAR}`. A secret that reached a commit is a leak: rotate it, do not just delete the line.
 - After implementation, report changed files, tests run, risks, and manual QA steps.
 - Do not install dependencies published less than 14 days ago without explicit human approval (recent supply-chain attack mitigation). Check a new dependency's publish date before adding it (e.g. `npm view <pkg> time.modified` or `pip index versions <pkg>`).
 - Keep each vertical slice a small, reviewable unit of ≤ ~400 lines of *logic* diff. Generated files, vendored code (`docs/vendor/`), lockfiles and snapshots do not count. Cohesion comes first, but a slice projected well over ~400 lines of logic must be split before implementing, not after — a diff approaching thousands of lines breaks the review loop.

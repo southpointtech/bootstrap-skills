@@ -71,6 +71,8 @@ Each task must include:
 - Estimated complexity
 - Affected area: DOMO, Firebase, Azure, Playwright, docs, config
 
+Calibrate `Estimated complexity` against `ESTIMATION_GUIDE.md`. It ships empty: fill it from this project's own logged actuals, and until then say the estimate is uncalibrated.
+
 ## 5. Implementation
 
 Claude must implement one selected vertical slice at a time.
