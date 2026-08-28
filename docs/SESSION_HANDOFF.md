@@ -1,11 +1,17 @@
-# Session Handoff — 2026-08-28 (noche) — LOS 13 WORKING TREES DEL ROLLOUT ESTÁN COMMITEADOS. Outsourcing no tiene dónde. Dos 🔴 del handoff anterior eran falsas alarmas.
+# Session Handoff — 2026-08-28 (noche) — LÍNEA A CERRADA: 13 repos commiteados + `main` MERGEADO Y PUSHEADO (`126d80d`). Relevamiento completo de quién tiene el bootstrap nuevo. Próximo: bootstrapear Profitability App.
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
 
-**Sesión operativa**: cerró el paso 1 del handoff anterior (los working trees sucios del rollout).
-**Este repo no recibió código nuevo**; solo este archivo. Rama `feat/marcador-de-revision`, sigue
-**5 commits adelante de `main`** (`feb3f23`), **sin pushear y sin mergear** — el usuario lo dejó
-para él. **`main` no se tocó.**
+**Sesión operativa**: cerró los dos pasos que quedaban de la línea A. **Este repo no recibió código
+nuevo**; solo `docs/SESSION_HANDOFF.md`.
+
+✅ **`main` = `origin/main` = `126d80d`**, verificado contra el remoto real con
+`git ls-remote origin refs/heads/main` (no contra la ref local de tracking). Fast-forward
+`feb3f23..126d80d`, respetando la historia lineal del repo (**no tiene un solo merge commit** —
+si vas a mergear algo, usá `--ff-only`). El working tree está en `main`, limpio salvo `CONTEXT.md`.
+La rama `feat/marcador-de-revision` quedó en el mismo SHA que `main`; **no se borró**.
+
+**Nada quedó pendiente de esta línea.** El port del gate solo-docs está en `main` y deployado.
 
 ### ✅ 13 repos commiteados, verificados en el destino
 
@@ -58,36 +64,133 @@ commitear. Única copia de respaldo:
 2. **El bug de `tests/export-shareable.tests.ps1:41` ya está arreglado y commiteado** en la línea B
    (`2d045ba`). Corregido in situ más abajo.
 
-### La línea B está VIVA y no se tocó
+### Tests, comandos y bugs
 
-Hay una sesión **activa ahora** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (rama
-`feat/bootstrap-v2`): mientras corría este rollout escribió `tools/recover-skill-bases.py`,
-`.scratch/bootstrap-v2/skill-bases.json` y los 3 `gen-mcp-json.ps1` del scaffold. **No commitear ahí
-ni stagear nada.** Se intentó al abrir esta sesión y se revirtió con `git reset` acotado a los paths
-propios (un `git reset` pelado habría deshecho el `CONTEXT.md` que ellos tenían staged).
+**No se corrió ningún test**: esta sesión no tocó código en ningún repo, solo commiteó trabajo ya
+aplicado y escribió prosa. Comandos usados: `git status/diff/add/commit/merge --ff-only/push/
+ls-remote/rev-list`, `Get-FileHash` contra el hook canónico y `Select-String` sobre `genPat`.
 
-⚠️ **Su árbol cambia entre dos comandos tuyos**: `git status` dio 6 entradas y tres minutos después
-11. **Comparar mtime contra la hora actual antes de stagear nada en un worktree ajeno.**
+**Deliberadamente NO se corrieron** las probes del Hub
+(`.claude/hooks/tests/review-loop-trigger.probes.ps1`): su brazo de `git commit` crea commits de
+prueba, y correrlas sobre una feature branch con WIP agregaba riesgo sin agregar información — ya
+había una corrida verde documentada bajo `pwsh`. **El mensaje de `220bc49` lo declara explícitamente**
+en vez de afirmar un verde propio.
+
+**Bugs**: ninguno nuevo encontrado ni arreglado. Sigue abierta la deuda declarada en `bc973c2` (techo
+del paso 6 ciego a los trackeados sin commitear; `^-\s` no corta en `---`; ningún test compara la
+copia ES del hook). **Ya NO está abierto** el de `tests/export-shareable.tests.ps1:41` — la línea B lo
+arregló en `2d045ba`.
+
+**Dogfooding del gate**: el commit `126d80d` es enteramente `.md` fuera de las rutas de gobierno y
+**no disparó el review-loop**, que es el comportamiento que `bc973c2` acaba de portar. Los commits de
+los 13 repos tampoco lo dispararon: el evento trae el cwd de la sesión, que era este repo.
+
+## 📋 Relevamiento: quién tiene el bootstrap nuevo (25 proyectos, medido 2026-08-28)
+
+Método: `version` del `.bootstrap-manifest.json` **cruzada con el hash del hook y la presencia de
+`genPat`** (el gate). 🔑 **El manifest solo no alcanza y miente en las dos direcciones**: el Hub tiene
+el ciclo de review al día con manifest viejo, y los worktrees tienen manifest nuevo sin el gate.
+
+**✅ Al día y funcionando (13)** — hook canónico `sha256 639E5D1D65B2` + gate:
+`claude-analytics`, `Finanzas`, `Mate OS`, `MyTube`, `Personal Catalog`, `Santi demo`
+(`2026-08-28+5ca106c`, skill personal); `Call Center Stage One`, `Forecasting App`,
+`showcase claudio`, `Showcase Garra`, `Southpoint App Migration`, `Survey Clients`
+(`2026-08-28+0cf064e`, skill southpoint); y este repo (hook propio en español, con gate).
+
+**⚠️ Al día pero con el hook INERTE (2)** — la carpeta con el scaffold **no es repo git**, y el hook
+necesita git: `Outsourcing Development` (el repo real es `hssapp/`, que no tiene scaffold) y
+🔴 **`SOUTHPOINTLABS\PROJECT MANAGEMENT`**, que **no figuraba en ningún inventario previo**.
+Ninguna corrida de `upgrade-bootstrap` lo arregla: o se versiona la raíz, o el scaffold se muda al
+repo que está adentro.
+
+**🟡 Parcial o atrasado por diseño (3)**: `SouthPoint-Hub` (`2026-06-16+fb4fec0` sellado a propósito
+con fecha vieja; tiene el gate); `Bootstrap-Skills-bootstrap-v2` y `wt-forecasting-upgrade`
+(worktrees sin gate — lo reciben al integrar `main`).
+
+**⬜ Sin bootstrap (13)**: `Administracion May` (tampoco es git), `Flash Audit`, `Planify AI`,
+`Call Center Stage Two`, `Customer Portal`, `KBS Orders Development`, **`Profitability App`**; y sin
+ningún rastro: `hssapp`, `claude-multiaccount-setup`, `domo-mcp-server`, `HSS-Client.Survey`,
+`hub-ingest-mcp`, `Task Manager` (varios son de infraestructura y probablemente no correspondan).
+
+## 🔴 Profitability App — el hallazgo de esta sesión, y el próximo paso recomendado
+
+**Cero menciones en las 3.500 líneas de este handoff.** No se la excluyó del rollout: nunca entró al
+inventario, porque el relevamiento se armó sobre los repos que tenían `.bootstrap-manifest.json`.
+
+Nunca pasó por la skill. Su `CLAUDE.md:3` lo dice: *"Este repo hereda el workflow asistido por IA de
+`southpointtech/forecasting-app`"*. **Copiaron la prosa, no los mecanismos:**
+
+| Tiene | No tiene |
+|---|---|
+| `docs/ai-workflow/` con los 5 docs | `.claude/hooks/` — **ninguno** |
+| `docs/agents/` con los 3 | `.claude/commands/` — **ninguno** |
+| `CONTEXT.md`, `.scratch/`, `.mcp.json` | `.claude/skills/` — **ninguno** |
+| `CLAUDE.md` propio, bien escrito | `.bootstrap-manifest.json` |
+
+Su `.claude/` contiene **un solo archivo**: `settings.local.json` con `enabledMcpjsonServers`.
+⇒ `/grill-me`, `/tdd`, `/review-loop`, `/slice-review`, `/to-prd` y `/to-issues` **no existen ahí**;
+quien los tipee no obtiene nada. Sin `review-loop-trigger` ni `alignment-gate`, ninguna de las dos
+reglas se refuerza sola.
+
+Importa porque `CLAUDE.md:10` tiene una regla ⛔ crítica: *"No escribir código del motor de cálculo
+hasta que PF-01 (grill de matemática unificada) se haya corrido"*, justificada en que hay decisiones
+materiales sin tomar que cambian el motor entero. **Es exactamente lo que el `alignment-gate` existe
+para blindar**, y hoy depende de que el agente lea la prosa y se acuerde.
+
+No está dormido: **37 commits, el último del 27/08**, rama `docs/reunion-05-08-corte-en-gross-profit`,
+2 archivos sin trackear del 28/08.
+
+**Acción propuesta y NO ejecutada** (el usuario cortó la sesión antes de decidir):
+`bootstrap-southpoint-project` en **modo adopción** (Step 0b), que **mergea** el `CLAUDE.md` existente
+en vez de pisarlo. Su contenido propio —la matemática en `packages/gp-engine`, las fronteras de
+directorio entre apps, los workbooks de HSS que se leen y no se editan— es bueno y hay que
+conservarlo **entero**.
 
 ## Pendientes / próximos pasos
 
-1. **Merge + push** de `feat/marcador-de-revision` a `main` — el usuario lo dejó para él. Es lo único
-   que queda de esta línea.
-2. **Decidir qué hacer con Outsourcing Development**: versionar la raíz, mover el scaffold a
-   `hssapp/`, o aceptar que vive sin git. Hoy el hook está inerte ahí.
+1. **Bootstrapear `Profitability App`** en modo adopción (arriba). Es el candidato más claro de los
+   13 sin scaffold: proyecto de cliente, activo, con reglas críticas que hoy son solo prosa.
+2. **Decidir qué hacer con las 2 carpetas sin git** (`Outsourcing Development`,
+   `PROJECT MANAGEMENT`): versionar la raíz, mover el scaffold al repo de adentro, o aceptar que el
+   hook viva inerte.
 3. **Benchmark Track B**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes
    del rot → Slice 2 → issue-06. (Outsourcing y Forecasting **congelados** hasta el re-freeze, por la
    decisión 3 de la línea B.)
 4. Opcional en el Hub: las 19 outdated fuera de alcance, cuando la línea de Pocock esté decidida.
 
+## ⚠️ La línea B está VIVA — y `main` se le movió abajo
+
+Sesión **activa** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (rama `feat/bootstrap-v2`).
+Durante esta sesión commiteó dos veces (HEAD llegó a `1ec2f08`) y siguió escribiendo hasta las 18:49.
+**No commitear ahí, no stagear nada.**
+
+🔴 **Conflicto anunciado, no teórico**: `feat/bootstrap-v2` salió de `feb3f23`, y `main` ahora tiene
+6 commits más. `bc973c2` **reescribió el bullet del `/review-loop` en
+`skills/*/assets/scaffold/CLAUDE.md`** y el hook canónico — y la línea B tiene modificados esos mismos
+`CLAUDE.md` en las tres skills, desde la base vieja, con la **decisión 19** apuntando justo a recortar
+ese bullet a 3 oraciones + pointer. **Van a chocar ahí.** Conviene avisarles antes de que sigan
+acumulando cambios sobre `feb3f23`. *(El usuario pidió no escribir en su árbol, así que el aviso no se
+dejó allá.)*
+
 ## Antes de tocar código
 
-- **Los dos árboles están separados**: este repo (`Bootstrap Skills`, `feat/marcador-de-revision`) y
-  el worktree de la v2 (`Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2`). No cruzarlos.
-- **`CONTEXT.md` figura `M` en este repo con diff vacío** — es un artefacto de stat, no un cambio.
+- **Los dos árboles están separados**: este repo (`Bootstrap Skills`, ahora en `main`) y el worktree
+  de la v2 (`Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2`). No cruzarlos.
+- ⚠️ **El árbol de un worktree ajeno cambia entre dos comandos tuyos**: su `git status` dio 6 entradas
+  y tres minutos después 11. **Comparar el mtime de lo sucio contra la hora actual antes de stagear.**
+  Si ya stageaste, revertí con `git reset -- <paths propios>`; un `git reset` pelado también deshace
+  lo que la otra sesión tenía staged.
+- 🔑 **Antes de dar un archivo por perdido, buscalo en `git worktree list`.** Un `git status` del árbol
+  principal no ve los worktrees hermanos y eso se lee igual que un borrado.
+- 🔑 **Verificá el delta contra git antes de actuar sobre una lista de `customized`** — y antes de
+  commitear un rollout, confirmá contra el repo de las skills qué archivos son realmente del delta.
+  Así quedaron afuera los `.mcp.json` de 6 repos, que son curados a mano.
+- **`CONTEXT.md` figura `M` en este repo con diff vacío**, incluso tras `git update-index --refresh`.
+  Verificado: no es un cambio, es el residuo de `autocrlf` ya anotado como bug abierto. **No lo toques.**
 - **alignment-gate** frena el primer edit de la sesión. Si el trabajo es operativo, decilo y
   reintentá; **no grilles**.
-- **Para prosa en español, usar Edit**; commits largos con archivo + `git commit -F`.
+- **Para prosa en español, usar Edit**; commits largos con archivo + `git commit -F` (los acentos y
+  emoji sobreviven bien así — verificado en `126d80d`).
 
 ---
 
