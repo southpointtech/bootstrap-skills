@@ -12,6 +12,10 @@ function NewClone {
   $d = Join-Path ([IO.Path]::GetTempPath()) ("export-test-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $d | Out-Null
   git -C $d init -b main --quiet
+  # El remote del repo publico real: su URL lleva un marcador de fuga, asi que el clon queda con uno
+  # dentro de .git. Es lo que da cobertura a la exclusion de .git del gate -- sin esto, borrarla deja
+  # la suite entera en verde mientras rompe todo export real.
+  git -C $d remote add origin "https://github.com/MartinDele703/ai-project-bootstrap.git"
   $d
 }
 
@@ -67,15 +71,17 @@ try {
   #     Se mide sobre la copia y no sobre el repo -- misma propiedad, porque el exportador deriva su
   #     raiz de la ubicacion del script y es el mismo codigo -- para no acoplar la suite a un working
   #     tree vivo, donde un reselado concurrente daria un rojo que acusaria al exportador.
-  #     El export de calentamiento puebla $t2: sobre un clon recien creado, la rama que borra el
-  #     destino previo no se ejecuta, y la corrida medida la dejaria sin cubrir.
-  & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 | Out-Null
-  Assert ($LASTEXITCODE -eq 0) "export de calentamiento sobre la copia hermetica: exit 0"
+  #     Se mide DOS veces porque el exportador toma caminos distintos segun el destino: la primera
+  #     corrida lo encuentra virgen, la segunda ya poblado, y solo ahi corre la rama que borra el
+  #     destino previo. Medir una sola deja la otra sin cubrir.
   $fuenteAntes = (Huella $src) -join "`n"
   Assert ($fuenteAntes.Length -gt 0) "huella: la copia de la fuente no esta vacia"
   & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 | Out-Null
-  Assert ($LASTEXITCODE -eq 0) "export desde la copia hermetica: exit 0"
-  Assert (((Huella $src) -join "`n") -ceq $fuenteAntes) "el exportador no escribe en su arbol fuente (ni un archivo nuevo, ni un borrado, ni una reescritura identica)"
+  Assert ($LASTEXITCODE -eq 0) "export sobre destino virgen: exit 0"
+  Assert (((Huella $src) -join "`n") -ceq $fuenteAntes) "el exportador no escribe en su arbol fuente con el destino virgen"
+  & pwsh -NoProfile -File (Join-Path $src "tools\export-shareable.ps1") -PublicRepoDir $t2 | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "export sobre destino poblado: exit 0"
+  Assert (((Huella $src) -join "`n") -ceq $fuenteAntes) "el exportador no escribe en su arbol fuente con el destino poblado (ni un archivo nuevo, ni un borrado, ni una reescritura identica)"
 
   # 3b. Con el senuelo en el payload de la fuente, el gate aborta. La huella se vuelve a tomar aca
   #     -- despues de plantar el senuelo -- porque la rama del gate solo corre en esta pasada.
@@ -95,8 +101,9 @@ try {
 # 4. No es un clon git -> aborta
 $t3 = Join-Path ([IO.Path]::GetTempPath()) ("export-test-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $t3 | Out-Null
-& pwsh -NoProfile -File $script -PublicRepoDir $t3 2>&1 | Out-Null
+$salida4 = & pwsh -NoProfile -File $script -PublicRepoDir $t3 2>&1 | Out-String
 Assert ($LASTEXITCODE -ne 0) "PublicRepoDir sin .git: aborta"
+Assert ($salida4 -match "not a git clone") "PublicRepoDir sin .git: aborta POR el guard, no por otra falla"
 Remove-Item -Recurse -Force $t3
 
 # Guard contra una regresion de ESTE archivo, no del exportador: nada crea LEAK-TEST.md salvo el caso
