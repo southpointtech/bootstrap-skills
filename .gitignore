@@ -14,6 +14,10 @@ build/
 *.log
 npm-debug.log*
 
+# Python (tools/*.py)
+__pycache__/
+*.pyc
+
 # OS / editor
 .DS_Store
 Thumbs.db

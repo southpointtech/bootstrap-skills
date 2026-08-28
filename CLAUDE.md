@@ -108,3 +108,9 @@ Vocabulario por defecto (needs-triage, needs-info, ready-for-agent, ready-for-hu
 ### Domain docs
 
 Single-context: un `CONTEXT.md` + `docs/adr/` en la raíz. Ver `docs/agents/domain.md`.
+
+### Base de merge de las skills externas
+
+Las skills del scaffold que salieron de `mattpocock/skills` no tienen la base de merge
+declarada y no se recupera por hash (ADR-0005). Se recupera por similitud con
+`tools/recover-skill-bases.py`. Ver `docs/agents/recuperar-base-de-skills.md`.
