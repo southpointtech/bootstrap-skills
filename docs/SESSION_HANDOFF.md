@@ -1,3 +1,187 @@
+# Session Handoff — 2026-08-27/28 (ROLLOUT de los 10 repos restantes COMPLETO + port del filtro solo-docs con 4 turnos de review-loop aplicados — próximo: TURNO 5 del loop, que es el tope, y después el deploy)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Rama **`feat/marcador-de-revision`**, HEAD **`bf2ff41`** (checkpoint WIP, **sin** trailer `Slice-Close:`
+a propósito). **Árbol limpio.** `main` = `origin/main` = `feb3f23`; la rama está **2 commits adelante**
+(`ace7016` + `bf2ff41`), **sin pushear**.
+
+**El marcador está cortado en `7c3262b`**, así que `range` devuelve exactamente el delta del turno 4
+(los arreglos que todavía nadie revisó). Eso es lo que tiene que leer el turno 5.
+
+### 🔴 LO PRIMERO: correr el TURNO 5 del review-loop (es el tope)
+
+El loop lleva **4 turnos** sobre el slice del port. Turnos 3 y 4 dieron **cero bugs de conducta**, así
+que va a cerrar limpio o al tope. Procedimiento exacto:
+
+1. `pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range` → pasar ESE ref pelado.
+2. `/slice-review <ref>` — **sin** `--mutation` ni `--code-review` (prohibidos de turno 2 en adelante).
+3. `-Action advance` **después** del review y **antes** de cualquier fix.
+4. Al cerrar: `/slice-review --coherence`, y si cerró limpio, `-Action close`.
+5. Recién ahí, el commit de cierre con el trailer `Slice-Close:`.
+
+**No re-revisar el slice entero**: el marcador ya acota el delta.
+
+## Lo que se hizo (todo verificado, nada a medias)
+
+### 1. ROLLOUT — los 10 repos que faltaban, CERRADO
+
+🔴 **El inventario de "18 repos" del handoff anterior era falso.** Los 7 `fc-*` / `forecasting-app-fix*`
+**no existen en disco** (verificado con `find` sobre todo `C:\Repos`). La fuente de verdad para
+inventariar es **enumerar los `.bootstrap-manifest.json`**, no una lista de nombres.
+
+El cluster `ec13727` son **3 worktrees del mismo `.git` de Forecasting App**
+(`_worktrees/forecasting/{br08,master-qa,stage2}`), 79 / 141 / 394 commits detrás de `master`. El
+scaffold **está trackeado en git** y `b6d4e67` ya lo actualizó en `master` ⇒ **el upgrade les llega
+por merge**. Tocarlos a mano = 3 conflictos garantizados. **NO SE TOCAN.**
+
+| Repo | Commit | Merge a mano |
+|---|---|---|
+| `PERSONAL\Mate OS` | `77b400c` | — |
+| `PERSONAL\Personal Catalog` | `af4454a` | — |
+| `PERSONAL\Santi demo` | `9840468` | — |
+| `PERSONAL\MyTube` | `fd6fcfb` | — |
+| `PERSONAL\Finanzas` | `3366b58` | `.gitignore` propio (bloque Python) intacto; marcador migrado |
+| `showcase claudio` | `7fbb9b3` | — |
+| `Showcase Garra` | `ab188bb` | — |
+| `Southpoint App Migration` | `2d72c33` | su `review-loop/SKILL.md` "customized" era la doctrina VIEJA → canónico |
+| `Call Center Stage One` | `be621fd` | 3 archivos, ver abajo |
+| `PROJECT MANAGEMENT` | *sin commit* | **no es repo git en ningún nivel** ⇒ hook inerte, como Outsourcing |
+
+Verificado en los 10: `missing=0`, `outdated=0`, hook byte-idéntico al canónico, `review-marker.ps1`
+respondiendo. Ninguno tenía interino. **El WIP sin commitear de cada repo quedó intacto y fuera del
+commit** (adapter Itaú en Finanzas, ADRs de Mate OS, `.mcp.json`, assets de Call Center).
+
+🔴 **Call Center Stage One es el caso a recordar**: su `.claude/settings.json` **no tiene hooks pero sí
+un token de DOMO real**, y **está gitignoreado** (junto con la service-account de Firebase y el
+`.mcp.json`) ⇒ pisarlo con el canónico borraba la config MCP **sin red de git**. Se resolvió con
+`merge-settings.ps1`. Su `.gitignore` no se toca (protege esos secretos) y su `docs/agents/domain.md`
+se rearmó como canónico + la sección propia reinjertada.
+
+**Dos aprendizajes operativos**: (1) en un repo con árbol sucio, migrar el marcador **con el SHA de
+HEAD, nunca con `-Action advance`** — `advance` corre `git stash create` y sella el WIP sin commitear
+como "ya revisado". (2) `range → exit 2` en un repo parado en `main` **no es falla**: sin rama de
+feature no hay base de slice.
+
+**Estado de `C:\Repos`**: 14 repos en el scaffold nuevo. Afuera quedan sólo los 3 worktrees (por
+diseño) y **SouthPoint-Hub**, que espera este port.
+
+### 2. PORT del filtro solo-docs — implementado, 4 turnos de review-loop aplicados
+
+Qué hace: el hook `review-loop-trigger.ps1` **no dispara** si el slice es enteramente documentación.
+Paso **5b** (resuelve el rango del marcador una sola vez, para el gate y para el techo del paso 6, +
+las dos listas de exclusión + `Get-UntrackedNew`) y paso **5c** (el gate).
+
+**Los 4 ajustes acordados están los 4**: (1) decide sobre el rango del marcador; (2) `git -C $root`;
+(3) `$govern` generalizado (se sacó `ONBOARDING-AGENT.md`, se agregó `.agents/`); (4) sube con su
+batería de pruebas.
+
+🔴 **La decisión de diseño que hay que entender antes de tocar el hook: DOS listas, no una.**
+- `$skipPat` (8 patrones) = lo que el `CLAUDE.md` excluye de **líneas de lógica**. Lo usa el techo del
+  paso 6. El archivo existe y merece revisión; sólo aporta 0 al conteo.
+- `$genPat` (2: `*.bootstrap-manifest.json`, `*.snap`) = lo que **no escribió nadie**. Lo usa el gate.
+  Es subconjunto **estricto**, y hay un assert que lo fija leyendo las dos listas del hook.
+
+Fusionarlas (que es lo que hice en el turno 1) crea un falso negativo **no monotónico**:
+`package-lock.json` solo dispara, el mismo lockfile **+ un README** se calla — agregar prosa apaga la
+revisión, justo donde se verifica la regla de supply-chain. **No las "unifiques" de vuelta.**
+
+**Archivos tocados** (las 4 copias del hook + prosa + tests):
+- `.claude/hooks/review-loop-trigger.ps1` (español, la del repo)
+- `skills/bootstrap-{personal,southpoint,ai}-project/assets/scaffold/.claude/hooks/review-loop-trigger.ps1` (inglés, byte-idénticas)
+- los 4 `CLAUDE.md` (bullet del review-loop, byte-idéntico entre sí)
+- `tests/review-loop-docs-gate.tests.ps1` **(nuevo, 62 asserts)**
+- `docs/TESTING.md` (sección nueva + bloque de lo que **no** cubre)
+- los 3 manifests del scaffold regenerados + el manifest RAÍZ resellado
+
+### 3. Qué encontró el review-loop (4 turnos, 20 reviewers)
+
+| Turno | Reviewers | Conducta | Lo más grave |
+|---|---|---|---|
+| 1 | 7 (5 focos + mutación + `/code-review`) | 1 HIGH + 5 medium | `^docs/ai-workflow/` y `^docs/agents/` anclados a la raíz mientras sus hermanos usaban `(^\|/)`: en este mismo repo los workflow docs que se reparten a todos los proyectos viven en `skills/*/assets/scaffold/docs/`, así que editarlos **escapaba al review** |
+| 2 | 5 | 1 real | el falso negativo no monotónico de las listas fusionadas; y mi test lo **fijaba como correcto** |
+| 3 | 5 | **0** | 43 fixtures lado a lado contra el hook viejo ⇒ el refactor es neutro para el techo del paso 6 |
+| 4 | 3 | **0** | robustez del test (recorte del bullet, `Read-Pat` desbordado) + un comentario duplicado en la copia en español |
+
+**Doce afirmaciones falsas escritas por mí** fueron cazadas en comentarios y prosa a lo largo de los 4
+turnos (la regla dura de afirmaciones del `CLAUDE.md` es el filtro que más rindió). Ejemplos: *"un
+gate abierto SÍ dispara en push"* (falso: queda el dedupe por SHA del paso 7), *"las dos mitades
+cuentan lo mismo"*, la atribución de los `4,9 s` históricos al `Get-Content` (no se reproduce: medido
+16-172 ms).
+
+**Dos guards míos no mordían** y se arreglaron: `@('a','b') -eq 'a'` **filtra**, no compara (devuelve
+array truthy), así que el control positivo del rename pasaba en verde justo cuando fallaba; y el
+assert de prosa anclaba una sola punta, con 3 mutantes de prosa sobreviviendo — uno de ellos volvía a
+declarar en el `CLAUDE.md` **el bug exacto de la v1** que originó la feature.
+
+### 4. Costo medido (para el benchmark de Track B)
+
+- El paso 5b resuelve el rango en **todos** los disparadores (antes sólo en un commit sin trailer): el
+  hook pasó de **~1,3 s a ~2,6 s** por disparo. La mitad cara está adentro del marcador
+  (`Get-UntrackedList` hashea todo untracked sin saltear binarios), no en el gate. **No hay fixture
+  que fije este costo**; bajarlo es trabajo del marcador.
+- `Get-FileHash` de 12 MB = **~35 ms** (medido). El guard de binarios protege al `Get-Content`, no al hash.
+
+## 🔴 DECISIÓN PENDIENTE DEL USUARIO — el tamaño del slice
+
+El slice acumulado da **~1450 líneas** excluyendo manifests (o ~550 contando el hook una sola vez en
+lugar de sus 4 copias espejadas), contra el techo de **~400** del `CLAUDE.md`. La regla dice partir
+**antes** de implementar, y ya está implementado. Partirlo ahora significa rehacer la historia y dejar
+cada mitad sin sentido por separado (el hook sin sus tests viola test-first). Buena parte del exceso es
+el espejado ×4 que exige otra regla del mismo archivo. **Sin decidir.**
+
+## Después del turno 5
+
+1. **Cerrar el slice** con el trailer `Slice-Close:`, `-Action close`, y el pase de coherencia.
+2. **Deploy**: `tools/sync-skills.ps1` → `~/.claude/skills`. Recién ahí el scaffold nuevo existe para
+   los proyectos.
+3. **Segunda pasada de `upgrade-bootstrap`** por los 14 repos (costo ya aceptado en la decisión de
+   "release ya, separado de la próxima versión").
+4. **SouthPoint-Hub**: es el repo que motivó el port y **sigue en `2026-06-16+fb4fec0`**. Ojo con su
+   runtime: corre `powershell` 5.1 con `-ExecutionPolicy Bypass` (no `pwsh`) y su hook tiene **BOM**
+   a propósito. Si entra el hook canónico, `settings.json` debe pasar a `pwsh` **y** `review-marker.ps1`
+   debe estar presente: **las tres cosas juntas o ninguna**. Su probe propia
+   (`hooks/tests/review-loop-trigger.probes.ps1`) es el canario: si post-upgrade dice *"no se pudo leer
+   $govern del hook"*, el gate se borró.
+5. **Regla del `CLAUDE.md` ya evaluada**: el cambio **sí aplica** a Forecasting App y le llega por
+   `upgrade-bootstrap`; su `CLAUDE.md` está customizado, así que va a salir como merge a mano.
+6. **Benchmark**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes del rot →
+   Track B Slice 2 → issue-06 (Outsourcing viejo vs nuevo).
+7. **Pregunta abierta del usuario desde el 27/8, sin responder**: por dónde arrancar la próxima versión
+   (suite paralela + el bug de `tests/export-shareable.tests.ps1:41` / reconstruir la base del lockfile
+   de las skills de Pocock / grill del scope).
+
+## Antes de tocar código (crítico)
+
+- **Las 4 copias del hook tienen que quedar idénticas en LÓGICA.** Las 3 del scaffold, byte-idénticas
+  (lo verifica `mirror.tests.ps1`); la del repo está en **español** a propósito y sólo puede diferir en
+  comentarios y en el `$msg` inyectado (lo verifica `review-loop-incremental.tests.ps1`).
+  🔴 **Punto ciego real**: ningún test compara la copia del repo contra las del scaffold, y por eso un
+  comentario duplicado/roto en la copia en español sobrevivió hasta que lo cazó un reviewer.
+- **Los manifests son generados**: `tools/gen-manifest.ps1 -SkillDir skills/<skill>` para los 3 del
+  scaffold, y `skills/upgrade-bootstrap/scripts/reseal-manifest.ps1` para el de la RAÍZ (que el
+  turno 2 se olvidó de resellar).
+- **El gate anti-fuga muerde**: `export-shareable`/`shareable-leaks` frenaron un comentario que nombraba
+  al repo de cliente dentro del scaffold publicable. La atribución va al commit, no al código.
+- **`compare-scaffold.ps1`, `reseal-manifest.ps1` y `merge-settings.ps1` viven en
+  `skills/upgrade-bootstrap/scripts/`**, no en `tools/`.
+- **Bash tool = Git Bash**: commits con `-m "..."` repetidos, **nunca** here-strings `@'...'@`. Y los
+  acentos se corrompen al pasar texto por un heredoc a PowerShell: para prosa en español usar Edit,
+  no un script generado con `cat > ... <<'EOF'`.
+- **Tests**: `pwsh -NoProfile -File tests/<x>.tests.ps1`, grepear `TODOS LOS TESTS PASARON` / `^FAIL:`.
+  La suite de `review-loop-trigger` tarda varios minutos: no la corras con timeout de 2 min.
+- **alignment-gate** frena el primer edit de código de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- **El clasificador** frenó el rollout de Survey en la sesión anterior; esta sesión no bloqueó nada.
+
+## Preferencias del usuario (vigentes)
+
+- **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.**
+  **Prefiere Opus 4.8.** **Paraleliza todo lo posible** (techo medido: 4-6 agentes por ola).
+  **Cortar y seguir en terminal nueva** — por eso este handoff. **Nada a Zoho.**
+
+---
+
 # Session Handoff — 2026-08-27 parte 3 (RELEASE PUSHEADO + ROLLOUT COMPLETO a los 4 repos — pedido B CERRADO + las 3 decisiones pendientes FIRMADAS; próximo: ROLLOUT de los 18 repos restantes, lista completa relevada abajo)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — no queda nada del release ni del rollout
