@@ -228,7 +228,7 @@ Assert ((Get-Content "$t\NOTAS.md" -Raw).Trim() -eq "nota") "archivo ajeno al sc
 Assert (-not (Test-Path "$t\.bootstrap-backup\NOTAS.md")) "archivo ajeno al scaffold no se respalda"
 Remove-Item -Recurse -Force $t
 
-# 13. Mismo largo en bytes, contenido distinto — ejercita la comparación byte a byte
+# 12. Mismo largo en bytes, contenido distinto — ejercita la comparación byte a byte
 # Sin este caso el early-return por longitud tapa el loop: TODOS los demás fixtures usan contenidos
 # cortos contra archivos de scaffold largos, así que el loop nunca decide nada y se lo puede romper
 # entero sin que la suite se entere (mutante M8 sobrevivió). El modo de falla es el de Profitability:
@@ -251,7 +251,7 @@ Assert (@($r.overwritten | Where-Object { $_.file -eq "docs/agents/triage-labels
 Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne '') "mismo largo y distinto contenido SÍ se respalda"
 Remove-Item -Recurse -Force $t
 
-# 14. Diferencia SOLO de BOM: es un cambio real, no ruido de EOL
+# 13. Diferencia SOLO de BOM: es un cambio real, no ruido de EOL
 # Decodificar a texto para comparar hace que el BOM se descarte y que dos binarios distintos
 # colapsen al mismo U+FFFD; ambos casos se pisarían en silencio. La comparación normaliza EOL
 # sobre los BYTES, así que un BOM cuenta como diferencia.
@@ -268,7 +268,7 @@ Remove-Item -Recurse -Force $t
 # que AMBOS archivos tengan bytes inválidos, y los 52 del scaffold son texto válido. El bloque 14
 # (BOM) ejercita la misma causa raíz —comparar decodificando en vez de comparar bytes— y sí muerde.
 
-# 12. Espejado byte-idéntico entre las TRES skills
+# 14. Espejado byte-idéntico entre las TRES skills
 $hp = (Get-FileHash $scriptP -Algorithm SHA256).Hash
 $hs = (Get-FileHash $scriptS -Algorithm SHA256).Hash
 $ha = (Get-FileHash $scriptA -Algorithm SHA256).Hash

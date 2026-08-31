@@ -65,7 +65,7 @@ El árbol de archivos canónico que la skill instala en un proyecto. Es la fuent
 _Avoid_: template, boilerplate, plantilla
 
 **Modo adopción**:
-La instalación del scaffold sobre un proyecto que ya tiene lo suyo. Se distingue del bootstrap normal en que el destino no está vacío, y por eso exige un mapa de cobertura aprobado antes de mergear.
+La instalación del scaffold sobre un proyecto que ya trae su propia versión del workflow —un `CLAUDE.md` o un `docs/ai-workflow/` sin manifest—, y por eso exige un mapa de cobertura aprobado antes de mergear. Que el destino tenga otros archivos no alcanza: un directorio con código pero sin esos dos es un bootstrap normal, que informa lo que pisó y sigue.
 _Avoid_: bootstrap sobre existente, re-bootstrap, migración
 
 **Archivo propio**:
