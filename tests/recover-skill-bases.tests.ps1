@@ -15,7 +15,7 @@ function Assert($cond, $msg) {
 # El piso solo muerde mientras esté al día: con holgura, un mutante puede borrar tantos
 # checks como holgura haya y seguir pasando. Quedó en 59 mientras el self-test ya corría 62,
 # o sea que los tres checks recién agregados eran borrables en verde.
-$MinChecks = 64
+$MinChecks = 78
 
 # La herramienta tiene que existir: si no, el intérprete escupe su error y un assert de
 # "no hubo fails" pasaría en verde sin haber ejercitado nada.

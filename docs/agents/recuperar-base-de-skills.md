@@ -92,15 +92,28 @@ JSON. Por skill:
     skills. Por el CLI no se llega: el pre-flight lo rechaza antes de trabajar (ver abajo), así que
     en todo reporte producido por la herramienta este contador vale 0. Queda para quien llame a
     `recover()` como librería, que es lo que hace el self-test.
-- `upstreamRelation`: la relación con upstream, que **no** es lo mismo que el status.
-  - `never-upstream`: esta skill nunca salió de upstream (`review-loop`, `slice-review`).
-  - `in-upstream-head`: vino de upstream y hoy sigue viva ahí, en el mismo path o renombrada.
-  - `orphaned`: vino de upstream y upstream la borró (`to-issues`, `zoom-out`).
-  El campo existe porque "fork propio" nombraba las dos primeras a la vez: `review-loop` nunca fue
-  de upstream, mientras que ADR-0006 llama fork propio a `zoom-out`, que **sí** vino de upstream.
-  Son conjuntos disjuntos, y el lockfile (issue 05) necesita distinguirlos.
+- `upstreamRelation`: la relación con upstream, que **no** es lo mismo que el status. Los tres
+  valores nombran **lo medido**, no el veredicto:
+  - `no-match-above-threshold`: ninguna versión histórica de upstream supera el umbral de similitud
+    de cuerpo contra nuestra copia (`review-loop`, `slice-review`). Eso es todo lo que afirma: **no**
+    prueba que la skill nunca haya salido de upstream. Un cuerpo con suficiente drift cae por debajo
+    igual, y el mecanismo está medido (issue 19): con drift prependido, un par real pasa de 0,7800 a
+    0,0842 sin que cambie una línea del original.
+  - `in-upstream-head`: tiene base recuperada y su path sigue vivo en el HEAD de upstream, en el
+    mismo lugar o renombrado.
+  - `gone-from-upstream-head`: tiene base recuperada, pero su path ya no está en el HEAD de upstream
+    y git no detecta renombre (`to-issues`, `zoom-out`). Tampoco es un veredicto: puede haber sucesor
+    con otro nombre, y para eso salen los `unconfirmedSuccessorCandidates`.
+  El campo existe porque "fork propio" nombraba los dos extremos a la vez: `review-loop` no tiene
+  ninguna base sobre el umbral, mientras que ADR-0006 llama fork propio a `zoom-out`, que **sí** vino
+  de upstream y tiene base recuperada. Son conjuntos disjuntos y el lockfile (issue 05) necesita
+  distinguirlos. **"Fork propio" no lo emite la herramienta**: lo firma un humano mirando esto.
 - `similarity`: el ratio de `difflib.SequenceMatcher` sobre el cuerpo, redondeado a 4 decimales;
-  `1.0` = cuerpo idéntico salvo redondeo (el resumen sí usa el ratio crudo, ver abajo).
+  `1.0` = cuerpo idéntico salvo redondeo (el resumen sí usa el ratio crudo, ver abajo). **Solo en las
+  entradas que tienen base**; una `unmatched` trae `bestSimilarity` en su lugar.
+- `bestSimilarity`: la mejor similitud **vista**, en las entradas `unmatched`. No es una base: es el
+  techo que no llegó al umbral. Va aparte de `similarity` justamente para que no se lo lea como una
+  base floja.
 - `base.blob`: el identificador del blob de git de la versión base. Es el objeto exacto contra el que
   se hace el merge de tres vías.
 - `base.upstreamPath`: el path **histórico** en el que apareció por primera vez ese contenido, que
@@ -110,12 +123,17 @@ JSON. Por skill:
   contenido en toda la historia publicada, en cualquier path**. Vale la invariante
   `git rev-parse <commit>:<upstreamPath>` == `base.blob`; verificada para las nueve el 2026-08-28.
 - `base.alsoSeenAtPaths`: otros paths donde el mismo blob apareció. Solo informativo.
-- `base.tiedCandidates` / `base.tieNote`: aparecen cuando **más de un blob empata en el mejor
-  ratio**, que es lo que pasa cuando upstream retocó solo el frontmatter y dejó el cuerpo igual.
-  La herramienta elige la aparición más vieja, y deja los empatados a la vista para que quien decide
-  el lockfile lo vea en vez de confiar en el desempate. No es raro: medido el 2026-08-28, **34 de
-  los 373 cuerpos distintos de upstream existen en más de un blob** (74 de 413 blobs), y tres de
-  nuestras nueve skills caen en ese caso.
+- `base.tiedCandidates` / `base.tieNote` / `base.tieOnIdenticalBodies`: aparecen cuando **más de un
+  blob empata en el mejor ratio**. La herramienta elige la aparición más vieja y deja los empatados a
+  la vista, para que quien decide el lockfile lo vea en vez de confiar en el desempate. No es raro:
+  medido el 2026-08-28, **34 de los 373 cuerpos distintos de upstream existen en más de un blob**
+  (74 de 413 blobs), y tres de nuestras nueve skills caen en ese caso.
+  El empate se calcula sobre el **ratio**, no sobre el contenido, así que de qué es el empate hay que
+  mirarlo: `tieOnIdenticalBodies` compara los cuerpos y lo dice. En `true` —el caso frecuente, y el
+  de las tres de hoy— upstream retocó solo el frontmatter y cualquiera de los dos blobs sirve de
+  base. En `false` son **versiones distintas con el mismo ratio**: elegir mal cambia el merge de tres
+  vías, y ahí el desempate por fecha es una convención, no una respuesta. `summary.tiedOnDifferentBodies`
+  los cuenta.
 - `upstreamHead`: dónde vive hoy ese archivo en upstream — `present` (mismo path), `renamed` (git
   detectó el renombre; incluye `renameChain`) o `gone` (**sin correspondencia**: upstream lo borró).
 
@@ -127,6 +145,13 @@ A nivel reporte:
 - `summary.exactBodyMatches` cuenta cuerpos **idénticos**, sobre el ratio sin redondear:
   `round(0.99996, 4)` da `1.0` y no es un cuerpo idéntico.
 - `summary.tiedBestSimilarity` cuenta las skills cuyo mejor ratio quedó empatado entre varios blobs.
+- `summary.tiedOnDifferentBodies` cuenta cuántos de esos empates **no** son de cuerpo idéntico. Es el
+  subconjunto que pide decisión humana. El campo es posterior a la corrida del 2026-08-28, así que no
+  tiene valor publicado; lo que sí está verificado (2026-08-31, contra un clon real) es que los
+  tres empates de esa corrida son de cuerpo byte-idéntico, y con esos datos el contador daría 0.
+- `method.fieldsByStatus` publica el contrato condicional: qué campos trae cada `status`. Está en la
+  salida y no solo acá porque el consumidor del JSON (el lockfile) no tiene por qué descubrirlo a los
+  golpes, y el self-test lo compara contra las claves que cada entrada emite de verdad.
 
 La búsqueda es **por contenido, no por nombre**. Por eso `to-prd` encuentra su base en
 `skills/engineering/to-prd/SKILL.md` sin saber que hoy upstream la llama `to-spec`, y recién después
@@ -143,6 +168,36 @@ Dos reglas, las dos con guard en el self-test:
    `%cI` lleva el offset local, así que comparado como string ordena mal un repo con commits de
    husos distintos — y los commits hechos desde la web de GitHub son siempre `+00:00`. A igual
    segundo desempata el commit más viejo del log.
+
+### La métrica y su límite: `autojunk`
+
+La similitud es `difflib.SequenceMatcher(None, a, b).ratio()` **con el `autojunk` de la librería
+activo**, que es su default. En secuencias de más de 200 elementos, `SequenceMatcher` marca como
+"populares" los elementos que aparecen en más del 1 % de `b` y los **excluye** del matching. Sobre
+markdown en castellano, comparado carácter a carácter, eso alcanza a las letras comunes: cuanto más
+largo el cuerpo, más se descarta y más cae el ratio.
+
+Los números con `autojunk` son de la corrida del 2026-08-28; los de `autojunk=False` se midieron
+aparte el 2026-08-31, sobre las mismas once skills locales:
+
+| skill | cuerpo | mejor similitud con `autojunk` (lo que se publica) | con `autojunk=False` |
+| --- | --- | --- | --- |
+| `review-loop` | > 7 KB | 0,0308 | **0,1305**, y elige **otro archivo** (`wayfinder/SKILL.md` → `improve-codebase-architecture/SKILL.md`) |
+| `slice-review` | > 7 KB | 0,0202 | **0,1101**, otro blob |
+
+Son las **dos únicas** que pasan los 7 KB —la tercera más larga tiene 6.335 B—, así que hoy el
+heurístico solo distorsiona ahí. Dos consecuencias, distintas entre sí:
+
+- **El veredicto no cambia.** 0,1305 y 0,1101 siguen muy por debajo del umbral de 0,60: las dos
+  salen `unmatched` / `no-match-above-threshold` con `autojunk` prendido o apagado.
+- **El número publicado y el blob citado sí son artefactos del heurístico.** No leerlos como "el
+  parecido real con lo más parecido de upstream": son el parecido que quedó después de tirar los
+  caracteres frecuentes, y el blob que ganó esa comparación degradada.
+
+**No se apaga**, y es una decisión de costo medida el 2026-08-31, no un olvido: `autojunk=False`
+lleva la corrida de ~98 s a **~2.500-3.500 s** (40-60 minutos) en la misma máquina. Cambiar la métrica —tokenizar por
+línea en vez de por carácter, que ataca la misma causa sin el costo cuadrático— es el **issue 19**,
+no esta herramienta.
 
 ### Lo que la herramienta NO decide
 
@@ -214,8 +269,11 @@ movió de carpeta (`R100 skills/grill-me/SKILL.md → skills/productivity/grill-
 renombre puro).
 
 Las skills propias del scaffold que están en el mismo directorio salen `unmatched` con
-`upstreamRelation: never-upstream`, como corresponde: `review-loop` con 0,0308 de mejor similitud y
-`slice-review` con 0,0202.
+`upstreamRelation: no-match-above-threshold`, como corresponde: `review-loop` con 0,0308 de mejor
+similitud y `slice-review` con 0,0202. **Esos dos números están deprimidos por `autojunk`** (son las
+dos únicas con cuerpo > 7 KB): sin el heurístico dan 0,1305 y 0,1101, contra otros blobs. El
+veredicto es el mismo con los cuatro números —todos quedan lejos del umbral de 0,60—, pero la cifra
+publicada no es "el parecido real". Ver *La métrica y su límite*.
 
 ## Verificación
 
@@ -235,8 +293,8 @@ correr nada daría verde vacío— y que el total de aserciones no baje de un pi
 (3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **64
-afirmaciones** sobre once skills de fixture, y no toca la red.
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **78
+afirmaciones** sobre doce skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
 versión, en máquina ociosa: del orden de **10 s** (medidas sueltas entre 7,8 s y 12,2 s en la misma
@@ -250,14 +308,22 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
   los dos commits caen en el mismo segundo;
 - que ante **dos blobs distintos con el mismo cuerpo** gane el viejo, y que el empate quede expuesto
   en la salida;
+- que la nota del empate **no afirme "mismo cuerpo"** sin haber comparado los cuerpos: el fixture trae
+  dos versiones **distintas** que empatan en el mismo ratio (0,9914, medido) contra nuestra copia, y
+  ese caso tiene que salir marcado como empate de ratio y no de contenido;
 - que el orden entre apariciones sea por instante y no por el ISO con offset, con dos commits en
   husos distintos donde las dos reglas dan resultados opuestos;
 - que la similitud parcial conserve sus 4 decimales (un cuerpo con drift real, no todo en 1.0);
 - que un blob que solo sale de un merge no se reporte como recuperado ni se cuente como tal;
 - que el renombre se siga hasta el HEAD y que una skill borrada se reporte como `gone`, con sus
   candidatos a sucesor ordenados;
-- que una skill sin correspondencia **no** reciba una base de similitud baja inventada, y que su
-  mejor similitud quede acotada por las dos puntas;
+- que una skill sin correspondencia **no** reciba una base de similitud baja inventada, que su mejor
+  similitud quede acotada por las dos puntas, y que su nota **no afirme** que la skill nunca salió de
+  upstream —que es lo que no se midió—;
+- que el umbral que ejercita el self-test sea **el default del CLI** y no un literal paralelo, y que
+  la frontera esté donde dice: un ratio **igual** al umbral se acepta, y un `1e-9` por encima ya no;
+- que cada entrada emita **exactamente** los campos que `method.fieldsByStatus` declara para su
+  status, incluida `missing-locally`, que por el CLI no se alcanza;
 - que la URL reportada sea la del clon y no una constante;
 - que un `SKILL.md` que no es utf-8 no voltee la corrida entera;
 - que se acepte un clon bare y se siga rechazando un directorio que no es repo, **y también un
