@@ -994,7 +994,10 @@ def self_test():
             motivo = _out_no_escribible("/nada/de/esto/existe/r.json")
             return not (motivo or "").startswith("raiz-inexistente:"), motivo
 
-        check("una raiz que no existe se rechaza por su propio motivo", _raiz_inexistente)
+        # El label no dice "se rechaza" a secas: en POSIX el caso verifica lo contrario (que la
+        # rama NO se dispare, porque `/` siempre existe), y si todas las letras estan montadas se
+        # auto-excluye. Un label que prometiera mas de eso mentiria en dos de las tres ramas.
+        check("la rama de raiz inexistente se comporta segun la plataforma", _raiz_inexistente)
 
         # El exit 3 es la ultima puerta por la que se pierde trabajo: la recuperacion salio bien
         # pero la escritura fallo igual. Se fuerza haciendo fallar el `os.replace`, que es el unico
