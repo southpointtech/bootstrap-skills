@@ -45,17 +45,17 @@ git (`--is-bare-repository`, y después `--absolute-git-dir` o `--show-toplevel`
 un `.git` que sea directorio. Tiene que ser la **raíz**: `git rev-parse` sube por el árbol, así que
 sin comparar contra la raíz cualquier carpeta de adentro de un repo pasaba por clon — un
 `--upstream-clone` mal tipeado que cayera adentro de este repo lo analizaba a él —que tiene más de
-cien blobs `*/SKILL.md` propios, y suben con cada commit que toca uno— y emitía bases con similitud
-1.0 citando commits nuestros. Un subdirectorio, y también `<clon>/.git`, se rechazan con `No es un
-clon de git`. (La cifra exacta no se fija acá a propósito: se midió 109, 116 y 118 en tres momentos
-distintos de la misma semana. Si la necesitás, `git rev-list --objects --all` filtrando por
-`SKILL.md` la da al día.)
+cien blobs `*/SKILL.md` propios— y emitía bases con similitud 1.0 citando commits nuestros. Un
+subdirectorio, y también `<clon>/.git`, se rechazan con `No es un clon de git`. (La cifra exacta no
+se fija acá a propósito: se midió 109, 116 y 118 en tres momentos distintos de la misma semana, y
+además depende de qué refs tengas localmente — 118 con `--all`, 100 alcanzables solo desde un commit.
+Si la necesitás al día: `git rev-list --objects --all` filtrando por `SKILL.md`.)
 
 ### Exit codes
 
 | código | qué pasó |
 |---|---|
-| 0 | corrió y escribió el reporte |
+| 0 | terminó bien: escribió el reporte, o lo imprimió con `--stdout`, o el `--self-test` pasó |
 | 1 | solo con `--self-test`: alguna aserción falló |
 | 2 | error de invocación, **detectado antes de trabajar**: `--upstream-clone` que no es la raíz de un clon, `--skills-dir` inexistente, un `--skill` sin `SKILL.md`, o un `--out` que no se va a poder escribir. También es el que usa argparse para una opción inválida |
 | 3 | la recuperación salió bien pero la escritura de `--out` falló igual (permisos, disco lleno, ruta de red). El reporte sale por **stdout** para no perderlo |
@@ -234,11 +234,11 @@ correr nada daría verde vacío— y que el total de aserciones no baje de un pi
 (3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **54
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **55
 afirmaciones** sobre nueve skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
-versión, en máquina ociosa: **8,5 / 8,6 / 8,4 s** (y 8,9–10,9 s en cuatro corridas de otra sesión).
+versión, en máquina ociosa: **12,2 / 10,5 / 11,2 s** (la de 54 aserciones daba 8,4–8,8 s).
 La prueba de que la carga manda: una versión anterior con **menos** aserciones (44) se midió en
 31 / 26 / 31,6 s por estar tomada con siete procesos en paralelo. El grueso no son las aserciones
 sino armar el fixture, que hace una docena de commits de git. Cubre:
@@ -262,13 +262,18 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
   subdirectorio** de un repo o de un bare, que es lo que hacía pasar a este repo por upstream;
 - que un `--out` sin directorio se escriba en el cwd, y que las otras formas que fallaban recién en
   el `open()` —ruta vacía, un directorio ya existente, un componente intermedio que es archivo, una
-  ruta terminada en separador— se rechacen **antes** de trabajar, cada una diciendo cuál es. El
+  ruta terminada en separador, una unidad no montada o un UNC inalcanzable— se rechacen **antes** de
+  trabajar, cada una diciendo cuál es. El
   motivo se ancla en un token con guiones (`destino-ocupado:`), no en una palabra suelta: el mensaje
   imprime la ruta, así que assertar `"directorio"` lo satisfacía el nombre del fixture y no el
   motivo, y los motivos se podían intercambiar entre sí sin que nada fallara;
-- que si la escritura falla igual (exit 3), el reporte salga **entero por stdout** y no quede un
-  `.tmp` abandonado — la escritura es a un temporal al lado y un `os.replace` encima, porque
-  `open(dest, "w")` trunca antes de escribir y una falla a mitad destruía el reporte bueno;
+- que si la escritura falla igual (exit 3), el reporte salga **entero por stdout**, el destino que
+  ya estaba quede **intacto** y no sobre ningún temporal. La escritura es a un temporal de nombre
+  único al lado (`mkstemp`, no un `.tmp` fijo que dos corridas se pisarían) y un `os.replace`
+  encima, porque `open(dest, "w")` trunca antes de escribir y una falla a mitad destruía el reporte
+  bueno. El caso se ejercita haciendo fallar el `os.replace`, que es el único punto donde el
+  temporal ya se escribió: forzarlo con un nombre inválido reventaba en el `open()` y dejaba la
+  atomicidad, la limpieza y el `replace` sin ejecutar nunca;
 - que un `--skill` inexistente, o una **carpeta sin `SKILL.md`**, salgan con 2, digan por stderr qué
   nombre faltó y dónde se buscó, y **no pisen** el reporte que ya estaba;
 - que un `--skill` válido siga corriendo y produzca sólo esa skill (sin esto, un guard que rechaza

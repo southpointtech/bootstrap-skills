@@ -274,7 +274,7 @@ Los workspaces temporales se borran al terminar cada eval.
 ## Testeo de la recuperación de bases de skills
 
 `pwsh -NoProfile -File tests/recover-skill-bases.tests.ps1` — envuelve el self-test offline de
-`tools/recover-skill-bases.py` (54 aserciones sobre un repo de git sintético, sin red). Antes ese
+`tools/recover-skill-bases.py` (55 aserciones sobre un repo de git sintético, sin red). Antes ese
 self-test existía y **no lo corría nadie**: quedaba fuera de toda corrida de tests.
 
 El envoltorio no re-verifica lo que el self-test ya verifica. Asserta las dos puntas que el exit
@@ -288,9 +288,11 @@ code solo no cubre:
   detector anti-fuga.
 
 Verificado con mutantes, cada uno con su falla vista: desempate invertido (3 fallas), un assert
-borrado (1 falla, y es la del piso), el resumen suprimido (2 fallas), y los cuatro del guard de
-`--skill` (carpeta sin `SKILL.md`, mensaje de stderr borrado, contador con el predicado invertido, y
-un guard que rechaza todo). El detalle de qué cubre el self-test está en
+borrado (1 falla, y es la del piso), el resumen suprimido (2 fallas), tres del guard de `--skill`
+(carpeta sin `SKILL.md`, mensaje de stderr borrado, y un guard que rechaza todo), el contador
+`missingLocally` con el predicado invertido, y los tres de la escritura de `--out` (sin escritura
+atómica el reporte bueno queda destruido; sin la rama de la raíz inexistente el motivo miente; sin
+la limpieza queda un `.tmp` huérfano). El detalle de qué cubre el self-test está en
 `docs/agents/recuperar-base-de-skills.md`.
 
 ## Testeo de setup-mcp-workstation

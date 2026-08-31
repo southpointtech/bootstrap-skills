@@ -856,11 +856,13 @@ def self_test():
         # se parsea el JSON en vez de buscar la subcadena `"name": "alpha"`: esa forma dependia
         # del espacio que mete indent=2, y un cambio de `separators` la volvia roja sin que
         # nada estuviera roto.
+        # `.get("skills", [])` y no `["skills"]`: con la clave ausente el KeyError se comía el
+        # diagnóstico justo en el caso en que el check falla, que es cuando hace falta verlo.
         check("un --skill VALIDO sigue corriendo y produce solo ese reporte",
-              lambda: ((lambda t: ((lambda r: (t[0] == 0 and
-                                               [s["name"] for s in r["skills"]] == ["alpha"],
-                                               (t[0], [s["name"] for s in r["skills"]])))(
-                  json.loads(t[1]))))(_pisar("alpha"))))
+              lambda: ((lambda t: ((lambda nombres: (t[0] == 0 and nombres == ["alpha"],
+                                                     (t[0], nombres)))(
+                  [s.get("name") for s in json.loads(t[1]).get("skills", [])])))(
+                      _pisar("alpha"))))
 
         # --- CLI: las otras formas de `--out`, y `--skills-dir` --------------------------
         # Todas reventaban en el `open()` final, con el reporte ya calculado. El pre-flight las
@@ -930,24 +932,50 @@ def self_test():
         check("y se rechaza ANTES de clonar: no se intenta la red siquiera",
               _no_llega_a_clonar)
 
+        check("una unidad no montada o un UNC inalcanzable se rechazan por su propio motivo",
+              lambda: ((lambda t: (t[0] == 2 and "raiz-inexistente:" in t[1], t))(
+                  _out_rechazado(os.path.join("Z:" + os.sep, "no-montada", "rep.json")))))
+
         # El exit 3 es la ultima puerta por la que se pierde trabajo: la recuperacion salio bien
-        # pero la escritura fallo igual. Un caracter invalido de Windows pasa el pre-flight (el
-        # directorio existe) y revienta en el open(). El reporte tiene que salir por stdout.
-        def _falla_al_escribir():
+        # pero la escritura fallo igual. Se fuerza haciendo fallar el `os.replace`, que es el unico
+        # punto donde el temporal YA se escribio: un `--out` con un caracter invalido reventaba en
+        # el `open()` del temporal, asi que ni el `.tmp` ni la limpieza ni el `replace` llegaban a
+        # correr y el assert de "no quedo .tmp" pasaba por vacuidad (ademas de depender de que el
+        # nombre fuera invalido en Windows, o sea rojo espurio en Linux).
+        def _falla_al_reemplazar():
             import io
             import contextlib
-            invalido = os.path.join(tmp, "no-se-puede<>.json")
-            out, err = io.StringIO(), io.StringIO()
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                rc = main(["--upstream-clone", up, "--skills-dir", local,
-                           "--skill", "alpha", "--out", invalido])
-            texto = out.getvalue()
-            # el reporte entero por stdout, y ningun .tmp abandonado al lado
-            huerfano = os.path.isfile(invalido + ".tmp")
-            return (rc == 3 and '"skills"' in texto and not huerfano), (rc, len(texto), huerfano)
+            d = os.path.join(tmp, "destino-d")
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, "bueno.json")
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write('{"reporte": "el bueno, sellado a mano"}\n')
 
-        check("si la escritura falla igual, el reporte sale por stdout con exit 3 y sin dejar .tmp",
-              _falla_al_escribir)
+            real = os.replace
+
+            def revienta(a, b):
+                raise OSError(28, "sin espacio (simulado)")
+
+            out, err = io.StringIO(), io.StringIO()
+            os.replace = revienta
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    rc = main(["--upstream-clone", up, "--skills-dir", local,
+                               "--skill", "alpha", "--out", dest])
+            finally:
+                os.replace = real
+
+            texto = out.getvalue()
+            with open(dest, encoding="utf-8") as f:
+                quedo = f.read()
+            # nada mas que el reporte bueno: ni un temporal abandonado al lado
+            sobrantes = [n for n in os.listdir(d) if n != "bueno.json"]
+            return (rc == 3 and '"skills"' in texto and "el bueno" in quedo and not sobrantes), \
+                   (rc, len(texto), quedo[:40], sobrantes)
+
+        check("si la escritura falla, el reporte sale por stdout con exit 3, el destino queda "
+              "INTACTO y no queda temporal",
+              _falla_al_reemplazar)
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
@@ -983,7 +1011,7 @@ def _out_no_escribible(out):
         return "ruta-vacia: no se paso ningun nombre de archivo"
     # `abspath` strippea el separador final, así que `C:\x\sub\` se vería como un archivo
     # llamado `sub` y pasaría el pre-flight para morir recién en el `open()`.
-    if out.rstrip().endswith(("/", "\\")) or out.rstrip().endswith(os.sep):
+    if out.rstrip().endswith(("/", "\\")):
         return "termina-en-separador: es un nombre de directorio, no de archivo"
     ap_out = os.path.abspath(out)
     if os.path.isdir(ap_out):
@@ -1052,7 +1080,15 @@ def main(argv=None):
         clone = tempfile.mkdtemp(prefix="pocock-skills-")
         print("Clonando %s (requiere red)..." % args.upstream_url, file=sys.stderr)
         # el clon debe traer toda la historia: la base vive en blobs viejos, no en el HEAD
-        subprocess.run(["git", "clone", "--quiet", args.upstream_url, clone], check=True)
+        try:
+            subprocess.run(["git", "clone", "--quiet", args.upstream_url, clone], check=True)
+        except (subprocess.CalledProcessError, OSError) as exc:
+            # sin esto, una corrida sin red dejaba el temporal vacío en TEMP y escupía el
+            # traceback crudo. El clon queda solo si SIRVE para reusar con --upstream-clone.
+            import shutil
+            shutil.rmtree(clone, ignore_errors=True)
+            print("No se pudo clonar %s: %s" % (args.upstream_url, exc), file=sys.stderr)
+            return 2
         print("Clon: %s (reusalo con --upstream-clone)" % clone, file=sys.stderr)
 
     report = recover(clone, args.skills_dir, args.skills, args.threshold)
@@ -1067,11 +1103,16 @@ def main(argv=None):
         # que se cae, que son justo los casos de la red de abajo— el reporte bueno que estaba
         # ahí queda destruido y reemplazado por JSON parcial. `os.replace` es atómico en el
         # mismo volumen, así que el destino o tiene el reporte viejo entero o el nuevo entero.
+        import tempfile
         destino = os.path.abspath(args.out)
-        tmp_out = destino + ".tmp"
+        tmp_out = None
         try:
             os.makedirs(os.path.dirname(destino), exist_ok=True)
-            with open(tmp_out, "w", encoding="utf-8", newline="\n") as f:
+            # nombre único, no `destino + ".tmp"`: dos corridas con el mismo `--out` compartían
+            # ese nombre fijo y una truncaba el temporal de la otra a mitad de escritura.
+            fd, tmp_out = tempfile.mkstemp(dir=os.path.dirname(destino),
+                                           prefix=".recover-", suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
             os.replace(tmp_out, destino)
         except OSError as exc:
@@ -1079,7 +1120,7 @@ def main(argv=None):
             # lleno o una ruta de red caída aparecen recién acá, con la recuperación ya hecha.
             # Escupir el reporte por stdout cuesta un redirect; perderlo cuesta la corrida.
             try:
-                if os.path.isfile(tmp_out):
+                if tmp_out and os.path.isfile(tmp_out):
                     os.remove(tmp_out)
             except OSError:
                 pass
