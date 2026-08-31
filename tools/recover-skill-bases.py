@@ -158,9 +158,23 @@ def _history(upstream):
     `git log` emite del más nuevo al más viejo, así que una posición mayor es un commit
     más viejo. Eso desempata los instantes iguales al segundo, que existen y si no se
     desempatan hacen elegir la aparición más nueva en vez de la primera.
+
+    La detección de renombres se **fija acá**, no se hereda. `--raw` respeta
+    `diff.renames` y `diff.renameLimit` del repo y del usuario, así que era la máquina que
+    corre la herramienta la que decidía si el renombre se veía o no. Con
+    `diff.renames=false` el log no emite una sola `R`, `renames` queda vacío, y una skill
+    viva en el HEAD de upstream sale clasificada como si upstream la hubiera borrado.
+    `renameLimit=0` es "sin límite": con un presupuesto chico git saltea la detección
+    inexacta —la de los renombres CON edición— y avisa por stderr, y ése es justamente el
+    caso de las skills que upstream renombró mientras las editaba.
+
+    Solo renombres, no copias: con `diff.renames=true` git nunca emite `C`. El manejo de
+    `C` de abajo se conserva porque no cuesta nada, pero hoy no se alcanza; detectar copias
+    (`diff.renames=copies`) no se activa porque su costo no está medido.
     """
     sep = "\x01"
-    raw = _git(upstream, "log", "--all", "--full-history",
+    raw = _git(upstream, "-c", "diff.renames=true", "-c", "diff.renameLimit=0",
+               "log", "--all", "--full-history",
                "--format=%s%%H\x1f%%ct\x1f%%cI\x1f%%s" % sep,
                "--raw", "--no-abbrev", "--", "*SKILL.md")
     intro, renames = {}, {}
@@ -432,6 +446,7 @@ _D6 = "2026-02-28 23:00:00 -1200"           # = 2026-03-01T11:00Z: una hora DESP
 _D_TZ_SIDE = "2026-03-09 22:30:00 +0200"   # = 2026-03-09T20:30Z  (el MAS VIEJO en instante)
 _D_TZ_MAIN = "2026-03-09 21:00:00 +0000"   # = 2026-03-09T21:00Z  (30 min mas tarde, pero
                                            #   como string "…21:00:00+00:00" ordena ANTES)
+_D_REDIT = "2026-03-06 10:00:00 +0000"     # dos renombres CON edicion, en un solo commit
 _D_M1 = "2026-03-12 10:00:00 +0000"
 _D_M2 = "2026-03-13 10:00:00 +0000"
 _D_M3 = "2026-03-14 10:00:00 +0000"
@@ -468,6 +483,28 @@ def _fixture_texts():
     # a 4 decimales da 1.0. Sirve para que exactBodyMatches no cuente redondeos.
     t["NEAR_UP"] = block("Renglon largo de la skill casi identica, numero", 800)
     t["NEAR_LOCAL"] = t["NEAR_UP"].replace("numero 400.", "numero 400!")
+    # Renombre CON edicion: upstream mueve el archivo y lo retoca en el MISMO commit, asi
+    # que git no lo puede casar por hash y lo registra como `R0xx` en vez de `R100`. Es la
+    # unica forma de renombre que gasta presupuesto de deteccion inexacta, o sea la unica
+    # que `diff.renameLimit` puede hacer desaparecer. Medido en la historia real de
+    # `mattpocock/skills`: 13 lineas `R<100`, y 4 de las 13 tocan skills nuestras
+    # (`to-prd`, `to-spec`, `to-issues`, `grill-with-docs`). No es un caso de borde: es el
+    # patron por el que upstream renombra justamente estas skills.
+    #
+    # Son DOS renombres en el mismo commit, no uno, y eso no es adorno: git compara la
+    # matriz de candidatos contra el limite, asi que con un solo par borrado/agregado la
+    # matriz es 1x1, NO supera `renameLimit=1` y la deteccion corre igual. Con un solo par
+    # el test pasaba con y sin el fix (medido: el mutante que quita `renameLimit=0`
+    # sobrevivia las 62 aserciones). El segundo par es lo que hace que el limite muerda.
+    t["REDIT"] = block("Renglon de la skill que upstream renombro editando, numero", 29)
+    t["REDIT_V2"] = (t["REDIT"]
+                     .replace("numero 2.", "numero 2, tocado en el mismo commit del renombre.")
+                     .replace("numero 9.", "numero 9, tambien tocado ahi.")
+                     .replace("numero 17.", "numero 17, y este igual."))
+    t["RPAR"] = block("Renglon del segundo renombre con edicion del mismo commit, numero", 29)
+    t["RPAR_V2"] = (t["RPAR"]
+                    .replace("numero 4.", "numero 4, retocado junto con el renombre.")
+                    .replace("numero 13.", "numero 13, y este tambien."))
     t["OURS"] = block("Nada de esto salio de upstream, linea", 29)
     t["fm"] = fm
     return t
@@ -515,7 +552,9 @@ def _build_fixture(tmp):
     write("skills/drift/SKILL.md", fm("drift", "con drift propio") + t["DRIFT_UP"])
     write("skills/merged/SKILL.md", fm("merged", "antes de las ramas") + t["MERGED_BASE"])
     write("skills/near/SKILL.md", fm("near", "casi identica") + t["NEAR_UP"])
-    commit("commit 1: alpha v1, ghost, twin v1, drift, merged, near", _D1)
+    write("skills/redit/SKILL.md", fm("redit", "antes del renombre con edicion") + t["REDIT"])
+    write("skills/rpar/SKILL.md", fm("rpar", "el par del renombre con edicion") + t["RPAR"])
+    commit("commit 1: alpha v1, ghost, twin v1, drift, merged, near, redit, rpar", _D1)
 
     write("skills/a/SKILL.md", fm("a", "upstream original") + t["ALPHA_V2"])
     os.remove(os.path.join(up, "skills", "ghost", "SKILL.md"))
@@ -534,6 +573,22 @@ def _build_fixture(tmp):
     os.replace(os.path.join(up, "skills", "a", "SKILL.md"),
                os.path.join(up, "skills", "a2", "SKILL.md"))
     commit("commit 5: renombra a -> a2", _D5)
+
+    # Dos renombres CON edicion en un solo commit: git los registra `R0xx`, no `R100`,
+    # porque el contenido cambio. `commit 5` (a -> a2) es exacto y git lo casa por hash
+    # aunque la deteccion inexacta este apagada, asi que NO sirve para probar
+    # `diff.renameLimit`. Van dos y no uno para que la matriz de candidatos supere el
+    # limite: ver el comentario de REDIT en _fixture_texts.
+    os.makedirs(os.path.join(up, "skills", "redit2"))
+    os.remove(os.path.join(up, "skills", "redit", "SKILL.md"))
+    write("skills/redit2/SKILL.md",
+          fm("redit", "despues del renombre con edicion") + t["REDIT_V2"])
+    os.makedirs(os.path.join(up, "skills", "rpar2"))
+    os.remove(os.path.join(up, "skills", "rpar", "SKILL.md"))
+    write("skills/rpar2/SKILL.md",
+          fm("rpar", "el par, tambien renombrado y editado") + t["RPAR_V2"])
+    commit("commit 5b: renombra redit -> redit2 y rpar -> rpar2, editando los cuerpos",
+           _D_REDIT)
 
     # segundo blob con EL MISMO cuerpo: upstream solo retoco la description. Es el patron
     # de drift de ADR-0005 y es el que hace que el empate de ratio sea real. Su fecha esta
@@ -572,6 +627,7 @@ def _build_fixture(tmp):
         ("merged", fm("merged", "nuestra copia") + t["MERGED_Z"]),
         ("near", fm("near", "nuestra copia") + t["NEAR_LOCAL"]),
         ("ours", fm("ours", "nunca salio de upstream") + t["OURS"]),
+        ("redit", fm("redit", "nuestra copia, del cuerpo de antes del renombre") + t["REDIT"]),
         ("twin", fm("twin", "tercera description, mismo cuerpo") + t["TWIN"]),
         ("tz", fm("tz", "nuestra copia") + t["TZ"]),
     ]:
@@ -707,7 +763,7 @@ def self_test():
               lambda: (len(d(by, "merged", "base", "blob") or "") == 40,
                        d(by, "merged", "base", "blob")))
         check("merged: el resumen NO la cuenta entre las recuperadas",
-              lambda: (d(report, "summary", "recovered") == 6,
+              lambda: (d(report, "summary", "recovered") == 7,
                        (d(report, "summary", "recovered"), sorted(
                            s["name"] for s in report["skills"]
                            if s.get("status") == "recovered"))))
@@ -750,7 +806,7 @@ def self_test():
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",
               lambda: (d(by, "near", "similarity") == 1.0, d(by, "near", "similarity")))
         check("exactBodyMatches cuenta cuerpos identicos, no similitudes redondeadas",
-              lambda: (d(report, "summary", "exactBodyMatches") == 5,
+              lambda: (d(report, "summary", "exactBodyMatches") == 6,
                        d(report, "summary", "exactBodyMatches")))
 
         # --- latin-1 ---------------------------------------------------------------------
@@ -758,8 +814,8 @@ def self_test():
               lambda: ("latin" in by, sorted(by)))
 
         # --- reporte ---------------------------------------------------------------------
-        check("recorre las 9 skills del fixture",
-              lambda: (len(report["skills"]) == 9, len(report["skills"])))
+        check("recorre las 10 skills del fixture",
+              lambda: (len(report["skills"]) == 10, len(report["skills"])))
         check("registra el HEAD de upstream",
               lambda: (len(d(report, "upstream", "head") or "") == 40,
                        d(report, "upstream", "head")))
@@ -1162,6 +1218,55 @@ def self_test():
 
         check("un Ctrl-C durante la escritura propaga y no deja el temporal tirado",
               _ctrl_c_no_deja_temporal)
+
+        # --- la deteccion de renombres no puede depender de la config del entorno -------
+        # `git log --raw` respeta `diff.renames` y `diff.renameLimit` del repo y del
+        # usuario, asi que era la maquina la que decidia si el renombre se veia. Con
+        # `diff.renames=false` el log no emite una sola `R` y una skill VIVA en el HEAD de
+        # upstream sale clasificada como si upstream la hubiera borrado. Medido contra el
+        # clon real de `mattpocock/skills` (`6654f6b`): con `diff.renames=false` se rompen
+        # `grill-me` y `to-prd`; con `diff.renameLimit=1` se rompe solo `to-prd`, cuya
+        # cadena tiene un eslabon `R078`, mientras que la de `grill-me` es de renombres
+        # exactos que git casa por hash antes de mirar el limite. Las bases NO se mueven en
+        # ninguno de los dos casos: lo que se rompe es la clasificacion, que es justo lo
+        # que sella el lockfile.
+        def _con_config(clave, valor, fn):
+            leer = subprocess.run(["git", "-C", up, "config", "--get", clave],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            previo = leer.stdout.decode().strip() if leer.returncode == 0 else None
+            subprocess.run(["git", "-C", up, "config", clave, valor], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                return fn()
+            finally:
+                if previo is None:
+                    subprocess.run(["git", "-C", up, "config", "--unset", clave],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.run(["git", "-C", up, "config", clave, previo], check=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def _clasifica(nombre, destino, clave=None, valor=None):
+            def corre():
+                return recover(up, local, [nombre], 0.60)
+            r = _con_config(clave, valor, corre) if clave else corre()
+            e = r["skills"][0]
+            return ((d(e, "upstreamHead", "status") == "renamed"
+                     and d(e, "upstreamHead", "path") == destino
+                     and e.get("upstreamRelation") == "in-upstream-head"),
+                    (d(e, "upstreamHead", "status"), d(e, "upstreamHead", "path"),
+                     e.get("upstreamRelation")))
+
+        check("diff.renames=false del entorno no cambia la clasificacion de alpha",
+              lambda: _clasifica("alpha", "skills/a2/SKILL.md", "diff.renames", "false"))
+
+        # El renombre CON edicion es el unico que la deteccion inexacta puede perder, y por
+        # eso el unico que `diff.renameLimit` puede romper: `alpha` no sirve, su renombre es
+        # exacto y git lo casa por hash aunque la deteccion inexacta este apagada del todo.
+        check("un renombre CON edicion (R<100) se sigue hasta el path de hoy",
+              lambda: _clasifica("redit", "skills/redit2/SKILL.md"))
+        check("diff.renameLimit=1 del entorno no pierde el renombre con edicion",
+              lambda: _clasifica("redit", "skills/redit2/SKILL.md", "diff.renameLimit", "1"))
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
