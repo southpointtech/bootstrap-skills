@@ -5,6 +5,7 @@ $ErrorActionPreference = "Stop"
 $repo    = Split-Path $PSScriptRoot -Parent
 $scriptP = Join-Path $repo "skills/bootstrap-personal-project/scripts/copy-scaffold.ps1"
 $scriptS = Join-Path $repo "skills/bootstrap-southpoint-project/scripts/copy-scaffold.ps1"
+$scriptA = Join-Path $repo "skills/bootstrap-ai-project/scripts/copy-scaffold.ps1"
 $skillP  = Join-Path $repo "skills/bootstrap-personal-project"
 $script:failures = 0
 
@@ -77,10 +78,82 @@ Assert (Test-Path -LiteralPath "$t\CLAUDE.md") "proyecto con corchetes en el pat
 Assert (Test-Path -LiteralPath "$t\.gitignore") "proyecto con corchetes: .gitignore presente"
 Remove-Item -LiteralPath $t -Recurse -Force
 
-# 6. Espejado byte-idéntico entre las dos skills
+# --- Respaldo de archivos propios (pisar no es perder) -------------------------------
+# El script pisa (test 4), pero antes respalda todo archivo propio que difiere y lo declara
+# en un reporte JSON. Regresión: el bootstrap de Profitability App (2026-08-31) se llevó
+# puestas las reglas ~$* y SESSION_HANDOFF.md del .gitignore del proyecto, sin avisar.
+function Invoke-CopyJson($proj) {
+  $out = & pwsh -NoProfile -File $scriptP -SkillDir $skillP -ProjectDir $proj
+  Assert ($LASTEXITCODE -eq 0) "copy-scaffold salió con exit code 0"
+  return ($out | ConvertFrom-Json)
+}
+
+# 6. Archivo propio que difiere: se pisa, pero queda respaldado y declarado
+$t = New-Proj
+"reglas propias del proyecto" | Set-Content "$t\.gitignore" -Encoding UTF8
+$r = Invoke-CopyJson $t
+Assert ((Get-Content "$t\.bootstrap-backup\.gitignore" -Raw).Trim() -eq "reglas propias del proyecto") "el archivo propio pisado queda respaldado con su contenido original"
+$gi = @($r.overwritten | Where-Object { $_.file -eq ".gitignore" })
+Assert ($gi.Count -eq 1) "el reporte declara .gitignore como overwritten"
+Assert ($gi[0].backup -eq ".bootstrap-backup/.gitignore") "el reporte dice dónde quedó el respaldo"
+Assert ((Get-Content "$t\.gitignore" -Raw) -eq (Get-Content "$skillP\assets\scaffold\gitignore.txt" -Raw)) "el destino quedó con el contenido del scaffold"
+Remove-Item -Recurse -Force $t
+
+# 7. Respeta la estructura de paths dentro del respaldo
+$t = New-Proj
+New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
+"tracker propio" | Set-Content "$t\docs\agents\issue-tracker.md" -Encoding UTF8
+$r = Invoke-CopyJson $t
+Assert ((Get-Content "$t\.bootstrap-backup\docs\agents\issue-tracker.md" -Raw).Trim() -eq "tracker propio") "el respaldo respeta la estructura de directorios"
+Assert (@($r.overwritten | Where-Object { $_.file -eq "docs/agents/issue-tracker.md" }).Count -eq 1) "el reporte usa separador / en los paths"
+Remove-Item -Recurse -Force $t
+
+# 8. Diferencia SOLO de fin de línea: no es un archivo pisado (bug autocrlf)
+# En Profitability App, 2 de 6 "diferencias" eran CRLF vs LF con contenido idéntico.
+$t = New-Proj
+$canon = Get-Content "$skillP\assets\scaffold\docs\agents\triage-labels.md" -Raw
+New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
+[IO.File]::WriteAllText("$t\docs\agents\triage-labels.md", ($canon -replace "`r`n", "`n"))
+$r = Invoke-CopyJson $t
+Assert (@($r.overwritten | Where-Object { $_.file -like "*triage-labels*" }).Count -eq 0) "diferencia solo de EOL NO se reporta como pisada"
+Assert (-not (Test-Path "$t\.bootstrap-backup\docs\agents\triage-labels.md")) "diferencia solo de EOL NO genera respaldo"
+Remove-Item -Recurse -Force $t
+
+# 9. Destino vacío: no se crea el directorio de respaldo ni se declara nada
+$t = New-Proj
+$r = Invoke-CopyJson $t
+Assert (-not (Test-Path "$t\.bootstrap-backup")) "destino vacío: no se crea .bootstrap-backup/"
+Assert (@($r.overwritten).Count -eq 0) "destino vacío: nada declarado como pisado"
+Assert (@($r.created).Count -eq (Get-ChildItem "$skillP\assets\scaffold" -Recurse -File -Force).Count) "destino vacío: todos los archivos se declaran como creados"
+Remove-Item -Recurse -Force $t
+
+# 10. Segunda corrida sobre un archivo editado: el respaldo original NO se pisa
+# Ojo con el escenario: si entre las dos corridas no se toca nada, el destino ya es idéntico
+# al scaffold y la segunda corrida no respalda nada — el test pasaría sin ejercitar el guard.
+# Hay que editar el archivo en el medio para que la segunda corrida vuelva a querer respaldar.
+$t = New-Proj
+"el original de verdad" | Set-Content "$t\.gitignore" -Encoding UTF8
+Invoke-CopyJson $t | Out-Null
+"edicion posterior al bootstrap" | Set-Content "$t\.gitignore" -Encoding UTF8
+$r = Invoke-CopyJson $t
+Assert (@($r.overwritten | Where-Object { $_.file -eq ".gitignore" }).Count -eq 1) "segunda corrida: el archivo editado se vuelve a declarar pisado"
+Assert ((Get-Content "$t\.bootstrap-backup\.gitignore" -Raw).Trim() -eq "el original de verdad") "segunda corrida: el respaldo conserva el original, no la edición posterior"
+Remove-Item -Recurse -Force $t
+
+# 11. Un archivo propio que el scaffold no toca queda intacto y no se respalda
+$t = New-Proj
+"nota" | Set-Content "$t\NOTAS.md" -Encoding UTF8
+$r = Invoke-CopyJson $t
+Assert ((Get-Content "$t\NOTAS.md" -Raw).Trim() -eq "nota") "archivo ajeno al scaffold queda intacto"
+Assert (-not (Test-Path "$t\.bootstrap-backup\NOTAS.md")) "archivo ajeno al scaffold no se respalda"
+Remove-Item -Recurse -Force $t
+
+# 12. Espejado byte-idéntico entre las TRES skills
 $hp = (Get-FileHash $scriptP -Algorithm SHA256).Hash
 $hs = (Get-FileHash $scriptS -Algorithm SHA256).Hash
+$ha = (Get-FileHash $scriptA -Algorithm SHA256).Hash
 Assert ($hp -eq $hs) "copy-scaffold.ps1 espejado byte-idéntico (personal == southpoint)"
+Assert ($hp -eq $ha) "copy-scaffold.ps1 espejado byte-idéntico (personal == ai-project)"
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

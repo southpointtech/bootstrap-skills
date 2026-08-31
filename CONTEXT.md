@@ -58,6 +58,24 @@ _Avoid_: mutation testing, mutation run
 Un enunciado verificable escrito en un comentario, docstring o mensaje de commit. Se escribe solo si se verificó; si no se verificó, no se escribe.
 _Avoid_: claim, aserción, nota
 
+### El bootstrap
+
+**Scaffold**:
+El árbol de archivos canónico que la skill instala en un proyecto. Es la fuente de verdad: se copia, no se regenera, para que la redacción del workflow sea idéntica en todos los proyectos.
+_Avoid_: template, boilerplate, plantilla
+
+**Modo adopción**:
+La instalación del scaffold sobre un proyecto que ya tiene lo suyo. Se distingue del bootstrap normal en que el destino no está vacío, y por eso exige un mapa de cobertura aprobado antes de mergear.
+_Avoid_: bootstrap sobre existente, re-bootstrap, migración
+
+**Archivo propio**:
+El que ya existía en el destino y no vino del scaffold. No es una personalización de nada: nunca fue canónico.
+_Avoid_: archivo del usuario, custom, local
+
+**Pisado**:
+El archivo propio sobre el que la copia escribió. Toda copia que pisa deja primero un respaldo, así que pisar no es perder.
+_Avoid_: sobrescrito, conflicto, clobber
+
 ## Flagged ambiguities
 
 **"review" a secas está sobrecargado** y esa ambigüedad ya causó un bug real: el loop apuntaba al reviewer equivocado y se cerraba sin revisar nada. Los tres son cosas distintas:

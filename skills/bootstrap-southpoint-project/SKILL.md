@@ -27,20 +27,16 @@ Reached from Step 0 when the project has its own `CLAUDE.md` (or `docs/ai-workfl
 
 Define `$skill` and `$proj` as in Step 2.
 
-### A. Back up the original verbatim
+### A. Copy the scaffold
 
-Before copying anything, stash the project's `CLAUDE.md` so the scaffold copy can't clobber it:
+Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges into pre-existing directories like `docs/` instead of nesting). This installs the canonical `CLAUDE.md`, all 52 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine: the script copies every file it is about to overwrite into `.bootstrap-backup/` first, and lists them under `overwritten` in its JSON report. **Keep that report — step D needs it.**
 
-```powershell
-Copy-Item "$proj\CLAUDE.md" "$proj\CLAUDE.legacy.md" -Force
-```
+### B. Park the original CLAUDE.md
 
-### B. Copy the scaffold, then park the backup
-
-Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges into pre-existing directories like `docs/` instead of nesting). This installs the canonical `CLAUDE.md`, all 48 files, and `.bootstrap-manifest.json`, overwriting the project's `CLAUDE.md` with the canonical 8-step template — fine, the original is stashed. Then move the stash to its permanent home (now that `docs/agents/` exists from the scaffold copy):
+Move the backed-up original to its permanent home (now that `docs/agents/` exists from the scaffold copy):
 
 ```powershell
-Move-Item "$proj\CLAUDE.legacy.md" "$proj\docs\agents\legacy-claude.md" -Force
+Move-Item "$proj\.bootstrap-backup\CLAUDE.md" "$proj\docs\agents\legacy-claude.md" -Force
 ```
 
 `docs/agents/legacy-claude.md` stays in the repo forever as the recovery net.
@@ -56,13 +52,17 @@ Read `docs/agents/legacy-claude.md`. Split it into blocks — **treat each top-l
 
 ### D. Present the coverage map and get approval
 
-Show the user a table: every block of the original → its destination, quoting the block verbatim. Make any unassigned ("doesn't fit") blocks visible. Get a **single explicit approval** (the user may correct individual rows before approving). Do **not** write the merge until approved.
+Show the user a table: every block of the original → its destination, quoting the block verbatim. Make any unassigned ("doesn't fit") blocks visible.
+
+**The map must also cover every other entry in the copy's `overwritten` list.** Those are the project's own files the scaffold just replaced, and each one is a decision, not a default: keep the scaffold's version (often right — it is the update you came to deliver), restore the project's from `.bootstrap-backup/`, or merge the two. A `.gitignore` almost always needs merging, because the scaffold's rules are additions and the project's own entries are still needed. Nothing is lost either way — every original sits in `.bootstrap-backup/` — but say out loud what each file got.
+
+Get a **single explicit approval** (the user may correct individual rows before approving). Do **not** write the merge until approved.
 
 ### E. Apply the merge
 
 After approval: insert operational-rule blocks into `## Hard rules` as new bullets (verbatim); append domain blocks under `## Project-specific domain` in `docs/agents/domain.md` (verbatim); seed `CONTEXT.md` with the description. Leave `legacy-claude.md` untouched as the permanent backup.
 
-The `.bootstrap-manifest.json` copied in step B records the canonical `CLAUDE.md` hash as its base. Because the project's `CLAUDE.md` now differs (project Hard rules merged in), a future `upgrade-bootstrap` automatically classifies it as **customized** and never overwrites it — no extra sealing needed.
+The `.bootstrap-manifest.json` copied in step A records the canonical `CLAUDE.md` hash as its base. Because the project's `CLAUDE.md` now differs (project Hard rules merged in), a future `upgrade-bootstrap` automatically classifies it as **customized** and never overwrites it — no extra sealing needed.
 
 ### F. Continue with Steps 3–6
 
@@ -84,9 +84,11 @@ pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -Proje
 
 The script copies file-by-file, merging into directories the project already has. Do NOT replace it with `Copy-Item <dir> -Recurse` (nests into `docs\docs` / `.agents\.agents` when the destination directory exists) or a `scaffold\*` wildcard (dot-directory expansion varies between PowerShell versions). It also lands `gitignore.txt` as `.gitignore` (stored under that name so the skill repo doesn't treat it as its own ignore file).
 
-Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` and `.claude\hooks\alignment-gate.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
+Before committing, verify the copy landed cleanly: `.agents\skills` and `.claude\commands` have as many entries as the scaffold itself does (count them there — a number written here goes stale the next time a skill is added), `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` and `.claude\hooks\alignment-gate.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
-This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (10 skills — 9 synced via `skills-lock.json` + `review-loop`, bundled here), `.claude/commands/` (10 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-dispara `review-loop` al abrir/actualizar un PR) + `.claude/hooks/alignment-gate.ps1` (frena el primer edit de código por sesión y ofrece alinear antes de codear), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
+The script prints a JSON report on stdout: `created` lists the files it added, `overwritten` lists the project's own files it replaced, each with the path where it backed the original up (`.bootstrap-backup/<same relative path>`). A file that differs only in CRLF vs LF is not reported — that is `core.autocrlf` noise, not a change. **Report the `overwritten` list to the user.** On an empty project directory it comes back empty and there is nothing to say; on a project that already had files, it is the list of things that need a decision.
+
+This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (11 skills — 9 synced via `skills-lock.json` + `review-loop` and `slice-review`, bundled here), `.claude/commands/` (11 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-dispara `review-loop` al abrir/actualizar un PR) + `.claude/hooks/alignment-gate.ps1` (frena el primer edit de código por sesión y ofrece alinear antes de codear), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
 
 ## Step 3 — Project-specific files
 
