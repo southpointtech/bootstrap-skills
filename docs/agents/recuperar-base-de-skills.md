@@ -235,8 +235,8 @@ correr nada daría verde vacío— y que el total de aserciones no baje de un pi
 (3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **59
-afirmaciones** sobre nueve skills de fixture, y no toca la red.
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **64
+afirmaciones** sobre once skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
 versión, en máquina ociosa: del orden de **10 s** (medidas sueltas entre 7,8 s y 12,2 s en la misma

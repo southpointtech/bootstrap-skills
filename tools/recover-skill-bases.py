@@ -10,6 +10,7 @@ import datetime
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -159,21 +160,33 @@ def _history(upstream):
     más viejo. Eso desempata los instantes iguales al segundo, que existen y si no se
     desempatan hacen elegir la aparición más nueva en vez de la primera.
 
-    La detección de renombres se **fija acá**, no se hereda. `--raw` respeta
-    `diff.renames` y `diff.renameLimit` del repo y del usuario, así que era la máquina que
-    corre la herramienta la que decidía si el renombre se veía o no. Con
+    Los tres knobs que deciden cómo se lee esta salida se **fijan acá**, no se heredan.
+    `--raw` respeta `diff.renames` y `diff.renameLimit` del repo y del usuario, así que era
+    la máquina que corre la herramienta la que decidía si el renombre se veía o no. Con
     `diff.renames=false` el log no emite una sola `R`, `renames` queda vacío, y una skill
     viva en el HEAD de upstream sale clasificada como si upstream la hubiera borrado.
     `renameLimit=0` es "sin límite": con un presupuesto chico git saltea la detección
     inexacta —la de los renombres CON edición— y avisa por stderr, y ése es justamente el
     caso de las skills que upstream renombró mientras las editaba.
 
-    Solo renombres, no copias: con `diff.renames=true` git nunca emite `C`. El manejo de
-    `C` de abajo se conserva porque no cuesta nada, pero hoy no se alcanza; detectar copias
-    (`diff.renames=copies`) no se activa porque su costo no está medido.
+    El tercero es `core.quotePath`, y su **default (`true`) ya es el valor peligroso**: no
+    hace falta que nadie configure mal nada. Con él, todo path que tenga un byte no ASCII
+    sale C-quoteado (`"skills/caf\\303\\251/SKILL.md"`, comillas incluidas), el filtro por
+    `SKILL.md` no lo reconoce y la skill se cae del inventario — el mismo desenlace, por
+    otra puerta. `rev-list --objects` no lo aplica, así que sin fijarlo las dos vistas del
+    mismo path ni siquiera coinciden entre sí.
+
+    Solo renombres, no copias: con `diff.renames=true` git nunca emite `C`, así que el
+    manejo de `C` de abajo hoy es inalcanzable. **No es neutral**: esa rama mete el par de
+    una copia en `renames`, o sea trata una copia como si fuera un renombre, y `_head_path`
+    seguiría esa arista hasta el destino de la copia — inventando un sucesor, que es
+    justamente lo que ADR-0006 reserva para decisión humana. Queda como trampa armada para
+    el día que alguien active `diff.renames=copies`; se conserva sólo porque hoy no se
+    alcanza, y activar copias exigiría revisarla primero.
     """
     sep = "\x01"
     raw = _git(upstream, "-c", "diff.renames=true", "-c", "diff.renameLimit=0",
+               "-c", "core.quotepath=false",
                "log", "--all", "--full-history",
                "--format=%s%%H\x1f%%ct\x1f%%cI\x1f%%s" % sep,
                "--raw", "--no-abbrev", "--", "*SKILL.md")
@@ -274,7 +287,12 @@ def recover(upstream, skills_dir, names, threshold):
     intro, renames = _history(upstream)
     paths_by_blob = {blob: {e["path"] for e in entries} for blob, entries in intro.items()}
 
-    head_paths = {p for p in _git(upstream, "ls-tree", "-r", "--name-only", "HEAD").splitlines()
+    # `core.quotepath=false` por el mismo motivo que en `_history`: con el default (`true`)
+    # git C-quotea todo path con un byte no ASCII, el filtro de abajo no lo reconoce como
+    # `SKILL.md`, y la skill desaparece de `head_paths` — o sea sale como si upstream la
+    # hubiera borrado, estando viva.
+    head_paths = {p for p in _git(upstream, "-c", "core.quotepath=false",
+                                  "ls-tree", "-r", "--name-only", "HEAD").splitlines()
                   if p.endswith("SKILL.md")}
     head_bodies = None                              # se calcula solo si hace falta
 
@@ -378,10 +396,12 @@ def recover(upstream, skills_dir, names, threshold):
                 {"path": p, "similarity": round(r, 4)} for r, p in succ]
             uh["note"] = ("el path no existe en el HEAD de upstream y git no detecta renombre. "
                           "Los candidatos de abajo NO son bases: son pistas para que un humano "
-                          "decida si hay sucesor (ver ADR-0006).")
+                          "decida si hay sucesor.")
         entry["upstreamHead"] = uh
         # "fork propio" nombraba dos cosas distintas: la skill que nunca fue de upstream y
-        # la que vino de upstream y upstream borro (ADR-0006). Son conjuntos disjuntos.
+        # la que vino de upstream y upstream borro. Son conjuntos disjuntos, y el split es
+        # decision de esta herramienta: ADR-0006 NO lo hace — su unico uso del termino es
+        # llamar "fork propio" a `zoom-out`, o sea al segundo caso solo.
         entry["upstreamRelation"] = "orphaned" if uh["status"] == "gone" else "in-upstream-head"
         results.append(entry)
 
@@ -487,15 +507,20 @@ def _fixture_texts():
     # que git no lo puede casar por hash y lo registra como `R0xx` en vez de `R100`. Es la
     # unica forma de renombre que gasta presupuesto de deteccion inexacta, o sea la unica
     # que `diff.renameLimit` puede hacer desaparecer. Medido en la historia real de
-    # `mattpocock/skills`: 13 lineas `R<100`, y 4 de las 13 tocan skills nuestras
-    # (`to-prd`, `to-spec`, `to-issues`, `grill-with-docs`). No es un caso de borde: es el
+    # `mattpocock/skills` (`6654f6b`): 13 lineas `R<100`, de las cuales **5** tocan la
+    # ascendencia de 4 skills nuestras — `to-prd` con dos (`R065 write-a-prd -> to-prd` y
+    # `R078 to-prd -> to-spec`, donde `to-spec` es el nombre de UPSTREAM, no una skill
+    # nuestra), mas `R061 prd-to-issues -> to-issues`, `R099 domain-model ->
+    # grill-with-docs` y `R053 github-triage -> triage`. No es un caso de borde: es el
     # patron por el que upstream renombra justamente estas skills.
     #
     # Son DOS renombres en el mismo commit, no uno, y eso no es adorno: git compara la
     # matriz de candidatos contra el limite, asi que con un solo par borrado/agregado la
-    # matriz es 1x1, NO supera `renameLimit=1` y la deteccion corre igual. Con un solo par
-    # el test pasaba con y sin el fix (medido: el mutante que quita `renameLimit=0`
-    # sobrevivia las 62 aserciones). El segundo par es lo que hace que el limite muerda.
+    # matriz es 1x1, NO supera `renameLimit=1` y la deteccion corre igual — el check de
+    # `renameLimit` queda vacuo. Lo asserta el guard
+    # `_el_fixture_ejercita_el_limite`, que es reproducible hoy: sacando `rpar` de
+    # `commit 5b` ese guard falla con `(['R084'], ['R084'])`, o sea el renombre se sigue
+    # detectando CON el limite puesto.
     t["REDIT"] = block("Renglon de la skill que upstream renombro editando, numero", 29)
     t["REDIT_V2"] = (t["REDIT"]
                      .replace("numero 2.", "numero 2, tocado en el mismo commit del renombre.")
@@ -505,6 +530,14 @@ def _fixture_texts():
     t["RPAR_V2"] = (t["RPAR"]
                     .replace("numero 4.", "numero 4, retocado junto con el renombre.")
                     .replace("numero 13.", "numero 13, y este tambien."))
+    # Una skill cuyo PATH en upstream lleva un acento. `core.quotePath` viene en `true` por
+    # default, y con eso `ls-tree --name-only` y `log --raw` emiten el path C-quoteado
+    # ("skills/caf\303\251/SKILL.md", con comillas), mientras `rev-list --objects` lo emite
+    # crudo. El filtro `endswith("SKILL.md")` no matchea la forma quoteada, la skill
+    # desaparece de `head_paths` y sale clasificada como si upstream la hubiera borrado: el
+    # MISMO modo de falla que `diff.renames`, por otro knob heredado del entorno. En un repo
+    # en castellano un path acentuado no es exotico.
+    t["ACENTO"] = block("Renglon de la skill con acento en el path, numero", 29)
     t["OURS"] = block("Nada de esto salio de upstream, linea", 29)
     t["fm"] = fm
     return t
@@ -554,7 +587,8 @@ def _build_fixture(tmp):
     write("skills/near/SKILL.md", fm("near", "casi identica") + t["NEAR_UP"])
     write("skills/redit/SKILL.md", fm("redit", "antes del renombre con edicion") + t["REDIT"])
     write("skills/rpar/SKILL.md", fm("rpar", "el par del renombre con edicion") + t["RPAR"])
-    commit("commit 1: alpha v1, ghost, twin v1, drift, merged, near, redit, rpar", _D1)
+    write("skills/caf\xe9/SKILL.md", fm("cafe", "con acento en el path") + t["ACENTO"])
+    commit("commit 1: alpha v1, ghost, twin v1, drift, merged, near, redit, rpar, cafe", _D1)
 
     write("skills/a/SKILL.md", fm("a", "upstream original") + t["ALPHA_V2"])
     os.remove(os.path.join(up, "skills", "ghost", "SKILL.md"))
@@ -628,6 +662,7 @@ def _build_fixture(tmp):
         ("near", fm("near", "nuestra copia") + t["NEAR_LOCAL"]),
         ("ours", fm("ours", "nunca salio de upstream") + t["OURS"]),
         ("redit", fm("redit", "nuestra copia, del cuerpo de antes del renombre") + t["REDIT"]),
+        ("cafe", fm("cafe", "nuestra copia de la del path acentuado") + t["ACENTO"]),
         ("twin", fm("twin", "tercera description, mismo cuerpo") + t["TWIN"]),
         ("tz", fm("tz", "nuestra copia") + t["TZ"]),
     ]:
@@ -763,7 +798,7 @@ def self_test():
               lambda: (len(d(by, "merged", "base", "blob") or "") == 40,
                        d(by, "merged", "base", "blob")))
         check("merged: el resumen NO la cuenta entre las recuperadas",
-              lambda: (d(report, "summary", "recovered") == 7,
+              lambda: (d(report, "summary", "recovered") == 8,
                        (d(report, "summary", "recovered"), sorted(
                            s["name"] for s in report["skills"]
                            if s.get("status") == "recovered"))))
@@ -806,7 +841,7 @@ def self_test():
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",
               lambda: (d(by, "near", "similarity") == 1.0, d(by, "near", "similarity")))
         check("exactBodyMatches cuenta cuerpos identicos, no similitudes redondeadas",
-              lambda: (d(report, "summary", "exactBodyMatches") == 6,
+              lambda: (d(report, "summary", "exactBodyMatches") == 7,
                        d(report, "summary", "exactBodyMatches")))
 
         # --- latin-1 ---------------------------------------------------------------------
@@ -814,8 +849,8 @@ def self_test():
               lambda: ("latin" in by, sorted(by)))
 
         # --- reporte ---------------------------------------------------------------------
-        check("recorre las 10 skills del fixture",
-              lambda: (len(report["skills"]) == 10, len(report["skills"])))
+        check("recorre las 11 skills del fixture",
+              lambda: (len(report["skills"]) == 11, len(report["skills"])))
         check("registra el HEAD de upstream",
               lambda: (len(d(report, "upstream", "head") or "") == 40,
                        d(report, "upstream", "head")))
@@ -1054,10 +1089,14 @@ def self_test():
                 os.path.exists = real_exists
             return (motivo or "").startswith("raiz-inexistente:"), motivo
 
-        # El label no dice "se rechaza" a secas: en POSIX el caso verifica lo contrario (que la
-        # rama NO se dispare, porque `/` siempre existe), y si todas las letras estan montadas se
-        # auto-excluye. Un label que prometiera mas de eso mentiria en dos de las tres ramas.
-        check("la rama de raiz inexistente se comporta segun la plataforma", _raiz_inexistente)
+        # Este caso simula la raiz ausente parcheando `os.path.exists`, no buscando una letra
+        # de unidad libre. Por eso NO depende de como este montada la maquina ni del sistema
+        # operativo: en POSIX el walk-up termina en `/`, el parche lo hace inexistente, y se
+        # ejercita la misma rama positiva que en Windows. O sea que la asercion vale
+        # incondicionalmente en las dos plataformas, y el mutante que borra la rama muere.
+        # (El comentario anterior hablaba de "tres ramas" y de auto-exclusion: describia la
+        # implementacion por letra de unidad, que `3e175b0` reemplazo.)
+        check("la raiz inexistente se rechaza, en cualquier plataforma", _raiz_inexistente)
 
         # El exit 3 es la ultima puerta por la que se pierde trabajo: la recuperacion salio bien
         # pero la escritura fallo igual. Se fuerza haciendo fallar el `os.replace`, que es el unico
@@ -1115,9 +1154,16 @@ def self_test():
               _falla_al_reemplazar)
 
         # Una excepcion que NO es OSError tiene que PROPAGARSE, no volverse un exit 3. El exit 3
-        # dice "la escritura fallo"; un bug de programacion o un Ctrl-C no son eso. Un `os.close`
-        # de mas sobre un fd ya cerrado convertia cualquiera de los dos en EBADF —que si es
-        # OSError— y los tragaba, ademas de pisar el mensaje de un ENOSPC real.
+        # dice "la escritura fallo"; un bug de programacion o un Ctrl-C no son eso.
+        #
+        # Ojo con lo que este caso cubre y lo que no: inyecta en `os.replace`, que estaba
+        # FUERA del `try` interno tambien en la version con el doble-close, asi que este
+        # check NO muerde ese bug. Medido: restaurando el doble-close, este check y el de
+        # Ctrl-C quedan en VERDE y solo cae `_motivo_real_si_falla_el_write` (61 ok, 1 fail).
+        # De los tres efectos que el fix documenta —Ctrl-C vuelto OSError, un bug de
+        # programacion disfrazado de "fallo el disco", y un ENOSPC reportado como EBADF—
+        # el unico con test es el tercero. Cubrir los otros dos pide inyectar el
+        # ValueError/KeyboardInterrupt DENTRO del `f.write`, no en `os.replace`.
         def _no_traga_lo_que_no_es_de_escritura():
             import io
             import contextlib
@@ -1257,6 +1303,18 @@ def self_test():
                     (d(e, "upstreamHead", "status"), d(e, "upstreamHead", "path"),
                      e.get("upstreamRelation")))
 
+        def _clasifica_presente(nombre, destino, clave=None, valor=None):
+            """Como `_clasifica`, pero para una skill que sigue en SU path (no renombrada)."""
+            def corre():
+                return recover(up, local, [nombre], 0.60)
+            r = _con_config(clave, valor, corre) if clave else corre()
+            e = r["skills"][0]
+            return ((d(e, "upstreamHead", "status") == "present"
+                     and d(e, "upstreamHead", "path") == destino
+                     and e.get("upstreamRelation") == "in-upstream-head"),
+                    (d(e, "upstreamHead", "status"), d(e, "upstreamHead", "path"),
+                     e.get("upstreamRelation")))
+
         check("diff.renames=false del entorno no cambia la clasificacion de alpha",
               lambda: _clasifica("alpha", "skills/a2/SKILL.md", "diff.renames", "false"))
 
@@ -1267,6 +1325,57 @@ def self_test():
               lambda: _clasifica("redit", "skills/redit2/SKILL.md"))
         check("diff.renameLimit=1 del entorno no pierde el renombre con edicion",
               lambda: _clasifica("redit", "skills/redit2/SKILL.md", "diff.renameLimit", "1"))
+
+        # Guard de la PRECONDICION del check de arriba, y no es ceremonia: ese check solo
+        # muerde mientras `commit 5b` tenga DOS pares de renombre, porque git compara la
+        # matriz de candidatos contra el limite y con un solo par la matriz es 1x1, no
+        # supera `renameLimit=1` y la deteccion corre igual. `rpar` no tiene copia local, o
+        # sea que ninguna otra asercion lo toca: sacarlo de `_build_fixture` por "no se usa"
+        # devolveria el check a ser vacuo EN SILENCIO. Este guard lo vuelve ruidoso — asserta
+        # que con el limite en 1 la deteccion efectivamente se degrada (el renombre deja de
+        # verse como `R` y aparece como borrado + agregado), que es la unica evidencia de que
+        # el fixture puede ejercitar el limite.
+        def _el_fixture_ejercita_el_limite():
+            def raw(*cfg):
+                p = subprocess.run(["git", "-C", up, *cfg, "log", "--all", "--full-history",
+                                    "--raw", "--no-abbrev", "--format=", "--", "*SKILL.md"],
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                return p.stdout.decode("utf-8", "replace")
+            def renombres_de_redit(texto):
+                # `--raw`: ":<modo> <modo> <sha> <sha> <status>\t<path>[\t<path2>]".
+                # El status va separado por ESPACIO del resto del meta y por TAB del path,
+                # asi que se lo saca parseando, no buscando substrings.
+                out = []
+                for l in texto.splitlines():
+                    if not l.startswith(":"):
+                        continue
+                    campos = l.split("\t")
+                    estado = campos[0].split()[-1]
+                    if estado.startswith("R") and campos[1:2] == ["skills/redit/SKILL.md"]:
+                        out.append(estado)
+                return out
+            sin_limite = renombres_de_redit(
+                raw("-c", "diff.renames=true", "-c", "diff.renameLimit=0"))
+            con_limite = renombres_de_redit(
+                raw("-c", "diff.renames=true", "-c", "diff.renameLimit=1"))
+            # sin limite se ve como R0xx (un R100 seria exacto y no probaria nada);
+            # con el limite en 1 ese mismo renombre YA NO se detecta.
+            con_edicion = [e for e in sin_limite if re.fullmatch(r"R0\d\d", e)]
+            return (len(con_edicion) == 1 and con_limite == [],
+                    (sin_limite, con_limite))
+
+        check("el fixture puede ejercitar renameLimit: R0xx sin limite, y se degrada con 1",
+              _el_fixture_ejercita_el_limite)
+
+        # `core.quotePath` es el TERCER knob heredado del entorno con el mismo efecto, y su
+        # default (`true`) ya es el valor peligroso: no hace falta que nadie lo configure mal.
+        # Una skill viva en el HEAD de upstream, en un path con un acento, sale clasificada
+        # como borrada porque el path llega C-quoteado y el filtro `endswith("SKILL.md")` no
+        # lo reconoce. Se asserta con el default puesto explicitamente, para que el caso se
+        # ejercite aunque la maquina que corre tenga `false` en su config global.
+        check("core.quotepath=true (el default) no rompe un path acentuado de upstream",
+              lambda: _clasifica_presente("cafe", "skills/caf\xe9/SKILL.md",
+                                          "core.quotepath", "true"))
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
