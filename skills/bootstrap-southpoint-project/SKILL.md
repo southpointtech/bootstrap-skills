@@ -33,15 +33,15 @@ Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges 
 
 ### B. Park the original CLAUDE.md
 
-**Only if the copy's report listed `CLAUDE.md` under `overwritten`** — the backup exists only when the file actually differed. Move the backup **at the path that entry's `backup` field names**, not a path you assume: it is normally `.bootstrap-backup/CLAUDE.md`, but where a backup already existed the copy numbers the new one `.2`, `.3`, and moving the un-numbered one would park a stale original and misclassify it in step C.
+**Only if `.bootstrap-backup/CLAUDE.md` exists after the copy.** For this one file take the **un-numbered** path — the opposite of the rule for every other entry. The numbered copies (`.2`, `.3`) hold what a later run overwrote, which by then is the canonical template, possibly edited; the un-numbered one is the project's own original, and that is what step C has to classify. Everywhere else you want the newest, here you want the oldest.
 
 ```powershell
-Move-Item "$proj\<the backup path from the report>" "$proj\docs\agents\legacy-claude.md" -Force
+Move-Item "$proj\.bootstrap-backup\CLAUDE.md" "$proj\docs\agents\legacy-claude.md" -Force
 ```
 
 `docs/agents/legacy-claude.md` stays in the repo forever as the recovery net.
 
-If `CLAUDE.md` is **not** in that list, there is normally no original to park and steps C and E have nothing to classify — skip them, and say exactly that in the Step 6 report instead of the sentence step F would otherwise have you write. That is the case when the project had no `CLAUDE.md` at all (Step 0 also routes into adoption on a bare `docs/ai-workflow/`), or when its `CLAUDE.md` was already content-identical to the canonical one. Before concluding it, check whether `.bootstrap-backup/CLAUDE.md` is already there from an earlier aborted run — if it is, that file *is* the project's original and it should be parked and classified as usual. Never run the `Move-Item` blind: `-Force` does not conjure a missing source, it throws, and it would abort the adoption with the scaffold already landed on the project's files.
+If that file does **not** exist, there is no original to park and steps C and E have nothing to classify — skip them, and say exactly that in the Step 6 report instead of the sentence step F would otherwise have you write. That happens when the project had no `CLAUDE.md` at all (Step 0 also routes into adoption on a bare `docs/ai-workflow/`), or when its `CLAUDE.md` was already content-identical to the canonical one, in which case there is nothing of the project's to recover. Never run the `Move-Item` blind: `-Force` does not conjure a missing source, it throws, and it would abort the adoption with the scaffold already landed on the project's files.
 
 ### C. Classify the original's content
 
@@ -88,7 +88,7 @@ The script copies file-by-file, merging into directories the project already has
 
 Before committing, verify the copy landed cleanly: `.agents\skills` and `.claude\commands` have as many entries as the scaffold itself does (count them there — a number written here goes stale the next time a skill is added), `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` and `.claude\hooks\alignment-gate.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
-The script prints a JSON report on stdout: `created` lists the files it added, `overwritten` lists the project's own files it replaced, each with the path where it backed the original up — normally `.bootstrap-backup/<same relative path>`, but numbered `.2`, `.3` where a backup was already there, so read the `backup` field instead of deriving it from `file`. A file that differs only in CRLF vs LF is not reported — that is `core.autocrlf` noise, not a change. **Report the `overwritten` list to the user.** On an empty project directory it comes back empty and there is nothing to say; on a project that already had files, it is the list of things that need a decision.
+The script prints a JSON report on stdout: `created` lists the files it added, `overwritten` lists the project's own files it replaced, each with the path where it backed the original up — normally `.bootstrap-backup/<same relative path>`, but numbered `.2`, `.3` where a backup was already there, so read the `backup` field instead of deriving it from `file`. A file that differs only in CRLF vs LF is not reported — that is `core.autocrlf` noise, not a change. **Report the `overwritten` list to the user.** On an empty project directory it comes back empty and there is nothing to say. On a project that already had files it is the list of what the copy replaced: in adoption mode (Step 0b/D) every entry needs a decision before the merge; otherwise report it and continue.
 
 This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (11 skills — 9 synced via `skills-lock.json` + `review-loop` and `slice-review`, bundled here), `.claude/commands/` (11 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-dispara `review-loop` al abrir/actualizar un PR) + `.claude/hooks/alignment-gate.ps1` (frena el primer edit de código por sesión y ofrece alinear antes de codear), `docs/ai-workflow/` (5 docs), `docs/agents/` (3 docs).
 

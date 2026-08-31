@@ -52,6 +52,12 @@ La copia **sigue pisando**, pero antes respalda y después lo declara.
    existe `.bootstrap-manifest.json`, y la copia del Step 2 lo deja, así que una segunda corrida no
    ocurre por el flujo normal. Se llega ahí invocando el script a mano, o borrando el manifest para
    rehacer una adopción que abortó — que es justamente lo que una adopción abortada invita a hacer.
+
+   ⚠️ **`CLAUDE.md` es la excepción, y va al revés.** El Step 0b no busca lo último que se pisó sino
+   el original del proyecto, que es el respaldo **más viejo**: el sin numerar. En una re-corrida los
+   numerados contienen el template canónico, no el texto del proyecto, y parquearlos como
+   `legacy-claude.md` haría que el paso C clasifique el contenido equivocado y que el original de
+   verdad quede huérfano. Para todos los demás archivos, leer el `backup` del reporte es lo correcto.
 5. **Siempre activo, sin flags**: el script no sabe en qué modo lo invocan, y en un destino vacío no
    hay nada que respaldar, así que ni siquiera crea el directorio.
 6. **El punto de aprobación queda solo en adopción**: el Step 0b/D debe cubrir cada entrada de

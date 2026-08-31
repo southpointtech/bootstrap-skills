@@ -30,9 +30,19 @@ function Get-IfAny([string]$path) {
 # concurrente — pasó de verdad con los reviewers en paralelo del review-loop de este repo.
 $script:runRoot = Join-Path ([IO.Path]::GetTempPath()) ("cs-run-$PID-" + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($script:runRoot) | Out-Null
-# Huérfanos de corridas que abortaron: se barren POR EDAD, nunca por glob incondicional. Un
-# `cs-run-*` de hace más de un día no puede ser de una corrida viva, y así la recolección no pisa
-# a un reviewer paralelo — que es justo lo que hacía la versión anterior.
+# La limpieza del final es una sentencia suelta: un error terminante fuera de un Assert la saltea
+# y el workspace queda filtrado para siempre. Este trap la garantiza en ese camino (`break`
+# re-lanza el error, así que el exit code no cambia). Sin esto se midieron 8 huérfanos acumulados.
+trap {
+  if ($script:runRoot -and (Test-Path -LiteralPath $script:runRoot)) {
+    Remove-Item -LiteralPath $script:runRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  break
+}
+# Huérfanos de corridas anteriores que abortaron antes de que existiera el trap: se barren POR
+# EDAD, nunca por glob incondicional. Un `cs-run-*` de hace más de un día no puede ser de una
+# corrida viva, y así la recolección no pisa a un reviewer paralelo — que es justo lo que hacía la
+# versión anterior.
 Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "cs-run-*" -ErrorAction SilentlyContinue |
   Where-Object { $_.FullName -ne $script:runRoot -and $_.CreationTime -lt (Get-Date).AddDays(-1) } |
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -154,6 +164,7 @@ Remove-Item -Recurse -Force $t
 $canonTlPath = "$skillP\assets\scaffold\docs\agents\triage-labels.md"
 $canonBytes  = [IO.File]::ReadAllBytes($canonTlPath)
 $canonLf     = ([IO.File]::ReadAllText($canonTlPath)) -replace "`r`n", "`n"
+$script:eolEjercitada = $false
 foreach ($variante in @(
     @{ nombre = "LF";   texto = $canonLf },
     @{ nombre = "CRLF"; texto = ($canonLf -replace "`n", "`r`n") })) {
@@ -164,16 +175,17 @@ foreach ($variante in @(
   # normalización (sale por la comparación de bytes) y su verde no significa nada. No es un
   # fallo — es la variante que en este checkout no aplica —, pero tiene que decirse.
   $distinto = -not ([Linq.Enumerable]::SequenceEqual($canonBytes, [IO.File]::ReadAllBytes("$t\docs\agents\triage-labels.md")))
+  if ($distinto) { $script:eolEjercitada = $true }
   $r = Invoke-CopyJson $t
   Assert (@($r.overwritten | Where-Object { $_.file -like "*triage-labels*" }).Count -eq 0) "diferencia solo de EOL (destino $($variante.nombre)) NO se reporta como pisada"
   Assert (-not (Test-Path "$t\.bootstrap-backup\docs\agents\triage-labels.md")) "diferencia solo de EOL (destino $($variante.nombre)) NO genera respaldo"
   if ($distinto) { Write-Host "      (la variante $($variante.nombre) es la que ejercita la normalización en este checkout)" }
   Remove-Item -Recurse -Force $t
 }
-# Al menos una de las dos variantes tiene que diferir del canónico, o el par entero es vacuo.
-$crlfBytes = [Text.Encoding]::UTF8.GetBytes(($canonLf -replace "`n", "`r`n"))
-$lfBytes   = [Text.Encoding]::UTF8.GetBytes($canonLf)
-Assert (-not ([Linq.Enumerable]::SequenceEqual($canonBytes, $lfBytes)) -or -not ([Linq.Enumerable]::SequenceEqual($canonBytes, $crlfBytes))) "alguna de las dos variantes de EOL difiere del canónico (el par no es vacuo)"
+# Al menos una de las dos variantes tiene que haber diferido del canónico EN DISCO, o el par entero
+# es vacuo: las dos habrían salido por la comparación de bytes sin tocar la normalización. Se mide
+# lo que el bucle escribió, no una reconstrucción de los bytes esperados.
+Assert $script:eolEjercitada "alguna de las dos variantes de EOL difiere del canónico en disco (el par no es vacuo)"
 
 # 9. Destino vacío: no se crea el directorio de respaldo ni se declara nada
 $t = New-Proj
@@ -221,12 +233,18 @@ Remove-Item -Recurse -Force $t
 # entero sin que la suite se entere (mutante M8 sobrevivió). El modo de falla es el de Profitability:
 # el archivo se pisa igual, pero sin respaldo y sin declararse.
 $t = New-Proj
-$canonTl = $canonBytes   # definido arriba, junto al par de EOL
+$canonTl = [IO.File]::ReadAllBytes($canonTlPath)   # se relee: heredar una variable de otro bloque
+                                                   # hace que su ausencia dé un array vacío y el
+                                                   # caso pase sin medir nada
 $mismoLargo = [byte[]]::new($canonTl.Length)
 for ($i = 0; $i -lt $canonTl.Length; $i++) { $mismoLargo[$i] = 65 }   # mismo largo, todo 'A'
-Assert ($mismoLargo.Length -eq $canonTl.Length) "el fixture tiene el mismo largo que el canónico (si no, sale por el early-return y no mide nada)"
 New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
 [IO.File]::WriteAllBytes("$t\docs\agents\triage-labels.md", $mismoLargo)
+# Se mide el ARCHIVO EN DISCO contra el canónico, no el array recién dimensionado: comparar
+# `$mismoLargo.Length` con `$canonTl.Length` es cierto por construcción, y encima `$null.Length`
+# da 0, así que un canónico ilegible daría un fixture vacío y un `ok:` vacuo.
+$largoFixture = (Get-Item -LiteralPath "$t\docs\agents\triage-labels.md").Length
+Assert ($largoFixture -gt 0 -and $largoFixture -eq (Get-Item -LiteralPath $canonTlPath).Length) "el fixture en disco tiene el mismo largo que el canónico (si no, sale por el early-return y no mide nada)"
 $r = Invoke-CopyJson $t
 Assert (@($r.overwritten | Where-Object { $_.file -eq "docs/agents/triage-labels.md" }).Count -eq 1) "mismo largo y distinto contenido SÍ se declara pisado"
 Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne '') "mismo largo y distinto contenido SÍ se respalda"
