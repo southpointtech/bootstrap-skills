@@ -34,18 +34,27 @@ def _git_bytes(repo, *args, stdin=None):
 
 
 def is_git_repo(path):
-    """¿`path` es un repo de git? Vale bare, worktree y clon normal.
+    """¿`path` es la RAÍZ de un repo de git? Vale bare, worktree y clon normal.
 
     Mirar si existe un `.git` que sea *directorio* deja afuera los clones bare (no tienen
     `.git`) y los worktrees (ahí `.git` es un archivo). Se lo preguntamos a git.
+
+    Preguntar solamente no alcanza: `git rev-parse` **sube por el árbol**, así que cualquier
+    carpeta de adentro de un repo contesta que sí. Un `--upstream-clone` mal tipeado que caiga
+    adentro de este repo lo tomaría por el clon de upstream, encontraría nuestros propios
+    `*/SKILL.md` y emitiría bases con similitud 1.0 citando commits nuestros — veneno para el
+    lockfile, y silencioso. Por eso se compara contra la raíz que git reporta.
     """
     if not os.path.isdir(path):
         return False
     try:
-        _git(path, "rev-parse", "--git-dir")
-        return True
+        bare = _git(path, "rev-parse", "--is-bare-repository").strip() == "true"
+        # en un bare la raíz es el git dir; en uno normal, la del árbol de trabajo
+        root = _git(path, "rev-parse",
+                    "--absolute-git-dir" if bare else "--show-toplevel").strip()
     except (RuntimeError, OSError):
         return False
+    return bool(root) and os.path.realpath(root) == os.path.realpath(path)
 
 
 def origin_url(repo):
@@ -389,6 +398,10 @@ def recover(upstream, skills_dir, names, threshold):
             "unresolvedCommit": sum(1 for s in results
                                     if s.get("status") == "unresolved-commit"),
             "unmatched": sum(1 for s in results if s.get("status") == "unmatched"),
+            # solo puede salir de un `--skill` mal escrito: sin `--skill`, la lista se arma
+            # filtrando los que tienen SKILL.md. Se cuenta igual: un estado que no aparece en
+            # el resumen es un estado que nadie mira.
+            "missingLocally": sum(1 for s in results if s.get("status") == "missing-locally"),
             # sobre el ratio crudo: round(0.99996, 4) es 1.0 y no es un cuerpo identico
             "exactBodyMatches": sum(1 for r in raw_similarity.values() if r == 1.0),
             "tiedBestSimilarity": sum(1 for s in results
@@ -761,6 +774,58 @@ def self_test():
               lambda: (is_git_repo(bare) is True, is_git_repo(bare)))
         check("sigue rechazando un directorio que no es repo",
               lambda: (is_git_repo(plain) is False, is_git_repo(plain)))
+        # `git rev-parse` sube por el arbol: sin comparar contra la raiz, CUALQUIER carpeta
+        # adentro de un repo pasa por clon. Un `--upstream-clone` mal tipeado que caiga
+        # adentro de ESTE repo lo analiza a el, encuentra sus propios `*/SKILL.md` (medido:
+        # 109 blobs) y emite bases con similitud 1.0 citando commits nuestros.
+        sub = os.path.join(up, "skills")
+        check("rechaza un subdirectorio de un repo (el clon es la raiz, no algo adentro)",
+              lambda: (is_git_repo(sub) is False, is_git_repo(sub)))
+        bare_sub = os.path.join(bare, "refs")
+        check("rechaza un subdirectorio de un clon bare",
+              lambda: (is_git_repo(bare_sub) is False, is_git_repo(bare_sub)))
+
+        # --- CLI: `--out` sin directorio ------------------------------------------------
+        # `os.path.dirname("salida.json")` es "", y `os.makedirs("")` revienta. Reventaba
+        # DESPUES de los ~90 s de recuperacion, con el reporte ya en memoria: se perdia todo.
+        def _out_sin_directorio():
+            prev = os.getcwd()
+            d = os.path.join(tmp, "cwd-out")
+            os.makedirs(d, exist_ok=True)
+            try:
+                os.chdir(d)
+                rc = main(["--upstream-clone", up, "--skills-dir", local,
+                           "--out", "salida.json"])
+            finally:
+                os.chdir(prev)
+            escrito = os.path.isfile(os.path.join(d, "salida.json"))
+            return (rc == 0 and escrito), (rc, escrito)
+
+        check("--out sin directorio escribe en el cwd en vez de reventar",
+              _out_sin_directorio)
+
+        # --- CLI: un `--skill` que no existe localmente ----------------------------------
+        # Era el peor de los silenciosos: un typo daba un reporte todo-ceros, lo ESCRIBIA
+        # encima del bueno, imprimia "Escrito:" y salia 0. El lockfile se sella con eso.
+        check("missing-locally se cuenta en el resumen",
+              lambda: ((lambda r: (r["summary"].get("missingLocally") == 1,
+                                   r["summary"].get("missingLocally")))(
+                  recover(up, local, ["alpha", "no-existe"], 0.60))))
+
+        def _skill_inexistente_no_pisa():
+            d = os.path.join(tmp, "no-pisar")
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, "bueno.json")
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write('{"reporte": "el bueno, sellado a mano"}\n')
+            rc = main(["--upstream-clone", up, "--skills-dir", local,
+                       "--skill", "no-existe", "--out", dest])
+            with open(dest, encoding="utf-8") as f:
+                sigue = f.read()
+            return (rc != 0 and "el bueno" in sigue), (rc, sigue[:50])
+
+        check("un --skill inexistente falla y NO pisa el reporte que ya estaba",
+              _skill_inexistente_no_pisa)
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
@@ -801,6 +866,17 @@ def main(argv=None):
     if args.self_test:
         return self_test()
 
+    # Los `--skill` se validan ANTES de clonar y de las ~90 s de recuperación: un typo tiene
+    # que costar un mensaje, no una corrida entera terminada en un reporte todo-ceros escrito
+    # encima del bueno.
+    if args.skills:
+        faltan = [n for n in args.skills
+                  if not os.path.isfile(os.path.join(args.skills_dir, n, "SKILL.md"))]
+        if faltan:
+            print("No existe(n) localmente: %s\nBuscadas en: %s"
+                  % (", ".join(faltan), args.skills_dir), file=sys.stderr)
+            return 2
+
     clone = args.upstream_clone
     if clone and not is_git_repo(clone):
         print("No es un clon de git: %s" % clone, file=sys.stderr)
@@ -818,7 +894,9 @@ def main(argv=None):
     if args.stdout:
         sys.stdout.write(text)
     else:
-        os.makedirs(os.path.dirname(args.out), exist_ok=True)
+        # `abspath` primero: el dirname de un `--out` relativo sin directorio ("salida.json")
+        # es "", y `os.makedirs("")` revienta con el reporte ya calculado.
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
         with open(args.out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
         print("Escrito: %s" % args.out)

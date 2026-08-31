@@ -193,19 +193,27 @@ Las skills propias del scaffold que están en el mismo directorio salen `unmatch
 
 ## Verificación
 
-La herramienta no va a la suite: la suite de este repo es Pester (`tests/*.tests.ps1`) y este es el
-primer `.py` del repo; además la recuperación real necesita red y minutos, que no es algo que pueda
-correr en cada corrida de tests. Por eso trae su propia verificación **offline**, adentro de la
-herramienta:
+La **recuperación real** no va a la suite: necesita red y ~90 s, que no es algo que pueda correr en
+cada corrida de tests. Por eso la herramienta trae su propia verificación **offline**, adentro:
 
 ```
 py tools/recover-skill-bases.py --self-test
 ```
 
+Y ese self-test **sí** está en la suite, envuelto en `tests/recover-skill-bases.tests.ps1` como los
+demás runners del repo (que no son Pester: son runners propios con una función `Assert`, igual que
+los otros doce). El envoltorio no re-verifica lo que el self-test ya verifica; asserta las dos puntas
+que un exit code solo no cubre: que la línea de resumen **exista** —un self-test que sale 0 sin
+correr nada daría verde vacío— y que el total de aserciones no baje de un piso declarado, que es lo
+único que muerde a un mutante que borra checks. Verificado con tres mutantes: desempate invertido
+(3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (4 fallas).
+
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **39
-afirmaciones** sobre nueve skills de fixture. Tarda ~4-5 s (medido: seis corridas entre 4,0 s y
-5,1 s, las seis 39/39) y no toca la red. Cubre:
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **44
+afirmaciones** sobre nueve skills de fixture. Tarda ~30 s (medido: tres corridas de 31 s, 26 s y
+31,6 s, las tres 44/44) y no toca la red. Los ~25 s de diferencia contra las 39 afirmaciones
+anteriores son las tres recuperaciones completas que ejercitan el CLI de punta a punta; se pagan
+porque los tres agujeros que tapan eran silenciosos. Cubre:
 
 - que el frontmatter y los fines de línea no cuenten para la similitud;
 - que la base sea la primera aparición del contenido y no una reaparición posterior, incluso cuando
