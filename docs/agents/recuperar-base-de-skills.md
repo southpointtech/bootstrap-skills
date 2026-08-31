@@ -121,7 +121,13 @@ JSON. Por skill:
   `grill-me` aparece por primera vez en `grill-me/SKILL.md`, en la raíz del repo).
 - `base.commit` / `base.commitDate` / `base.commitSubject`: la **aparición más vieja de ese
   contenido en toda la historia publicada, en cualquier path**. Vale la invariante
-  `git rev-parse <commit>:<upstreamPath>` == `base.blob`; verificada para las nueve el 2026-08-28.
+  `git rev-parse <commit>:<upstreamPath>` == `base.blob` (verificada para las nueve el
+  2026-08-28), pero **no corrobora que la base sea la correcta**: `commit` y `upstreamPath`
+  salen del mismo registro, así que se cumple igual con una base equivocada — de hecho se
+  cumplía con las cuatro que `00c2160` reemplazó. Lo que sí verifica es que el par
+  `(commit, path)` publicado exista tal cual en upstream, y ahí sí muerde: si la detección de
+  renombres se degrada y el path deja de ser el de esa aparición, la invariante se cae. Por
+  eso está asertada en el self-test.
 - `base.alsoSeenAtPaths`: otros paths donde el mismo blob apareció. Solo informativo.
 - `base.tiedCandidates` / `base.tieNote` / `base.tieOnIdenticalBodies`: aparecen cuando **más de un
   blob empata en el mejor ratio**. La herramienta elige la aparición más vieja y deja los empatados a
@@ -129,11 +135,14 @@ JSON. Por skill:
   medido el 2026-08-28, **34 de los 373 cuerpos distintos de upstream existen en más de un blob**
   (74 de 413 blobs), y tres de nuestras nueve skills caen en ese caso.
   El empate se calcula sobre el **ratio**, no sobre el contenido, así que de qué es el empate hay que
-  mirarlo: `tieOnIdenticalBodies` compara los cuerpos y lo dice. En `true` —el caso frecuente, y el
-  de las tres de hoy— upstream retocó solo el frontmatter y cualquiera de los dos blobs sirve de
-  base. En `false` son **versiones distintas con el mismo ratio**: elegir mal cambia el merge de tres
-  vías, y ahí el desempate por fecha es una convención, no una respuesta. `summary.tiedOnDifferentBodies`
-  los cuenta.
+  mirarlo: `tieOnIdenticalBodies` compara los cuerpos —ya normalizados: sin frontmatter, con CRLF a
+  LF y extremos recortados— y lo dice. En `true` los cuerpos son idénticos y lo que difiere entre los
+  blobs está **fuera** del cuerpo: en la práctica el frontmatter (es el caso de las tres de hoy),
+  aunque un BOM o los fines de línea producirían lo mismo, y la herramienta no distingue cuál fue.
+  En `false` **al menos dos** de los cuerpos empatados difieren —`same_body` es un `all()`, y con
+  tres o más blobs empatados el resto puede coincidir—: son versiones distintas con el mismo ratio,
+  elegir mal cambia el merge de tres vías, y ahí el desempate por fecha es una convención, no una
+  respuesta. `summary.tiedOnDifferentBodies` los cuenta.
 - `upstreamHead`: dónde vive hoy ese archivo en upstream — `present` (mismo path), `renamed` (git
   detectó el renombre; incluye `renameChain`) o `gone` (**sin correspondencia**: upstream lo borró).
 
@@ -171,11 +180,19 @@ Dos reglas, las dos con guard en el self-test:
 
 ### La métrica y su límite: `autojunk`
 
-La similitud es `difflib.SequenceMatcher(None, a, b).ratio()` **con el `autojunk` de la librería
-activo**, que es su default. En secuencias de más de 200 elementos, `SequenceMatcher` marca como
-"populares" los elementos que aparecen en más del 1 % de `b` y los **excluye** del matching. Sobre
-markdown en castellano, comparado carácter a carácter, eso alcanza a las letras comunes: cuanto más
-largo el cuerpo, más se descarta y más cae el ratio.
+La similitud es `difflib.SequenceMatcher(None, mine, other).ratio()` **con el `autojunk` de la
+librería activo**, que es su default. Cuando la **segunda** secuencia tiene 200 elementos o más,
+`SequenceMatcher` marca como "populares" los que aparecen en más de `len(b)//100 + 1` posiciones de
+`b` y los saca del índice: dejan de poder **sembrar** un match (uno ya sembrado sí se extiende sobre
+ellos — un cuerpo contra sí mismo sigue dando 1.0, así que "los excluye del matching" sería
+sobreafirmar). Sobre markdown comparado carácter a carácter, "popular" son las letras comunes.
+
+Lo que importa acá: **`b` es el blob de upstream**, así que el heurístico se dispara en casi
+**toda** comparación del corpus, no solo en los cuerpos largos. Medido el 2026-08-31 sobre las
+skills locales: `zoom-out` —169 B de cuerpo— contra `slice-review` da 0,0020 con `autojunk` y 0,0086
+sin él (4,2×); al revés, `slice-review` contra `zoom-out`, donde `b` tiene 169 elementos y no llega
+a 200, da 0,0083 con y sin el heurístico. Esa asimetría es la firma de que el efecto depende de `b`
+y no del largo de nuestro cuerpo.
 
 Los números con `autojunk` son de la corrida del 2026-08-28; los de `autojunk=False` se midieron
 aparte el 2026-08-31, sobre las mismas once skills locales:
@@ -185,8 +202,11 @@ aparte el 2026-08-31, sobre las mismas once skills locales:
 | `review-loop` | > 7 KB | 0,0308 | **0,1305**, y elige **otro archivo** (`wayfinder/SKILL.md` → `improve-codebase-architecture/SKILL.md`) |
 | `slice-review` | > 7 KB | 0,0202 | **0,1101**, otro blob |
 
-Son las **dos únicas** que pasan los 7 KB —la tercera más larga tiene 6.335 B—, así que hoy el
-heurístico solo distorsiona ahí. Dos consecuencias, distintas entre sí:
+Son las **dos únicas** que pasan los 7 KB —la tercera más larga tiene 6.335 B—, pero eso **no** es
+la razón por la que son las únicas que se mueven: el heurístico distorsiona casi todos los pares (ver
+arriba). Se mueven porque son las dos que **no tienen match verdadero**; las otras nueve están en
+0,86 o más, y ahí el ruido de los caracteres populares no alcanza a cambiar quién gana. Dos
+consecuencias, distintas entre sí:
 
 - **El veredicto no cambia.** 0,1305 y 0,1101 siguen muy por debajo del umbral de 0,60: las dos
   salen `unmatched` / `no-match-above-threshold` con `autojunk` prendido o apagado.
@@ -293,7 +313,7 @@ correr nada daría verde vacío— y que el total de aserciones no baje de un pi
 (3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **78
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **84
 afirmaciones** sobre doce skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
@@ -320,8 +340,16 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
 - que una skill sin correspondencia **no** reciba una base de similitud baja inventada, que su mejor
   similitud quede acotada por las dos puntas, y que su nota **no afirme** que la skill nunca salió de
   upstream —que es lo que no se midió—;
-- que el umbral que ejercita el self-test sea **el default del CLI** y no un literal paralelo, y que
-  la frontera esté donde dice: un ratio **igual** al umbral se acepta, y un `1e-9` por encima ya no;
+- que el umbral que ejercita el self-test sea **el default del CLI** y no un literal paralelo, que
+  ese default **valga 0,60** —el cableado solo no alcanzaba: los tres términos de la igualdad leen la
+  misma constante, así que moverla dejaba todo en verde— y que la frontera esté donde dice: un ratio
+  **igual** al umbral se acepta, y un `1e-9` por encima ya no. La constante contra la que se compara
+  la frontera se asserta a su vez contra el ratio que el fixture produce, porque si deriva la
+  frontera deja de ser frontera sin que nada se ponga rojo;
+- que `similarity()` devuelva el `ratio()` y no una de las **cotas baratas**: sobre este fixture el
+  mutante `quick_ratio()` no solo infla el número (0,2607 → 0,8304) sino que cambia **cuál** es el
+  mejor candidato a sucesor;
+- que el par `(commit, upstreamPath)` de cada base publicada exista tal cual en upstream;
 - que cada entrada emita **exactamente** los campos que `method.fieldsByStatus` declara para su
   status, incluida `missing-locally`, que por el CLI no se alcanza;
 - que la URL reportada sea la del clon y no una constante;

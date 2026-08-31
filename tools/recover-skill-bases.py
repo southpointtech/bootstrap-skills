@@ -109,20 +109,31 @@ def body_of(text):
 def similarity(a, b):
     """Ratio de `SequenceMatcher` sobre los dos cuerpos, con el `autojunk` de la libreria.
 
-    `autojunk` viene activo por default: en secuencias de mas de 200 elementos, los que
-    aparecen en mas del 1 % de `b` se marcan "populares" y quedan FUERA del matching. Sobre
-    markdown comparado caracter a caracter eso alcanza a las letras comunes, asi que cuanto
-    mas largo el cuerpo, mas se descarta y mas cae el ratio.
+    `autojunk` viene activo por default y se dispara por el largo de la SEGUNDA secuencia:
+    cuando `len(b) >= 200`, los elementos que aparecen en mas de `len(b)//100 + 1` posiciones
+    de `b` se marcan "populares" y salen del indice, asi que no pueden SEMBRAR un match
+    (uno ya sembrado si se extiende sobre ellos: un cuerpo contra si mismo sigue dando 1.0).
+    Sobre markdown comparado caracter a caracter, "popular" son las letras comunes.
 
-    Las dos unicas skills locales con cuerpo > 7 KB —`review-loop` y `slice-review`; la
-    tercera mas larga tiene 6.335 B— pasan de 0.0308 y 0.0202 (medido el 2026-08-28, con
-    autojunk) a 0.1305 y 0.1101 (medido el 2026-08-31, sin el), y ademas gana OTRO blob. El
-    veredicto no cambia —los cuatro numeros estan lejos del umbral de 0.60— pero el numero
-    publicado y el blob citado son artefactos del heuristico.
+    Como `b` es el blob de upstream, el heuristico se dispara en casi TODA comparacion del
+    corpus, no solo en los cuerpos largos. Medido el 2026-08-31 sobre las skills locales:
+    `zoom-out` (169 B) contra `slice-review` da 0.0020 con autojunk y 0.0086 sin el (4,2x),
+    y al revés —`slice-review` contra `zoom-out`, donde `b` tiene 169 elementos y no llega
+    a 200— da 0.0083 con y sin el heuristico. La asimetria ES la firma de que depende de `b`.
+
+    Lo que si esta acotado es el efecto sobre el REPORTE: apagarlo mueve el numero publicado
+    y el blob elegido solo de `review-loop` y `slice-review` (0.0308 y 0.0202 medidos el
+    2026-08-28 con autojunk; 0.1305 y 0.1101 el 2026-08-31 sin el, contra otro blob). Las
+    otras nueve no se mueven porque tienen un match verdadero (>= 0.86), no porque el
+    heuristico no las toque. Ningun veredicto cambia: los cuatro numeros estan lejos del
+    umbral de 0.60.
 
     No se apaga por costo medido el 2026-08-31: `autojunk=False` lleva la corrida de ~98 s a
-    ~2.500-3.500 s.
-    Cambiar la metrica (tokenizar por linea) es el issue 19, no esta funcion.
+    ~2.500-3.500 s. Cambiar la metrica (tokenizar por linea) es el issue 19.
+
+    El ratio del que depende todo el reporte NO pasa por aca: se calcula en `_best_blobs`,
+    que llama a `SequenceMatcher` directo para poder usar las cotas baratas. Lo de arriba
+    vale igual para esa llamada — es la misma libreria con el mismo default.
     """
     return difflib.SequenceMatcher(None, a, b).ratio()
 
@@ -347,8 +358,9 @@ def recover(upstream, skills_dir, names, threshold):
             entry["status"] = "unmatched"
             # El valor nombra lo MEDIDO y nada mas: que ningun blob supere el umbral no
             # prueba que la skill nunca haya salido de upstream. Un cuerpo reescrito lo
-            # bastante cae por debajo igual, y el issue 19 tiene medido el mecanismo: con
-            # drift prependido, el mismo par pasa de 0.7800 a 0.0842. Quien lo lea como
+            # bastante cae por debajo igual: medido el 2026-08-31, con drift prependido a
+            # un cuerpo real el mismo par pasa de 0.7800 a 0.0842 (el issue 19 ataca esa
+            # metrica, pero su repro es otro y esta por reescribirse). Quien lo lea como
             # "fork propio" esta decidiendo, no leyendo.
             entry["upstreamRelation"] = "no-match-above-threshold"
             entry["base"] = None
@@ -416,13 +428,22 @@ def recover(upstream, skills_dir, names, threshold):
                  "commitDate": e["date"] if e else None,
                  "commitSubject": e["subject"] if e else None}
                 for _, oid, e in ranked[1:]]
+            # La nota dice lo COMPARADO y nada mas. Dos precisiones que costaron un
+            # hallazgo cada una: (a) `same_body` compara el cuerpo YA normalizado por
+            # `body_of` (sin frontmatter, CRLF a LF, extremos recortados), asi que "distinto
+            # frontmatter" seria atribuir una causa no medida — la diferencia entre los dos
+            # blobs puede estar en el BOM o en los fines de linea; (b) `same_body` es un
+            # `all()`, asi que su `False` significa "no todos iguales", no "todos distintos":
+            # con tres blobs empatados dos pueden compartir cuerpo.
             entry["base"]["tieNote"] = (
                 "%d blobs distintos empatan en %.4f de similitud (%s). La base elegida es "
                 "la aparicion mas vieja del contenido."
                 % (len(ranked), best_ratio,
-                   "mismo cuerpo, distinto frontmatter" if same_body else
-                   "y sus cuerpos NO son iguales entre si: el empate es de ratio, no de "
-                   "contenido. Elegir cual es la base es una decision humana"))
+                   "sus cuerpos son identicos tras normalizar: lo que difiere entre los "
+                   "blobs esta fuera del cuerpo (frontmatter, BOM o fines de linea)"
+                   if same_body else
+                   "al menos dos de los cuerpos empatados difieren entre si: el empate es "
+                   "de ratio, no de contenido. Cual es la base la decide un humano"))
 
         uh = _head_path(path, head_paths, renames)
         if uh["status"] == "gone":
@@ -459,10 +480,12 @@ def recover(upstream, skills_dir, names, threshold):
         "doNotEditByHand": ("salida generada; es la entrada del lockfile de skills. "
                             "Para cambiarla, volve a correr la herramienta."),
         "method": {
-            "similarity": ("difflib.SequenceMatcher(None, a, b).ratio(), con autojunk "
-                           "activo (default de la libreria): en cuerpos de mas de 7 KB "
-                           "deprime el ratio y puede cambiar cual blob gana. Ver "
-                           "docs/agents/recuperar-base-de-skills.md"),
+            "similarity": ("difflib.SequenceMatcher(None, mine, other).ratio(), con "
+                           "autojunk activo (default de la libreria). Se dispara con el "
+                           "largo del blob de upstream (>= 200 elementos), o sea en casi "
+                           "toda comparacion, y deprime el ratio; medido, mueve el numero "
+                           "publicado y el blob elegido de las dos skills sin match "
+                           "verdadero. Ver docs/agents/recuperar-base-de-skills.md"),
             "comparedOn": "cuerpo del SKILL.md sin frontmatter, fines de linea normalizados a LF, extremos recortados",
             "searchSpace": "todos los blobs */SKILL.md alcanzables en la historia publicada de upstream",
             "tieBreak": ("ante empate de ratio entre blobs distintos, la aparicion mas vieja "
@@ -539,8 +562,10 @@ _D_TZ_SIDE = "2026-03-09 22:30:00 +0200"   # = 2026-03-09T20:30Z  (el MAS VIEJO 
 _D_TZ_MAIN = "2026-03-09 21:00:00 +0000"   # = 2026-03-09T21:00Z  (30 min mas tarde, pero
                                            #   como string "…21:00:00+00:00" ordena ANTES)
 _D_REDIT = "2026-03-06 10:00:00 +0000"     # dos renombres CON edicion, en un solo commit
-_D_COLL_A = "2026-03-07 10:00:00 +0000"    # colision de ratio: la variante vieja
-_D_COLL_B = "2026-03-08 10:00:00 +0000"    # y la nueva, un dia despues
+# Colision de ratio. La variante MAS VIEJA es `collb`, cuyo path ordena DESPUES: si el
+# desempate se hiciera por path en vez de por instante, ganaria `colla` y el check lo ve.
+_D_COLL_VIEJA = "2026-03-07 10:00:00 +0000"   # collb
+_D_COLL_NUEVA = "2026-03-08 10:00:00 +0000"   # colla, un dia despues
 _D_M1 = "2026-03-12 10:00:00 +0000"
 _D_M2 = "2026-03-13 10:00:00 +0000"
 _D_M3 = "2026-03-14 10:00:00 +0000"
@@ -615,8 +640,11 @@ def _fixture_texts():
     # Dos cuerpos DISTINTOS que empatan en el MISMO ratio contra nuestra copia. `_best_blobs`
     # agrupa por ratio, no por contenido, asi que este empate entra por la misma rama que el
     # de `twin` —donde el cuerpo si es identico y solo cambia el frontmatter— y la nota de
-    # empate no puede afirmar "mismo cuerpo" sin haberlo comparado. Medido: los dos dan
-    # 0.9914040114613181 contra COLL_LOCAL, sobre el umbral de 0.60, y A != B.
+    # empate no puede afirmar "mismo cuerpo" sin haberlo comparado. Medido contra el fixture
+    # que quedo: los dos dan 0.9913985345651481 contra COLL_LOCAL —sobre el umbral de 0.60—
+    # y A != B. El numero no vive solo en este comentario: lo fija el check
+    # `los dos cuerpos de la colision empatan en el ratio crudo medido`, porque un valor con
+    # etiqueta "medido" que ningun test toca es justamente lo que este slice vino a sacar.
     t["COLL_LOCAL"] = block("Renglon del cuerpo que colisiona en ratio, numero", 29)
     t["COLL_A"] = t["COLL_LOCAL"].replace("numero 3.",
                                           "numero 3, variante A de la colision.")
@@ -716,11 +744,14 @@ def _build_fixture(tmp):
     commit("commit 6: twin cambia solo la description", _D6)
 
     # dos blobs con cuerpos DISTINTOS que empatan en el mismo ratio contra nuestra copia.
-    # Van en dos commits separados para que el desempate sea por instante y no por path.
-    write("skills/colla/SKILL.md", fm("collide", "variante A") + t["COLL_A"])
-    commit("commit 7a: colla, la variante vieja de la colision de ratio", _D_COLL_A)
+    # La mas vieja es `collb`, y su path ordena DESPUES que el de `colla`: asi el check de la
+    # base distingue el desempate por instante del desempate por path, que con las dos reglas
+    # eligiendo lo mismo no probaba nada.
     write("skills/collb/SKILL.md", fm("collide", "variante B") + t["COLL_B"])
-    commit("commit 7b: collb, la otra variante, con el mismo ratio", _D_COLL_B)
+    commit("commit 7: collb, la variante MAS VIEJA en instante", _D_COLL_VIEJA)
+    write("skills/colla/SKILL.md", fm("collide", "variante A") + t["COLL_A"])
+    commit("commit 8: colla, la mas nueva, pero la primera por orden de path",
+           _D_COLL_NUEVA)
 
     # mismo blob en dos ramas y dos paths, con husos distintos: el instante mas viejo es
     # el de la rama lateral, pero su %cI ordena DESPUES por ser +02:00.
@@ -792,6 +823,8 @@ def self_test():
     # el mismo ratio SIN redondear: es el unico valor con el que se puede asertar la
     # frontera del umbral (que la comparacion sea `<` y no `<=`).
     DRIFT_RAW = 0.9785325216276834
+
+    _T = _fixture_texts()          # los mismos textos con los que se arma el fixture
 
     tmp = tempfile.mkdtemp(prefix="recover-skill-bases-selftest-")
     try:
@@ -865,7 +898,7 @@ def self_test():
 
         check("twin: el empate es de cuerpo identico, y la nota lo dice",
               lambda: (d(by, "twin", "base", "tieOnIdenticalBodies") is True and
-                       "mismo cuerpo" in (d(by, "twin", "base", "tieNote") or ""),
+                       "identicos tras normalizar" in (d(by, "twin", "base", "tieNote") or ""),
                        (d(by, "twin", "base", "tieOnIdenticalBodies"),
                         d(by, "twin", "base", "tieNote"))))
 
@@ -877,22 +910,41 @@ def self_test():
               lambda: (len(d(by, "collide", "base", "tiedCandidates") or []) == 1,
                        d(by, "collide", "base", "tiedCandidates")))
         check("collide: el ratio empatado es el medido (0.9914), sobre el umbral y < 1.0",
-              lambda: (d(by, "collide", "similarity") == 0.9914,
-                       d(by, "collide", "similarity")))
+              lambda: ((lambda r: r == 0.9914 and
+                        (d(report, "method", "threshold") or 1) < r < 1.0)(
+                           d(by, "collide", "similarity")),
+                       (d(by, "collide", "similarity"), d(report, "method", "threshold"))))
+        check("los dos cuerpos de la colision empatan en el ratio crudo medido, y difieren",
+              lambda: ((lambda a, b: a == b == 0.9913985345651481 and
+                        body_of(_T["COLL_A"]) != body_of(_T["COLL_B"]))(
+                           similarity(body_of(_T["COLL_LOCAL"]), body_of(_T["COLL_A"])),
+                           similarity(body_of(_T["COLL_LOCAL"]), body_of(_T["COLL_B"]))),
+                       (similarity(body_of(_T["COLL_LOCAL"]), body_of(_T["COLL_A"])),
+                        similarity(body_of(_T["COLL_LOCAL"]), body_of(_T["COLL_B"])))))
         check("collide: los dos cuerpos empatados NO son iguales, y la salida lo dice",
               lambda: (d(by, "collide", "base", "tieOnIdenticalBodies") is False,
                        d(by, "collide", "base", "tieOnIdenticalBodies")))
-        check("collide: la nota del empate no afirma 'mismo cuerpo' cuando difieren",
-              lambda: ("mismo cuerpo" not in (d(by, "collide", "base", "tieNote") or "") and
-                       bool(d(by, "collide", "base", "tieNote")),
+        # positivo y negativo: que DIGA que difieren, y que no diga lo contrario. Un
+        # `not in` solo pasa con cualquier reformulacion, incluida una nota vacia.
+        check("collide: la nota del empate dice que los cuerpos difieren, y no lo contrario",
+              lambda: ((lambda n: "al menos dos de los cuerpos empatados difieren" in n and
+                        "identicos tras normalizar" not in n)(
+                           d(by, "collide", "base", "tieNote") or ""),
                        d(by, "collide", "base", "tieNote")))
-        check("collide: la base es la variante mas vieja en instante (commit 7a)",
-              lambda: ((d(by, "collide", "base", "commitSubject") or "").startswith("commit 7a"),
-                       d(by, "collide", "base", "commitSubject")))
-        check("el resumen cuenta aparte los empates que NO son de cuerpo identico",
-              lambda: (d(report, "summary", "tiedOnDifferentBodies") == 1,
-                       (d(report, "summary", "tiedOnDifferentBodies"),
-                        d(report, "summary", "tiedBestSimilarity"))))
+        # el path de la base es lo que muerde: `skills/collb/` ordena DESPUES que
+        # `skills/colla/`, asi que un desempate por path elegiria la otra.
+        check("collide: la base es la mas vieja en instante, no la primera por path",
+              lambda: (d(by, "collide", "base", "upstreamPath") == "skills/collb/SKILL.md" and
+                       (d(by, "collide", "base", "commitSubject") or "").startswith("commit 7:"),
+                       (d(by, "collide", "base", "upstreamPath"),
+                        d(by, "collide", "base", "commitSubject"))))
+        # los tres contadores juntos: el resumen es lo que mira un humano al sellar el
+        # lockfile, y hasta aca solo uno de los tres estaba asertado.
+        check("el resumen cuenta los empates, y aparte los que NO son de cuerpo identico",
+              lambda: (d(report, "summary", "tiedOnDifferentBodies") == 1 and
+                       d(report, "summary", "tiedBestSimilarity") == 2 and
+                       d(report, "summary", "goneFromUpstreamHead") == 2,
+                       d(report, "summary")))
 
         # --- tz: mismo blob en dos paths, husos distintos ----------------------------
         check("tz: base = la aparicion mas vieja EN INSTANTE (rama lateral, +02:00)",
@@ -910,7 +962,7 @@ def self_test():
         check("drift: base recuperada",
               lambda: (d(by, "drift", "status") == "recovered", d(by, "drift", "status")))
         check("drift: similitud parcial, estrictamente entre el umbral y 1.0",
-              lambda: (0.60 < (d(by, "drift", "similarity") or 0) < 1.0,
+              lambda: (DEFAULT_THRESHOLD < (d(by, "drift", "similarity") or 0) < 1.0,
                        d(by, "drift", "similarity")))
         check("drift: similitud con 4 decimales de precision (mata el redondeo)",
               lambda: (DRIFT_EXPECTED is not None and
@@ -925,10 +977,13 @@ def self_test():
               lambda: (len(d(by, "merged", "base", "blob") or "") == 40,
                        d(by, "merged", "base", "blob")))
         check("merged: el resumen NO la cuenta entre las recuperadas",
-              lambda: (d(report, "summary", "recovered") == 9,
+              lambda: ((lambda rec: "merged" not in rec and len(rec) == 9 and
+                        d(report, "summary", "recovered") == 9)(
+                           sorted(e["name"] for e in report["skills"]
+                                  if e.get("status") == "recovered")),
                        (d(report, "summary", "recovered"), sorted(
-                           s["name"] for s in report["skills"]
-                           if s.get("status") == "recovered"))))
+                           e["name"] for e in report["skills"]
+                           if e.get("status") == "recovered"))))
 
         # --- ghost: upstream la borro --------------------------------------------------
         check("ghost: base recuperada igual (upstream la borro, pero existio)",
@@ -945,6 +1000,22 @@ def self_test():
               lambda: (len(d(by, "ghost", "upstreamHead",
                              "unconfirmedSuccessorCandidates") or []) == 3,
                        d(by, "ghost", "upstreamHead", "unconfirmedSuccessorCandidates")))
+        # F18: `similarity()` es el UNICO lugar donde se usa `ratio()` fuera de
+        # `_best_blobs`, y sin aserción de valor el mutante `ratio()` -> `quick_ratio()`
+        # sobrevivia: las cotas baratas sobrevaluan y no son el contrato. Medido sobre este
+        # fixture: con `ratio()` el mejor candidato da 0.2607; con `quick_ratio()` da 0.8304
+        # y ademas cambia cual es (otro path), o sea el reporte diria otra cosa.
+        check("ghost: la similitud del mejor candidato es la de ratio(), no una cota barata",
+              lambda: ((lambda c: bool(c) and c[0]["similarity"] == 0.2607)(
+                           d(by, "ghost", "upstreamHead",
+                             "unconfirmedSuccessorCandidates") or []),
+                       d(by, "ghost", "upstreamHead", "unconfirmedSuccessorCandidates")))
+        check("ghost: ningun candidato a sucesor llega al umbral (no son bases)",
+              lambda: ((lambda c, u: bool(c) and all(x["similarity"] < u for x in c))(
+                           d(by, "ghost", "upstreamHead",
+                             "unconfirmedSuccessorCandidates") or [],
+                           d(report, "method", "threshold")),
+                       d(by, "ghost", "upstreamHead", "unconfirmedSuccessorCandidates")))
         check("ghost: los candidatos vienen ordenados de mayor a menor similitud",
               lambda: ((lambda c: [x["similarity"] for x in c] ==
                         sorted((x["similarity"] for x in c), reverse=True) and len(c) > 1)(
@@ -958,7 +1029,7 @@ def self_test():
         check("ours: no emite base", lambda: (d(by, "ours", "base") is None,
                                               d(by, "ours", "base")))
         check("ours: la mejor similitud vista es > 0 y < umbral (acotada por las dos puntas)",
-              lambda: (0.0 < (d(by, "ours", "bestSimilarity") or 0.0) < 0.60,
+              lambda: (0.0 < (d(by, "ours", "bestSimilarity") or 0.0) < DEFAULT_THRESHOLD,
                        d(by, "ours", "bestSimilarity")))
         check("ours: relacion con upstream = nada supera el umbral (no 'nunca fue de upstream')",
               lambda: (d(by, "ours", "upstreamRelation") == "no-match-above-threshold",
@@ -984,14 +1055,18 @@ def self_test():
                                  "sobran": sorted(set(s) - set(esperado))}))
             return mal
 
+        # una sola corrida, y el diagnostico distingue las dos formas de fallar: si el
+        # reporte dejara de emitir `missing-locally`, imprimir la lista de violaciones daria
+        # `[]`, que se lee como "el contrato esta bien" — la trampa de reportar contra una
+        # lista vacia, que en este repo ya mordio una vez.
+        rep_missing = recover(up, local, ["alpha", "no-existe"], DEFAULT_THRESHOLD)
         check("cada entrada emite exactamente los campos que declara method.fieldsByStatus",
               lambda: (not _viola_contrato(report), _viola_contrato(report)))
         check("el contrato tambien vale para missing-locally, que no sale por el CLI",
-              lambda: ((lambda r: not _viola_contrato(r) and
-                        any(s["status"] == "missing-locally" for s in r["skills"]))(
-                           recover(up, local, ["alpha", "no-existe"], DEFAULT_THRESHOLD)),
-                       _viola_contrato(
-                           recover(up, local, ["alpha", "no-existe"], DEFAULT_THRESHOLD))))
+              lambda: (not _viola_contrato(rep_missing) and
+                       any(e["status"] == "missing-locally" for e in rep_missing["skills"]),
+                       {"violaciones": _viola_contrato(rep_missing),
+                        "status vistos": [e["status"] for e in rep_missing["skills"]]}))
         check("unmatched no promete similarity ni upstreamHead: emite bestSimilarity",
               lambda: ((lambda c: c and "similarity" not in c and "upstreamHead" not in c
                         and "bestSimilarity" in c)(
@@ -1007,17 +1082,29 @@ def self_test():
                        d(report, "method", "threshold"),
                        (_build_parser().parse_args([]).threshold, DEFAULT_THRESHOLD,
                         d(report, "method", "threshold"))))
+        # El VALOR del default, no solo su cableado: con la igualdad de arriba sola, la
+        # constante se podia mover a cualquier lado de la banda (0, 0.97] y el self-test
+        # seguia verde, porque los ratios del fixture estan agrupados lejos de ahi.
+        check("el default publicado del umbral es 0.60",
+              lambda: (DEFAULT_THRESHOLD == 0.60 and d(report, "method", "threshold") == 0.60,
+                       (DEFAULT_THRESHOLD, d(report, "method", "threshold"))))
+        # Y que DRIFT_RAW siga siendo EL ratio del fixture: si deriva —alguien lo retipea con
+        # menos digitos, o un texto del fixture se mueve— los dos checks de abajo siguen
+        # verdes pero dejan de ser la frontera, y el mutante `<=` revive en silencio.
+        check("DRIFT_RAW es el ratio crudo que el fixture produce hoy",
+              lambda: (similarity(body_of(_T["DRIFT_LOCAL"]),
+                                  body_of(_T["DRIFT_UP"])) == DRIFT_RAW,
+                       similarity(body_of(_T["DRIFT_LOCAL"]), body_of(_T["DRIFT_UP"]))))
+        rep_borde_ok = recover(up, local, ["drift"], DRIFT_RAW)
+        rep_borde_no = recover(up, local, ["drift"], DRIFT_RAW + 1e-9)
         check("frontera del umbral: el ratio IGUAL al umbral se acepta como base",
-              lambda: ((lambda r: d({s["name"]: s for s in r["skills"]},
-                                    "drift", "status") == "recovered")(
-                           recover(up, local, ["drift"], DRIFT_RAW)),
-                       [s.get("status") for s in
-                        recover(up, local, ["drift"], DRIFT_RAW)["skills"]]))
+              lambda: (rep_borde_ok["skills"][0].get("status") == "recovered",
+                       rep_borde_ok["skills"][0].get("status")))
         check("frontera del umbral: un pelo por encima ya no alcanza",
               lambda: ((lambda e: e.get("status") == "unmatched" and
                         e.get("upstreamRelation") == "no-match-above-threshold")(
-                           recover(up, local, ["drift"], DRIFT_RAW + 1e-9)["skills"][0]),
-                       recover(up, local, ["drift"], DRIFT_RAW + 1e-9)["skills"][0]))
+                           rep_borde_no["skills"][0]),
+                       rep_borde_no["skills"][0].get("status")))
 
         # --- near / exactBodyMatches ----------------------------------------------------
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",
@@ -1025,6 +1112,29 @@ def self_test():
         check("exactBodyMatches cuenta cuerpos identicos, no similitudes redondeadas",
               lambda: (d(report, "summary", "exactBodyMatches") == 7,
                        d(report, "summary", "exactBodyMatches")))
+
+        # F14: la invariante `git rev-parse <commit>:<upstreamPath> == base.blob`. Como
+        # corroboracion de que la base es la correcta es tautologica —se cumple igual con
+        # una base equivocada, porque path y commit salen del mismo registro—, pero como
+        # guard del self-test si muerde: lo que asserta es que el par (commit, path) que se
+        # PUBLICA existe tal cual en upstream. Si la deteccion de renombres se degrada y el
+        # path reportado deja de ser el de esa aparicion, esto se cae.
+        def _invariante_commit_path():
+            malos = []
+            for e in report["skills"]:
+                base = e.get("base") or {}
+                if not base.get("commit"):
+                    continue
+                oid = _git(up, "rev-parse",
+                           "%s:%s" % (base["commit"], base["upstreamPath"])).strip()
+                if oid != base["blob"]:
+                    malos.append((e["name"], base["upstreamPath"], oid, base["blob"]))
+            return (not malos and
+                    sum(1 for e in report["skills"] if (e.get("base") or {}).get("commit")) == 9,
+                    malos or "9 bases verificadas")
+
+        check("cada base publicada existe en su commit y su path (las 9 recuperadas)",
+              _invariante_commit_path)
 
         # --- latin-1 ---------------------------------------------------------------------
         check("un SKILL.md que no es utf-8 no voltea la corrida",
@@ -1093,7 +1203,8 @@ def self_test():
         check("missing-locally se cuenta en el resumen, y cuenta LOS QUE FALTAN",
               lambda: ((lambda r: (r["summary"].get("missingLocally") == 2,
                                    r["summary"].get("missingLocally")))(
-                  recover(up, local, ["alpha", "no-existe", "tampoco-existe"], 0.60))))
+                  recover(up, local, ["alpha", "no-existe", "tampoco-existe"],
+                          DEFAULT_THRESHOLD))))
 
         def _pisar(nombre_skill, extra=()):
             """Corre `main` con `--out` sobre un reporte que ya existe y devuelve (rc, texto, err)."""
@@ -1483,7 +1594,7 @@ def self_test():
             parametro en vez de duplicar el cuerpo entero.
             """
             def corre():
-                return recover(up, local, [nombre], 0.60)
+                return recover(up, local, [nombre], DEFAULT_THRESHOLD)
             r = _con_config(clave, valor, corre) if clave else corre()
             e = r["skills"][0]
             return ((d(e, "upstreamHead", "status") == estado
