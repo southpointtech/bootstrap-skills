@@ -59,5 +59,26 @@ foreach ($other in ($skills | Select-Object -Skip 1)) {
   }
 }
 
+# El Step 2 de cada SKILL.md le pide al agente verificar la copia contando directorios y
+# comandos. Ese conteo está escrito a mano y se desincronizó del scaffold: los tres decían 10
+# cuando ya eran 11, así que una copia CORRECTA fallaba la verificación — y el peor desenlace
+# es que el agente "arregle" borrando la skill de más. El espejo no lo agarra porque los tres
+# mienten idéntico. Acá el número se ata a lo que el scaffold tiene de verdad.
+foreach ($s in $skills) {
+  $scaffold = Join-Path $s.FullName "assets/scaffold"
+  $nSkills  = @(Get-ChildItem (Join-Path $scaffold ".agents/skills") -Directory).Count
+  $nCmds    = @(Get-ChildItem (Join-Path $scaffold ".claude/commands") -File).Count
+  $texto    = Get-Content (Join-Path $s.FullName "SKILL.md") -Raw
+  $m = [regex]::Match($texto,
+    '`\.agents\\skills` has (\d+) skill directories, `\.claude\\commands` has (\d+) files')
+  Assert $m.Success "$($s.Name): el SKILL.md declara el conteo de la verificación del Step 2"
+  if ($m.Success) {
+    Assert ([int]$m.Groups[1].Value -eq $nSkills) `
+      "$($s.Name): el SKILL.md dice $($m.Groups[1].Value) skills y el scaffold tiene $nSkills"
+    Assert ([int]$m.Groups[2].Value -eq $nCmds) `
+      "$($s.Name): el SKILL.md dice $($m.Groups[2].Value) comandos y el scaffold tiene $nCmds"
+  }
+}
+
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

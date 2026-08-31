@@ -41,7 +41,24 @@ Otras opciones:
 | `--self-test` | Verificación offline contra un repo de fixture sintético. No toca la red. |
 
 `--upstream-clone` acepta un clon normal, uno `--bare` y un worktree: lo resuelve preguntándole a
-git (`git -C <clon> rev-parse --git-dir`), no mirando si hay un `.git` que sea directorio.
+git (`--is-bare-repository`, y después `--absolute-git-dir` o `--show-toplevel`), no mirando si hay
+un `.git` que sea directorio. Tiene que ser la **raíz**: `git rev-parse` sube por el árbol, así que
+sin comparar contra la raíz cualquier carpeta de adentro de un repo pasaba por clon — un
+`--upstream-clone` mal tipeado que cayera adentro de este repo lo analizaba a él (tiene 109 blobs
+`*/SKILL.md` propios) y emitía bases con similitud 1.0 citando commits nuestros. Un subdirectorio,
+y también `<clon>/.git`, se rechazan con `No es un clon de git`.
+
+### Exit codes
+
+| código | qué pasó |
+|---|---|
+| 0 | corrió y escribió el reporte |
+| 2 | error de invocación, **detectado antes de trabajar**: `--upstream-clone` que no es la raíz de un clon, `--skills-dir` inexistente, un `--skill` sin `SKILL.md`, o un `--out` que no se va a poder escribir |
+| 3 | la recuperación salió bien pero la escritura de `--out` falló igual (permisos, disco lleno, ruta de red). El reporte sale por **stdout** para no perderlo |
+
+Todo lo que se puede detectar se detecta antes de clonar y de recuperar, porque la recuperación
+cuesta entre 81 s y 98 s con el clon ya hecho (medido) y un error de invocación no debe costar eso —
+y sobre todo no debe terminar escribiendo un reporte todo-ceros encima de uno bueno.
 
 ## Qué requiere
 
@@ -66,6 +83,10 @@ JSON. Por skill:
     blob solo existe como resolución de un merge). El criterio de aceptación pide commit fechado,
     así que **no cuenta como recuperada** y el resumen la lista aparte.
   - `unmatched`: nada supera el umbral.
+  - `missing-locally`: el nombre pedido con `--skill` no tiene `SKILL.md` en el directorio de
+    skills. Por el CLI no se llega: el pre-flight lo rechaza antes de trabajar (ver abajo), así que
+    en todo reporte producido por la herramienta este contador vale 0. Queda para quien llame a
+    `recover()` como librería, que es lo que hace el self-test.
 - `upstreamRelation`: la relación con upstream, que **no** es lo mismo que el status.
   - `never-upstream`: esta skill nunca salió de upstream (`review-loop`, `slice-review`).
   - `in-upstream-head`: vino de upstream y hoy sigue viva ahí, en el mismo path o renombrada.
@@ -202,18 +223,21 @@ py tools/recover-skill-bases.py --self-test
 
 Y ese self-test **sí** está en la suite, envuelto en `tests/recover-skill-bases.tests.ps1` como los
 demás runners del repo (que no son Pester: son runners propios con una función `Assert`, igual que
-los otros doce). El envoltorio no re-verifica lo que el self-test ya verifica; asserta las dos puntas
+los otros trece). El envoltorio no re-verifica lo que el self-test ya verifica; asserta las dos puntas
 que un exit code solo no cubre: que la línea de resumen **exista** —un self-test que sale 0 sin
 correr nada daría verde vacío— y que el total de aserciones no baje de un piso declarado, que es lo
 único que muerde a un mutante que borra checks. Verificado con tres mutantes: desempate invertido
 (3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (4 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **44
-afirmaciones** sobre nueve skills de fixture. Tarda ~30 s (medido: tres corridas de 31 s, 26 s y
-31,6 s, las tres 44/44) y no toca la red. Los ~25 s de diferencia contra las 39 afirmaciones
-anteriores son las tres recuperaciones completas que ejercitan el CLI de punta a punta; se pagan
-porque los tres agujeros que tapan eran silenciosos. Cubre:
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **51
+afirmaciones** sobre nueve skills de fixture, y no toca la red.
+
+El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**, así que
+no hay un número para citar: medido entre **7 s y 32 s** en corridas de esta misma versión, y las
+corridas de 51 aserciones (12,1 / 16,7 / 13,2 s en una máquina ociosa) salieron más rápido que las
+de 44 tomadas con siete procesos en paralelo (31 / 26 / 31,6 s). El grueso no son las aserciones
+sino armar el fixture, que hace una docena de commits de git. Cubre:
 
 - que el frontmatter y los fines de línea no cuenten para la similitud;
 - que la base sea la primera aparición del contenido y no una reaparición posterior, incluso cuando
@@ -230,7 +254,19 @@ porque los tres agujeros que tapan eran silenciosos. Cubre:
   mejor similitud quede acotada por las dos puntas;
 - que la URL reportada sea la del clon y no una constante;
 - que un `SKILL.md` que no es utf-8 no voltee la corrida entera;
-- que se acepte un clon bare y se siga rechazando un directorio que no es repo.
+- que se acepte un clon bare y se siga rechazando un directorio que no es repo, **y también un
+  subdirectorio** de un repo o de un bare, que es lo que hacía pasar a este repo por upstream;
+- que un `--out` sin directorio se escriba en el cwd, y que las otras tres formas que fallaban
+  recién en el `open()` —ruta vacía, un directorio ya existente, un componente intermedio que es
+  archivo— se rechacen **antes** de trabajar, cada una diciendo cuál de las tres es;
+- que un `--skill` inexistente, o una **carpeta sin `SKILL.md`**, salgan con 2, digan por stderr qué
+  nombre faltó y dónde se buscó, y **no pisen** el reporte que ya estaba;
+- que un `--skill` válido siga corriendo y produzca sólo esa skill (sin esto, un guard que rechaza
+  todo pasaba en verde y el modo `--skill` quedaba roto sin que nada lo notara);
+- que un `--skills-dir` inexistente se rechace antes de clonar;
+- que `missingLocally` cuente **los que faltan** y no cualquier estado (el fixture tiene dos
+  faltantes y una presente a propósito: con un solo faltante el contador daba 1 con cualquier
+  predicado).
 
 Devuelve código de salida distinto de cero si alguna falla, e imprime todas: una regresión temprana
 no esconde las que vienen después.

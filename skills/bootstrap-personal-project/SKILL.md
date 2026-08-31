@@ -82,7 +82,7 @@ pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -Proje
 
 The script copies file-by-file, merging into directories the project already has. Do NOT replace it with `Copy-Item <dir> -Recurse` (nests into `docs\docs` / `.agents\.agents` when the destination directory exists) or a `scaffold\*` wildcard (dot-directory expansion varies between PowerShell versions). It also lands `gitignore.txt` as `.gitignore` (stored under that name so the skill repo doesn't treat it as its own ignore file).
 
-Before committing, verify the copy landed cleanly: `.agents\skills` has 10 skill directories, `.claude\commands` has 10 files, `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` and `.claude\hooks\alignment-gate.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
+Before committing, verify the copy landed cleanly: `.agents\skills` has 11 skill directories, `.claude\commands` has 11 files, `.claude\settings.json` and `.claude\hooks\review-loop-trigger.ps1` and `.claude\hooks\alignment-gate.ps1` exist, and neither `.agents\.agents` nor `.claude\.claude` exists.
 
 This delivers: `CLAUDE.md`, `.gitignore`, `skills-lock.json`, `.bootstrap-manifest.json` (scaffold version manifest, used by `upgrade-bootstrap`), `.agents/skills/` (11 skills — 9 synced via `skills-lock.json` + `review-loop` and `slice-review`, bundled here), `.claude/commands/` (11 commands), `.claude/settings.json` + `.claude/hooks/review-loop-trigger.ps1` (auto-dispara `review-loop` al abrir/actualizar un PR) + `.claude/hooks/alignment-gate.ps1` (frena el primer edit de código por sesión y ofrece alinear antes de codear), `docs/ai-workflow/` (7 docs), `docs/agents/` (3 docs).
 

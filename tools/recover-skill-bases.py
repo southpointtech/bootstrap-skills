@@ -579,6 +579,11 @@ def _build_fixture(tmp):
         with open(os.path.join(d, "SKILL.md"), "w", encoding="utf-8", newline="\r\n") as f:
             f.write(text)
 
+    # un directorio de skill SIN SKILL.md. Es la forma que distingue "existe la carpeta" de
+    # "existe la skill": el guard de `--skill` tiene que rechazarlo igual que a un nombre que
+    # no existe, o el reporte todo-ceros vuelve a escribirse encima del `--out` bueno.
+    os.makedirs(os.path.join(local, "carpeta-sin-skill"))
+
     # un SKILL.md que NO es utf-8: no puede voltear la corrida entera
     d = os.path.join(local, "latin")
     os.makedirs(d)
@@ -807,25 +812,91 @@ def self_test():
         # --- CLI: un `--skill` que no existe localmente ----------------------------------
         # Era el peor de los silenciosos: un typo daba un reporte todo-ceros, lo ESCRIBIA
         # encima del bueno, imprimia "Escrito:" y salia 0. El lockfile se sella con eso.
-        check("missing-locally se cuenta en el resumen",
-              lambda: ((lambda r: (r["summary"].get("missingLocally") == 1,
+        # DOS faltantes y UNA presente: con un solo faltante el contador es degenerado —
+        # el fixture da 1 tanto contando `== "missing-locally"` como `!=`, asi que cualquier
+        # predicado pasaba. Con 2 y 1 los dos lados quedan separados.
+        check("missing-locally se cuenta en el resumen, y cuenta LOS QUE FALTAN",
+              lambda: ((lambda r: (r["summary"].get("missingLocally") == 2,
                                    r["summary"].get("missingLocally")))(
-                  recover(up, local, ["alpha", "no-existe"], 0.60))))
+                  recover(up, local, ["alpha", "no-existe", "tampoco-existe"], 0.60))))
 
-        def _skill_inexistente_no_pisa():
+        def _pisar(nombre_skill, extra=()):
+            """Corre `main` con `--out` sobre un reporte que ya existe y devuelve (rc, texto, err)."""
+            import io
+            import contextlib
             d = os.path.join(tmp, "no-pisar")
             os.makedirs(d, exist_ok=True)
             dest = os.path.join(d, "bueno.json")
             with open(dest, "w", encoding="utf-8") as f:
                 f.write('{"reporte": "el bueno, sellado a mano"}\n')
-            rc = main(["--upstream-clone", up, "--skills-dir", local,
-                       "--skill", "no-existe", "--out", dest])
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = main(["--upstream-clone", up, "--skills-dir", local,
+                           "--skill", nombre_skill, "--out", dest, *extra])
             with open(dest, encoding="utf-8") as f:
                 sigue = f.read()
-            return (rc != 0 and "el bueno" in sigue), (rc, sigue[:50])
+            return rc, sigue, err.getvalue()
 
         check("un --skill inexistente falla y NO pisa el reporte que ya estaba",
-              _skill_inexistente_no_pisa)
+              lambda: ((lambda t: (t[0] == 2 and "el bueno" in t[1], (t[0], t[1][:50])))(
+                  _pisar("no-existe"))))
+        # el `return 2` sin el mensaje deja al usuario sin saber QUE nombre fallo ni DONDE se
+        # busco: es la misma falla silenciosa, mudada del reporte a stderr.
+        check("y dice por stderr que nombre falto y en que directorio busco",
+              lambda: ((lambda t: ("no-existe" in t[2] and local in t[2], t[2][:120]))(
+                  _pisar("no-existe"))))
+        # una CARPETA sin SKILL.md no es una skill: si el guard mira el directorio en vez del
+        # archivo, este caso lo atraviesa y el reporte todo-ceros pisa el `--out` bueno.
+        check("una carpeta sin SKILL.md se rechaza igual que un nombre inexistente",
+              lambda: ((lambda t: (t[0] == 2 and "el bueno" in t[1], (t[0], t[1][:50])))(
+                  _pisar("carpeta-sin-skill"))))
+        # el lado positivo: sin el, un guard que rechaza TODO (`if True`) pasa en verde y el
+        # modo `--skill` queda roto para siempre sin que nada lo note.
+        check("un --skill VALIDO sigue corriendo y produce ese reporte",
+              lambda: ((lambda t: (t[0] == 0 and '"name": "alpha"' in t[1] and
+                                   '"name": "drift"' not in t[1], (t[0], len(t[1]))))(
+                  _pisar("alpha"))))
+
+        # --- CLI: las otras formas de `--out`, y `--skills-dir` --------------------------
+        # Las tres reventaban en el `open()` final, con el reporte ya calculado. El pre-flight
+        # las ataja antes de trabajar; se asserta el motivo, no solo el exit code, porque las
+        # tres se ven igual desde afuera y el usuario necesita saber cual le toco.
+        def _out_rechazado(valor):
+            import io
+            import contextlib
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = main(["--upstream-clone", up, "--skills-dir", local, "--out", valor])
+            return rc, err.getvalue()
+
+        dir_existente = os.path.join(tmp, "soy-un-directorio")
+        os.makedirs(dir_existente, exist_ok=True)
+        check("--out que apunta a un directorio existente se rechaza antes de trabajar",
+              lambda: ((lambda t: (t[0] == 2 and "directorio" in t[1], t))(
+                  _out_rechazado(dir_existente))))
+
+        archivo = os.path.join(tmp, "soy-un-archivo")
+        with open(archivo, "w", encoding="utf-8") as f:
+            f.write("no soy un directorio\n")
+        check("--out con un componente intermedio que es archivo se rechaza antes de trabajar",
+              lambda: ((lambda t: (t[0] == 2 and "archivo" in t[1], t))(
+                  _out_rechazado(os.path.join(archivo, "adentro.json")))))
+
+        check("--out vacio se rechaza antes de trabajar",
+              lambda: ((lambda t: (t[0] == 2 and "vacia" in t[1], t))(_out_rechazado(""))))
+
+        def _skills_dir_inexistente():
+            import io
+            import contextlib
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = main(["--upstream-clone", up,
+                           "--skills-dir", os.path.join(tmp, "no-existe-este-dir"),
+                           "--stdout"])
+            return (rc == 2 and "directorio de skills" in err.getvalue()), (rc, err.getvalue()[:80])
+
+        check("un --skills-dir inexistente se rechaza antes de clonar y de recuperar",
+              _skills_dir_inexistente)
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
@@ -851,6 +922,29 @@ DEFAULT_OUT = os.path.join(REPO, ".scratch", "bootstrap-v2", "skill-bases.json")
 UPSTREAM_URL = "https://github.com/mattpocock/skills.git"
 
 
+def _out_no_escribible(out):
+    """Por qué `--out` no se va a poder escribir, o None si se puede. Se corre ANTES de trabajar.
+
+    Devuelve el motivo en texto en vez de un booleano: el usuario que se equivocó de ruta
+    necesita saber cuál de las tres formas le tocó, y las tres se ven igual desde afuera.
+    """
+    if not out or not out.strip():
+        return "es una ruta vacia"
+    ap_out = os.path.abspath(out)
+    if os.path.isdir(ap_out):
+        return "ya existe y es un directorio"
+    # un componente intermedio que es un archivo hace fallar el makedirs, no el open
+    cur = os.path.dirname(ap_out)
+    while cur and not os.path.exists(cur):
+        padre = os.path.dirname(cur)
+        if padre == cur:
+            break
+        cur = padre
+    if cur and not os.path.isdir(cur):
+        return "el componente %r del camino es un archivo, no un directorio" % cur
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--upstream-clone", help="clon de upstream ya existente (evita la red)")
@@ -866,15 +960,29 @@ def main(argv=None):
     if args.self_test:
         return self_test()
 
-    # Los `--skill` se validan ANTES de clonar y de las ~90 s de recuperación: un typo tiene
-    # que costar un mensaje, no una corrida entera terminada en un reporte todo-ceros escrito
-    # encima del bueno.
+    # Todo lo que se puede validar se valida ANTES de clonar y de la recuperación (medida
+    # entre 81 s y 98 s con el clon ya hecho): un error de invocación tiene que costar un
+    # mensaje, no una corrida entera terminada en un reporte todo-ceros escrito encima del
+    # bueno. Las tres puertas por las que se perdía trabajo son las tres de acá.
+    if not os.path.isdir(args.skills_dir):
+        print("No existe el directorio de skills: %s" % args.skills_dir, file=sys.stderr)
+        return 2
+
     if args.skills:
         faltan = [n for n in args.skills
                   if not os.path.isfile(os.path.join(args.skills_dir, n, "SKILL.md"))]
         if faltan:
             print("No existe(n) localmente: %s\nBuscadas en: %s"
                   % (", ".join(faltan), args.skills_dir), file=sys.stderr)
+            return 2
+
+    # `--out` tiene más formas de fallar que el dirname vacío, y todas fallaban en el `open()`
+    # final, con el reporte ya calculado: una ruta vacía, una que apunta a un directorio que
+    # ya existe, y una donde un componente intermedio es un archivo.
+    if not args.stdout:
+        problema = _out_no_escribible(args.out)
+        if problema:
+            print("No se puede escribir --out %r: %s" % (args.out, problema), file=sys.stderr)
             return 2
 
     clone = args.upstream_clone
@@ -896,9 +1004,18 @@ def main(argv=None):
     else:
         # `abspath` primero: el dirname de un `--out` relativo sin directorio ("salida.json")
         # es "", y `os.makedirs("")` revienta con el reporte ya calculado.
-        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-        with open(args.out, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+            with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+        except OSError as exc:
+            # Red final: el pre-flight cubre las formas conocidas, pero un permiso, un disco
+            # lleno o una ruta de red caída aparecen recién acá, con la recuperación ya hecha.
+            # Escupir el reporte por stdout cuesta un redirect; perderlo cuesta la corrida.
+            print("No se pudo escribir %s (%s). El reporte va por stdout para no perderlo."
+                  % (args.out, exc), file=sys.stderr)
+            sys.stdout.write(text)
+            return 3
         print("Escrito: %s" % args.out)
     return 0
 

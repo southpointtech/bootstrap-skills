@@ -12,7 +12,7 @@ function Assert($cond, $msg) {
 
 # Piso de aserciones del self-test. Sube a mano cuando se agregan checks. Sin este piso, un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$MinChecks = 44
+$MinChecks = 51
 
 # La herramienta tiene que existir: si no, el intérprete escupe su error y un assert de
 # "no hubo fails" pasaría en verde sin haber ejercitado nada.
@@ -22,13 +22,18 @@ if (-not (Test-Path -LiteralPath $tool)) {
 
 # El intérprete se resuelve, no se asume: en esta máquina hay `python`, pero el doc documenta
 # `py` (el launcher de Windows). Si no hay ninguno, es un FAIL explícito y no un falso verde.
+# No alcanza con Get-Command: en Windows `python` suele ser el alias de ejecución de la Store, que
+# EXISTE como comando y no corre Python — quedarse con el primero que aparece daba un rojo espurio
+# en vez de caer a `py`. Por eso cada candidato se valida corriéndolo.
 $python = $null
 foreach ($cand in @("python", "py")) {
   $cmd = Get-Command $cand -ErrorAction SilentlyContinue
-  if ($cmd) { $python = $cmd.Source; break }
+  if (-not $cmd) { continue }
+  $ver = & $cand --version 2>&1
+  if ($LASTEXITCODE -eq 0 -and "$ver" -match 'Python \d') { $python = $cmd.Source; break }
 }
 if (-not $python) {
-  Write-Host "FAIL: no se encontró intérprete de Python (`python` ni `py`) para correr el self-test"
+  Write-Host 'FAIL: no se encontró intérprete de Python (`python` ni `py`) para correr el self-test'
   exit 1
 }
 
@@ -42,7 +47,7 @@ Assert ($exit -eq 0) "el self-test sale con exit code 0 (fue $exit)"
 # Las dos puntas: que haya una línea de resumen parseable, y que diga lo que tiene que decir.
 # Assertar sólo el exit code deja pasar un mutante que devuelve 0 sin correr ninguna aserción.
 $m = [regex]::Match($text, 'SELF-TEST:\s+(\d+)\s+ok,\s+(\d+)\s+fail\s+\(de\s+(\d+)\)')
-Assert ($m.Success) "el self-test imprime su línea de resumen (`SELF-TEST: N ok, N fail (de N)`)"
+Assert ($m.Success) 'el self-test imprime su línea de resumen (`SELF-TEST: N ok, N fail (de N)`)'
 
 if ($m.Success) {
   $ok    = [int]$m.Groups[1].Value
@@ -50,15 +55,19 @@ if ($m.Success) {
   $total = [int]$m.Groups[3].Value
 
   Assert ($fail -eq 0) "ninguna aserción del self-test falla (fallaron $fail de $total)"
+  # `$ok -eq $total` no es redundante con la de arriba por accidente: hoy el resumen imprime
+  # `ok = checks - fails`, así que las dos caen juntas. Cubre que ese cómputo siga siendo cierto.
   Assert ($ok -eq $total) "las aserciones que pasaron son todas las que corrieron ($ok de $total)"
   Assert ($total -ge $MinChecks) "el self-test corre al menos $MinChecks aserciones (corrió $total)"
 } else {
   # Sin resumen no se puede afirmar nada sobre las aserciones: se deja constancia del texto real
-  # en vez de dar por buenas las tres afirmaciones de arriba.
+  # en vez de dar por buenas las de arriba. Se falla explícito en vez de sumar un literal, que
+  # mentía en cuanto alguien agregara una cuarta aserción al bloque de al lado.
   Write-Host "----- salida real del self-test -----"
   Write-Host $text
   Write-Host "------------------------------------"
-  $script:failures += 3
+  Write-Host "FAIL: sin línea de resumen no se puede verificar ninguna aserción del self-test"
+  $script:failures++
 }
 
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FALLAS"; exit 1 }

@@ -9,10 +9,24 @@ $script:failures = 0
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
+# Todo temporal que se cree queda registrado acá, para que la limpieza no dependa de que
+# alguien se acuerde de listarlo abajo ni de que la corrida llegue al final.
+$script:tmps = [System.Collections.Generic.List[string]]::new()
 function NewTmp {
   $d = Join-Path ([IO.Path]::GetTempPath()) ("mcp-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $d | Out-Null; $d
+  New-Item -ItemType Directory -Path $d | Out-Null
+  $script:tmps.Add($d) | Out-Null
+  $d
 }
+function Cleanup-Tmps {
+  foreach ($d in $script:tmps) {
+    if ($d -and (Test-Path $d)) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
+  }
+}
+# `$ErrorActionPreference = "Stop"` (arriba) convierte cualquier error en terminante: sin este
+# trap, una excepción a mitad del archivo abortaba el script y se filtraban TODOS los temporales
+# vivos. Ese es el mecanismo que dejó 606 huérfanos en TEMP, no el olvido de listar uno.
+trap { Cleanup-Tmps; break }
 # Corre el script como subproceso; devuelve @{ exit; out } (out = stdout crudo)
 function RunScript($scriptPath, [string[]]$ServerArgs, $ProjectDir, [switch]$Force) {
   $a = @("-NoProfile","-File",$scriptPath,"-ProjectDir",$ProjectDir)
@@ -258,9 +272,10 @@ $envenenado = [pscustomobject]@{
 }
 # Se assertea el CAMPO y el SECRETO, no la cantidad de hallazgos: contar deja pasar el reparto
 # equivocado (una rama de menos y otra que cubre de mas dan el mismo total). Los literales de utileria
-# del fixture que no estan aprobados ('mcp-remote', '--token') tambien caen, y esta bien que caigan:
+# del fixture que no estan aprobados ('mcp-remote', '--token', 'firebase-tools' —el literal aprobado
+# es 'firebase-tools@latest'—, entre otros) tambien caen, y esta bien que caigan:
 # lo que se verifica aca es que el secreto cae, y en su campo.
-foreach ($esperado in @(
+$esperados = @(
   @{ srv = 'zoho-fuga';     campo = 'url';                              secreto = '9f3a1c7d2b8e4f0a5d6b'   },
   @{ srv = 'github-fuga';   campo = 'env.GITHUB_PERSONAL_ACCESS_TOKEN'; secreto = 'ghp_literal_del_usuario' },
   @{ srv = 'firebase-fuga'; campo = 'args[3]';                          secreto = 'AIzaSyLiteralEmbebido'   },
@@ -268,14 +283,18 @@ foreach ($esperado in @(
   @{ srv = 'remote-fuga';   campo = 'args[2]';                          secreto = '9f3a1c7d2b8e4f0a5d6b'   },
   @{ srv = 'unarg-fuga';    campo = 'args[0]';                          secreto = '9f3a1c7d2b8e4f0a5d6b'   },
   @{ srv = 'default-fuga';  campo = 'url';                              secreto = '9f3a1c7d2b8e4f0a5d6b'   }
-)) {
+)
+foreach ($esperado in $esperados) {
   $l   = @((Find-CredentialLeaks $esperado.srv $envenenado.($esperado.srv)).leaks)
   $hit = @($l | Where-Object { $_.StartsWith("$($esperado.srv).$($esperado.campo)=") -and $_.Contains($esperado.secreto) })
   Assert ($hit.Count -eq 1) "detector: '$($esperado.srv)' delata el secreto en '$($esperado.campo)' ($($l -join '; '))"
 }
 # Cerrar el lazo de verdad: comparar los nombres, no contra un entero. Con un entero, agregar un
 # servidor al catalogo envenenado y actualizar el numero deja el servidor sin expectativa y en verde.
-$conExpectativa = @('zoho-fuga','github-fuga','firebase-fuga','header-fuga','remote-fuga','unarg-fuga','default-fuga')
+# La lista se DERIVA de $esperados en vez de copiarse a mano: escrita a mano, el camino natural de
+# copy-paste —agregar el servidor, agregarlo aca, olvidar la fila de $esperados— lo dejaba sin
+# expectativa y en verde igual. Es el mismo desfasaje que el entero, mudado a una lista de nombres.
+$conExpectativa = @($esperados | ForEach-Object { $_.srv })
 $sinExpectativa = @($envenenado.PSObject.Properties.Name | Where-Object { $conExpectativa -notcontains $_ })
 Assert ($sinExpectativa.Count -eq 0) "detector: toda forma de fuga del catalogo envenenado tiene su expectativa (sin expectativa: $($sinExpectativa -join ', '))"
 
@@ -315,7 +334,7 @@ foreach ($case in @(
   @{ name = "shareable";  script = $shareable  }
 )) {
   $servers = @(Get-CatalogServers $case.script)
-  # Fail-closed: si la regex sobre el fuente deja de matchear (un reformateo del catalogo), esto da 0
+  # Fail-closed: si el parser AST deja de devolver servidores (un catalogo movido de lugar), esto da 0
   # y el barrido para, en vez de correr sobre una lista vacia y reportar "ninguna fuga".
   Assert ($servers.Count -gt 0) "$($case.name) invariante: el catalogo se pudo leer del fuente ($($servers -join ', '))"
   if ($servers.Count -eq 0) { continue }   # sin lista no hay nada que barrer; seguir con las otras variantes
@@ -355,9 +374,13 @@ foreach ($case in @(
 # verificado es que eso rompa a otro test: copy-scaffold.tests.ps1 barre TEMP filtrando por su propio
 # prefijo 'cs-test-*', que no matchea estos 'mcp-test-*'. Se limpia porque la regla del repo lo pide,
 # no por una causa que nadie probo.
-foreach ($d in @($t,$t2,$t3,$t4,$ts,$ts2)) {
-  if ($d -and (Test-Path $d)) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
-}
+# La lista ya no se escribe a mano: `NewTmp` registra cada temporal, asi que uno nuevo se limpia
+# sin que nadie lo agregue aca, y el `trap` de arriba cubre el camino de excepcion.
+Cleanup-Tmps
+# Y se asserta que la limpieza PASO: `-ErrorAction SilentlyContinue` se traga un borrado fallido,
+# asi que sin este assert un temporal que sobrevive es invisible.
+$sobrevivientes = @($script:tmps | Where-Object { $_ -and (Test-Path $_) })
+Assert ($sobrevivientes.Count -eq 0) "sin rastros: los $($script:tmps.Count) temporales quedaron borrados (sobrevivieron: $($sobrevivientes -join ', '))"
 
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
