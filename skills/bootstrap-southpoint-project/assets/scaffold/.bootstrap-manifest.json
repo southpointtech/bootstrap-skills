@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-08-28+a44eb12",
+  "version": "2026-08-31+e5ff785",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -50,7 +50,7 @@
     "docs/agents/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
     "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "a89d4c6a19cc22d2589c8ef4c20b89be19efaf26e75d400fdc125d611b533554",
     "docs/ai-workflow/DEPLOYMENT_RULES.md": "077e261c2a6ce39d14087214adb57eacd9613675091afe7e0565ae796eb83d94",
-    "docs/ai-workflow/ESTIMATION_GUIDE.md": "46c6c1ec2795b7cbd3a4812a90d49d35b8c0077e5087f46ddb8f62503be88a39",
+    "docs/ai-workflow/ESTIMATION_GUIDE.md": "bfb46007f67762f2c4969992a06efa78eb290b41dbd97171ce80b28eabbe2fc8",
     "docs/ai-workflow/PRD_TEMPLATE.md": "4a13e0fdfc82e5690d8bc88ffece5336b9788b1f60fc7dd6aa76ba2fbef1cd75",
     "docs/ai-workflow/QA_CHECKLIST.md": "f90a8b4858d4d1af451fff9d5083ee94f44e19d0ff0e26a5f9efbfcef1050f04",
     "docs/ai-workflow/RUNBOOK_TEMPLATE.md": "7584db252b3a770d456a54e1931094172d72fdd05867abd16453b48509e9ac38",

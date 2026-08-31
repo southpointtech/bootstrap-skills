@@ -5,7 +5,7 @@ own logged actuals**. Numbers copied from another project describe that project'
 client, not this one. Until the tables below hold real numbers, estimate in ranges and say out loud
 that the estimate is uncalibrated.
 
-Used by step 3 (slice planning) and step 4 (`Estimated Complexity` in `TASK_TEMPLATE.md`).
+Used by step 4 (`Estimated Complexity` in `TASK_TEMPLATE.md`).
 
 ## 1. Size buckets
 

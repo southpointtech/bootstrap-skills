@@ -125,33 +125,220 @@ foreach ($case in @(
   Remove-Item -Recurse -Force $tfb
 }
 
-# --- INVARIANTE B1: toda variable de entorno con pinta de credencial se pasa expandida ---
-# Un literal en 'env' es una fuga: el .mcp.json se commitea. Aplica a los 3 catalogos y a
-# todos sus servidores, no solo a firebase.
+# --- FIREBASE_PROJECT_DIR es por proyecto, no una perilla global de la maquina ---
+# El .mcp.json sale con el MISMO literal '${FIREBASE_PROJECT_DIR:-.}' en todos los proyectos, asi que
+# una user variable de Windows apuntaria el MCP de todos ellos al mismo directorio. (Que firebase-tools
+# ademas no lo detecte es plausible pero NO esta verificado contra su fuente desde este repo, asi que
+# no se afirma: alcanza con que el literal sea compartido para que la variable no deba ser global.)
 foreach ($case in @(
-  @{ name = "personal";   script = $personal;   servers = @("firebase","zoho-personal","github") },
-  @{ name = "southpoint"; script = $southpoint; servers = @("firebase","domo","zoho-projects","github") },
-  @{ name = "shareable";  script = $shareable;  servers = @("firebase","github") }
+  @{ name = "personal";   script = $personal   },
+  @{ name = "southpoint"; script = $southpoint },
+  @{ name = "shareable";  script = $shareable  }
 )) {
+  $tsc = NewTmp
+  $rsc = RunScript $case.script @("firebase") $tsc
+  $ssc = $rsc.out | ConvertFrom-Json
+  # Punta 1: no viaja por el canal que el SKILL.md manda persistir como user variable.
+  Assert (@($ssc.requiredEnvVars) -notcontains "FIREBASE_PROJECT_DIR") `
+    "$($case.name) firebase dir: no se pide como env var obligatoria (seria global a la maquina)"
+  # Punta 2: y el prereq dice de que alcance es, para que nadie la persista a nivel usuario.
+  $pf = @($ssc.prereqs) | Where-Object { $_ -match 'FIREBASE_PROJECT_DIR' }
+  Assert ($pf -and ($pf -join ' ') -match '(?i)por proyecto|per-project') `
+    "$($case.name) firebase dir: el prereq declara que es por proyecto ($pf)"
+  Remove-Item -Recurse -Force $tsc
+}
+
+# --- INVARIANTE B1: ninguna credencial literal viaja en el .mcp.json ---
+# El .mcp.json se commitea, asi que un secreto literal ahi es una fuga. El barrido cubre TODO el
+# bloque del servidor y no solo 'env', porque el secreto de mas valor del catalogo no vive en 'env':
+# la URL del MCP de Zoho LLEVA el token adentro y viaja en 'url'.
+
+# Campos que el detector sabe inspeccionar. La lista es fail-closed a proposito: un campo nuevo hace
+# fallar el barrido hasta que alguien le de tratamiento, en vez de viajar sin mirar.
+$CamposConocidos = @('type','command','args','env','url','headers')
+
+# Los 18 literales que los tres catalogos llevan hoy en claro, derivados de los .mcp.json generados.
+# Es un ALLOWLIST, no una heuristica de "esto parece un secreto", y la diferencia importa: un valor
+# nuevo hace fallar el barrido hasta que alguien lo mire y lo apruebe con una linea. Sobre un archivo
+# que se commitea, que un humano mire el literal nuevo es la garantia, no el costo; el costo son las
+# dos o tres ediciones por anio en que el catalogo cambia de verdad.
+# Se probo antes con entropia (un run alfanumerico largo con digitos) y se descarto midiendo: agarraba
+# 2 de las 5 fugas del catalogo envenenado de abajo, y su umbral de 14 quedaba POR DEBAJO del literal
+# legitimo mas largo del catalogo ('PYTHONIOENCODING', 16) -- lo que evitaba el falso positivo no era
+# el largo sino la condicion de digito, o sea el numero estaba justificado con la variable equivocada.
+$LiteralesAprobados = @(
+  'stdio','http',                                # type
+  'npx','docker',                                # command
+  '-y','-i','-e','-m','--rm','--dir','run',      # flags y subcomandos
+  'firebase-tools@latest','experimental:mcp',    # firebase
+  'ghcr.io/github/github-mcp-server',            # imagen del MCP de github
+  'GITHUB_PERSONAL_ACCESS_TOKEN',                # NOMBRE de la env var que docker reenvia con -e
+  'domo_mcp','utf-8','hssstaffing.domo.com'      # domo
+)
+# Esquemas de auth que pueden acompaniar a una ${VAR} en un header: 'Bearer ${TOKEN}' es correcto.
+# Solo valen SI el valor trae una ${VAR}: un 'Bearer' suelto sin variable no es una forma valida.
+$EsquemasAuth = @('bearer','basic','token','apikey')
+
+# Devuelve @{ leaks; checked; desconocidos } para un servidor: 'leaks' son los valores que serian una
+# fuga si el .mcp.json se commitea.
+#
+# El criterio es POR VALOR, no por campo, y esa es la leccion cara de este bloque: separar "url va por
+# una regla" de "args va por otra" abre un bypass, porque un MCP hosted colgado de stdio lleva la url
+# y el header DENTRO de args (el fixture 'remote-fuga' fija esa forma). El mismo secreto cambiaba de
+# campo y pasaba en verde.
+#
+# Como se evalua cada string: se le quitan las ${VAR} (que son la forma correcta de parametrizar) y el
+# residuo -- lo que realmente queda escrito en claro en el archivo -- tiene que estar aprobado.
+function Find-CredentialLeaks($srvName, $srv) {
+  $leaks = @(); $checked = 0
+
+  $desconocidos = @($srv.PSObject.Properties.Name | Where-Object { $CamposConocidos -notcontains $_ })
+
+  # Cada par nombre/valor del servidor, venga del campo que venga.
+  $pares = @()
+  if (-not [string]::IsNullOrEmpty($srv.type))    { $pares += @{ n = "type";    v = "$($srv.type)" } }
+  if (-not [string]::IsNullOrEmpty($srv.command)) { $pares += @{ n = "command"; v = "$($srv.command)" } }
+  if (-not [string]::IsNullOrEmpty($srv.url))     { $pares += @{ n = "url";     v = "$($srv.url)" } }
+  if ($null -ne $srv.env) {
+    foreach ($p in $srv.env.PSObject.Properties) { $pares += @{ n = "env.$($p.Name)"; v = "$($p.Value)" } }
+  }
+  if ($null -ne $srv.headers) {
+    foreach ($p in $srv.headers.PSObject.Properties) { $pares += @{ n = "headers.$($p.Name)"; v = "$($p.Value)" } }
+  }
+  # $argv, no $args: $args es una variable automatica de PowerShell; pisarla no rompe nada aca, pero
+  # el nombre propio evita que un futuro splat (@args) lea lo que no es.
+  # Y la asignacion va en dos lineas, NO como 'if (...) { @(...) } else { @() }': un if usado como
+  # expresion emite por el pipeline, que DESENROLLA un array de un elemento. Con un solo arg -- que es
+  # una forma viva ('mcp-remote <url>', 'node server.js') -- $argv quedaba String y $argv[0] era su
+  # primer CARACTER, asi que el arg entero no se inspeccionaba nunca.
+  $argv = @()
+  if ($null -ne $srv.args) { $argv = @($srv.args) }
+  for ($i = 0; $i -lt $argv.Count; $i++) { $pares += @{ n = "args[$i]"; v = "$($argv[$i])" } }
+
+  foreach ($par in $pares) {
+    $checked++
+    $v = "$($par.v)"
+    $tieneVar = $v -match '\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}'
+    # Fuera las ${VAR}: queda lo que se escribe en claro en el archivo.
+    $residuo = ([regex]::Replace($v, '\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}', '')).Trim()
+    if ($residuo -eq '') { continue }                                            # todo parametrizado
+    if ($LiteralesAprobados -contains $residuo) { continue }                     # literal conocido
+    if ($tieneVar -and ($EsquemasAuth -contains $residuo.ToLower())) { continue } # 'Bearer ${TOKEN}'
+    $leaks += "$srvName.$($par.n)=$v"
+  }
+
+  return @{ leaks = $leaks; checked = $checked; desconocidos = $desconocidos }
+}
+
+# El detector tiene que MORDER, y hay que ATRIBUIR cada fuga a su rama, no contarlas. Contar el total
+# deja pasar el reparto equivocado: con una rama borrada y otra que cubre de mas, el total sigue dando
+# el numero esperado y el barrido queda verde con un campo entero sin mirar.
+# La url de 'zoho-fuga' lleva el secreto como segmento de path: la forma que una heuristica de
+# "contiene la palabra token" no reconoce, y que solo cae al mirar el residuo sin ${VAR}.
+$envenenado = [pscustomobject]@{
+  'zoho-fuga'     = [pscustomobject]@{ type = "http"; url = 'https://mcp.zoho.com/mcp/9f3a1c7d2b8e4f0a5d6b/sse' }
+  'github-fuga'   = [pscustomobject]@{ type = "stdio"; command = "docker"; env = [pscustomobject]@{ GITHUB_PERSONAL_ACCESS_TOKEN = 'ghp_literal_del_usuario' } }
+  'firebase-fuga' = [pscustomobject]@{ type = "stdio"; command = "npx"; args = @("-y","firebase-tools","--token","AIzaSyLiteralEmbebido") }
+  'header-fuga'   = [pscustomobject]@{ type = "http"; url = '${MCP_URL_OK}'; headers = [pscustomobject]@{ Authorization = 'Bearer sk_live_LITERALFUGA' } }
+  # El bypass que costo dos intentos: el MISMO secreto de 'zoho-fuga', mudado de 'url' a 'args'.
+  'remote-fuga'   = [pscustomobject]@{ type = "stdio"; command = "npx"; args = @("-y","mcp-remote","https://mcp.zoho.com/mcp/9f3a1c7d2b8e4f0a5d6b/sse","--header","Authorization: Bearer ntn_LITERALFUGA0001") }
+  # Un SOLO arg: fija el desenrollado del pipeline, que hacia leer el arg como un unico caracter.
+  'unarg-fuga'    = [pscustomobject]@{ type = "stdio"; command = "mcp-remote"; args = @("https://mcp.zoho.com/mcp/9f3a1c7d2b8e4f0a5d6b/sse") }
+}
+# Se assertea el CAMPO y el SECRETO, no la cantidad de hallazgos: contar deja pasar el reparto
+# equivocado (una rama de menos y otra que cubre de mas dan el mismo total). Los literales de utileria
+# del fixture que no estan aprobados ('mcp-remote', '--token') tambien caen, y esta bien que caigan:
+# lo que se verifica aca es que el secreto cae, y en su campo.
+foreach ($esperado in @(
+  @{ srv = 'zoho-fuga';     campo = 'url';                              secreto = '9f3a1c7d2b8e4f0a5d6b'   },
+  @{ srv = 'github-fuga';   campo = 'env.GITHUB_PERSONAL_ACCESS_TOKEN'; secreto = 'ghp_literal_del_usuario' },
+  @{ srv = 'firebase-fuga'; campo = 'args[3]';                          secreto = 'AIzaSyLiteralEmbebido'   },
+  @{ srv = 'header-fuga';   campo = 'headers.Authorization';            secreto = 'sk_live_LITERALFUGA'     },
+  @{ srv = 'remote-fuga';   campo = 'args[2]';                          secreto = '9f3a1c7d2b8e4f0a5d6b'   },
+  @{ srv = 'unarg-fuga';    campo = 'args[0]';                          secreto = '9f3a1c7d2b8e4f0a5d6b'   }
+)) {
+  $l   = @((Find-CredentialLeaks $esperado.srv $envenenado.($esperado.srv)).leaks)
+  $hit = @($l | Where-Object { $_.StartsWith("$($esperado.srv).$($esperado.campo)=") -and $_.Contains($esperado.secreto) })
+  Assert ($hit.Count -eq 1) "detector: '$($esperado.srv)' delata el secreto en '$($esperado.campo)' ($($l -join '; '))"
+}
+# Cerrar el lazo de verdad: comparar los nombres, no contra un entero. Con un entero, agregar un
+# servidor al catalogo envenenado y actualizar el numero deja el servidor sin expectativa y en verde.
+$conExpectativa = @('zoho-fuga','github-fuga','firebase-fuga','header-fuga','remote-fuga','unarg-fuga')
+$sinExpectativa = @($envenenado.PSObject.Properties.Name | Where-Object { $conExpectativa -notcontains $_ })
+Assert ($sinExpectativa.Count -eq 0) "detector: toda forma de fuga del catalogo envenenado tiene su expectativa (sin expectativa: $($sinExpectativa -join ', '))"
+
+# Control negativo: un servidor legitimo NO debe dar hallazgos. Sin esto, un detector que marca todo
+# pasaria igual los asserts de arriba. 'Bearer ${VAR}' es la forma canonica de un header autenticado y
+# tiene que ser aceptada; el criterio anterior la rechazaba.
+$limpio = [pscustomobject]@{ type = "http"; url = '${MCP_URL}'; headers = [pscustomobject]@{ Authorization = 'Bearer ${GITHUB_PERSONAL_TOKEN}' } }
+$lLimpio = @((Find-CredentialLeaks "hosted-ok" $limpio).leaks)
+Assert ($lLimpio.Count -eq 0) "detector: un servidor legitimo con 'Bearer `${VAR}' no da falso positivo ($($lLimpio -join '; '))"
+
+# Y el reverso del mismo control: el esquema de auth solo vale ACOMPANIANDO a una ${VAR}. Un 'Bearer'
+# con el token literal al lado no puede colarse por la puerta que abre 'Bearer ${TOKEN}'.
+$falsoEsquema = [pscustomobject]@{ type = "http"; url = '${MCP_URL}'; headers = [pscustomobject]@{ Authorization = 'Bearer ghp_TokenLiteralSinVariable' } }
+$lFalso = @((Find-CredentialLeaks "hosted-fuga" $falsoEsquema).leaks)
+Assert ($lFalso.Count -eq 1) "detector: 'Bearer <literal>' no se cuela por la puerta del esquema de auth ($($lFalso -join '; '))"
+
+# La lista de servidores se DERIVA del catalogo real en vez de hardcodearse, para que un servidor
+# nuevo entre al barrido solo. La fuente es el LITERAL $Catalog del fuente del script, no el mensaje
+# de error: el mensaje lo renderiza PowerShell envuelto al ancho de la consola, con prefijos y colores,
+# asi que derivarlo de ahi ataba el barrido al ancho de la terminal -- y una lista larga se cortaba en
+# silencio, dejando servidores sin inspeccionar con el test en verde. Leer el fuente es inmune a todo
+# eso, y es fail-closed: si la regex deja de matchear, devuelve vacio y el assert de abajo revienta.
+function Get-CatalogServers($scriptPath) {
+  $s = Get-Content $scriptPath -Raw
+  $bloque = [regex]::Match($s, '(?s)\$Catalog = \[ordered\]@\{(.*?)\r?\n\}').Groups[1].Value
+  return @([regex]::Matches($bloque, '(?m)^\s{2}"([^"]+)"\s*=\s*\[ordered\]@\{') | ForEach-Object { $_.Groups[1].Value })
+}
+
+foreach ($case in @(
+  @{ name = "personal";   script = $personal   },
+  @{ name = "southpoint"; script = $southpoint },
+  @{ name = "shareable";  script = $shareable  }
+)) {
+  $servers = @(Get-CatalogServers $case.script)
+  # Fail-closed: si la regex sobre el fuente deja de matchear (un reformateo del catalogo), esto da 0
+  # y el barrido para, en vez de correr sobre una lista vacia y reportar "ninguna fuga".
+  Assert ($servers.Count -gt 0) "$($case.name) invariante: el catalogo se pudo leer del fuente ($($servers -join ', '))"
+  if ($servers.Count -eq 0) { continue }   # sin lista no hay nada que barrer; seguir con las otras variantes
+
   $tinv = NewTmp
-  $rinv = RunScript $case.script $case.servers $tinv
+  $rinv = RunScript $case.script $servers $tinv
   Assert ($rinv.exit -eq 0) "$($case.name) invariante: exit 0 generando todo el catalogo"
   $idoc = Get-Content (Join-Path $tinv ".mcp.json") -Raw | ConvertFrom-Json
-  $offenders = @()
-  $checked   = 0
-  foreach ($srvName in ($idoc.mcpServers.PSObject.Properties.Name)) {
-    $srv = $idoc.mcpServers.$srvName
-    if ($null -eq $srv.env) { continue }
-    foreach ($p in $srv.env.PSObject.Properties) {
-      if ($p.Name -notmatch '(?i)token|secret|password|credential|key') { continue }
-      $checked++
-      if ($p.Value -notmatch '^\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}$') { $offenders += "$srvName.$($p.Name)=$($p.Value)" }
-    }
+
+  # Lo generado tiene que ser exactamente lo leido del catalogo: si el script rechaza o ignora alguno,
+  # ese servidor no se inspecciona y el barrido quedaria en verde sin haberlo mirado.
+  $generados = @($idoc.mcpServers.PSObject.Properties.Name)
+  $noLlegaron = @($servers | Where-Object { $generados -notcontains $_ })
+  Assert ($noLlegaron.Count -eq 0) "$($case.name) invariante: todo el catalogo aterrizo en el .mcp.json (no llegaron: $($noLlegaron -join ', '))"
+
+  $offenders    = @()
+  $ciegos       = @()
+  $sinTratar    = @()
+  foreach ($srvName in $generados) {
+    $res = Find-CredentialLeaks $srvName $idoc.mcpServers.$srvName
+    $offenders += $res.leaks
+    # Un servidor del que no se inspecciono NADA no es "esta limpio": o su forma no la entiende el
+    # detector, o todos sus campos inspeccionables vinieron vacios. En los dos casos hay que mirarlo.
+    if ($res.checked -eq 0) { $ciegos += $srvName }
+    # Y un campo que el detector no conoce viaja sin mirar aunque el resto del servidor se haya
+    # inspeccionado: el contador agregado no lo delata, hay que preguntarlo aparte.
+    foreach ($d in $res.desconocidos) { $sinTratar += "$srvName.$d" }
   }
-  # Si no se inspecciono ninguna clave, el assert de abajo seria vacuo: fallar en vez de mentir.
-  Assert ($checked -gt 0) "$($case.name) invariante: hay al menos una env var de credencial que inspeccionar ($checked)"
-  Assert ($offenders.Count -eq 0) "$($case.name) invariante: ninguna credencial literal en env ($($offenders -join '; '))"
+  Assert ($ciegos.Count -eq 0) "$($case.name) invariante: el detector inspecciono algo de cada servidor (ciegos: $($ciegos -join ', '))"
+  Assert ($sinTratar.Count -eq 0) "$($case.name) invariante: ningun campo viaja sin tratamiento en el detector (sin tratar: $($sinTratar -join ', '))"
+  Assert ($offenders.Count -eq 0) "$($case.name) invariante: ninguna credencial literal ($($offenders -join '; '))"
   Remove-Item -Recurse -Force $tinv
+}
+
+# Sin rastros de testeo (regla del repo). No es cosmetico: varios casos de arriba no borraban su
+# workspace, y ~100 corridas dejaron 606 directorios huerfanos en TEMP -- suficientes para hacer
+# fallar a tests/copy-scaffold.tests.ps1, que barre TEMP al arrancar. Un test que ensucia el ambiente
+# rompe a otro test, y el sintoma aparece lejos de la causa.
+foreach ($d in @($t,$t2,$t3,$t4,$ts,$ts2)) {
+  if ($d -and (Test-Path $d)) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
 }
 
 Write-Host ""

@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-08-28+bf829b1",
+  "version": "2026-08-31+4f41e56",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -50,7 +50,7 @@
     "docs/agents/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
     "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "93bad655778ef39cbc2f3e655e6506fdff10c9a16d0e03041a3971523e128cfa",
     "docs/ai-workflow/DEPLOYMENT_RULES.md": "2c52481aa631df136d9ff3f01567be8fdded6e83aeab357a15ba0db371c6d9e1",
-    "docs/ai-workflow/ESTIMATION_GUIDE.md": "46c6c1ec2795b7cbd3a4812a90d49d35b8c0077e5087f46ddb8f62503be88a39",
+    "docs/ai-workflow/ESTIMATION_GUIDE.md": "bfb46007f67762f2c4969992a06efa78eb290b41dbd97171ce80b28eabbe2fc8",
     "docs/ai-workflow/PRD_TEMPLATE.md": "8b88dcfd6337fa3924093c77c5be9a789316fb774f0e7c33c26c4cb87890565f",
     "docs/ai-workflow/QA_CHECKLIST.md": "f40eacead44a17d025077beaab201bf935935a4138c456cf4ad5364bba66443f",
     "docs/ai-workflow/RUNBOOK_TEMPLATE.md": "7584db252b3a770d456a54e1931094172d72fdd05867abd16453b48509e9ac38",

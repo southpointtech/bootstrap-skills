@@ -11,7 +11,7 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 
 ## Assertions clave (lo que define "pasa")
 
-- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 5 docs ai-workflow, 10 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` propia), 10 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`.
+- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 7 docs ai-workflow, 11 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` y `slice-review` propias), 11 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`.
 - Variante correcta: Southpoint menciona DOMO; personal CERO menciones a DOMO pero conserva Playwright/Firebase/Azure/Zoho.
 - Git: branch `main`, **un solo commit**, autor exacto según variante, config local (global intacta).
 - Sin duplicados anidados (`.agents\.agents`, `.claude\.claude`) — regresión del bug de iter 1.
@@ -37,7 +37,7 @@ La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no co
 1. **Manifest + desactualizado-no-tocado** — proyecto con `.bootstrap-manifest.json` y un archivo cuyo hash actual == base pero != canónico → debe clasificar `outdated` (seguro de actualizar).
 2. **Manifest + personalizado** — archivo cuyo hash actual != base → debe clasificar `customized` (no pisar).
 3. **Legacy sin manifest** — proyecto bootstrapeado con la versión vieja (sin manifest): `hasProjectManifest=False`, detecta `missing` (los 2 de `review-loop`, y ahora también `.claude/hooks/alignment-gate.ps1`) y `customized` los que difieren; tras aplicar, siembra el manifest.
-4. **Al día** — proyecto recién bootstrapeado: `missing/outdated/customized` vacíos, `uptodate` == 48.
+4. **Al día** — proyecto recién bootstrapeado: `missing/outdated/customized` vacíos, `uptodate` == la cantidad de entradas del manifest (hoy 53; el número crece con cada archivo que se suma al scaffold, así que se compara contra el manifest, no contra un entero fijo).
 
 Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el plan `docs/superpowers/plans/2026-06-10-upgrade-bootstrap-skill.md` (Tasks 4-5); los casos 3-4 corren contra el scaffold instalado (Task 8).
 
@@ -45,7 +45,7 @@ Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el pl
 
 La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en ambas skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Casos cubiertos:
 
-- **Destino vacío** — aterrizan los 50 archivos (11 skills en `.agents/skills`), sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
+- **Destino vacío** — aterriza el scaffold completo: mismo conteo de archivos que el origen (hoy 54; el test compara origen contra destino, no contra un entero fijo), 11 skills en `.agents/skills`, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
 - **Regresión `docs/docs`** — `docs/` y `docs/agents/` preexistentes en el proyecto → el contenido se mergea (sin anidar) y los archivos propios quedan intactos (gotcha del self-bootstrap 2026-06-23).
 - **Dot-dirs preexistentes** — `.claude/` con archivos propios → merge sin anidar ni pisar lo ajeno.
 - **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica del Step 2; en adopción el original ya está stasheado).
@@ -262,7 +262,7 @@ El hook `alignment-gate` (PreToolUse) se testea aparte, con su propio runner: `p
 
 ## Testeo de `gen-mcp-json` (MCP por área)
 
-El generador del `.mcp.json` por proyecto (`scripts/gen-mcp-json.ps1`, uno por skill) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/gen-mcp-json.tests.ps1` (corre ambos scripts como subproceso y verifica `.mcp.json` + el resumen JSON de stdout). Cubre: happy path personal y southpoint, ninguna selección (no escribe archivo), clave inválida por área (`no-existe`, y `zoho-personal` rechazada en southpoint), no pisar sin `-Force`, y `-Force` sobrescribe. Los secretos quedan como literales `${VAR}`.
+El generador del `.mcp.json` por proyecto (`scripts/gen-mcp-json.ps1`, uno por skill) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/gen-mcp-json.tests.ps1` (corre los tres scripts como subproceso y verifica `.mcp.json` + el resumen JSON de stdout). Cubre: happy path personal, southpoint y shareable; ninguna selección (no escribe archivo); clave inválida por área (`no-existe`, y `zoho-personal` rechazada en southpoint y en el catálogo compartible); no pisar sin `-Force`, y `-Force` sobrescribe; el `--dir` de Firebase y su alcance por proyecto (sin bloque `env`); y el barrido anti-fuga: un catálogo envenenado que verifica que el detector muerde por donde debe, un control negativo que verifica que no da falsos positivos sobre la forma legítima de un header autenticado (`Bearer ${VAR}`) y su reverso (`Bearer <literal>` sí es fuga), y el invariante de que la lista de servidores se deriva del catálogo real, ninguno queda sin inspeccionar y ningún campo viaja sin tratamiento. Los secretos quedan como literales `${VAR}`.
 
 Evals manuales del flujo del bootstrap (corridos 2026-06-11, ambos OK):
 

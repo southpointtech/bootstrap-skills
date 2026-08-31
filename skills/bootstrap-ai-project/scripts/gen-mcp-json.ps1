@@ -15,7 +15,7 @@ $Catalog = [ordered]@{
   "firebase" = [ordered]@{
     config          = [ordered]@{ type = "stdio"; command = "npx"; args = @("-y","firebase-tools@latest","experimental:mcp","--dir",'${FIREBASE_PROJECT_DIR:-.}') }
     requiredEnvVars = @()
-    prereqs         = @("firebase login (once)","FIREBASE_PROJECT_DIR only if firebase.json is not at the project root (defaults to the project)")
+    prereqs         = @("firebase login (once)","FIREBASE_PROJECT_DIR only if firebase.json is not at the project root (defaults to the project). Set it per-project, never as a user-level variable: every .mcp.json ships the same literal, so a global variable would point every project's MCP at the same directory")
   }
   "github" = [ordered]@{
     config          = [ordered]@{ type = "stdio"; command = "docker"; args = @("run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"); env = [ordered]@{ GITHUB_PERSONAL_ACCESS_TOKEN = '${GITHUB_PERSONAL_TOKEN}' } }

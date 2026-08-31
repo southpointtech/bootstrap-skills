@@ -15,7 +15,7 @@ $Catalog = [ordered]@{
   "firebase" = [ordered]@{
     config          = [ordered]@{ type = "stdio"; command = "npx"; args = @("-y","firebase-tools@latest","experimental:mcp","--dir",'${FIREBASE_PROJECT_DIR:-.}') }
     requiredEnvVars = @()
-    prereqs         = @("firebase login (una vez)","FIREBASE_PROJECT_DIR solo si firebase.json no esta en la raiz del proyecto (default: el proyecto)")
+    prereqs         = @("firebase login (una vez)","FIREBASE_PROJECT_DIR solo si firebase.json no esta en la raiz del proyecto (default: el proyecto). Setearla por proyecto, nunca como variable de usuario: el .mcp.json lleva el mismo literal en todos los proyectos, asi que una variable global apuntaria el MCP de todos ellos al mismo directorio")
   }
   "domo" = [ordered]@{
     config          = [ordered]@{ type = "stdio"; command = '${DOMO_MCP_PYTHON:-python}'; args = @("-m","domo_mcp"); env = [ordered]@{ DOMO_DEVELOPER_TOKEN = '${DOMO_SOUTHPOINT_TOKEN}'; DOMO_HOST = "hssstaffing.domo.com"; PYTHONPATH = '${DOMO_MCP_HOME}'; PYTHONIOENCODING = "utf-8" } }
