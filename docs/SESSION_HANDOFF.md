@@ -1,3 +1,168 @@
+# Session Handoff — 2026-08-31 (noche) — Review-loop de 5 turnos sobre la deuda del cap anterior: COMMITEADO (`2046664`) en `fix/copy-scaffold-respalda`. **SIN mergear, SIN pushear, SIN deployar.** Cerró POR CAP.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+✅ **`fix/copy-scaffold-respalda` = `2046664`**, un commit por delante de `main` (`4569d51`).
+Working tree **limpio**. Las **14 suites en verde**. El golden en sync (`reseal -Check` → exit 0).
+
+🔴 **Falta: merge ff-only a `main` + push + deploy.** El merge es ff-only (la rama es descendiente
+directa de main, historia lineal, 0 merge commits). Push: solo funciona la cuenta **southpointtech**
+(MartinDele703 da 403). Deploy = `tools/sync-skills.ps1`, y **verificar en el sink**, no confiar en
+el exit code: el bug de "el repo y la máquina difieren" ya pasó una vez.
+
+⚠️ **Al deployar, `sync-skills.ps1` regenera los `.bootstrap-manifest.json`** — hay que resellar y
+commitear eso después, como en `94b63b3`.
+
+## Qué se hizo
+
+Un `/review-loop` completo sobre la deuda que `f1191ec` había declarado (los fixes de su turno 5 y su
+pase de coherencia nunca habían pasado por review). **Cinco turnos + pase de coherencia**, 7 reviewers
+en el turno 1 (6 focos paralelos + `/code-review` como reviewer independiente), fan-outs de 2 a 5 en
+los turnos siguientes. La pasada de confianza del turno 1 descartó 5 de 16 hallazgos.
+
+**Los turnos 2, 3, 4 y 5 encontraron defectos de severidad alta en la prosa que el turno anterior
+acababa de escribir.** Tres veces seguidas. Es el patrón que el repo ya tiene documentado
+(`parchar-prosa-de-procedimiento-no-converge`), reproducido de punta a punta.
+
+### El defecto de fondo, y la decisión que el usuario firmó
+
+Los tests del Step 0b medían **largo**, no procedimiento. Medido: recortar los seis sub-pasos a ~310
+chars amputaba el 71 % del bloque —dejando el step B cortado a mitad de frase, con la condición
+enunciada y sin la acción— **en verde**. Y borrar el párrafo que abre el step B, donde vive el "frena
+y preguntá" entero, también pasaba. Ningún otro test lee el contenido de estos `SKILL.md`.
+
+Se midió después que un chequeo de presencia sobre prosa tampoco alcanza: el ancla
+`apply the map first` la satisface igual el texto que dice `do NOT apply the map first`, y revertir
+cualquiera de los fixes de procedimiento pasaba las cuatro redes — **siete mutaciones, todas verdes**.
+
+🔑 **Decisión del usuario, con la evidencia sobre la mesa: GOLDEN.** `tests/fixtures/step0b.golden.md`
+(generado) + `tools/reseal-step0b.ps1`. Cualquier edición del Step 0b pone la suite roja hasta
+re-grabarlo a propósito mirando el diff. **El costo lo aceptó explícitamente**: fricción en cada
+edición de prosa del Step 0b. El ciclo está documentado en `docs/TESTING.md` § "El golden del Step 0b".
+
+Los dos pisos y las anclas quedaron como defensa en profundidad para el día que alguien re-grabe sin
+mirar; se verificó que siguen mordiendo **después** de un resellado.
+
+### Lo destructivo que apareció en el camino
+
+- **El Step 3 pisaba el `CONTEXT.md` y el `README.md` del proyecto.** Ninguno está en el scaffold →
+  `copy-scaffold.ps1` no los respalda → no hay `overwritten` que los recupere. Era la **única pérdida
+  irrecuperable** que el skill podía causar. Lo introdujo un fix de un turno anterior de este mismo
+  loop.
+- Ese arreglo se aplicó primero a **1 de las 3 skills**, porque el script de propagación cubre solo el
+  tramo `## Step 0b` → `## Step 1` y el Step 3 cae afuera. Las otras dos quedaron con el camino
+  destructivo vivo **y la suite en verde**.
+- **Trampa de truncación en los dos extremos del tramo**: los delimitadores se buscaban como substring
+  suelto, así que una cita del heading adentro del Step 0b recortaba el tramo, el reseal sellaba un
+  golden más corto **sin avisar** (usa el mismo corte, coincidían), y después se podía reescribir lo
+  perdido con la suite en verde y `-Check` diciendo "sin cambios".
+
+### Procedimiento del Step 0b (los fixes que shippean)
+
+- Los dos caminos que salteaban "steps C and E" descartaban filas `overwritten` **ya aprobadas por el
+  usuario**; el skip ahora es solo del block merge.
+- El step E aplica el mapa **antes** del block merge (al revés, un "restore" pisaba las reglas recién
+  mergeadas y el step F reportaba bloques que ya no estaban).
+- La exención del step D se keyea por **la entrada que el step B registra**; la versión anterior
+  comparaba paths y **no era computable en ningún estado** (B mueve el que parquea y copia el que
+  preserva, así que lo que C lee nunca está en el path del backup).
+- El step B resuelve el original en dos movimientos, keyeados por el archivo que se termina **leyendo**
+  y no por el que el usuario nombra.
+
+## Archivos cambiados (todos en `2046664`)
+
+| archivo | qué |
+|---|---|
+| `skills/*/SKILL.md` ×3 | Step 0b (steps B/C/D/E/F) + guard del Step 3. **Byte-idénticos en el tramo** |
+| `tests/mirror.tests.ps1` | extracción anclada, golden, piso global restaurado, anclas, invariantes de fuera del tramo |
+| `tests/fixtures/step0b.golden.md` | **NUEVO, generado** (13532 chars) |
+| `tools/reseal-step0b.ps1` | **NUEVO** |
+| `docs/TESTING.md` | caso canónico 7 + criterios del 6 + § del golden |
+| `tests/copy-scaffold.tests.ps1` | atribución de SHAs corregida |
+| `CLAUDE.md`, `public/README.md`, `docs/SESSION_HANDOFF.md` | |
+
+## Tests
+
+**14 suites en verde**, por lotes de 4-6 (con reviewers en paralelo la máquina se satura).
+**Cada fix fue a RED antes que a verde**: 4 mutantes en el turno 1, 6 reversiones en el turno 2, 2
+estructurales en el turno 3, 4 en el turno 5. Todo en copias en TEMP, ya borradas; **el árbol nunca se
+mutó**. El turno 5 reconstruyó los mutantes que mataba cada assert de la base: **cero regresiones**, y
+dos asserts muerden más fuerte.
+
+## 🔴 Deuda declarada (está en el mensaje de `2046664`)
+
+**Cerró POR CAP: los fixes del turno 5 no pasaron por un turno de review de delta.** El marcador quedó
+en **`4569d51`** a propósito (la próxima corrida revisa de más, no de menos) y **el ancla del slice
+sigue puesta** en `4ff2c9f` — no se llamó `-Action close`, que es solo para cierre limpio.
+
+El commit **no lleva trailer `Slice-Close:`**: el loop ya corrió sus cinco turnos sobre este slice y el
+trailer solo pediría un sexto.
+
+Medido y fuera de scope de este slice:
+
+1. Borrar el guard de re-bootstrap (`SKILL.md:18`) **pasa verde**.
+2. Dos de los invariantes de fuera del tramo son frases de prosa; el arreglo durable es **extender el
+   golden al Step 3** (segundo fixture).
+3. El mensaje del guard de `reseal` imprime la terna de largos: en un reword del mismo largo se lee
+   como prueba de que coinciden.
+4. `reseal-step0b.ps1` hardcodea las tres skills; el test enumera `bootstrap-*-project`.
+5. Una afirmación del step E es falsa en dos estados (dirección benigna).
+6. `gen-mcp-json` aborta la adopción en una re-corrida **después** de que el scaffold ya aterrizó.
+7. `docs/agents/legacy-claude.original.md` se copia sin guard de existencia.
+
+## Bugs abiertos de antes (sin cambios)
+
+1. `.scratch/issue-suites-que-no-limpian-temp.md` — 6 suites filtran workspaces a TEMP. Patrón ya
+   validado en `copy-scaffold.tests.ps1`.
+2. Deuda de `bc973c2`: techo ciego a trackeados sin commitear; `^-\s` no corta en `---`; sin test de
+   la copia ES del hook.
+3. `autocrlf` / hashes mixtos en los manifests.
+4. El párrafo del hook redactado distinto en `bootstrap-ai-project`.
+5. Las 2 carpetas sin git con el hook inerte. **Sin decidir, es tuya.**
+6. `README.md` de la raíz: "four skills", "two bootstrap skills", "~43 template files" (son 52).
+
+## Próximos pasos
+
+1. **Merge ff-only a `main` + push + deploy + resellar manifests.** Es lo único que falta de esta línea.
+2. **El issue de las suites que no limpian TEMP** — slice chico, patrón ya probado.
+3. **Self-upgrade de `SouthPoint-Hub`** (la v1 dejó el frontend sin revisar).
+4. **Benchmark Track B** — la línea base congelada vence el **2026-09-10**.
+5. Pasada al `README.md` de la raíz (slice solo-docs, no dispara el loop).
+
+## Antes de tocar código
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`).
+  **No commitear ni stagear ahí.** Su árbol cambia entre dos comandos tuyos.
+- **Si editás el Step 0b: editá `bootstrap-ai-project`, propagá el bloque entero a las otras dos,
+  corré `tools/reseal-step0b.ps1`, mirá `git diff` del golden y commiteá todo junto.** El golden se
+  pone rojo con cualquier edición; ese es el punto, no un bug.
+- **El Step 3 y el Step 0 quedan FUERA del golden.** Si tocás algo ahí, revisá `$invariantes` en
+  `tests/mirror.tests.ps1`: es la única red, y por eso mismo es una lista de frases que hay que
+  mantener a mano.
+- El `alignment-gate` frena el primer edit de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- El guard del entorno bloquea comandos cuyo texto parece un path peligroso. Reescribir con variables.
+- Para prosa en español usar Edit; commits largos con `git commit -F <archivo>` (**no** here-strings de
+  PowerShell con la Bash tool: filtran el `@` al subject).
+- **Al verificar un fix sin commitear, copiá el WORKING TREE, no `git archive HEAD`.**
+- `git status` puede marcar archivos como `M` por stat-cache: **`git diff --name-only` es la
+  autoridad**.
+
+## 🔑 La lección de esta sesión
+
+**Cuatro turnos seguidos encontraron defectos altos en la prosa que el turno anterior acababa de
+escribir, y dos de esos defectos eran destructivos.** Parchar prosa de procedimiento no converge: cada
+cláusula nueva trae estados sin cubrir. Lo que cerró de verdad fue **quitar ramas** (invertir la regla
+del step D, unificar dos excepciones en una, reemplazar una cláusula circular por una resolución en dos
+movimientos) y, sobre todo, **cambiar de instrumento**: ningún chequeo de presencia sobre prosa
+distingue una orden de su negación. El golden es la primera red que sí.
+
+Corolario nuevo, y caro: **un fix que cae fuera del tramo que el script propaga queda en una sola
+skill, y la suite no lo ve.** Pasó con el guard del Step 3, que era el único camino de pérdida
+irrecuperable del skill.
+
+---
+
 # Session Handoff — 2026-08-31 (tarde) — Review-loop de la deuda CERRADO, mergeado, **pusheado** (`94b63b3`) y **DEPLOYADO**. No queda nada pendiente de esta línea.
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
