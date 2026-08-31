@@ -9,7 +9,8 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 3. **Southpoint, archivos preexistentes** — sembrar `src/index.js` y un `README.md` propio ("WIP - notas propias del proyecto") y pedir: "Este repo ya tiene un par de archivos del proyecto nuevo de Southpoint (KBS Inventory). Armame el scaffolding del workflow de AI sin romper lo que ya hay."
 4. **Southpoint, adopción (CLAUDE.md propio sin manifest)** — sembrar un `CLAUDE.md` hecho a mano (branching model main/develop + un gotcha técnico + una mención a DOMO) y un `worker.js`, sin `.bootstrap-manifest.json`, y pedir: "agregale el bootstrap a este proyecto". Debe entrar en **modo adopción** (Step 0b), no frenar ni derivar a upgrade-bootstrap.
 5. **Adopción, re-corrida sobre un proyecto ya adoptado** — partir del árbol que dejó el caso 4, borrar el `.bootstrap-manifest.json`, editar una línea del `CLAUDE.md` vivo y volver a pedir: "agregale el bootstrap a este proyecto". Ejercita la rama que protege el original de un `Move-Item -Force`; sin este caso el eval nunca la toca.
-6. **Adopción, colisión de nombre** — sembrar un `CLAUDE.md` propio Y un `docs/agents/legacy-claude.md` que NO sea el original del proyecto (dos líneas de cualquier otra cosa), sin manifest, y pedir el bootstrap. Es la rama donde el agente no puede decidir solo, y la única que ni el runner ni los otros casos tocan.
+6. **Adopción, colisión de nombre** — sembrar un `CLAUDE.md` propio Y un `docs/agents/legacy-claude.md` que NO sea el original del proyecto (dos líneas de cualquier otra cosa), sin manifest, y pedir el bootstrap. Es la rama donde el agente no puede decidir solo, y la única que ni el runner ni los otros casos tocan. **Cuando la corrida pregunte, responder que el original es el respaldo** (`.bootstrap-backup/CLAUDE.md`): la respuesta va fijada acá a propósito, porque el step B ofrece dos candidatos y el observable de abajo cambia según cuál se elija.
+7. **Adopción, el usuario no sabe cuál es el original** — igual que el caso 6, pero sembrando además un `.gitignore` propio con dos entradas que el scaffold no trae, y respondiendo **"ninguno de los dos es mi original"**. Es la otra respuesta que el step B admite, y la única que ejercita el camino donde se saltea la clasificación **pero igual hay que aplicar el mapa**: cuando la corrida presente la fila del `.gitignore`, aprobarla como **merge**.
 
 ## Assertions clave (lo que define "pasa")
 
@@ -24,7 +25,9 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - Modo adopción: cada bloque del original quedó representado (en `legacy-claude.md` + su destino); ningún bloque se perdió en silencio.
 - Modo adopción: tras adoptar, `compare-scaffold.ps1` clasifica `CLAUDE.md` como **customized** (ni `outdated` ni `uptodate`), confirmando que un upgrade futuro no lo pisa.
 - Modo adopción, **re-corrida** (caso 5): el `docs/agents/legacy-claude.md` de la primera corrida queda **byte-idéntico** (el Step B no lo pisa) y el respaldo del `CLAUDE.md` vivo que la copia acaba de pisar existe en `.bootstrap-backup/`. Va al path **sin numerar**, no a `.2`: el `Move-Item` de la primera corrida vació ese slot. Las dos cosas se observan sobre el árbol; que ese respaldo haya recibido fila en el mapa de cobertura se verifica en la transcripción.
-- Modo adopción, **colisión de nombre** (caso 6): la corrida **frena y pregunta** cuál es el original, en vez de clasificar el archivo ajeno. Sobre el árbol discriminan dos cosas: que **ninguna línea del archivo ajeno** haya aterrizado en `## Hard rules` ni en `docs/agents/domain.md` (eso solo pasa por el camino equivocado), y que si el usuario señaló el respaldo, el original quede commiteado en `docs/agents/legacy-claude.original.md`. Que el archivo sembrado siga byte-idéntico NO sirve como criterio: el scaffold no trae ese path, así que la copia no lo toca por ninguna rama.
+- Modo adopción, **colisión de nombre** (caso 6): la corrida **frena y pregunta** cuál es el original, en vez de clasificar el archivo ajeno. Ese comportamiento se verifica **en la transcripción**, y no de cualquier forma: la pregunta tiene que nombrar los dos candidatos (`docs/agents/legacy-claude.md` y `.bootstrap-backup/CLAUDE.md`) diciendo cuál existe, y el mapa de cobertura no puede aparecer antes de la respuesta. Sobre el árbol, **con la respuesta que el caso 6 fija** (el original es el respaldo): `docs/agents/legacy-claude.original.md` existe, es byte-idéntico al `CLAUDE.md` sembrado (el respaldo no se siembra: lo produce la corrida bajo prueba, así que compararlo contra él sería comparar una salida contra otra) y **aparece en `git ls-files`** — el Step 5 stagea con `':!.bootstrap-backup'`, así que un archivo que solo viva ahí no está preservado y el commit es el observable correcto —, y el `legacy-claude.md` ajeno sigue byte-idéntico.
+- Modo adopción, **el usuario no sabe** (caso 7): el observable es el `.gitignore`, no el `CLAUDE.md`. Sobre el árbol, las dos entradas propias que se sembraron **siguen en el `.gitignore` final** junto a las del scaffold — o sea que el "merge" aprobado se aplicó de verdad. Es el único caso que distingue "se salteó la clasificación" de "se salteó también el mapa": si el step E se saltea entero, el `.gitignore` queda con las reglas del scaffold solas y las del proyecto solo en `.bootstrap-backup/`, que el Step 5 no commitea. En la transcripción, además: nada quedó clasificado y el reporte lo dice sin afirmar que no existía un original.
+- Dos criterios que NO sirven para el caso 6: que el archivo sembrado siga intacto (el scaffold no trae ese path, así que la copia no lo toca por ninguna rama) y la ausencia de líneas del archivo ajeno en `## Hard rules` (la satisface también el agente que crashea o que nunca entra en adopción; y con la otra respuesta posible esas líneas aterrizan ahí por el camino **correcto**).
 
 ## Gotchas operativos del entorno de testing
 
@@ -33,6 +36,25 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - El agregador (`scripts.aggregate_benchmark`) espera `eval-N/<config>/run-1/grading.json` y un bloque `summary` `{pass_rate, passed, failed, total}` en cada grading.
 - Si un run baseline corre `npm install`, borrar su `node_modules` antes de levantar el viewer (el escaneo recursivo se cuelga).
 - Borrar el workspace de evals al terminar (regla del repo).
+
+## El golden del Step 0b
+
+La mecánica del modo adopción está congelada en `tests/fixtures/step0b.golden.md`, y `mirror.tests.ps1`
+compara contra él el tramo `## Step 0b` → `## Step 1` de las tres skills. **Cualquier** edición de ese
+tramo pone la suite en rojo: es a propósito, porque esa prosa es un procedimiento que un agente ejecuta
+sobre el `CLAUDE.md` de un proyecto ajeno, y un chequeo de presencia sobre texto no distingue una orden
+de su negación (medido: `apply the map first` lo satisfacía igual el texto que decía `do NOT apply the
+map first`). El ciclo es:
+
+1. Editar el Step 0b en `skills/bootstrap-ai-project/SKILL.md`.
+2. Propagar el bloque entero a las otras dos (no editar tres veces a mano).
+3. `tools/reseal-step0b.ps1` — frena si las tres no coinciden, así que sellar es también el chequeo
+   de espejado. `-Check` no escribe nada y sale 1 si el golden quedó desactualizado.
+4. Commitear el golden **junto con** las skills. Un golden regrabado y no commiteado pasa verde local
+   y rojo en el próximo clone.
+
+El paso 3 es donde un humano mira `git diff tests/fixtures/step0b.golden.md` y decide. Regrabar sin
+mirar el diff es la única forma de sellar un bug, y por eso el golden no se edita a mano nunca.
 
 ## Testeo de `upgrade-bootstrap`
 

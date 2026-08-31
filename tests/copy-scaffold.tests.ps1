@@ -33,10 +33,11 @@ $script:runRoot = Join-Path ([IO.Path]::GetTempPath()) ("cs-run-$PID-" + [guid]:
 # La limpieza del final es una sentencia suelta: un error terminante fuera de un Assert la saltea
 # y el workspace queda filtrado para siempre. Este trap la garantiza en ese camino (`break`
 # re-lanza el error, así que el exit code no cambia). Sin esto los abortos filtraban su árbol para
-# siempre. No se anota cuántos: los conteos de esta suite dieron 4, 8 y 9 en tres commits seguidos
-# (`1bf3318`, `4ff2c9f`), y parte de esos huérfanos los habían creado las propias corridas de
-# medición, no abortos reales. El inventario de `e5e20d2` —62 rastros de al menos seis suites— es de
-# TEMP entero, otra unidad. Sin un número que signifique una sola cosa, la razón alcanza sin él.
+# siempre. No se anota cuántos: los conteos de esta suite dieron 4 (`1bf3318`, en su mensaje), 8
+# (`4ff2c9f`, en el código) y 9 (`4ff2c9f` en su mensaje, que `67f9585` después llevó al código), y
+# parte de esos huérfanos los habían creado las propias corridas de medición, no abortos reales. El
+# inventario de `e5e20d2` —62 rastros de al menos seis suites— es de TEMP entero, otra unidad. Sin un
+# número que signifique una sola cosa, la razón alcanza sin él.
 trap {
   if ($script:runRoot -and (Test-Path -LiteralPath $script:runRoot)) {
     Remove-Item -LiteralPath $script:runRoot -Recurse -Force -ErrorAction SilentlyContinue

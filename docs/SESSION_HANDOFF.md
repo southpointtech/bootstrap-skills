@@ -146,6 +146,9 @@ asunto fue **quitar ramas, no agregarlas**: que el paso frene y pregunte. Una or
 Corolario para los tests: cuando reemplaces un assert por otro "mejor", verificá que el nuevo **mate
 los mutantes del viejo**. Acá el piso de largo se cambió por un chequeo de sub-pasos y resultó
 **ortogonal**, no más fuerte — cada uno dejaba viva la familia del otro, y hicieron falta los dos.
+(El turno siguiente midió que el reemplazo igual se había shippeado, y que ninguno de los dos pisos
+veía borrar un párrafo concreto: hoy son **tres** redes — piso global, piso por sub-paso y anclas de
+contenido.)
 
 Guardado en memoria como `parchar-prosa-de-procedimiento-no-converge`.
 

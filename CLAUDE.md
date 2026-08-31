@@ -84,7 +84,7 @@ Recommended transitions:
 - No dejar directorios vacíos en `assets/scaffold/` (git no los trackea y generan ruido en la copia).
 - Si cambiás el `CLAUDE.md` template, evaluá si el cambio también aplica al `CLAUDE.md` real de Forecasting App (`C:\Repos\SOUTHPOINTLABS\Forecasting App`).
 - Cualquier rastro de testeo (workspaces de evals, proyectos de prueba) se borra al terminar.
-- El `.bootstrap-manifest.json` del scaffold es **generado**, no se edita a mano. `tools/sync-skills.ps1` lo regenera antes de deployar; si editás el scaffold y commiteás sin correr sync, regeneralo con `tools/gen-manifest.ps1` y commitealo, para que `upgrade-bootstrap` compare contra hashes correctos.
+- El `.bootstrap-manifest.json` del scaffold y el `tests/fixtures/step0b.golden.md` son **generados**, no se editan a mano. El golden congela la mecánica del Step 0b: si `mirror.tests.ps1` lo marca en rojo, mirá el diff y regeneralo con `tools/reseal-step0b.ps1` —única vía, porque su guard frena si las tres skills no coinciden—, nunca pegándole el texto nuevo a mano. Editarlo a mano es la forma más barata de sellar un bug. `tools/sync-skills.ps1` lo regenera antes de deployar; si editás el scaffold y commiteás sin correr sync, regeneralo con `tools/gen-manifest.ps1` y commitealo, para que `upgrade-bootstrap` compare contra hashes correctos.
 
 ## Preferred project style
 
