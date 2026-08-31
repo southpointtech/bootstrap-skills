@@ -977,22 +977,26 @@ def self_test():
         # escribir en el share; y en POSIX, un directorio llamado `Z:` en el cwd del runner).
         # Un test no escribe fuera de su fixture ni depende de como este montada la maquina.
         def _raiz_inexistente():
-            if os.name == "nt":
-                # la primera letra de unidad libre: fabricada en runtime, no hardcodeada
-                libre = next((c for c in "ZYXWVU"
-                              if not os.path.exists(c + ":" + os.sep)), None)
-                if libre is None:
-                    # `check` no imprime el detalle cuando pasa, asi que sin este aviso el caso
-                    # se auto-excluiria en silencio y el conteo seguiria diciendo que corrio.
-                    print("  aviso: ZYXWVU estan todas montadas, el caso de la raiz no se "
-                          "ejercito en esta maquina")
-                    return True, "caso no ejercitable"
-                motivo = _out_no_escribible(os.path.join(libre + ":" + os.sep, "nada", "r.json"))
-                return (motivo or "").startswith("raiz-inexistente:"), (libre, motivo)
-            # en POSIX no hay forma de fabricar una raiz ausente —el walk-up siempre termina
-            # en `/`, que existe—, asi que lo verificable es que la rama NO se dispare.
-            motivo = _out_no_escribible("/nada/de/esto/existe/r.json")
-            return not (motivo or "").startswith("raiz-inexistente:"), motivo
+            # La raiz ausente se SIMULA parcheando `os.path.exists` para ese unico path, en vez
+            # de salir a buscar una letra de unidad libre. Buscarla ataba el caso a como este
+            # montada la maquina: con las seis candidatas mapeadas —un escenario real, y el
+            # mismo que motiva la rama— el caso se auto-excluia y el mutante que BORRA la rama
+            # pasaba en verde. Ademas asi corre igual en Windows y en POSIX, donde no hay forma
+            # de fabricar una raiz que no exista.
+            raiz = ("Q:" + os.sep) if os.name == "nt" else os.sep
+            ruta = os.path.join(raiz, "nada", "r.json")
+            real_exists = os.path.exists
+            objetivo = os.path.abspath(raiz)
+
+            def exists_salvo_la_raiz(p):
+                return False if os.path.abspath(p) == objetivo else real_exists(p)
+
+            os.path.exists = exists_salvo_la_raiz
+            try:
+                motivo = _out_no_escribible(ruta)
+            finally:
+                os.path.exists = real_exists
+            return (motivo or "").startswith("raiz-inexistente:"), motivo
 
         # El label no dice "se rechaza" a secas: en POSIX el caso verifica lo contrario (que la
         # rama NO se dispare, porque `/` siempre existe), y si todas las letras estan montadas se
@@ -1126,6 +1130,38 @@ def self_test():
 
         check("si el write falla, el motivo reportado es el real y no un EBADF de un close de mas",
               _motivo_real_si_falla_el_write)
+
+        # La limpieza del temporal vive en un `finally` y no en el `except OSError` porque un
+        # Ctrl-C no es OSError. Eso estaba escrito como justificacion y no lo probaba nadie: con
+        # la limpieza en el `except`, las dos versiones se comportan igual ante un OSError, que
+        # era el unico caso ejercitado. Aca se interrumpe de verdad.
+        def _ctrl_c_no_deja_temporal():
+            import io
+            import contextlib
+            d = os.path.join(tmp, "destino-g")
+            os.makedirs(d, exist_ok=True)
+            real = os.replace
+
+            def interrumpe(a, b):
+                raise KeyboardInterrupt()
+
+            os.replace = interrumpe
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), \
+                     contextlib.redirect_stderr(io.StringIO()):
+                    main(["--upstream-clone", up, "--skills-dir", local, "--skill", "alpha",
+                          "--out", os.path.join(d, "r.json")])
+                propago = False
+            except KeyboardInterrupt:
+                propago = True
+            finally:
+                os.replace = real
+            sobrantes = [n for n in os.listdir(d)]
+            # el Ctrl-C tiene que PROPAGARSE (no volverse un exit code) y no dejar basura
+            return (propago and not sobrantes), (propago, sobrantes)
+
+        check("un Ctrl-C durante la escritura propaga y no deja el temporal tirado",
+              _ctrl_c_no_deja_temporal)
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
