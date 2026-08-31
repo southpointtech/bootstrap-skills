@@ -127,9 +127,8 @@ def similarity(a, b):
     otro blob). De las otras nueve, las dos con drift dan el mismo ratio contra su base con
     y sin el (`tdd` 0.8625, `to-issues` 0.9466, medido el 2026-08-31) y las siete restantes
     publican 1.0. Dos limites de eso, para no leerlo de mas: el 1.0 es el ratio REDONDEADO
-    —`exactBodyMatches` es el que habla de cuerpos identicos, y su valor de esa corrida no
-    quedo publicado en el repo— y no se verifico que ningun otro de los 413 blobs las supere
-    con el heuristico apagado. O sea "solo esas dos cambian" vale para el numero contra su
+    (`exactBodyMatches` es el campo que habla de cuerpos identicos) y no se verifico que
+    ningun otro de los 413 blobs las supere con el heuristico apagado. O sea "solo esas dos cambian" vale para el numero contra su
     base, no para toda la busqueda. Ningun veredicto cambia: los cuatro numeros de las dos
     sin match estan lejos del umbral de 0.60.
 
@@ -1076,16 +1075,15 @@ def self_test():
         # `[]`, que se lee como "el contrato esta bien" — la trampa de reportar contra una
         # lista vacia, que en este repo ya mordio una vez.
         # Las corridas extra de `recover` van DENTRO de los lambdas: hoisteadas al bloque,
-        # una excepcion abortaba el self-test entero —sin linea de resumen y sin los checks
-        # que siguen, que medidos son 43 si revienta la primera y 37 si revienta la ultima—
-        # en vez de contarse como un FAIL aislado.
+        # una excepcion abortaba el self-test entero —sin linea de resumen y sin ninguno de
+        # los checks que siguen— en vez de contarse como un FAIL aislado.
         #
         # Lo que evita pagar la corrida dos veces —el motivo por el que se habian hoisteado—
         # es la forma `(lambda e: (cond, got))(_rep(...))`: una sola evaluacion que alimenta
         # la condicion y el diagnostico. NO hay memo: las tres claves son distintas, asi que
         # un cache daria 3 misses y 0 hits, y decir que ahorra algo seria falso.
         def _rep(nombres, thr):
-            return recover(up, local, list(nombres), thr)
+            return recover(up, local, nombres, thr)
         check("cada entrada emite exactamente los campos que declara method.fieldsByStatus",
               lambda: (not _viola_contrato(report), _viola_contrato(report)))
         check("el contrato tambien vale para missing-locally, que no sale por el CLI",
@@ -1093,7 +1091,7 @@ def self_test():
                                    any(e["status"] == "missing-locally" for e in r["skills"]),
                                    {"violaciones": _viola_contrato(r),
                                     "status vistos": [e["status"] for e in r["skills"]]}))(
-                           _rep(("alpha", "no-existe"), DEFAULT_THRESHOLD))))
+                           _rep(["alpha", "no-existe"], DEFAULT_THRESHOLD))))
         check("unmatched no promete similarity ni upstreamHead: emite bestSimilarity",
               lambda: ((lambda c: c and "similarity" not in c and "upstreamHead" not in c
                         and "bestSimilarity" in c)(
@@ -1128,7 +1126,7 @@ def self_test():
         check("frontera del umbral: el ratio IGUAL al umbral se acepta como base",
               lambda: ((lambda e: ((e or {}).get("status") == "recovered",
                                    e or "drift no esta en el reporte"))(
-                           _por_nombre(_rep(("drift",), DRIFT_RAW), "drift"))))
+                           _por_nombre(_rep(["drift"], DRIFT_RAW), "drift"))))
         check("frontera del umbral: un pelo por encima ya no alcanza",
               lambda: ((lambda e: ((e or {}).get("status") == "unmatched" and
                                    (e or {}).get("upstreamRelation") ==
@@ -1138,7 +1136,7 @@ def self_test():
                                    # imprimia 'unmatched' y se leia como correcto
                                    {"status": (e or {}).get("status"),
                                     "upstreamRelation": (e or {}).get("upstreamRelation")}))(
-                           _por_nombre(_rep(("drift",), DRIFT_RAW + 1e-9), "drift"))))
+                           _por_nombre(_rep(["drift"], DRIFT_RAW + 1e-9), "drift"))))
 
         # --- near / exactBodyMatches ----------------------------------------------------
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",

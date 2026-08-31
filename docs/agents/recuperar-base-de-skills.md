@@ -211,9 +211,8 @@ la razón por la que son las únicas que se mueven: el heurístico distorsiona c
 arriba). Se mueven porque son las dos que **no tienen match verdadero**: de las otras nueve, las dos
 con drift dan el mismo ratio contra su base con y sin él (`tdd` 0,8625 y `to-issues` 0,9466, medido
 el 2026-08-31) y las siete restantes publican 1,0. Con dos salvedades, para no leerlo de más: ese
-1,0 es el ratio **redondeado** —el campo que habla de cuerpos idénticos es
-`summary.exactBodyMatches`, y su valor de esa corrida no quedó publicado acá— y lo medido vale para
-el ratio **contra su base**: que ningún otro de los 413 blobs las supere con el heurístico apagado no
+1,0 es el ratio **redondeado** (el campo que habla de cuerpos idénticos es
+`summary.exactBodyMatches`) y lo medido vale para el ratio **contra su base**: que ningún otro de los 413 blobs las supere con el heurístico apagado no
 se verificó. Dos consecuencias, distintas entre sí:
 
 - **El veredicto no cambia.** 0,1305 y 0,1101 siguen muy por debajo del umbral de 0,60: las dos
