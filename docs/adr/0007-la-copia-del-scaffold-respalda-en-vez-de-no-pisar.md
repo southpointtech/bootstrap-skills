@@ -36,15 +36,26 @@ La copia **sigue pisando**, pero antes respalda y después lo declara.
 2. **Reporte JSON en stdout**: `{ created[], overwritten[{file, backup}] }`, mismo estilo que
    `compare-scaffold.ps1`. `overwritten` es el término propio de este script y **no** reusa
    `customized` de `upgrade-bootstrap`, que responde otra pregunta (ver Vocabulario).
-3. **Comparación normalizada por fin de línea**: un archivo que solo difiere en CRLF vs LF no se
-   respalda ni se reporta. Es ruido de `core.autocrlf`, no un cambio: en `Profitability App` era 2 de
-   las 6 diferencias aparentes, un tercio de falsos positivos.
-4. **El respaldo más viejo gana**: si ya hay un respaldo de una corrida anterior, no se pisa. Sin ese
-   guard, una segunda corrida sobre un archivo editado respaldaría la edición y perdería el original.
+3. **Comparación normalizada por fin de línea, sobre los BYTES**: un archivo que solo difiere en
+   CRLF vs LF no se respalda ni se reporta. Es ruido de `core.autocrlf`, no un cambio: en
+   `Profitability App` era 2 de las 6 diferencias aparentes, un tercio de falsos positivos. La
+   normalización **no** decodifica a texto: decodificar hace que un BOM desaparezca y que dos bytes
+   inválidos cualesquiera colapsen en `U+FFFD`, y ambos son cambios reales que se pisarían sin
+   respaldo ni entrada en el reporte — justo la pérdida silenciosa que esto viene a evitar.
+4. **El respaldo más viejo gana, pero el nuevo no se tira**: si ya hay un respaldo de una corrida
+   anterior, ese conserva el original y la versión que se pisa ahora va al lado (`.2`, `.3`). El
+   `backup` del reporte nombra siempre la copia que contiene lo recién pisado. Sin la copia extra, una
+   segunda corrida destruía sin red lo que el proyecto hubiera cambiado desde el bootstrap — por
+   ejemplo el `.gitignore` ya mergeado en el paso D — y encima el reporte apuntaba a la versión
+   pre-merge, que es peor que no prometer nada.
 5. **Siempre activo, sin flags**: el script no sabe en qué modo lo invocan, y en un destino vacío no
    hay nada que respaldar, así que ni siquiera crea el directorio.
 6. **El punto de aprobación queda solo en adopción**: el Step 0b/D debe cubrir cada entrada de
    `overwritten` en el mapa de cobertura. En bootstrap normal el agente reporta la lista y sigue.
+7. **`.bootstrap-backup/` no entra al commit del bootstrap**: el Step 5 lo excluye explícitamente.
+   Commitearlo sería tomar por el usuario justo la decisión que el punto 1 le deja a él, y además
+   mete en el historial una copia de `CLAUDE.md` y de `.claude/`, que por la regla del gate solo-docs
+   nunca son documentación y dejarían el review-loop disparando sobre una copia.
 
 ## Alternativas descartadas
 

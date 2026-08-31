@@ -27,19 +27,29 @@ $backupRoot = Join-Path $ProjectDir ".bootstrap-backup"
 
 # Same bytes, or same bytes once CRLF is normalized to LF. A file that differs only in line
 # endings is core.autocrlf noise, not a change worth backing up: in the Profitability App
-# bootstrap that noise was 2 of 6 apparent differences. Text is read only to compare, never
-# to write, so a binary file is safe here — it just fails both checks and counts as different.
+# bootstrap that noise was 2 of 6 apparent differences.
+# The normalization is done on the BYTES, never by decoding to text. Decoding compares equal in
+# two cases that are real changes: a UTF-8 BOM is dropped by the decoder, and any two invalid
+# bytes both decode to U+FFFD — either would be overwritten with no backup and no report entry,
+# which is the exact silent loss this backup exists to prevent.
+function Test-BytesEqual([byte[]]$x, [byte[]]$y) {
+  if ($x.Length -ne $y.Length) { return $false }
+  for ($i = 0; $i -lt $x.Length; $i++) { if ($x[$i] -ne $y[$i]) { return $false } }
+  return $true
+}
+function Remove-CrBeforeLf([byte[]]$b) {
+  $out = [Collections.Generic.List[byte]]::new($b.Length)
+  for ($i = 0; $i -lt $b.Length; $i++) {
+    if ($b[$i] -eq 13 -and ($i + 1) -lt $b.Length -and $b[$i + 1] -eq 10) { continue }
+    $out.Add($b[$i])
+  }
+  return $out.ToArray()
+}
 function Test-SameContent([string]$a, [string]$b) {
   $ba = [IO.File]::ReadAllBytes($a)
   $bb = [IO.File]::ReadAllBytes($b)
-  if ($ba.Length -eq $bb.Length) {
-    $identical = $true
-    for ($i = 0; $i -lt $ba.Length; $i++) { if ($ba[$i] -ne $bb[$i]) { $identical = $false; break } }
-    if ($identical) { return $true }
-  }
-  try {
-    return (([IO.File]::ReadAllText($a) -replace "`r`n", "`n") -eq ([IO.File]::ReadAllText($b) -replace "`r`n", "`n"))
-  } catch { return $false }
+  if (Test-BytesEqual $ba $bb) { return $true }
+  return (Test-BytesEqual (Remove-CrBeforeLf $ba) (Remove-CrBeforeLf $bb))
 }
 
 $created     = [Collections.ArrayList]::new()
@@ -54,15 +64,21 @@ Get-ChildItem -LiteralPath $scaffold -Recurse -File -Force | ForEach-Object {
   if ([IO.File]::Exists($dest)) {
     if (-not (Test-SameContent $dest $_.FullName)) {
       $bak = Join-Path $backupRoot $rel
-      # A backup from an earlier run is never replaced: the oldest copy is the real original,
-      # and a second run would otherwise "back up" the scaffold the first one just landed.
-      if (-not [IO.File]::Exists($bak)) {
-        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($bak)) | Out-Null
-        [IO.File]::Copy($dest, $bak, $false)
+      # A backup from an earlier run is never replaced: the oldest copy is the real original.
+      # But the file being overwritten right now cannot be dropped either — on a second run it is
+      # whatever the project changed since (a .gitignore merged during adoption, say) — so it goes
+      # alongside as `.2`, `.3`, and the reported `backup` names the copy that actually holds it.
+      # Reporting the older path here would promise a backup that does not contain what was lost.
+      if ([IO.File]::Exists($bak)) {
+        $n = 2
+        while ([IO.File]::Exists("$bak.$n")) { $n++ }
+        $bak = "$bak.$n"
       }
+      [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($bak)) | Out-Null
+      [IO.File]::Copy($dest, $bak, $false)
       [void]$overwritten.Add([ordered]@{
         file   = ($rel -replace '\\', '/')
-        backup = ((Join-Path ".bootstrap-backup" $rel) -replace '\\', '/')
+        backup = ([IO.Path]::GetRelativePath($ProjectDir, $bak) -replace '\\', '/')
       })
     }
   } else {

@@ -43,14 +43,19 @@ Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el pl
 
 ## Testeo de la copia del scaffold (`copy-scaffold.ps1`)
 
-La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en ambas skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Casos cubiertos:
+La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en las **tres** skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Los conteos se afirman **contra el scaffold**, nunca contra un literal: un número escrito acá envejece la próxima vez que entra una skill. Casos cubiertos:
 
-- **Destino vacío** — aterrizan los 50 archivos (11 skills en `.agents/skills`), sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
+- **Destino vacío** — aterriza el scaffold completo, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico, y `.agents/skills` / `.claude/commands` con tantas entradas como el scaffold.
 - **Regresión `docs/docs`** — `docs/` y `docs/agents/` preexistentes en el proyecto → el contenido se mergea (sin anidar) y los archivos propios quedan intactos (gotcha del self-bootstrap 2026-06-23).
 - **Dot-dirs preexistentes** — `.claude/` con archivos propios → merge sin anidar ni pisar lo ajeno.
-- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica del Step 2; en adopción el original ya está stasheado).
-- **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards).
-- **Espejado** — los dos `copy-scaffold.ps1` son byte-idénticos (hash SHA256).
+- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica deliberada del Step 2; el original queda en `.bootstrap-backup/`, que es de donde el Step 0b lo toma).
+- **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards) y respalda igual.
+- **Respaldo y reporte** (ADR-0007) — un archivo propio que difiere se respalda en `.bootstrap-backup/<mismo path>` y se declara en `overwritten`, con el `backup` apuntando al subpath completo; el respaldo más viejo no se pisa y la versión posterior se guarda al lado (`.2`); un archivo ajeno al scaffold no se toca, no se respalda ni se declara; con destino vacío no se crea el directorio.
+- **Ruido de EOL** — una diferencia de solo CRLF vs LF no cuenta como pisada, en las dos direcciones, con el fixture escrito explícitamente (no derivado del checkout, que depende de `core.autocrlf`).
+- **Comparación por bytes** — un archivo del mismo largo con distinto contenido, y uno que difiere solo por el BOM, sí se declaran pisados: la comparación normaliza EOL sobre los bytes y no decodifica a texto.
+- **Espejado** — los **tres** `copy-scaffold.ps1` son byte-idénticos (hash SHA256).
+
+Cada workspace temporal cuelga de un directorio único por corrida (`cs-run-<pid>-<guid>`) y solo se borra ése: la limpieza vieja barría todo `cs-test-*` del TEMP compartido y mataba los fixtures de cualquier corrida concurrente — pasa de verdad con los reviewers en paralelo del review-loop.
 
 ## Testeo del motor del review-loop (`/slice-review`)
 

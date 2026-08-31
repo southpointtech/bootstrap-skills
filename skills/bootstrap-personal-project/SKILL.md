@@ -17,7 +17,7 @@ Run this in the directory the user designates as the new project root (usually t
 
 - If `.bootstrap-manifest.json` already exists, the project **was bootstrapped with this scaffold** — do not re-run bootstrap. Tell the user to use `upgrade-bootstrap` to pull scaffold changes, and stop.
 - If `CLAUDE.md` or `docs/ai-workflow/` exist but there is **no** `.bootstrap-manifest.json`, the project is **not** bootstrapped — it just has its own files. Do **not** say "already bootstrapped", and do **not** derive to `upgrade-bootstrap` (that skill is only for projects that already have a manifest). Instead, enter **Step 0b — Adoption mode** below: install the methodology while preserving the project's own content.
-- If the directory contains other files (code, docs), list them and confirm with the user before proceeding. Never overwrite an existing file; scaffold around it.
+- If the directory contains other files (code, docs), list them and confirm with the user before proceeding. Where the project has its own version of a file the scaffold also ships, the copy **does** overwrite it — backing the original up to `.bootstrap-backup/` and declaring it under `overwritten` first (Step 2, ADR-0007). Report that list; never assume nothing of the project's was touched.
 
 ## Step 0b — Adoption mode
 
@@ -31,13 +31,15 @@ Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges 
 
 ### B. Park the original CLAUDE.md
 
-Move the backed-up original to its permanent home (now that `docs/agents/` exists from the scaffold copy):
+**Only if the copy's report listed `CLAUDE.md` under `overwritten`** — the backup exists only when the file actually differed. Move the backup it names to its permanent home (now that `docs/agents/` exists from the scaffold copy):
 
 ```powershell
 Move-Item "$proj\.bootstrap-backup\CLAUDE.md" "$proj\docs\agents\legacy-claude.md" -Force
 ```
 
 `docs/agents/legacy-claude.md` stays in the repo forever as the recovery net.
+
+If `CLAUDE.md` is **not** in that list, there is no original to park and steps C and E have nothing to classify — skip them and say so in the Step 6 report. Two paths land here: the project had no `CLAUDE.md` at all (Step 0 also routes into adoption on a bare `docs/ai-workflow/`), or its `CLAUDE.md` was already content-identical to the canonical one. Never run the `Move-Item` blind: `-Force` does not conjure a missing source, it throws — and it would abort the adoption with the scaffold already landed on the project's files.
 
 ### C. Classify the original's content
 
@@ -52,7 +54,7 @@ Read `docs/agents/legacy-claude.md`. Split it into blocks — **treat each top-l
 
 Show the user a table: every block of the original → its destination, quoting the block verbatim. Make any unassigned ("doesn't fit") blocks visible.
 
-**The map must also cover every other entry in the copy's `overwritten` list.** Those are the project's own files the scaffold just replaced, and each one is a decision, not a default: keep the scaffold's version (often right — it is the update you came to deliver), restore the project's from `.bootstrap-backup/`, or merge the two. A `.gitignore` almost always needs merging, because the scaffold's rules are additions and the project's own entries are still needed. Nothing is lost either way — every original sits in `.bootstrap-backup/` — but say out loud what each file got.
+**The map must also cover every other entry in the copy's `overwritten` list.** Those are the project's own files the scaffold just replaced, and each one is a decision, not a default: keep the scaffold's version (often right — it is the update you came to deliver), restore the project's from `.bootstrap-backup/`, or merge the two. A `.gitignore` almost always needs merging, because the scaffold's rules are additions and the project's own entries are still needed. Nothing is lost either way — each original sits at the `backup` path its own `overwritten` entry names (the one exception is `CLAUDE.md`, which step B moved to `docs/agents/legacy-claude.md`) — but say out loud what each file got.
 
 Get a **single explicit approval** (the user may correct individual rows before approving). Do **not** write the merge until approved.
 
@@ -133,7 +135,7 @@ git config user.name  "$($env:PERSONAL_GIT_NAME  ?? 'MartinDele703')"
 git config user.email "$($env:PERSONAL_GIT_EMAIL ?? 'martin.deleon703@gmail.com')"
 ```
 
-Then commit everything as `chore: project scaffolding (AI workflow + skills)`.
+Then commit everything as `chore: project scaffolding (AI workflow + skills)` — **except `.bootstrap-backup/`**. That directory holds copies of the project's own files and is deliberately not gitignored so the user sees it; whether it belongs in history is their call, not the skill's. Leave it out of the commit and point it out in the Step 6 report.
 
 If it is already its own repo root, still set the local identity and commit the scaffolding files on the current branch.
 
