@@ -17,8 +17,9 @@ $script:tmps = [System.Collections.Generic.List[string]]::new()
 # poder distinguir sus temporales de los ajenos. Un corte por timestamp NO alcanza: excluye las
 # corridas que arrancaron ANTES, pero cualquiera que arranque DESPUÉS y siga viva entra igual al
 # barrido de la primera (reproducido: dos corridas separadas 4 s, la primera falla acusando los
-# temporales de la segunda). Y si el corte se corrompe, el filtro queda vacuo y una fuga real pasa
-# en verde. El prefijo no tiene ninguno de los dos problemas.
+# temporales de la segunda). El prefijo cierra ESA puerta —la de acusar a un tercero— y nada más:
+# el modo de falla vacuo (un filtro que no matchea nada, y entonces un barrido que no ve la fuga)
+# lo tiene igual que el timestamp, y lo que lo tapa es el assert de `$antesDeLimpiar` de más abajo.
 $script:runId = [guid]::NewGuid().ToString('N').Substring(0, 8)
 function NewTmp {
   $d = Join-Path ([IO.Path]::GetTempPath()) ("mcp-test-$($script:runId)-" + [guid]::NewGuid().ToString('N'))
@@ -397,15 +398,28 @@ foreach ($case in @(
 # el assert en verde (verificado: sacando el Add de NewTmp quedaban 6 huerfanos reales y el test
 # imprimia "los 0 temporales quedaron borrados"). El filtro es el prefijo de ESTA corrida, no un
 # corte por fecha, asi que una sesion concurrente no entra ni de casualidad.
-function Sweep { @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "mcp-test-$($script:runId)-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) }
+# Barre DOS cosas, y las dos hacen falta:
+#   - los temporales de ESTA corrida (los que llevan su runId), y
+#   - los que no tienen forma de temporal-de-corrida (`mcp-test-` sin un runId de 8 hex): esos son
+#     fugas de alguien que creo un directorio a mano sin pasar por NewTmp.
+# Filtrar solo por el propio runId cerraria el falso positivo de acusar a una corrida concurrente,
+# pero abriria el falso negativo simetrico: una fuga sin el prefijo dejaria de verse. Los `mcp-test-
+# <otro-runid>-*` son de una sesion concurrente viva y esos si se dejan en paz.
+function Sweep {
+  @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "mcp-test-*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "mcp-test-$($script:runId)-*" -or $_.Name -notmatch '^mcp-test-[0-9a-f]{8}-' } |
+    ForEach-Object { $_.FullName })
+}
 
 # El barrido se toma ANTES de limpiar: ata el filtro a la realidad. Sin esta punta, un prefijo mal
 # construido dejaba el barrido vacuo, el de abajo pasaba por no encontrar nada y la fuga real
 # quedaba en verde — el piso sobre `$script:tmps` no lo tapa, porque cuenta registros, no archivos.
-# El piso son 5 y no 15: la mayoria de los 17 se borra inline durante la corrida, y al llegar aca
-# siguen vivos solo los 6 que antes nadie limpiaba —justo los que dejaban los huerfanos—.
+# Es un piso de NO-VACUIDAD, no un censo: alcanza con que el barrido vea algo. Un `-ge 5` (hoy ve
+# 6, porque el resto de los 17 se borra inline durante la corrida) tendria margen 1 y se pondria
+# rojo con solo agregarle limpieza inline a uno de esos casos, con un mensaje que se lee como fuga
+# cuando no fugo nada. El censo real lo da el `-ge 15` sobre el registro, mas abajo.
 $antesDeLimpiar = Sweep
-Assert ($antesDeLimpiar.Count -ge 5) "sin rastros: el barrido ve los temporales vivos de la corrida antes de limpiar (vio $($antesDeLimpiar.Count))"
+Assert ($antesDeLimpiar.Count -ge 1) "sin rastros: el barrido ve los temporales vivos de la corrida antes de limpiar (vio $($antesDeLimpiar.Count))"
 
 Cleanup-Tmps
 

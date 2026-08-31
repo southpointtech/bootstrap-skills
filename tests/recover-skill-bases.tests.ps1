@@ -12,7 +12,7 @@ function Assert($cond, $msg) {
 
 # Piso de aserciones del self-test. Sube a mano cuando se agregan checks. Sin este piso, un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$MinChecks = 55
+$MinChecks = 56
 
 # La herramienta tiene que existir: si no, el intérprete escupe su error y un assert de
 # "no hubo fails" pasaría en verde sin haber ejercitado nada.

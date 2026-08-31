@@ -58,7 +58,8 @@ Si la necesitás al día: `git rev-list --objects --all` filtrando por `SKILL.md
 | 0 | terminó bien: escribió el reporte, o lo imprimió con `--stdout`, o el `--self-test` pasó |
 | 1 | solo con `--self-test`: alguna aserción falló |
 | 2 | error de invocación, **detectado antes de trabajar**: `--upstream-clone` que no es la raíz de un clon, `--skills-dir` inexistente, un `--skill` sin `SKILL.md`, o un `--out` que no se va a poder escribir. También es el que usa argparse para una opción inválida |
-| 3 | la recuperación salió bien pero la escritura de `--out` falló igual (permisos, disco lleno, ruta de red). El reporte sale por **stdout** para no perderlo |
+| 3 | la recuperación salió bien pero la escritura de `--out` falló igual (permisos, disco lleno, ruta de red). El reporte sale por **stdout** para no perderlo, y el destino que ya estaba queda intacto |
+| 4 | no se pudo clonar upstream (sin red, URL mala, git que falla). Va aparte del 2 a propósito: "lo tipeaste mal" no se reintenta, "no hay red" sí |
 
 Todo lo que se puede detectar se detecta antes de clonar y de recuperar, porque la recuperación
 cuesta entre 81 s y 98 s con el clon ya hecho (medido) y un error de invocación no debe costar eso —
@@ -234,11 +235,12 @@ correr nada daría verde vacío— y que el total de aserciones no baje de un pi
 (3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **55
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **56
 afirmaciones** sobre nueve skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
-versión, en máquina ociosa: **12,2 / 10,5 / 11,2 s** (la de 54 aserciones daba 8,4–8,8 s).
+versión, en máquina ociosa: del orden de **10 s** (medidas sueltas entre 7,8 s y 12,2 s en la misma
+máquina y la misma versión, según qué más estuviera corriendo).
 La prueba de que la carga manda: una versión anterior con **menos** aserciones (44) se midió en
 31 / 26 / 31,6 s por estar tomada con siete procesos en paralelo. El grueso no son las aserciones
 sino armar el fixture, que hace una docena de commits de git. Cubre:
@@ -262,8 +264,11 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
   subdirectorio** de un repo o de un bare, que es lo que hacía pasar a este repo por upstream;
 - que un `--out` sin directorio se escriba en el cwd, y que las otras formas que fallaban recién en
   el `open()` —ruta vacía, un directorio ya existente, un componente intermedio que es archivo, una
-  ruta terminada en separador, una unidad no montada o un UNC inalcanzable— se rechacen **antes** de
-  trabajar, cada una diciendo cuál es. El
+  ruta terminada en separador, una raíz que no existe— se rechacen **antes** de trabajar, cada una
+  diciendo cuál es. El caso de la raíz se asserta contra la función y no contra el CLI, y busca una
+  letra de unidad libre en runtime: hardcodear `Z:` hacía que en una máquina con `Z:` mapeada la
+  herramienta **escribiera el reporte en ese share**, y en POSIX creara un directorio llamado `Z:`
+  en el cwd. (Un UNC inalcanzable cae por la misma rama, pero eso no lo ejercita ningún caso.) El
   motivo se ancla en un token con guiones (`destino-ocupado:`), no en una palabra suelta: el mensaje
   imprime la ruta, así que assertar `"directorio"` lo satisfacía el nombre del fixture y no el
   motivo, y los motivos se podían intercambiar entre sí sin que nada fallara;

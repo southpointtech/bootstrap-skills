@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 
 # --------------------------------------------------------------------------- #
@@ -932,9 +933,46 @@ def self_test():
         check("y se rechaza ANTES de clonar: no se intenta la red siquiera",
               _no_llega_a_clonar)
 
-        check("una unidad no montada o un UNC inalcanzable se rechazan por su propio motivo",
-              lambda: ((lambda t: (t[0] == 2 and "raiz-inexistente:" in t[1], t))(
-                  _out_rechazado(os.path.join("Z:" + os.sep, "no-montada", "rep.json")))))
+        # Cuando el clon SI se intenta y falla, el temporal que se creo para recibirlo no puede
+        # quedar tirado: antes quedaba un mkdtemp vacio en TEMP por cada corrida sin red, y la
+        # herramienta escupia el traceback crudo en vez de un mensaje.
+        def _clon_fallido_no_deja_huerfano():
+            import io
+            import contextlib
+            import glob
+            antes = set(glob.glob(os.path.join(tempfile.gettempdir(), "pocock-skills-*")))
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = main(["--upstream-url", "https://example.invalid/no-existe.git",
+                           "--skills-dir", local, "--stdout"])
+            despues = set(glob.glob(os.path.join(tempfile.gettempdir(), "pocock-skills-*")))
+            salida = err.getvalue()
+            return (rc == 4 and "No se pudo clonar" in salida and despues == antes), \
+                   (rc, salida[-90:], sorted(despues - antes))
+
+        check("un clon que falla sale con su propio codigo y no deja el temporal tirado",
+              _clon_fallido_no_deja_huerfano)
+
+        # Este caso se asserta contra la FUNCION y no contra `main()`: pasarle una raiz que
+        # resulte existir hace que la herramienta ESCRIBA ahi (se reprodujo creando el reporte
+        # adentro de la raiz, que en una maquina con `Z:` mapeada a un share de red seria
+        # escribir en el share; y en POSIX, un directorio llamado `Z:` en el cwd del runner).
+        # Un test no escribe fuera de su fixture ni depende de como este montada la maquina.
+        def _raiz_inexistente():
+            if os.name == "nt":
+                # la primera letra de unidad libre: fabricada en runtime, no hardcodeada
+                libre = next((c for c in "ZYXWVU"
+                              if not os.path.exists(c + ":" + os.sep)), None)
+                if libre is None:
+                    return True, "todas las unidades montadas: caso no ejercitable"
+                motivo = _out_no_escribible(os.path.join(libre + ":" + os.sep, "nada", "r.json"))
+                return (motivo or "").startswith("raiz-inexistente:"), (libre, motivo)
+            # en POSIX no hay forma de fabricar una raiz ausente —el walk-up siempre termina
+            # en `/`, que existe—, asi que lo verificable es que la rama NO se dispare.
+            motivo = _out_no_escribible("/nada/de/esto/existe/r.json")
+            return not (motivo or "").startswith("raiz-inexistente:"), motivo
+
+        check("una raiz que no existe se rechaza por su propio motivo", _raiz_inexistente)
 
         # El exit 3 es la ultima puerta por la que se pierde trabajo: la recuperacion salio bien
         # pero la escritura fallo igual. Se fuerza haciendo fallar el `os.replace`, que es el unico
@@ -952,8 +990,10 @@ def self_test():
                 f.write('{"reporte": "el bueno, sellado a mano"}\n')
 
             real = os.replace
+            visto = []
 
             def revienta(a, b):
+                visto.append(a)                 # el nombre del temporal que se iba a renombrar
                 raise OSError(28, "sin espacio (simulado)")
 
             out, err = io.StringIO(), io.StringIO()
@@ -970,8 +1010,12 @@ def self_test():
                 quedo = f.read()
             # nada mas que el reporte bueno: ni un temporal abandonado al lado
             sobrantes = [n for n in os.listdir(d) if n != "bueno.json"]
-            return (rc == 3 and '"skills"' in texto and "el bueno" in quedo and not sobrantes), \
-                   (rc, len(texto), quedo[:40], sobrantes)
+            # y el temporal NO puede llamarse `<destino>.tmp`: con ese nombre fijo, dos corridas
+            # con el mismo --out se pisan el temporal entre si.
+            unico = bool(visto) and visto[0] != dest + ".tmp"
+            return (rc == 3 and '"skills"' in texto and "el bueno" in quedo
+                    and not sobrantes and unico), \
+                   (rc, len(texto), quedo[:40], sobrantes, visto)
 
         check("si la escritura falla, el reporte sale por stdout con exit 3, el destino queda "
               "INTACTO y no queda temporal",
@@ -999,6 +1043,13 @@ DEFAULT_SKILLS_DIR = os.path.join(
     REPO, "skills", "bootstrap-ai-project", "assets", "scaffold", ".agents", "skills")
 DEFAULT_OUT = os.path.join(REPO, ".scratch", "bootstrap-v2", "skill-bases.json")
 UPSTREAM_URL = "https://github.com/mattpocock/skills.git"
+
+
+def _umask_actual():
+    """El umask del proceso. Solo se puede leer poniéndolo, así que se restaura enseguida."""
+    m = os.umask(0)
+    os.umask(m)
+    return m
 
 
 def _out_no_escribible(out):
@@ -1076,7 +1127,6 @@ def main(argv=None):
         print("No es un clon de git: %s" % clone, file=sys.stderr)
         return 2
     if not clone:
-        import tempfile
         clone = tempfile.mkdtemp(prefix="pocock-skills-")
         print("Clonando %s (requiere red)..." % args.upstream_url, file=sys.stderr)
         # el clon debe traer toda la historia: la base vive en blobs viejos, no en el HEAD
@@ -1088,7 +1138,9 @@ def main(argv=None):
             import shutil
             shutil.rmtree(clone, ignore_errors=True)
             print("No se pudo clonar %s: %s" % (args.upstream_url, exc), file=sys.stderr)
-            return 2
+            # código propio, no el 2 de "error de invocación": para quien llama, "lo tipeaste
+            # mal" no se reintenta y "no hay red" sí.
+            return 4
         print("Clon: %s (reusalo con --upstream-clone)" % clone, file=sys.stderr)
 
     report = recover(clone, args.skills_dir, args.skills, args.threshold)
@@ -1103,7 +1155,6 @@ def main(argv=None):
         # que se cae, que son justo los casos de la red de abajo— el reporte bueno que estaba
         # ahí queda destruido y reemplazado por JSON parcial. `os.replace` es atómico en el
         # mismo volumen, así que el destino o tiene el reporte viejo entero o el nuevo entero.
-        import tempfile
         destino = os.path.abspath(args.out)
         tmp_out = None
         try:
@@ -1112,22 +1163,34 @@ def main(argv=None):
             # ese nombre fijo y una truncaba el temporal de la otra a mitad de escritura.
             fd, tmp_out = tempfile.mkstemp(dir=os.path.dirname(destino),
                                            prefix=".recover-", suffix=".tmp")
-            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-                f.write(text)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(text)
+            except BaseException:
+                os.close(fd)                 # `fdopen` que falla deja el fd sin dueño
+                raise
+            # `mkstemp` crea en 0600. Sin esto, el reporte pasaría de los 0644 habituales a
+            # ilegible para otro usuario (y le pisaría el modo a un destino que ya existía).
+            if os.name != "nt":
+                os.chmod(tmp_out, 0o666 & ~_umask_actual())
             os.replace(tmp_out, destino)
         except OSError as exc:
             # Red final: el pre-flight cubre las formas conocidas, pero un permiso, un disco
             # lleno o una ruta de red caída aparecen recién acá, con la recuperación ya hecha.
             # Escupir el reporte por stdout cuesta un redirect; perderlo cuesta la corrida.
+            print("No se pudo escribir %s (%s). El reporte va por stdout para no perderlo."
+                  % (args.out, exc), file=sys.stderr)
+            sys.stdout.write(text)
+            return 3
+        finally:
+            # `finally` y no el `except`: un Ctrl-C entre el mkstemp y el replace no es OSError,
+            # y dejaba un `.recover-*.tmp` nuevo en el directorio de salida por cada interrupción.
+            # Si el replace salió bien, `tmp_out` ya no existe y esto no hace nada.
             try:
                 if tmp_out and os.path.isfile(tmp_out):
                     os.remove(tmp_out)
             except OSError:
                 pass
-            print("No se pudo escribir %s (%s). El reporte va por stdout para no perderlo."
-                  % (args.out, exc), file=sys.stderr)
-            sys.stdout.write(text)
-            return 3
         print("Escrito: %s" % args.out)
     return 0
 
