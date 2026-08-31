@@ -124,12 +124,14 @@ def similarity(a, b):
     El efecto sobre el REPORTE es mas chico, pero lo que esta medido tiene borde: apagarlo
     movio el numero publicado y el blob elegido de `review-loop` y `slice-review` (0.0308 y
     0.0202 medidos el 2026-08-28 con autojunk; 0.1305 y 0.1101 el 2026-08-31 sin el, contra
-    otro blob). De las otras nueve, siete tienen cuerpo identico (1.0, insensible al
-    heuristico) y las dos con drift dan el mismo ratio contra su base con y sin el (`tdd`
-    0.8625, `to-issues` 0.9466, medido el 2026-08-31). Lo que NO se verifico es que ningun
-    otro de los 413 blobs las supere con el heuristico apagado, asi que "solo esas dos
-    cambian" vale para el numero contra su base, no para toda la busqueda. Ningun veredicto
-    cambia: los cuatro numeros de las dos sin match estan lejos del umbral de 0.60.
+    otro blob). De las otras nueve, las dos con drift dan el mismo ratio contra su base con
+    y sin el (`tdd` 0.8625, `to-issues` 0.9466, medido el 2026-08-31) y las siete restantes
+    publican 1.0. Dos limites de eso, para no leerlo de mas: el 1.0 es el ratio REDONDEADO
+    —`exactBodyMatches` es el que habla de cuerpos identicos, y su valor de esa corrida no
+    quedo publicado en el repo— y no se verifico que ningun otro de los 413 blobs las supere
+    con el heuristico apagado. O sea "solo esas dos cambian" vale para el numero contra su
+    base, no para toda la busqueda. Ningun veredicto cambia: los cuatro numeros de las dos
+    sin match estan lejos del umbral de 0.60.
 
     No se apaga por costo medido el 2026-08-31: `autojunk=False` lleva la corrida de ~98 s a
     ~2.500-3.500 s. Cambiar la metrica (tokenizar por linea) es el issue 19.
@@ -446,7 +448,7 @@ def recover(upstream, skills_dir, names, threshold):
                 % (len(ranked), best_ratio,
                    "sus cuerpos son identicos tras normalizar: lo que difiere entre los "
                    "blobs esta fuera del cuerpo normalizado — frontmatter, BOM, fines de "
-                   "linea o espacios en los extremos; cual de esos, no se midio"
+                   "linea o whitespace en los extremos; cual de esos, no se midio"
                    if same_body else
                    "al menos dos de los cuerpos empatados difieren entre si: el empate es "
                    "de ratio, no de contenido. Cual es la base la decide un humano"))
@@ -1073,16 +1075,17 @@ def self_test():
         # reporte dejara de emitir `missing-locally`, imprimir la lista de violaciones daria
         # `[]`, que se lee como "el contrato esta bien" — la trampa de reportar contra una
         # lista vacia, que en este repo ya mordio una vez.
-        # memoizado y llamado DENTRO de los lambdas: hoisteado al bloque, una excepcion en
-        # `recover` abortaba el self-test entero —sin linea de resumen y sin los ~20 checks
-        # que siguen— en vez de contarse como un FAIL. El cache evita pagar la corrida dos
-        # veces, que era el motivo por el que se habia sacado del lambda.
-        _reps = {}
-
+        # Las corridas extra de `recover` van DENTRO de los lambdas: hoisteadas al bloque,
+        # una excepcion abortaba el self-test entero —sin linea de resumen y sin los checks
+        # que siguen, que medidos son 43 si revienta la primera y 37 si revienta la ultima—
+        # en vez de contarse como un FAIL aislado.
+        #
+        # Lo que evita pagar la corrida dos veces —el motivo por el que se habian hoisteado—
+        # es la forma `(lambda e: (cond, got))(_rep(...))`: una sola evaluacion que alimenta
+        # la condicion y el diagnostico. NO hay memo: las tres claves son distintas, asi que
+        # un cache daria 3 misses y 0 hits, y decir que ahorra algo seria falso.
         def _rep(nombres, thr):
-            if (nombres, thr) not in _reps:
-                _reps[(nombres, thr)] = recover(up, local, list(nombres), thr)
-            return _reps[(nombres, thr)]
+            return recover(up, local, list(nombres), thr)
         check("cada entrada emite exactamente los campos que declara method.fieldsByStatus",
               lambda: (not _viola_contrato(report), _viola_contrato(report)))
         check("el contrato tambien vale para missing-locally, que no sale por el CLI",
@@ -1172,7 +1175,7 @@ def self_test():
             return (not malos and verificadas == 9,
                     {"mismatches": malos, "basesVerificadas": verificadas})
 
-        check("las 9 bases publicadas existen en su commit y su path",
+        check("las 9 bases con commit publicado existen en su commit y su path",
               _invariante_commit_path)
 
         # --- latin-1 ---------------------------------------------------------------------

@@ -141,8 +141,8 @@ JSON. Por skill:
   mirarlo: `tieOnIdenticalBodies` compara los cuerpos —ya normalizados: sin frontmatter, con CRLF a
   LF y extremos recortados— y lo dice. En `true` los cuerpos son idénticos y lo que difiere entre los
   blobs está **fuera** del cuerpo normalizado: en la práctica el frontmatter (es el caso de las tres
-  de hoy), aunque un BOM, los fines de línea o un espacio en los extremos producirían lo mismo, y la
-  herramienta no distingue cuál de esos fue.
+  de hoy), aunque un BOM, los fines de línea o cualquier whitespace en los extremos producirían lo
+  mismo, y la herramienta no distingue cuál de esos fue.
   En `false` **al menos dos** de los cuerpos empatados difieren —`same_body` es un `all()`, y con
   tres o más blobs empatados el resto puede coincidir—: son versiones distintas con el mismo ratio,
   elegir mal cambia el merge de tres vías, y ahí el desempate por fecha es una convención, no una
@@ -208,11 +208,13 @@ aparte el 2026-08-31, sobre las mismas once skills locales:
 
 Son las **dos únicas** que pasan los 7 KB —la tercera más larga tiene 6.335 B—, pero eso **no** es
 la razón por la que son las únicas que se mueven: el heurístico distorsiona casi todos los pares (ver
-arriba). Se mueven porque son las dos que **no tienen match verdadero**: de las otras nueve, siete
-tienen cuerpo idéntico (1,0, insensible al heurístico) y las dos con drift dan el mismo ratio contra
-su base con y sin él (`tdd` 0,8625 y `to-issues` 0,9466, medido el 2026-08-31). Con la salvedad de
-que eso vale para el ratio **contra su base**: que ningún otro de los 413 blobs las supere con el
-heurístico apagado no se verificó. Dos consecuencias, distintas entre sí:
+arriba). Se mueven porque son las dos que **no tienen match verdadero**: de las otras nueve, las dos
+con drift dan el mismo ratio contra su base con y sin él (`tdd` 0,8625 y `to-issues` 0,9466, medido
+el 2026-08-31) y las siete restantes publican 1,0. Con dos salvedades, para no leerlo de más: ese
+1,0 es el ratio **redondeado** —el campo que habla de cuerpos idénticos es
+`summary.exactBodyMatches`, y su valor de esa corrida no quedó publicado acá— y lo medido vale para
+el ratio **contra su base**: que ningún otro de los 413 blobs las supere con el heurístico apagado no
+se verificó. Dos consecuencias, distintas entre sí:
 
 - **El veredicto no cambia.** 0,1305 y 0,1101 siguen muy por debajo del umbral de 0,60: las dos
   salen `unmatched` / `no-match-above-threshold` con `autojunk` prendido o apagado.
