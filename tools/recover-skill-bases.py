@@ -939,16 +939,34 @@ def self_test():
         def _clon_fallido_no_deja_huerfano():
             import io
             import contextlib
-            import glob
-            antes = set(glob.glob(os.path.join(tempfile.gettempdir(), "pocock-skills-*")))
+            # Una ruta LOCAL inexistente, no una URL: `git clone` falla igual de rapido y por el
+            # mismo camino, pero sin DNS, sin proxy y sin poder despertar al credential manager.
+            # Con `https://example.invalid/...` el self-test dejaba de ser offline —contra lo que
+            # afirman su propio doc y su runner— y en una maquina con DNS que resuelve todo, o
+            # detras de un proxy que pide credenciales, podia colgarse esperando input.
+            url_muerta = os.path.join(tmp, "no-existe-este-repo")
+            creados = []
+            real_mkdtemp = tempfile.mkdtemp
+
+            def espia(*a, **k):
+                d = real_mkdtemp(*a, **k)
+                creados.append(d)
+                return d
+
             err = io.StringIO()
-            with contextlib.redirect_stderr(err):
-                rc = main(["--upstream-url", "https://example.invalid/no-existe.git",
-                           "--skills-dir", local, "--stdout"])
-            despues = set(glob.glob(os.path.join(tempfile.gettempdir(), "pocock-skills-*")))
+            tempfile.mkdtemp = espia
+            try:
+                with contextlib.redirect_stderr(err):
+                    rc = main(["--upstream-url", url_muerta,
+                               "--skills-dir", local, "--stdout"])
+            finally:
+                tempfile.mkdtemp = real_mkdtemp
             salida = err.getvalue()
-            return (rc == 4 and "No se pudo clonar" in salida and despues == antes), \
-                   (rc, salida[-90:], sorted(despues - antes))
+            # se mira EL clon de esta corrida, no un glob de todo `pocock-skills-*`: con el glob,
+            # otro proceso que creara uno en la misma ventana ponia el caso en rojo culpandonos.
+            quedaron = [d for d in creados if os.path.isdir(d)]
+            return (rc == 4 and "No se pudo clonar" in salida and not quedaron), \
+                   (rc, salida[-90:], creados, quedaron)
 
         check("un clon que falla sale con su propio codigo y no deja el temporal tirado",
               _clon_fallido_no_deja_huerfano)
@@ -964,7 +982,11 @@ def self_test():
                 libre = next((c for c in "ZYXWVU"
                               if not os.path.exists(c + ":" + os.sep)), None)
                 if libre is None:
-                    return True, "todas las unidades montadas: caso no ejercitable"
+                    # `check` no imprime el detalle cuando pasa, asi que sin este aviso el caso
+                    # se auto-excluiria en silencio y el conteo seguiria diciendo que corrio.
+                    print("  aviso: ZYXWVU estan todas montadas, el caso de la raiz no se "
+                          "ejercito en esta maquina")
+                    return True, "caso no ejercitable"
                 motivo = _out_no_escribible(os.path.join(libre + ":" + os.sep, "nada", "r.json"))
                 return (motivo or "").startswith("raiz-inexistente:"), (libre, motivo)
             # en POSIX no hay forma de fabricar una raiz ausente —el walk-up siempre termina
@@ -1000,8 +1022,12 @@ def self_test():
             os.replace = revienta
             try:
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    # dos corridas: la segunda es la que permite comparar los dos nombres de
+                    # temporal y exigir que sean distintos, no solo distintos de uno puntual
                     rc = main(["--upstream-clone", up, "--skills-dir", local,
                                "--skill", "alpha", "--out", dest])
+                    main(["--upstream-clone", up, "--skills-dir", local,
+                          "--skill", "alpha", "--out", dest])
             finally:
                 os.replace = real
 
@@ -1010,9 +1036,13 @@ def self_test():
                 quedo = f.read()
             # nada mas que el reporte bueno: ni un temporal abandonado al lado
             sobrantes = [n for n in os.listdir(d) if n != "bueno.json"]
-            # y el temporal NO puede llamarse `<destino>.tmp`: con ese nombre fijo, dos corridas
-            # con el mismo --out se pisan el temporal entre si.
-            unico = bool(visto) and visto[0] != dest + ".tmp"
+            # el temporal tiene que tener nombre VARIABLE, no uno fijo: con un nombre fijo dos
+            # corridas con el mismo --out se pisan el temporal entre si. Se asserta la forma y no
+            # un nombre puntual —`!= dest + ".tmp"` lo cumplia cualquier otro fijo, como
+            # `.recover.tmp`, que tiene exactamente el mismo problema—: dos corridas seguidas
+            # tienen que dar nombres distintos.
+            unico = (len(visto) >= 2 and visto[0] != visto[1]
+                     and os.path.dirname(visto[0]) == d)
             return (rc == 3 and '"skills"' in texto and "el bueno" in quedo
                     and not sobrantes and unico), \
                    (rc, len(texto), quedo[:40], sobrantes, visto)
@@ -1020,6 +1050,79 @@ def self_test():
         check("si la escritura falla, el reporte sale por stdout con exit 3, el destino queda "
               "INTACTO y no queda temporal",
               _falla_al_reemplazar)
+
+        # Una excepcion que NO es OSError tiene que PROPAGARSE, no volverse un exit 3. El exit 3
+        # dice "la escritura fallo"; un bug de programacion o un Ctrl-C no son eso. Un `os.close`
+        # de mas sobre un fd ya cerrado convertia cualquiera de los dos en EBADF —que si es
+        # OSError— y los tragaba, ademas de pisar el mensaje de un ENOSPC real.
+        def _no_traga_lo_que_no_es_de_escritura():
+            import io
+            import contextlib
+            d = os.path.join(tmp, "destino-e")
+            os.makedirs(d, exist_ok=True)
+            real = os.replace
+
+            def revienta_raro(a, b):
+                raise ValueError("bug de programacion (simulado)")
+
+            os.replace = revienta_raro
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), \
+                     contextlib.redirect_stderr(io.StringIO()):
+                    main(["--upstream-clone", up, "--skills-dir", local, "--skill", "alpha",
+                          "--out", os.path.join(d, "r.json")])
+                return False, "el ValueError se trago y devolvio un codigo de salida"
+            except ValueError:
+                return True, "propago"
+            except BaseException as exc:
+                return False, "lo convirtio en %r" % (exc,)
+            finally:
+                os.replace = real
+
+        check("una excepcion que no es de escritura se propaga, no se disfraza de exit 3",
+              _no_traga_lo_que_no_es_de_escritura)
+
+        # Y cuando la falla ocurre DENTRO del write —el caso realista: el buffer recien se vacia
+        # al cerrar, con el disco lleno o la ruta de red caida— el motivo reportado tiene que ser
+        # el real. Un `os.close` de mas sobre el fd que el `with` ya cerro tiraba EBADF adentro
+        # del handler y pisaba el error original con "Bad file descriptor".
+        def _motivo_real_si_falla_el_write():
+            import io
+            import contextlib
+            d = os.path.join(tmp, "destino-f")
+            os.makedirs(d, exist_ok=True)
+            real_fdopen = os.fdopen
+
+            def fdopen_que_falla_al_escribir(fd, *a, **k):
+                real = real_fdopen(fd, *a, **k)
+
+                class Envuelto:
+                    def __enter__(self_):
+                        return self_
+
+                    def __exit__(self_, *e):
+                        real.close()          # el `with` cierra el fd, como en la vida real
+                        return False
+
+                    def write(self_, _s):
+                        raise OSError(28, "sin espacio en disco (simulado)")
+
+                return Envuelto()
+
+            out, err = io.StringIO(), io.StringIO()
+            os.fdopen = fdopen_que_falla_al_escribir
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    rc = main(["--upstream-clone", up, "--skills-dir", local, "--skill", "alpha",
+                               "--out", os.path.join(d, "r.json")])
+            finally:
+                os.fdopen = real_fdopen
+            salida = err.getvalue()
+            return (rc == 3 and "sin espacio" in salida
+                    and "Bad file descriptor" not in salida), (rc, salida[:110])
+
+        check("si el write falla, el motivo reportado es el real y no un EBADF de un close de mas",
+              _motivo_real_si_falla_el_write)
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
@@ -1163,14 +1266,24 @@ def main(argv=None):
             # ese nombre fijo y una truncaba el temporal de la otra a mitad de escritura.
             fd, tmp_out = tempfile.mkstemp(dir=os.path.dirname(destino),
                                            prefix=".recover-", suffix=".tmp")
+            # El try envuelve SOLO el `fdopen`, que es lo único que puede dejar el fd sin dueño.
+            # Envolver también el `write` era un doble-close: si el `fdopen` salió bien, el `with`
+            # ya cerró el fd, y el `os.close` de más tiraba EBADF ADENTRO del handler — así que el
+            # `raise` no llegaba a correr y EBADF reemplazaba a la excepción original. Efecto
+            # medido: un Ctrl-C se convertía en OSError y quedaba capturado abajo (exit 3), un
+            # bug de programación se enmascaraba como "falló el disco", y un ENOSPC real
+            # reportaba "Bad file descriptor" — justo el diagnóstico para el que existe el exit 3.
             try:
-                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(text)
+                f = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
             except BaseException:
-                os.close(fd)                 # `fdopen` que falla deja el fd sin dueño
+                os.close(fd)
                 raise
-            # `mkstemp` crea en 0600. Sin esto, el reporte pasaría de los 0644 habituales a
-            # ilegible para otro usuario (y le pisaría el modo a un destino que ya existía).
+            with f:
+                f.write(text)
+            # `mkstemp` crea en 0600. Sin esto, el reporte quedaría ilegible para otro usuario o
+            # para CI. `os.replace` intercambia inodos, así que el modo del destino preexistente
+            # se pisa en cualquier caso: lo que elige esta línea es con qué se pisa, y elige lo
+            # mismo que habría creado un `open()` común.
             if os.name != "nt":
                 os.chmod(tmp_out, 0o666 & ~_umask_actual())
             os.replace(tmp_out, destino)

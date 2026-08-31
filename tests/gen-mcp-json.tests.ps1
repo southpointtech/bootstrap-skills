@@ -396,37 +396,44 @@ foreach ($case in @(
 # Se mira el FILESYSTEM y no la lista `$script:tmps`: filtrar la propia lista solo probaria "lo que
 # registre lo borre", y un temporal creado con New-Item directo —sin pasar por NewTmp— filtraba con
 # el assert en verde (verificado: sacando el Add de NewTmp quedaban 6 huerfanos reales y el test
-# imprimia "los 0 temporales quedaron borrados"). El filtro es el prefijo de ESTA corrida, no un
-# corte por fecha, asi que una sesion concurrente no entra ni de casualidad.
-# Barre DOS cosas, y las dos hacen falta:
-#   - los temporales de ESTA corrida (los que llevan su runId), y
-#   - los que no tienen forma de temporal-de-corrida (`mcp-test-` sin un runId de 8 hex): esos son
-#     fugas de alguien que creo un directorio a mano sin pasar por NewTmp.
-# Filtrar solo por el propio runId cerraria el falso positivo de acusar a una corrida concurrente,
-# pero abriria el falso negativo simetrico: una fuga sin el prefijo dejaria de verse. Los `mcp-test-
-# <otro-runid>-*` son de una sesion concurrente viva y esos si se dejan en paz.
-function Sweep {
-  @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "mcp-test-*" -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "mcp-test-$($script:runId)-*" -or $_.Name -notmatch '^mcp-test-[0-9a-f]{8}-' } |
+# imprimia "los 0 temporales quedaron borrados").
+#
+# Se miran DOS poblaciones, y por separado a proposito:
+#   - PROPIOS: los que llevan el runId de esta corrida. Son los unicos que esta corrida creo y los
+#     unicos que `Cleanup-Tmps` puede borrar, asi que son los unicos sobre los que puede FALLAR.
+#   - NO CONFORMES: `mcp-test-*` sin un runId de 8 hex. Son fugas —de un New-Item a mano, o de una
+#     version vieja de este archivo, que nombraba `mcp-test-<guid32>` y dejo los 606 huerfanos—.
+#     Se REPORTAN, no se assertan: esta corrida no los creo y no los puede borrar, asi que fallar
+#     por ellos seria un rojo pegajoso, imposible de limpiar y con un mensaje que nos culpa a
+#     nosotros. Los `mcp-test-<otro-runid>-*` no entran en ninguna: son de una sesion concurrente
+#     viva y se dejan en paz.
+function SweepPropios {
+  @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "mcp-test-$($script:runId)-*" -ErrorAction SilentlyContinue |
     ForEach-Object { $_.FullName })
+}
+function SweepNoConformes {
+  @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "mcp-test-*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -cnotmatch '^mcp-test-[0-9a-f]{8}-' } | ForEach-Object { $_.FullName })
 }
 
 # El barrido se toma ANTES de limpiar: ata el filtro a la realidad. Sin esta punta, un prefijo mal
 # construido dejaba el barrido vacuo, el de abajo pasaba por no encontrar nada y la fuga real
 # quedaba en verde — el piso sobre `$script:tmps` no lo tapa, porque cuenta registros, no archivos.
-# Es un piso de NO-VACUIDAD, no un censo: alcanza con que el barrido vea algo. Un `-ge 5` (hoy ve
-# 6, porque el resto de los 17 se borra inline durante la corrida) tendria margen 1 y se pondria
-# rojo con solo agregarle limpieza inline a uno de esos casos, con un mensaje que se lee como fuga
-# cuando no fugo nada. El censo real lo da el `-ge 15` sobre el registro, mas abajo.
-$antesDeLimpiar = Sweep
+# Va sobre los PROPIOS: contando tambien los no conformes, basura ajena podia satisfacer el piso
+# sola, sin que se hubiera visto un solo temporal de esta corrida.
+$antesDeLimpiar = SweepPropios
 Assert ($antesDeLimpiar.Count -ge 1) "sin rastros: el barrido ve los temporales vivos de la corrida antes de limpiar (vio $($antesDeLimpiar.Count))"
 
 Cleanup-Tmps
 
 # Y se asserta que la limpieza PASO: `-ErrorAction SilentlyContinue` se traga un borrado fallido,
 # asi que sin este assert un temporal que sobrevive es invisible.
-$sobrevivientes = Sweep
+$sobrevivientes = SweepPropios
 Assert ($sobrevivientes.Count -eq 0) "sin rastros: ningun temporal de esta corrida quedo en TEMP (sobrevivieron: $($sobrevivientes -join ', '))"
+$noConformes = SweepNoConformes
+if ($noConformes.Count) {
+  Write-Host "aviso: hay $($noConformes.Count) 'mcp-test-*' en TEMP sin runId, que esta corrida no creo ni puede borrar (fuga vieja o de otra herramienta): $($noConformes -join ', ')"
+}
 # Piso de no-degeneracion sobre el REGISTRO: agarra el caso de NewTmp que deja de registrar, que
 # vuelve inutil a `Cleanup-Tmps` aunque el barrido de arriba lo delate igual. Hoy son 17.
 Assert ($script:tmps.Count -ge 15) "sin rastros: la corrida registro al menos 15 temporales (fueron $($script:tmps.Count))"
