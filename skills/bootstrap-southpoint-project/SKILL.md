@@ -33,9 +33,9 @@ Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges 
 
 ### B. Park the original CLAUDE.md
 
-**First look at `docs/agents/legacy-claude.md`.** If it already exists, an earlier run parked the original there and *that file* is it — leave it exactly as it is and go straight to step C. Never move anything on top of it: it is the permanent recovery net, and by the time a re-run makes a fresh backup the project's own text is no longer what gets copied.
+**First look at `docs/agents/legacy-claude.md`.** If it already exists it is normally the original, parked by an earlier run — leave it exactly as it is and go straight to step C. Read it before trusting it, though: if it is empty, or is plainly not this project's `CLAUDE.md`, then the real original is the backup below and the name collided; say so rather than classifying an empty or foreign file. Never move anything on top of it: it is the permanent recovery net, and by the time a re-run makes a fresh backup the project's own text is no longer what gets copied.
 
-Otherwise park it, **only if `.bootstrap-backup/CLAUDE.md` exists after the copy**. For this one file take the **un-numbered** path — the opposite of the rule for every other entry. The numbered copies (`.2`, `.3`) hold what a later run overwrote, which by then is the canonical template; the un-numbered one is the project's own original, and that is what step C has to classify. Everywhere else you want the newest, here you want the oldest.
+Otherwise park it, **only if `.bootstrap-backup/CLAUDE.md` exists after the copy**. For this one file take the **un-numbered** path — the opposite of the rule for every other entry. The numbered copies (`.2`, `.3`) hold what a later run overwrote, which by then is the canonical template plus whatever was merged or edited into it; the un-numbered one is the project's own original, and that is what step C has to classify. Everywhere else you want the newest, here you want the oldest.
 
 ```powershell
 Move-Item "$proj\.bootstrap-backup\CLAUDE.md" "$proj\docs\agents\legacy-claude.md" -Force
@@ -58,7 +58,7 @@ Read `docs/agents/legacy-claude.md`. Split it into blocks — **treat each top-l
 
 Show the user a table: every block of the original → its destination, quoting the block verbatim. Make any unassigned ("doesn't fit") blocks visible.
 
-**The map must also cover every other entry in the copy's `overwritten` list.** Those are the project's own files the scaffold just replaced, and each one is a decision, not a default: keep the scaffold's version (often right — it is the update you came to deliver), restore the project's from `.bootstrap-backup/`, or merge the two. A `.gitignore` almost always needs merging, because the scaffold's rules are additions and the project's own entries are still needed. Nothing is lost either way — each original sits at the `backup` path its own `overwritten` entry names (the one exception is `CLAUDE.md`, which step B moved to `docs/agents/legacy-claude.md`) — but say out loud what each file got.
+**The map must also cover every other entry in the copy's `overwritten` list.** Those are the project's own files the scaffold just replaced, and each one is a decision, not a default: keep the scaffold's version (often right — it is the update you came to deliver), restore the project's from `.bootstrap-backup/`, or merge the two. A `.gitignore` almost always needs merging, because the scaffold's rules are additions and the project's own entries are still needed. Nothing is lost either way — each original sits at the `backup` path its own `overwritten` entry names — but say out loud what each file got. `CLAUDE.md` is off this map **only when step B actually parked it**; if step B took the branch that left `legacy-claude.md` alone, its backup holds the project's live `CLAUDE.md` (canonical plus everything merged into it since) and it needs a row like any other file, or that work is reverted with nobody asked.
 
 Get a **single explicit approval** (the user may correct individual rows before approving). Do **not** write the merge until approved.
 
@@ -70,7 +70,7 @@ The `.bootstrap-manifest.json` copied in step A records the canonical `CLAUDE.md
 
 ### F. Continue with Steps 3–6
 
-Proceed to Step 3 (project-specific files — but if step E already seeded `CONTEXT.md`, do **not** overwrite it with a stub), Step 4 (MCP servers — the `.mcp.json` menu applies to adopted projects too), Step 5 (git), and Step 6 (report). In the Step 6 report, state where the original ended up — preserved at `docs/agents/legacy-claude.md` with the list of which blocks went to `## Hard rules` vs `docs/agents/domain.md`, or, on the skip path of step B, that there was no original distinct from the canonical template and nothing was classified. Never claim the file exists without having parked it.
+Proceed to Step 3 (project-specific files — but if step E already seeded `CONTEXT.md`, do **not** overwrite it with a stub), Step 4 (MCP servers — the `.mcp.json` menu applies to adopted projects too), Step 5 (git), and Step 6 (report). In the Step 6 report, state where the original ended up — preserved at `docs/agents/legacy-claude.md` with the list of which blocks went to `## Hard rules` vs `docs/agents/domain.md`, or, on the skip path of step B, that there was no original distinct from the canonical template and nothing was classified. Never claim the file exists without having checked that it does — parked by this run or by an earlier one.
 
 ## Step 1 — Project info
 
