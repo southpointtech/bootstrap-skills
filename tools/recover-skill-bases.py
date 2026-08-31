@@ -121,19 +121,24 @@ def similarity(a, b):
     y al revés —`slice-review` contra `zoom-out`, donde `b` tiene 169 elementos y no llega
     a 200— da 0.0083 con y sin el heuristico. La asimetria ES la firma de que depende de `b`.
 
-    Lo que si esta acotado es el efecto sobre el REPORTE: apagarlo mueve el numero publicado
-    y el blob elegido solo de `review-loop` y `slice-review` (0.0308 y 0.0202 medidos el
-    2026-08-28 con autojunk; 0.1305 y 0.1101 el 2026-08-31 sin el, contra otro blob). Las
-    otras nueve no se mueven porque tienen un match verdadero (>= 0.86), no porque el
-    heuristico no las toque. Ningun veredicto cambia: los cuatro numeros estan lejos del
-    umbral de 0.60.
+    El efecto sobre el REPORTE es mas chico, pero lo que esta medido tiene borde: apagarlo
+    movio el numero publicado y el blob elegido de `review-loop` y `slice-review` (0.0308 y
+    0.0202 medidos el 2026-08-28 con autojunk; 0.1305 y 0.1101 el 2026-08-31 sin el, contra
+    otro blob). De las otras nueve, siete tienen cuerpo identico (1.0, insensible al
+    heuristico) y las dos con drift dan el mismo ratio contra su base con y sin el (`tdd`
+    0.8625, `to-issues` 0.9466, medido el 2026-08-31). Lo que NO se verifico es que ningun
+    otro de los 413 blobs las supere con el heuristico apagado, asi que "solo esas dos
+    cambian" vale para el numero contra su base, no para toda la busqueda. Ningun veredicto
+    cambia: los cuatro numeros de las dos sin match estan lejos del umbral de 0.60.
 
     No se apaga por costo medido el 2026-08-31: `autojunk=False` lleva la corrida de ~98 s a
     ~2.500-3.500 s. Cambiar la metrica (tokenizar por linea) es el issue 19.
 
-    El ratio del que depende todo el reporte NO pasa por aca: se calcula en `_best_blobs`,
-    que llama a `SequenceMatcher` directo para poder usar las cotas baratas. Lo de arriba
-    vale igual para esa llamada — es la misma libreria con el mismo default.
+    El ratio con el que se ELIGE la base no pasa por aca: se calcula en `_best_blobs`, que
+    llama a `SequenceMatcher` directo para poder usar las cotas baratas. Esta funcion tiene
+    un solo call site de produccion —los `unconfirmedSuccessorCandidates`—, y ese numero
+    tambien se publica. Lo de arriba vale igual para las dos llamadas: misma libreria, mismo
+    default.
     """
     return difflib.SequenceMatcher(None, a, b).ratio()
 
@@ -440,7 +445,8 @@ def recover(upstream, skills_dir, names, threshold):
                 "la aparicion mas vieja del contenido."
                 % (len(ranked), best_ratio,
                    "sus cuerpos son identicos tras normalizar: lo que difiere entre los "
-                   "blobs esta fuera del cuerpo (frontmatter, BOM o fines de linea)"
+                   "blobs esta fuera del cuerpo normalizado — frontmatter, BOM, fines de "
+                   "linea o espacios en los extremos; cual de esos, no se midio"
                    if same_body else
                    "al menos dos de los cuerpos empatados difieren entre si: el empate es "
                    "de ratio, no de contenido. Cual es la base la decide un humano"))
@@ -490,8 +496,9 @@ def recover(upstream, skills_dir, names, threshold):
             "searchSpace": "todos los blobs */SKILL.md alcanzables en la historia publicada de upstream",
             "tieBreak": ("ante empate de ratio entre blobs distintos, la aparicion mas vieja "
                          "del contenido por commit time, en cualquier path; a igual segundo, "
-                         "el commit mas viejo del log. `base.tieOnIdenticalBodies` dice si el "
-                         "empate es de contenido o solo de ratio"),
+                         "el commit mas viejo del log. `base.tieOnIdenticalBodies` dice si "
+                         "TODOS los cuerpos empatados son identicos; en false, al menos dos "
+                         "difieren"),
             "threshold": threshold,
             # El contrato NO es uniforme y el consumidor no tiene por que descubrirlo a los
             # golpes: una entrada `unmatched` no trae `similarity` ni `upstreamHead` —trae
@@ -846,6 +853,12 @@ def self_test():
                 print("  FAIL %s -> %r" % (label, got))
                 fails.append(label)
 
+        def _por_nombre(rep, nombre):
+            for e in rep["skills"]:
+                if e["name"] == nombre:
+                    return e
+            return None
+
         def d(obj, *keys):
             for k in keys:
                 if not isinstance(obj, dict):
@@ -940,7 +953,8 @@ def self_test():
                         d(by, "collide", "base", "commitSubject"))))
         # los tres contadores juntos: el resumen es lo que mira un humano al sellar el
         # lockfile, y hasta aca solo uno de los tres estaba asertado.
-        check("el resumen cuenta los empates, y aparte los que NO son de cuerpo identico",
+        check("el resumen cuenta los empates, los que NO son de cuerpo identico, y los "
+              "ausentes del HEAD",
               lambda: (d(report, "summary", "tiedOnDifferentBodies") == 1 and
                        d(report, "summary", "tiedBestSimilarity") == 2 and
                        d(report, "summary", "goneFromUpstreamHead") == 2,
@@ -1059,14 +1073,24 @@ def self_test():
         # reporte dejara de emitir `missing-locally`, imprimir la lista de violaciones daria
         # `[]`, que se lee como "el contrato esta bien" — la trampa de reportar contra una
         # lista vacia, que en este repo ya mordio una vez.
-        rep_missing = recover(up, local, ["alpha", "no-existe"], DEFAULT_THRESHOLD)
+        # memoizado y llamado DENTRO de los lambdas: hoisteado al bloque, una excepcion en
+        # `recover` abortaba el self-test entero —sin linea de resumen y sin los ~20 checks
+        # que siguen— en vez de contarse como un FAIL. El cache evita pagar la corrida dos
+        # veces, que era el motivo por el que se habia sacado del lambda.
+        _reps = {}
+
+        def _rep(nombres, thr):
+            if (nombres, thr) not in _reps:
+                _reps[(nombres, thr)] = recover(up, local, list(nombres), thr)
+            return _reps[(nombres, thr)]
         check("cada entrada emite exactamente los campos que declara method.fieldsByStatus",
               lambda: (not _viola_contrato(report), _viola_contrato(report)))
         check("el contrato tambien vale para missing-locally, que no sale por el CLI",
-              lambda: (not _viola_contrato(rep_missing) and
-                       any(e["status"] == "missing-locally" for e in rep_missing["skills"]),
-                       {"violaciones": _viola_contrato(rep_missing),
-                        "status vistos": [e["status"] for e in rep_missing["skills"]]}))
+              lambda: ((lambda r: (not _viola_contrato(r) and
+                                   any(e["status"] == "missing-locally" for e in r["skills"]),
+                                   {"violaciones": _viola_contrato(r),
+                                    "status vistos": [e["status"] for e in r["skills"]]}))(
+                           _rep(("alpha", "no-existe"), DEFAULT_THRESHOLD))))
         check("unmatched no promete similarity ni upstreamHead: emite bestSimilarity",
               lambda: ((lambda c: c and "similarity" not in c and "upstreamHead" not in c
                         and "bestSimilarity" in c)(
@@ -1095,16 +1119,23 @@ def self_test():
               lambda: (similarity(body_of(_T["DRIFT_LOCAL"]),
                                   body_of(_T["DRIFT_UP"])) == DRIFT_RAW,
                        similarity(body_of(_T["DRIFT_LOCAL"]), body_of(_T["DRIFT_UP"]))))
-        rep_borde_ok = recover(up, local, ["drift"], DRIFT_RAW)
-        rep_borde_no = recover(up, local, ["drift"], DRIFT_RAW + 1e-9)
+        # el lookup es POR NOMBRE, no `skills[0]`: si `recover` regresionara ignorando
+        # `names`, la lista arranca por `alpha` —que es `recovered`— y este check pasaria
+        # espurio.
         check("frontera del umbral: el ratio IGUAL al umbral se acepta como base",
-              lambda: (rep_borde_ok["skills"][0].get("status") == "recovered",
-                       rep_borde_ok["skills"][0].get("status")))
+              lambda: ((lambda e: ((e or {}).get("status") == "recovered",
+                                   e or "drift no esta en el reporte"))(
+                           _por_nombre(_rep(("drift",), DRIFT_RAW), "drift"))))
         check("frontera del umbral: un pelo por encima ya no alcanza",
-              lambda: ((lambda e: e.get("status") == "unmatched" and
-                        e.get("upstreamRelation") == "no-match-above-threshold")(
-                           rep_borde_no["skills"][0]),
-                       rep_borde_no["skills"][0].get("status")))
+              lambda: ((lambda e: ((e or {}).get("status") == "unmatched" and
+                                   (e or {}).get("upstreamRelation") ==
+                                   "no-match-above-threshold",
+                                   # el `got` lleva los DOS campos que mira la condicion:
+                                   # con solo el status, un fallo por `upstreamRelation`
+                                   # imprimia 'unmatched' y se leia como correcto
+                                   {"status": (e or {}).get("status"),
+                                    "upstreamRelation": (e or {}).get("upstreamRelation")}))(
+                           _por_nombre(_rep(("drift",), DRIFT_RAW + 1e-9), "drift"))))
 
         # --- near / exactBodyMatches ----------------------------------------------------
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",
@@ -1115,25 +1146,33 @@ def self_test():
 
         # F14: la invariante `git rev-parse <commit>:<upstreamPath> == base.blob`. Como
         # corroboracion de que la base es la correcta es tautologica —se cumple igual con
-        # una base equivocada, porque path y commit salen del mismo registro—, pero como
-        # guard del self-test si muerde: lo que asserta es que el par (commit, path) que se
-        # PUBLICA existe tal cual en upstream. Si la deteccion de renombres se degrada y el
-        # path reportado deja de ser el de esa aparicion, esto se cae.
+        # una base equivocada, porque `commit` y `path` salen del MISMO registro de
+        # `--raw`—, y con la deteccion de renombres apagada tampoco se cae: medido sobre
+        # este fixture, con `diff.renames=false` el renombre se parte en D+A, el A queda en
+        # el path nuevo del mismo commit y los 22 registros siguen round-tripeando.
+        # Lo que si guarda, medido con su mutante: que el path publicado sea el de ESA
+        # aparicion y no otro del mismo blob (publicar `rev_list_path` lo rompe), y que el
+        # path viaje sin C-quotear. Va con un conteo porque sin el la lista vacia pasa.
         def _invariante_commit_path():
-            malos = []
+            malos, verificadas = [], 0
             for e in report["skills"]:
                 base = e.get("base") or {}
                 if not base.get("commit"):
                     continue
                 oid = _git(up, "rev-parse",
                            "%s:%s" % (base["commit"], base["upstreamPath"])).strip()
+                verificadas += 1
                 if oid != base["blob"]:
                     malos.append((e["name"], base["upstreamPath"], oid, base["blob"]))
-            return (not malos and
-                    sum(1 for e in report["skills"] if (e.get("base") or {}).get("commit")) == 9,
-                    malos or "9 bases verificadas")
+            # el contador se incrementa DENTRO del bucle, contando `rev-parse` hechos, y no
+            # sobre el reporte: contando el reporte, un bucle que saltea todo deja `malos`
+            # vacio y el conteo en 9 igual — el guard pasaba sin haber verificado nada
+            # (mutante visto sobrevivir). Y el `got` no puede decir "9 verificadas" cuando
+            # lo que falla es justamente el conteo.
+            return (not malos and verificadas == 9,
+                    {"mismatches": malos, "basesVerificadas": verificadas})
 
-        check("cada base publicada existe en su commit y su path (las 9 recuperadas)",
+        check("las 9 bases publicadas existen en su commit y su path",
               _invariante_commit_path)
 
         # --- latin-1 ---------------------------------------------------------------------

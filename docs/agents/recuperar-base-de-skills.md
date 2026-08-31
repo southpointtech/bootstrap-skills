@@ -125,9 +125,12 @@ JSON. Por skill:
   2026-08-28), pero **no corrobora que la base sea la correcta**: `commit` y `upstreamPath`
   salen del mismo registro, así que se cumple igual con una base equivocada — de hecho se
   cumplía con las cuatro que `00c2160` reemplazó. Lo que sí verifica es que el par
-  `(commit, path)` publicado exista tal cual en upstream, y ahí sí muerde: si la detección de
-  renombres se degrada y el path deja de ser el de esa aparición, la invariante se cae. Por
-  eso está asertada en el self-test.
+  `(commit, path)` publicado exista tal cual en upstream, y ahí sí muerde —verificado con su
+  mutante— cuando el path reportado deja de ser el de **esa aparición** y pasa a ser otro del
+  mismo blob, o cuando viaja C-quoteado. Con la detección de renombres apagada **no** se cae:
+  medido sobre el fixture, `diff.renames=false` parte el renombre en `D`+`A`, el `A` queda en el
+  path nuevo del mismo commit y los 22 registros siguen cerrando. Por eso está asertada en el
+  self-test, y con un conteo al lado: sin él, cero bases verificadas también daría verde.
 - `base.alsoSeenAtPaths`: otros paths donde el mismo blob apareció. Solo informativo.
 - `base.tiedCandidates` / `base.tieNote` / `base.tieOnIdenticalBodies`: aparecen cuando **más de un
   blob empata en el mejor ratio**. La herramienta elige la aparición más vieja y deja los empatados a
@@ -137,8 +140,9 @@ JSON. Por skill:
   El empate se calcula sobre el **ratio**, no sobre el contenido, así que de qué es el empate hay que
   mirarlo: `tieOnIdenticalBodies` compara los cuerpos —ya normalizados: sin frontmatter, con CRLF a
   LF y extremos recortados— y lo dice. En `true` los cuerpos son idénticos y lo que difiere entre los
-  blobs está **fuera** del cuerpo: en la práctica el frontmatter (es el caso de las tres de hoy),
-  aunque un BOM o los fines de línea producirían lo mismo, y la herramienta no distingue cuál fue.
+  blobs está **fuera** del cuerpo normalizado: en la práctica el frontmatter (es el caso de las tres
+  de hoy), aunque un BOM, los fines de línea o un espacio en los extremos producirían lo mismo, y la
+  herramienta no distingue cuál de esos fue.
   En `false` **al menos dos** de los cuerpos empatados difieren —`same_body` es un `all()`, y con
   tres o más blobs empatados el resto puede coincidir—: son versiones distintas con el mismo ratio,
   elegir mal cambia el merge de tres vías, y ahí el desempate por fecha es una convención, no una
@@ -204,9 +208,11 @@ aparte el 2026-08-31, sobre las mismas once skills locales:
 
 Son las **dos únicas** que pasan los 7 KB —la tercera más larga tiene 6.335 B—, pero eso **no** es
 la razón por la que son las únicas que se mueven: el heurístico distorsiona casi todos los pares (ver
-arriba). Se mueven porque son las dos que **no tienen match verdadero**; las otras nueve están en
-0,86 o más, y ahí el ruido de los caracteres populares no alcanza a cambiar quién gana. Dos
-consecuencias, distintas entre sí:
+arriba). Se mueven porque son las dos que **no tienen match verdadero**: de las otras nueve, siete
+tienen cuerpo idéntico (1,0, insensible al heurístico) y las dos con drift dan el mismo ratio contra
+su base con y sin él (`tdd` 0,8625 y `to-issues` 0,9466, medido el 2026-08-31). Con la salvedad de
+que eso vale para el ratio **contra su base**: que ningún otro de los 413 blobs las supere con el
+heurístico apagado no se verificó. Dos consecuencias, distintas entre sí:
 
 - **El veredicto no cambia.** 0,1305 y 0,1101 siguen muy por debajo del umbral de 0,60: las dos
   salen `unmatched` / `no-match-above-threshold` con `autojunk` prendido o apagado.
@@ -308,9 +314,10 @@ Y ese self-test **sí** está en la suite, envuelto en `tests/recover-skill-base
 demás runners del repo (que no son Pester: son runners propios con una función `Assert`, igual que
 los otros trece). El envoltorio no re-verifica lo que el self-test ya verifica; asserta las dos puntas
 que un exit code solo no cubre: que la línea de resumen **exista** —un self-test que sale 0 sin
-correr nada daría verde vacío— y que el total de aserciones no baje de un piso declarado, que es lo
-único que muerde a un mutante que borra checks. Verificado con tres mutantes: desempate invertido
-(3 fallas), assert borrado (1 falla, la del piso) y resumen suprimido (2 fallas).
+correr nada daría verde vacío— y que el total de aserciones sea **exactamente** el declarado
+(`$ExpectedChecks`), que es lo único que muerde a un mutante que borra checks. No es un piso: con
+`-ge` la holgura se acumula en silencio. Verificado con tres mutantes: desempate invertido
+(3 fallas), assert borrado (1 falla, la del total exacto) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
 solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **84
@@ -328,9 +335,10 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
   los dos commits caen en el mismo segundo;
 - que ante **dos blobs distintos con el mismo cuerpo** gane el viejo, y que el empate quede expuesto
   en la salida;
-- que la nota del empate **no afirme "mismo cuerpo"** sin haber comparado los cuerpos: el fixture trae
-  dos versiones **distintas** que empatan en el mismo ratio (0,9914, medido) contra nuestra copia, y
-  ese caso tiene que salir marcado como empate de ratio y no de contenido;
+- que la nota del empate **diga que los cuerpos difieren** cuando difieren, en vez de atribuir la
+  diferencia al frontmatter sin haberla comparado: el fixture trae dos versiones **distintas** que
+  empatan en el mismo ratio (0,9914, medido) contra nuestra copia, y ese caso tiene que salir marcado
+  como empate de ratio y no de contenido;
 - que el orden entre apariciones sea por instante y no por el ISO con offset, con dos commits en
   husos distintos donde las dos reglas dan resultados opuestos;
 - que la similitud parcial conserve sus 4 decimales (un cuerpo con drift real, no todo en 1.0);

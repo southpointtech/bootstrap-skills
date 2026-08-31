@@ -282,13 +282,15 @@ code solo no cubre:
 
 - que la **línea de resumen exista** (`SELF-TEST: N ok, N fail (de N)`) — un self-test que sale 0
   sin correr nada daría verde vacío, la trampa clásica de este repo;
-- que el total de aserciones no baje de un **piso declarado** (`$MinChecks`), que es lo único que
-  muerde a un mutante que borra checks. El piso se sube a mano cuando se agregan aserciones: es
-  revisión humana sobre un archivo que se commitea, el mismo costo aceptado que el allowlist del
-  detector anti-fuga.
+- que el total de aserciones sea **exactamente** el declarado (`$ExpectedChecks`), que es lo único
+  que muerde a un mutante que borra checks. No es un piso: con `-ge` la holgura se acumula en
+  silencio y se pueden borrar tantos asserts como holgura haya (ya pasó: quedó en 59 con el
+  self-test en 62). El número se actualiza a mano al agregar **o quitar** un check: es revisión
+  humana sobre un archivo que se commitea, el mismo costo aceptado que el allowlist del detector
+  anti-fuga.
 
 Verificado con mutantes, cada uno con su falla vista: desempate invertido (3 fallas), un assert
-borrado (1 falla, y es la del piso), el resumen suprimido (2 fallas), tres del guard de `--skill`
+borrado (1 falla, y es la del total exacto), el resumen suprimido (2 fallas), tres del guard de `--skill`
 (carpeta sin `SKILL.md`, mensaje de stderr borrado, y un guard que rechaza todo), el contador
 `missingLocally` con el predicado invertido, y los tres de la escritura de `--out` (sin escritura
 atómica el reporte bueno queda destruido; sin la rama de la raíz inexistente el motivo miente; sin
