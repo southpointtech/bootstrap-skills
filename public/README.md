@@ -35,9 +35,9 @@ In a new or existing project directory, start Claude Code and say:
 
 > bootstrap this project
 
-Claude picks up the `bootstrap-ai-project` skill and walks you through the setup (project info, optional MCP servers, git). Existing projects with their own `CLAUDE.md` are **adopted**: the original is preserved verbatim at `docs/agents/legacy-claude.md` and merged into the canonical one only with your approval.
+Claude picks up the `bootstrap-ai-project` skill and walks you through the setup (project info, optional MCP servers, git). Existing projects with their own `CLAUDE.md` are **adopted**: the original is preserved verbatim at `docs/agents/legacy-claude.md` and merged into the canonical one only with your approval. (If your `CLAUDE.md` was already identical to the canonical template there is nothing to preserve, and that file is not created.)
 
-Where your project already has a file the scaffold also ships — a `.gitignore`, a `docs/agents/` doc — the copy does replace it, but never silently: the original is backed up to `.bootstrap-backup/` first and every replaced file is listed for you to decide on (keep the scaffold's, restore yours, or merge). Nothing of yours is deleted without a copy on disk.
+Where your project already has a file the scaffold also ships — a `.gitignore`, a `docs/agents/` doc — the copy does replace it, but never silently: the original is backed up to `.bootstrap-backup/` first and every replaced file is reported. In adoption mode each one is put to you as a decision (keep the scaffold's, restore yours, or merge) before anything is merged; on a plain bootstrap the list is reported and the run continues. Either way the originals are on disk, so nothing of yours is gone — a file that differed only in line endings is the one case replaced without a copy, since its content is identical.
 
 ## Update
 

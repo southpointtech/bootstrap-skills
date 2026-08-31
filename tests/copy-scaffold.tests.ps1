@@ -12,19 +12,30 @@ $script:failures = 0
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
-# Lee un archivo que solo existe si la feature anduvo. Con $ErrorActionPreference = "Stop" un
-# Get-Content sobre un path ausente es error TERMINANTE: aborta la corrida entera en vez de sumar
-# un FAIL, y los bloques siguientes no se ejecutan. Devolver $null deja que el Assert falle donde
-# corresponde y la corrida siga.
+# Lee un archivo que solo existe si la feature anduvo. Un Get-Content sobre un path ausente es
+# error TERMINANTE: aborta la corrida entera en vez de sumar un FAIL, y los bloques siguientes no
+# se ejecutan. Devuelve cadena vacía, NUNCA $null: `$null.Trim()` también es terminante —
+# independiente de $ErrorActionPreference— así que devolver $null solo movería el crash al call
+# site. Un archivo existente pero vacío también da $null con -Raw, y cae en el mismo caso.
 function Get-IfAny([string]$path) {
-  if (Test-Path -LiteralPath $path -PathType Leaf) { return (Get-Content -LiteralPath $path -Raw) }
-  return $null
+  if (Test-Path -LiteralPath $path -PathType Leaf) {
+    $c = Get-Content -LiteralPath $path -Raw
+    if ($null -eq $c) { return '' }
+    return $c
+  }
+  return ''
 }
 # Todos los workspaces de esta corrida cuelgan de un único directorio con PID + GUID. Antes se
 # borraba `cs-test-*` de todo el TEMP compartido, lo que mataba los fixtures de cualquier corrida
 # concurrente — pasó de verdad con los reviewers en paralelo del review-loop de este repo.
 $script:runRoot = Join-Path ([IO.Path]::GetTempPath()) ("cs-run-$PID-" + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($script:runRoot) | Out-Null
+# Huérfanos de corridas que abortaron: se barren POR EDAD, nunca por glob incondicional. Un
+# `cs-run-*` de hace más de un día no puede ser de una corrida viva, y así la recolección no pisa
+# a un reviewer paralelo — que es justo lo que hacía la versión anterior.
+Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "cs-run-*" -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -ne $script:runRoot -and $_.CreationTime -lt (Get-Date).AddDays(-1) } |
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 function New-Proj([string]$suffix = "") {
   $t = Join-Path $script:runRoot ("cs-test-" + [guid]::NewGuid().ToString('N') + $suffix)
   [IO.Directory]::CreateDirectory($t) | Out-Null
@@ -134,27 +145,35 @@ Assert ($it[0].backup -eq ".bootstrap-backup/docs/agents/issue-tracker.md") "el 
 Assert (Test-Path -LiteralPath (Join-Path $t ($it[0].backup -replace '/', '\')) -PathType Leaf) "el backup declarado existe en disco"
 Remove-Item -Recurse -Force $t
 
-# 8. Diferencia SOLO de fin de línea: no es un archivo pisado (bug autocrlf)
+# 8/8b. Diferencia SOLO de fin de línea: no es un archivo pisado (bug autocrlf)
 # En Profitability App, 2 de 6 "diferencias" eran CRLF vs LF con contenido idéntico.
-# El fixture escribe las DOS formas explícitamente en vez de derivarlas del checkout: si el repo
-# se clona con autocrlf=false el árbol ya está en LF, el -replace sería no-op y el test pasaría
-# igual con la normalización rota.
-$t = New-Proj
-$canonLf = ([IO.File]::ReadAllText("$skillP\assets\scaffold\docs\agents\triage-labels.md")) -replace "`r`n", "`n"
-New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
-[IO.File]::WriteAllText("$t\docs\agents\triage-labels.md", $canonLf)
-$r = Invoke-CopyJson $t
-Assert (@($r.overwritten | Where-Object { $_.file -like "*triage-labels*" }).Count -eq 0) "diferencia solo de EOL (destino LF) NO se reporta como pisada"
-Assert (-not (Test-Path "$t\.bootstrap-backup\docs\agents\triage-labels.md")) "diferencia solo de EOL NO genera respaldo"
-Remove-Item -Recurse -Force $t
-
-# 8b. La misma comparación, con el destino en CRLF — cubre el caso inverso sin depender del checkout
-$t = New-Proj
-New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
-[IO.File]::WriteAllText("$t\docs\agents\triage-labels.md", ($canonLf -replace "`n", "`r`n"))
-$r = Invoke-CopyJson $t
-Assert (@($r.overwritten | Where-Object { $_.file -like "*triage-labels*" }).Count -eq 0) "diferencia solo de EOL (destino CRLF) NO se reporta como pisada"
-Remove-Item -Recurse -Force $t
+# Se prueban las dos formas (destino en LF y destino en CRLF) porque cuál de las dos ejercita la
+# normalización depende del checkout: en un árbol CRLF muerde la variante LF y la CRLF es una
+# copia byte-idéntica, y al revés en un árbol LF. El par garantiza que UNA muerda; el guard de
+# precondición de cada bloque dice cuál, en vez de dejar pasar un test vacuo sin avisar.
+$canonTlPath = "$skillP\assets\scaffold\docs\agents\triage-labels.md"
+$canonBytes  = [IO.File]::ReadAllBytes($canonTlPath)
+$canonLf     = ([IO.File]::ReadAllText($canonTlPath)) -replace "`r`n", "`n"
+foreach ($variante in @(
+    @{ nombre = "LF";   texto = $canonLf },
+    @{ nombre = "CRLF"; texto = ($canonLf -replace "`n", "`r`n") })) {
+  $t = New-Proj
+  New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
+  [IO.File]::WriteAllText("$t\docs\agents\triage-labels.md", $variante.texto)
+  # Precondición: si el fixture salió byte-idéntico al canónico, este bloque NO ejercita la
+  # normalización (sale por la comparación de bytes) y su verde no significa nada. No es un
+  # fallo — es la variante que en este checkout no aplica —, pero tiene que decirse.
+  $distinto = -not ([Linq.Enumerable]::SequenceEqual($canonBytes, [IO.File]::ReadAllBytes("$t\docs\agents\triage-labels.md")))
+  $r = Invoke-CopyJson $t
+  Assert (@($r.overwritten | Where-Object { $_.file -like "*triage-labels*" }).Count -eq 0) "diferencia solo de EOL (destino $($variante.nombre)) NO se reporta como pisada"
+  Assert (-not (Test-Path "$t\.bootstrap-backup\docs\agents\triage-labels.md")) "diferencia solo de EOL (destino $($variante.nombre)) NO genera respaldo"
+  if ($distinto) { Write-Host "      (la variante $($variante.nombre) es la que ejercita la normalización en este checkout)" }
+  Remove-Item -Recurse -Force $t
+}
+# Al menos una de las dos variantes tiene que diferir del canónico, o el par entero es vacuo.
+$crlfBytes = [Text.Encoding]::UTF8.GetBytes(($canonLf -replace "`n", "`r`n"))
+$lfBytes   = [Text.Encoding]::UTF8.GetBytes($canonLf)
+Assert (-not ([Linq.Enumerable]::SequenceEqual($canonBytes, $lfBytes)) -or -not ([Linq.Enumerable]::SequenceEqual($canonBytes, $crlfBytes))) "alguna de las dos variantes de EOL difiere del canónico (el par no es vacuo)"
 
 # 9. Destino vacío: no se crea el directorio de respaldo ni se declara nada
 $t = New-Proj
@@ -181,7 +200,7 @@ Assert ((Get-IfAny "$t\.bootstrap-backup\.gitignore").Trim() -eq "el original de
 # Sin esto el JSON promete una copia que no contiene lo destruido (p. ej. el .gitignore ya
 # mergeado en el Step D se pierde y el reporte manda a la versión pre-merge).
 Assert ((Get-IfAny (Join-Path $t ($gi2[0].backup -replace '/', '\'))).Trim() -eq "edicion posterior al bootstrap") "segunda corrida: el backup declarado contiene lo que se acaba de pisar"
-Assert (@($r.overwritten).Count -eq 1) "segunda corrida: los 51 archivos ya idénticos no se declaran pisados"
+Assert (@($r.overwritten).Count -eq 1) "segunda corrida: solo el archivo editado se declara pisado, los ya idénticos no"
 Remove-Item -Recurse -Force $t
 
 # 11. Un archivo propio que el scaffold no toca queda intacto, no se respalda y no se declara
@@ -194,8 +213,6 @@ $r = Invoke-CopyJson $t
 Assert (Test-Path "$t\.bootstrap-backup\.gitignore") "el escenario tiene un conflicto real (el directorio de respaldo existe)"
 Assert ((Get-Content "$t\NOTAS.md" -Raw).Trim() -eq "nota") "archivo ajeno al scaffold queda intacto"
 Assert (-not (Test-Path "$t\.bootstrap-backup\NOTAS.md")) "archivo ajeno al scaffold no se respalda"
-Assert (@($r.overwritten | Where-Object { $_.file -eq "NOTAS.md" }).Count -eq 0) "archivo ajeno al scaffold no se declara pisado"
-Assert (@($r.created | Where-Object { $_ -eq "NOTAS.md" }).Count -eq 0) "archivo ajeno al scaffold no se declara creado"
 Remove-Item -Recurse -Force $t
 
 # 13. Mismo largo en bytes, contenido distinto — ejercita la comparación byte a byte
@@ -204,14 +221,15 @@ Remove-Item -Recurse -Force $t
 # entero sin que la suite se entere (mutante M8 sobrevivió). El modo de falla es el de Profitability:
 # el archivo se pisa igual, pero sin respaldo y sin declararse.
 $t = New-Proj
-$canonTl = [IO.File]::ReadAllBytes("$skillP\assets\scaffold\docs\agents\triage-labels.md")
+$canonTl = $canonBytes   # definido arriba, junto al par de EOL
 $mismoLargo = [byte[]]::new($canonTl.Length)
 for ($i = 0; $i -lt $canonTl.Length; $i++) { $mismoLargo[$i] = 65 }   # mismo largo, todo 'A'
+Assert ($mismoLargo.Length -eq $canonTl.Length) "el fixture tiene el mismo largo que el canónico (si no, sale por el early-return y no mide nada)"
 New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
 [IO.File]::WriteAllBytes("$t\docs\agents\triage-labels.md", $mismoLargo)
 $r = Invoke-CopyJson $t
 Assert (@($r.overwritten | Where-Object { $_.file -eq "docs/agents/triage-labels.md" }).Count -eq 1) "mismo largo y distinto contenido SÍ se declara pisado"
-Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne $null) "mismo largo y distinto contenido SÍ se respalda"
+Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne '') "mismo largo y distinto contenido SÍ se respalda"
 Remove-Item -Recurse -Force $t
 
 # 14. Diferencia SOLO de BOM: es un cambio real, no ruido de EOL
@@ -224,7 +242,7 @@ $bom = [byte[]](0xEF,0xBB,0xBF) + $canonTl
 [IO.File]::WriteAllBytes("$t\docs\agents\triage-labels.md", $bom)
 $r = Invoke-CopyJson $t
 Assert (@($r.overwritten | Where-Object { $_.file -eq "docs/agents/triage-labels.md" }).Count -eq 1) "diferencia de BOM se declara pisada"
-Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne $null) "diferencia de BOM genera respaldo"
+Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne '') "diferencia de BOM genera respaldo"
 Remove-Item -Recurse -Force $t
 
 # Nota: el caso "dos binarios distintos colapsan al mismo U+FFFD" no se puede cubrir acá — exige

@@ -31,8 +31,9 @@ perdían en silencio. El síntoma ya estaba anotado como deuda abierta —*"`cop
 La copia **sigue pisando**, pero antes respalda y después lo declara.
 
 1. **Respaldo automático**: todo archivo preexistente cuyo contenido difiere se copia a
-   `.bootstrap-backup/<mismo path relativo>` **antes** de ser sobrescrito. No va gitignoreado: aparece
-   en el primer `git status` y el usuario decide si lo commitea o lo borra.
+   `.bootstrap-backup/` **antes** de ser sobrescrito, con el mismo path relativo (salvo la
+   desambiguación del punto 4). No va gitignoreado: aparece en el primer `git status` y el usuario
+   decide si lo commitea o lo borra.
 2. **Reporte JSON en stdout**: `{ created[], overwritten[{file, backup}] }`, mismo estilo que
    `compare-scaffold.ps1`. `overwritten` es el término propio de este script y **no** reusa
    `customized` de `upgrade-bootstrap`, que responde otra pregunta (ver Vocabulario).
@@ -44,10 +45,13 @@ La copia **sigue pisando**, pero antes respalda y después lo declara.
    respaldo ni entrada en el reporte — justo la pérdida silenciosa que esto viene a evitar.
 4. **El respaldo más viejo gana, pero el nuevo no se tira**: si ya hay un respaldo de una corrida
    anterior, ese conserva el original y la versión que se pisa ahora va al lado (`.2`, `.3`). El
-   `backup` del reporte nombra siempre la copia que contiene lo recién pisado. Sin la copia extra, una
-   segunda corrida destruía sin red lo que el proyecto hubiera cambiado desde el bootstrap — por
-   ejemplo el `.gitignore` ya mergeado en el paso D — y encima el reporte apuntaba a la versión
-   pre-merge, que es peor que no prometer nada.
+   `backup` del reporte nombra siempre la copia que contiene lo recién pisado, nunca la vieja:
+   prometer una copia que no tiene lo destruido es peor que no prometer nada.
+
+   Es robustez del script, **no** un camino que la skill recorra: el Step 0 frena en seco cuando ya
+   existe `.bootstrap-manifest.json`, y la copia del Step 2 lo deja, así que una segunda corrida no
+   ocurre por el flujo normal. Se llega ahí invocando el script a mano, o borrando el manifest para
+   rehacer una adopción que abortó — que es justamente lo que una adopción abortada invita a hacer.
 5. **Siempre activo, sin flags**: el script no sabe en qué modo lo invocan, y en un destino vacío no
    hay nada que respaldar, así que ni siquiera crea el directorio.
 6. **El punto de aprobación queda solo en adopción**: el Step 0b/D debe cubrir cada entrada de
