@@ -171,18 +171,22 @@ def _history(upstream):
 
     El tercero es `core.quotePath`, y su **default (`true`) ya es el valor peligroso**: no
     hace falta que nadie configure mal nada. Con él, todo path que tenga un byte no ASCII
-    sale C-quoteado (`"skills/caf\\303\\251/SKILL.md"`, comillas incluidas), el filtro por
-    `SKILL.md` no lo reconoce y la skill se cae del inventario — el mismo desenlace, por
-    otra puerta. `rev-list --objects` no lo aplica, así que sin fijarlo las dos vistas del
-    mismo path ni siquiera coinciden entre sí.
+    sale C-quoteado (`"skills/caf\\303\\251/SKILL.md"`, comillas incluidas). Acá el path
+    quoteado no se pierde —el pathspec `-- '*SKILL.md'` lo aplica git antes de quotear— pero
+    entra a `renames` y a `intro` con una forma que no matchea contra `head_paths`, que sale
+    de `ls-tree`. En `recover()` la misma opción muerde por otra puerta: ahí sí hay un filtro
+    `endswith("SKILL.md")` que no reconoce la forma quoteada y tira la skill del inventario.
+    Distinto mecanismo, mismo desenlace, y los dos medidos. `rev-list --objects` no aplica
+    `quotePath`, así que sin fijarlo las dos vistas del mismo path ni siquiera coinciden.
 
     Solo renombres, no copias: con `diff.renames=true` git nunca emite `C`, así que el
     manejo de `C` de abajo hoy es inalcanzable. **No es neutral**: esa rama mete el par de
     una copia en `renames`, o sea trata una copia como si fuera un renombre, y `_head_path`
-    seguiría esa arista hasta el destino de la copia — inventando un sucesor, que es
-    justamente lo que ADR-0006 reserva para decisión humana. Queda como trampa armada para
-    el día que alguien active `diff.renames=copies`; se conserva sólo porque hoy no se
-    alcanza, y activar copias exigiría revisarla primero.
+    seguiría esa arista hasta el destino de la copia — inventando un sucesor, que en esta
+    herramienta es siempre decisión humana (los candidatos se emiten como pistas, nunca
+    como base). Se conserva sólo porque hoy no se alcanza, y no por configuración: el `-c`
+    de acá **pisa** cualquier `diff.renames=copies` del repo o del usuario, así que llegar a
+    esa rama exige editar esta misma línea. Quien la edite tiene que revisarla antes.
     """
     sep = "\x01"
     raw = _git(upstream, "-c", "diff.renames=true", "-c", "diff.renameLimit=0",
@@ -396,7 +400,7 @@ def recover(upstream, skills_dir, names, threshold):
                 {"path": p, "similarity": round(r, 4)} for r, p in succ]
             uh["note"] = ("el path no existe en el HEAD de upstream y git no detecta renombre. "
                           "Los candidatos de abajo NO son bases: son pistas para que un humano "
-                          "decida si hay sucesor.")
+                          "decida si hay sucesor. La de `to-issues` vive en ADR-0006.")
         entry["upstreamHead"] = uh
         # "fork propio" nombraba dos cosas distintas: la skill que nunca fue de upstream y
         # la que vino de upstream y upstream borro. Son conjuntos disjuntos, y el split es
@@ -1159,7 +1163,8 @@ def self_test():
         # Ojo con lo que este caso cubre y lo que no: inyecta en `os.replace`, que estaba
         # FUERA del `try` interno tambien en la version con el doble-close, asi que este
         # check NO muerde ese bug. Medido: restaurando el doble-close, este check y el de
-        # Ctrl-C quedan en VERDE y solo cae `_motivo_real_si_falla_el_write` (61 ok, 1 fail).
+        # Ctrl-C quedan en VERDE y solo cae `_motivo_real_si_falla_el_write` (un solo fail; el conteo total sube con cada check
+        # nuevo, asi que no se fija aca).
         # De los tres efectos que el fix documenta —Ctrl-C vuelto OSError, un bug de
         # programacion disfrazado de "fallo el disco", y un ENOSPC reportado como EBADF—
         # el unico con test es el tercero. Cubrir los otros dos pide inyectar el
@@ -1292,24 +1297,18 @@ def self_test():
                     subprocess.run(["git", "-C", up, "config", clave, previo], check=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        def _clasifica(nombre, destino, clave=None, valor=None):
-            def corre():
-                return recover(up, local, [nombre], 0.60)
-            r = _con_config(clave, valor, corre) if clave else corre()
-            e = r["skills"][0]
-            return ((d(e, "upstreamHead", "status") == "renamed"
-                     and d(e, "upstreamHead", "path") == destino
-                     and e.get("upstreamRelation") == "in-upstream-head"),
-                    (d(e, "upstreamHead", "status"), d(e, "upstreamHead", "path"),
-                     e.get("upstreamRelation")))
+        def _clasifica(nombre, destino, clave=None, valor=None, estado="renamed"):
+            """Clasificacion de UNA skill, opcionalmente bajo una config hostil de git.
 
-        def _clasifica_presente(nombre, destino, clave=None, valor=None):
-            """Como `_clasifica`, pero para una skill que sigue en SU path (no renombrada)."""
+            `estado` es "renamed" para las que upstream movio y "present" para las que
+            siguen en su path: es la unica diferencia entre los dos casos, asi que va de
+            parametro en vez de duplicar el cuerpo entero.
+            """
             def corre():
                 return recover(up, local, [nombre], 0.60)
             r = _con_config(clave, valor, corre) if clave else corre()
             e = r["skills"][0]
-            return ((d(e, "upstreamHead", "status") == "present"
+            return ((d(e, "upstreamHead", "status") == estado
                      and d(e, "upstreamHead", "path") == destino
                      and e.get("upstreamRelation") == "in-upstream-head"),
                     (d(e, "upstreamHead", "status"), d(e, "upstreamHead", "path"),
@@ -1332,36 +1331,55 @@ def self_test():
         # supera `renameLimit=1` y la deteccion corre igual. `rpar` no tiene copia local, o
         # sea que ninguna otra asercion lo toca: sacarlo de `_build_fixture` por "no se usa"
         # devolveria el check a ser vacuo EN SILENCIO. Este guard lo vuelve ruidoso — asserta
-        # que con el limite en 1 la deteccion efectivamente se degrada (el renombre deja de
-        # verse como `R` y aparece como borrado + agregado), que es la unica evidencia de que
-        # el fixture puede ejercitar el limite.
+        # que con el limite en 1 la deteccion efectivamente se degrada: el renombre deja de
+        # verse como `R` y el path viejo pasa a `D`. Se asserta contra el `D` y no contra
+        # una lista vacia a proposito — una lista vacia tambien es lo que sale si el comando
+        # falla, y el guard pasaria por el motivo equivocado.
         def _el_fixture_ejercita_el_limite():
             def raw(*cfg):
                 p = subprocess.run(["git", "-C", up, *cfg, "log", "--all", "--full-history",
                                     "--raw", "--no-abbrev", "--format=", "--", "*SKILL.md"],
-                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                # Sin esto, un git que revienta devuelve stdout vacio -> cero renombres, que
+                # es INDISTINGUIBLE de "la deteccion se degrado". El guard pasaria por el
+                # motivo equivocado: exactamente el modo de falla que viene a tapar.
+                if p.returncode != 0:
+                    raise RuntimeError("git log del fixture fallo (%d): %s"
+                                       % (p.returncode,
+                                          p.stderr.decode("utf-8", "replace").strip()))
                 return p.stdout.decode("utf-8", "replace")
-            def renombres_de_redit(texto):
+            def estados_de_redit(texto):
                 # `--raw`: ":<modo> <modo> <sha> <sha> <status>\t<path>[\t<path2>]".
                 # El status va separado por ESPACIO del resto del meta y por TAB del path,
-                # asi que se lo saca parseando, no buscando substrings.
+                # asi que se lo saca parseando, no buscando substrings. En una linea `R`,
+                # `campos[1]` es el path VIEJO, que es el que se quiere filtrar.
+                # Devuelve TODOS los estados de ese path, no solo los `R`: la forma
+                # degradada es un `D`, y assertar contra ella es lo que distingue "la
+                # deteccion se degrado" de "el comando no devolvio nada".
                 out = []
                 for l in texto.splitlines():
                     if not l.startswith(":"):
                         continue
                     campos = l.split("\t")
-                    estado = campos[0].split()[-1]
-                    if estado.startswith("R") and campos[1:2] == ["skills/redit/SKILL.md"]:
-                        out.append(estado)
+                    if campos[1:2] == ["skills/redit/SKILL.md"]:
+                        out.append(campos[0].split()[-1])
                 return out
-            sin_limite = renombres_de_redit(
+            sin_limite = estados_de_redit(
                 raw("-c", "diff.renames=true", "-c", "diff.renameLimit=0"))
-            con_limite = renombres_de_redit(
+            con_limite = estados_de_redit(
                 raw("-c", "diff.renames=true", "-c", "diff.renameLimit=1"))
-            # sin limite se ve como R0xx (un R100 seria exacto y no probaria nada);
-            # con el limite en 1 ese mismo renombre YA NO se detecta.
+            # El path aparece DOS veces en el log: el `A` del `commit 1` que lo creo y, mas
+            # nuevo, el `commit 5b` que lo mueve. `git log` emite del mas nuevo al mas
+            # viejo, asi que el estado del renombre va primero y el `A` cierra la lista.
+            #
+            # Sin limite el renombre con edicion se ve `R0xx` (un `R100` seria exacto, lo
+            # casaria el hash y no probaria nada). Con el limite en 1 git ya no lo casa y el
+            # path viejo pasa a `D`. Se asserta la lista COMPLETA, y no la ausencia de `R`,
+            # porque una lista vacia es tambien lo que sale si el comando no devuelve nada:
+            # asi el guard no puede pasar por el motivo equivocado.
             con_edicion = [e for e in sin_limite if re.fullmatch(r"R0\d\d", e)]
-            return (len(con_edicion) == 1 and con_limite == [],
+            return (len(con_edicion) == 1 and sin_limite[1:] == ["A"]
+                    and con_limite == ["D", "A"],
                     (sin_limite, con_limite))
 
         check("el fixture puede ejercitar renameLimit: R0xx sin limite, y se degrada con 1",
@@ -1374,8 +1392,8 @@ def self_test():
         # lo reconoce. Se asserta con el default puesto explicitamente, para que el caso se
         # ejercite aunque la maquina que corre tenga `false` en su config global.
         check("core.quotepath=true (el default) no rompe un path acentuado de upstream",
-              lambda: _clasifica_presente("cafe", "skills/caf\xe9/SKILL.md",
-                                          "core.quotepath", "true"))
+              lambda: _clasifica("cafe", "skills/caf\xe9/SKILL.md",
+                                 "core.quotepath", "true", estado="present"))
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))

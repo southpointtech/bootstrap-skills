@@ -265,10 +265,13 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
 - que un `--out` sin directorio se escriba en el cwd, y que las otras formas que fallaban recién en
   el `open()` —ruta vacía, un directorio ya existente, un componente intermedio que es archivo, una
   ruta terminada en separador, una raíz que no existe— se rechacen **antes** de trabajar, cada una
-  diciendo cuál es. El caso de la raíz se asserta contra la función y no contra el CLI, y busca una
-  letra de unidad libre en runtime: hardcodear `Z:` hacía que en una máquina con `Z:` mapeada la
-  herramienta **escribiera el reporte en ese share**, y en POSIX creara un directorio llamado `Z:`
-  en el cwd. (Un UNC inalcanzable cae por la misma rama, pero eso no lo ejercita ningún caso.) El
+  diciendo cuál es. El caso de la raíz se asserta contra la función y no contra el CLI, y simula la
+  raíz ausente **parcheando `os.path.exists`**: hardcodear `Z:` hacía que en una máquina con `Z:`
+  mapeada la herramienta **escribiera el reporte en ese share**, y buscar una letra libre en runtime
+  —el arreglo intermedio— ataba el caso a cómo esté montada la máquina y se auto-excluía cuando
+  todas estaban ocupadas, dejando pasar en verde al mutante que borra la rama. Con el parche el caso
+  vale igual en Windows y en POSIX, sin tocar el disco. (Un UNC inalcanzable cae por la misma rama,
+  pero eso no lo ejercita ningún caso.) El
   motivo se ancla en un token con guiones (`destino-ocupado:`), no en una palabra suelta: el mensaje
   imprime la ruta, así que assertar `"directorio"` lo satisfacía el nombre del fixture y no el
   motivo, y los motivos se podían intercambiar entre sí sin que nada fallara;

@@ -61,7 +61,12 @@ if ($m.Success) {
   # `$ok -eq $total` no es redundante con la de arriba por accidente: hoy el resumen imprime
   # `ok = checks - fails`, así que las dos caen juntas. Cubre que ese cómputo siga siendo cierto.
   Assert ($ok -eq $total) "las aserciones que pasaron son todas las que corrieron ($ok de $total)"
-  Assert ($total -ge $MinChecks) "el self-test corre al menos $MinChecks aserciones (corrió $total)"
+  # `-eq`, no `-ge`. Con `-ge` el piso acumula holgura EN SILENCIO: quien agrega un check y no
+  # toca el literal no se entera, y a partir de ahí se pueden borrar tantos asserts como holgura
+  # haya sin que nada se ponga en rojo. Ya pasó: quedó en 59 con el self-test en 62, y los tres
+  # checks recién agregados eran borrables en verde. Con `-eq` la deriva es roja al instante, en
+  # las dos direcciones, y el mensaje dice qué hacer.
+  Assert ($total -eq $MinChecks) "el self-test corre exactamente $MinChecks aserciones (corrió $total) — si agregaste o quitaste un check, actualizá `$MinChecks"
 } else {
   # Sin resumen no se puede afirmar nada sobre las aserciones: se deja constancia del texto real
   # en vez de dar por buenas las de arriba. Se falla explícito en vez de sumar un literal, que
