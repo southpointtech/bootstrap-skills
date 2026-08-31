@@ -8,6 +8,8 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 2. **Personal, directorio vacío** — "ok arranco un proyecto personal aca, una app para trackear mis gastos del mes. preparame el ambiente y el repo con el setup base antes de escribir nada de codigo"
 3. **Southpoint, archivos preexistentes** — sembrar `src/index.js` y un `README.md` propio ("WIP - notas propias del proyecto") y pedir: "Este repo ya tiene un par de archivos del proyecto nuevo de Southpoint (KBS Inventory). Armame el scaffolding del workflow de AI sin romper lo que ya hay."
 4. **Southpoint, adopción (CLAUDE.md propio sin manifest)** — sembrar un `CLAUDE.md` hecho a mano (branching model main/develop + un gotcha técnico + una mención a DOMO) y un `worker.js`, sin `.bootstrap-manifest.json`, y pedir: "agregale el bootstrap a este proyecto". Debe entrar en **modo adopción** (Step 0b), no frenar ni derivar a upgrade-bootstrap.
+5. **Adopción, re-corrida sobre un proyecto ya adoptado** — partir del árbol que dejó el caso 4, borrar el `.bootstrap-manifest.json`, editar una línea del `CLAUDE.md` vivo y volver a pedir: "agregale el bootstrap a este proyecto". Ejercita la rama que protege el original de un `Move-Item -Force`; sin este caso el eval nunca la toca.
+6. **Adopción, colisión de nombre** — sembrar un `CLAUDE.md` propio Y un `docs/agents/legacy-claude.md` que NO sea el original del proyecto (dos líneas de cualquier otra cosa), sin manifest, y pedir el bootstrap. Es la rama donde el agente no puede decidir solo, y la única que ni el runner ni los otros casos tocan.
 
 ## Assertions clave (lo que define "pasa")
 
@@ -21,6 +23,8 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - Modo adopción: el `CLAUDE.md` final es el canónico (contiene "Workflow State Machine"); las reglas operativas del original aparecen en su sección `## Hard rules`; el conocimiento de dominio del original aparece en `docs/agents/domain.md`.
 - Modo adopción: cada bloque del original quedó representado (en `legacy-claude.md` + su destino); ningún bloque se perdió en silencio.
 - Modo adopción: tras adoptar, `compare-scaffold.ps1` clasifica `CLAUDE.md` como **customized** (ni `outdated` ni `uptodate`), confirmando que un upgrade futuro no lo pisa.
+- Modo adopción, **re-corrida** (caso 5): el `docs/agents/legacy-claude.md` de la primera corrida queda **byte-idéntico** (el Step B no lo pisa) y el respaldo del `CLAUDE.md` vivo que la copia acaba de pisar existe en `.bootstrap-backup/`. Va al path **sin numerar**, no a `.2`: el `Move-Item` de la primera corrida vació ese slot. Las dos cosas se observan sobre el árbol; que ese respaldo haya recibido fila en el mapa de cobertura se verifica en la transcripción.
+- Modo adopción, **colisión de nombre** (caso 6): la corrida **frena y pregunta** cuál es el original, en vez de clasificar el archivo ajeno. Sobre el árbol discriminan dos cosas: que **ninguna línea del archivo ajeno** haya aterrizado en `## Hard rules` ni en `docs/agents/domain.md` (eso solo pasa por el camino equivocado), y que si el usuario señaló el respaldo, el original quede commiteado en `docs/agents/legacy-claude.original.md`. Que el archivo sembrado siga byte-idéntico NO sirve como criterio: el scaffold no trae ese path, así que la copia no lo toca por ninguna rama.
 
 ## Gotchas operativos del entorno de testing
 
@@ -48,7 +52,7 @@ La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en las **tre
 - **Destino vacío** — aterriza el scaffold completo, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico, y `.agents/skills` / `.claude/commands` con tantas entradas como el scaffold.
 - **Regresión `docs/docs`** — `docs/` y `docs/agents/` preexistentes en el proyecto → el contenido se mergea (sin anidar) y los archivos propios quedan intactos (gotcha del self-bootstrap 2026-06-23).
 - **Dot-dirs preexistentes** — `.claude/` con archivos propios → merge sin anidar ni pisar lo ajeno.
-- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica deliberada del Step 2; el original queda en `.bootstrap-backup/`, que es de donde el Step 0b lo toma).
+- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica deliberada del Step 2; el original queda en `.bootstrap-backup/`, que es de donde el Step 0b lo toma **mientras no exista ya un `docs/agents/legacy-claude.md`** — si existe, el Step 0b parte de ése, y solo frena a preguntar cuando está vacío o es ajeno).
 - **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards) y respalda igual.
 - **Respaldo y reporte** (ADR-0007) — un archivo propio que difiere se respalda en `.bootstrap-backup/<mismo path>` y se declara en `overwritten`, con el `backup` apuntando al subpath completo; el respaldo más viejo no se pisa y la versión posterior se guarda al lado (`.2`); un archivo ajeno al scaffold no se toca, no se respalda ni se declara; con destino vacío no se crea el directorio.
 - **Ruido de EOL** — una diferencia de solo CRLF vs LF no cuenta como pisada, en las dos direcciones, con el fixture escrito explícitamente (no derivado del checkout, que depende de `core.autocrlf`).

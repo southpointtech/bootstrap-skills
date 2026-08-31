@@ -33,7 +33,10 @@ $script:runRoot = Join-Path ([IO.Path]::GetTempPath()) ("cs-run-$PID-" + [guid]:
 # La limpieza del final es una sentencia suelta: un error terminante fuera de un Assert la saltea
 # y el workspace queda filtrado para siempre. Este trap la garantiza en ese camino (`break`
 # re-lanza el error, así que el exit code no cambia). Sin esto los abortos filtraban su árbol para
-# siempre y se llegaron a acumular nueve.
+# siempre. No se anota cuántos: los conteos de esta suite dieron 4, 8 y 9 en tres commits seguidos
+# (`1bf3318`, `4ff2c9f`), y parte de esos huérfanos los habían creado las propias corridas de
+# medición, no abortos reales. El inventario de `e5e20d2` —62 rastros de al menos seis suites— es de
+# TEMP entero, otra unidad. Sin un número que signifique una sola cosa, la razón alcanza sin él.
 trap {
   if ($script:runRoot -and (Test-Path -LiteralPath $script:runRoot)) {
     Remove-Item -LiteralPath $script:runRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -100,7 +103,7 @@ Assert (Test-Path "$t\.claude\hooks\review-loop-trigger.ps1") "el contenido del 
 Remove-Item -Recurse -Force $t
 
 # 4. Conflicto de archivo: el scaffold pisa (semántica deliberada del Step 2; el original queda
-#    en .bootstrap-backup/, que es de donde el Step 0b lo toma)
+#    en .bootstrap-backup/, de donde el Step 0b lo toma si no hay ya un docs/agents/legacy-claude.md)
 $t = New-Proj
 "claude viejo" | Set-Content "$t\CLAUDE.md" -Encoding UTF8
 (Get-Item "$t\CLAUDE.md").Attributes = 'ReadOnly'
@@ -257,15 +260,28 @@ Remove-Item -Recurse -Force $t
 # sobre los BYTES, así que un BOM cuenta como diferencia.
 $t = New-Proj
 New-Item -ItemType Directory -Path "$t\docs\agents" -Force | Out-Null
+$canonTl = [IO.File]::ReadAllBytes($canonTlPath)   # se relee por la misma razón que el bloque 12:
+                                                   # heredarlo de ahí ata este caso a que aquél no
+                                                   # se mueva ni se borre
 $bom = [byte[]](0xEF,0xBB,0xBF) + $canonTl
 [IO.File]::WriteAllBytes("$t\docs\agents\triage-labels.md", $bom)
+# Este bloque nunca llega al loop byte a byte —el fixture mide canónico+3, así que las dos pasadas de
+# `Test-BytesEqual` salen por largo (medido)—; lo que ejercita es que el script NO decodifique, porque
+# decodificando el BOM se descarta y este caso pasaría inadvertido. Con un canónico vacío el fixture
+# serían 3 bytes sueltos y ya no habría BOM que medir: el bloque fallaría igual, pero por el assert
+# del respaldo (3 bytes BOM-only se leen como string vacío), mandando a buscar el bug al lugar
+# equivocado. De ahí el `-gt 3`, que es la mitad que importa: sin él la comparación con `+ 3` es
+# cierta por construcción y el guard no puede fallar nunca. Mismo descuido que `4ff2c9f` arregló en
+# el bloque 12.
+$largoBom = (Get-Item -LiteralPath "$t\docs\agents\triage-labels.md").Length
+Assert ($largoBom -gt 3 -and $largoBom -eq (Get-Item -LiteralPath $canonTlPath).Length + 3) "el fixture del BOM es el canónico no vacío + 3 bytes (si no, mide largo y no BOM)"
 $r = Invoke-CopyJson $t
 Assert (@($r.overwritten | Where-Object { $_.file -eq "docs/agents/triage-labels.md" }).Count -eq 1) "diferencia de BOM se declara pisada"
 Assert ((Get-IfAny "$t\.bootstrap-backup\docs\agents\triage-labels.md") -ne '') "diferencia de BOM genera respaldo"
 Remove-Item -Recurse -Force $t
 
 # Nota: el caso "dos binarios distintos colapsan al mismo U+FFFD" no se puede cubrir acá — exige
-# que AMBOS archivos tengan bytes inválidos, y los 52 del scaffold son texto válido. El bloque 14
+# que AMBOS archivos tengan bytes inválidos, y los 52 del scaffold son texto válido. El bloque 13
 # (BOM) ejercita la misma causa raíz —comparar decodificando en vez de comparar bytes— y sí muerde.
 
 # 14. Espejado byte-idéntico entre las TRES skills
