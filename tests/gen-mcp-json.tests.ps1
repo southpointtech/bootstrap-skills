@@ -12,6 +12,9 @@ function Assert($cond, $msg) {
 # Todo temporal que se cree queda registrado acá, para que la limpieza no dependa de que
 # alguien se acuerde de listarlo abajo ni de que la corrida llegue al final.
 $script:tmps = [System.Collections.Generic.List[string]]::new()
+# Corte para el barrido final de TEMP: solo se miran los temporales creados por ESTA corrida,
+# para no acusar a los de una sesión concurrente.
+$script:arranque = Get-Date
 function NewTmp {
   $d = Join-Path ([IO.Path]::GetTempPath()) ("mcp-test-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $d | Out-Null
@@ -24,8 +27,14 @@ function Cleanup-Tmps {
   }
 }
 # `$ErrorActionPreference = "Stop"` (arriba) convierte cualquier error en terminante: sin este
-# trap, una excepción a mitad del archivo abortaba el script y se filtraban TODOS los temporales
-# vivos. Ese es el mecanismo que dejó 606 huérfanos en TEMP, no el olvido de listar uno.
+# trap, una excepción a mitad del archivo aborta el script y se filtran TODOS los temporales vivos.
+# Medido: inyectando un throw a mitad, 7 filtrados sin el trap y 0 con él.
+#
+# Ese NO es el mecanismo que dejó los 606 huérfanos, aunque sea tentador contarlo así: la limpieza
+# final ni siquiera existía entonces (antes de `b0d1631` este archivo tenía cuatro `Remove-Item`
+# inline y ningún barrido al cierre), y 606 sobre ~100 corridas da ~6 por corrida, que es
+# exactamente la cantidad de temporales que no estaban listados. Aquello fue el olvido de listar;
+# esto es un agujero distinto, que solo se abre cuando una corrida revienta.
 trap { Cleanup-Tmps; break }
 # Corre el script como subproceso; devuelve @{ exit; out } (out = stdout crudo)
 function RunScript($scriptPath, [string[]]$ServerArgs, $ProjectDir, [switch]$Force) {
@@ -379,8 +388,18 @@ foreach ($case in @(
 Cleanup-Tmps
 # Y se asserta que la limpieza PASO: `-ErrorAction SilentlyContinue` se traga un borrado fallido,
 # asi que sin este assert un temporal que sobrevive es invisible.
-$sobrevivientes = @($script:tmps | Where-Object { $_ -and (Test-Path $_) })
-Assert ($sobrevivientes.Count -eq 0) "sin rastros: los $($script:tmps.Count) temporales quedaron borrados (sobrevivieron: $($sobrevivientes -join ', '))"
+#
+# Se mira el FILESYSTEM, no la lista `$script:tmps`: filtrar la propia lista solo prueba "lo que
+# registre lo borre", y un temporal creado con New-Item directo —sin pasar por NewTmp— filtraba
+# con el assert en verde (verificado: sacando el Add de NewTmp quedaban 6 huerfanos reales y el
+# test imprimia "los 0 temporales quedaron borrados"). El corte por timestamp evita pisar corridas
+# concurrentes: solo se miran los directorios creados despues de que arranco esta.
+$sobrevivientes = @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "mcp-test-*" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.CreationTime -ge $script:arranque } | ForEach-Object { $_.FullName })
+Assert ($sobrevivientes.Count -eq 0) "sin rastros: ningun mcp-test-* de esta corrida quedo en TEMP (sobrevivieron: $($sobrevivientes -join ', '))"
+# Piso de no-degeneracion: si NewTmp dejara de registrar, el assert de arriba seguiria en verde
+# por vacuidad mientras la fuga ocurre. Hoy son 17.
+Assert ($script:tmps.Count -ge 15) "sin rastros: la corrida ejercito al menos 15 temporales (fueron $($script:tmps.Count))"
 
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

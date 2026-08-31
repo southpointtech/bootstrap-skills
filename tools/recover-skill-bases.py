@@ -781,8 +781,9 @@ def self_test():
               lambda: (is_git_repo(plain) is False, is_git_repo(plain)))
         # `git rev-parse` sube por el arbol: sin comparar contra la raiz, CUALQUIER carpeta
         # adentro de un repo pasa por clon. Un `--upstream-clone` mal tipeado que caiga
-        # adentro de ESTE repo lo analiza a el, encuentra sus propios `*/SKILL.md` (medido:
-        # 109 blobs) y emite bases con similitud 1.0 citando commits nuestros.
+        # adentro de ESTE repo lo analiza a el, encuentra sus propios `*/SKILL.md` (mas de cien
+        # blobs, y suben con cada commit que toca uno) y emite bases con similitud 1.0 citando
+        # commits nuestros.
         sub = os.path.join(up, "skills")
         check("rechaza un subdirectorio de un repo (el clon es la raiz, no algo adentro)",
               lambda: (is_git_repo(sub) is False, is_git_repo(sub)))
@@ -852,15 +853,24 @@ def self_test():
                   _pisar("carpeta-sin-skill"))))
         # el lado positivo: sin el, un guard que rechaza TODO (`if True`) pasa en verde y el
         # modo `--skill` queda roto para siempre sin que nada lo note.
-        check("un --skill VALIDO sigue corriendo y produce ese reporte",
-              lambda: ((lambda t: (t[0] == 0 and '"name": "alpha"' in t[1] and
-                                   '"name": "drift"' not in t[1], (t[0], len(t[1]))))(
-                  _pisar("alpha"))))
+        # se parsea el JSON en vez de buscar la subcadena `"name": "alpha"`: esa forma dependia
+        # del espacio que mete indent=2, y un cambio de `separators` la volvia roja sin que
+        # nada estuviera roto.
+        check("un --skill VALIDO sigue corriendo y produce solo ese reporte",
+              lambda: ((lambda t: ((lambda r: (t[0] == 0 and
+                                               [s["name"] for s in r["skills"]] == ["alpha"],
+                                               (t[0], [s["name"] for s in r["skills"]])))(
+                  json.loads(t[1]))))(_pisar("alpha"))))
 
         # --- CLI: las otras formas de `--out`, y `--skills-dir` --------------------------
-        # Las tres reventaban en el `open()` final, con el reporte ya calculado. El pre-flight
-        # las ataja antes de trabajar; se asserta el motivo, no solo el exit code, porque las
-        # tres se ven igual desde afuera y el usuario necesita saber cual le toco.
+        # Todas reventaban en el `open()` final, con el reporte ya calculado. El pre-flight las
+        # ataja antes de trabajar; se asserta el MOTIVO y no solo el exit code, porque desde
+        # afuera se ven igual y el usuario necesita saber cual le toco.
+        #
+        # El motivo se ancla en un token con guiones (`destino-ocupado:`) y NO en una palabra
+        # suelta: el mensaje imprime la ruta con %r, asi que assertar "directorio" lo satisfacia
+        # el NOMBRE del fixture y no el motivo — intercambiar los motivos entre si dejaba las
+        # dos aserciones en verde. Los fixtures se llaman neutro por la misma razon.
         def _out_rechazado(valor):
             import io
             import contextlib
@@ -869,21 +879,25 @@ def self_test():
                 rc = main(["--upstream-clone", up, "--skills-dir", local, "--out", valor])
             return rc, err.getvalue()
 
-        dir_existente = os.path.join(tmp, "soy-un-directorio")
+        dir_existente = os.path.join(tmp, "destino-a")
         os.makedirs(dir_existente, exist_ok=True)
-        check("--out que apunta a un directorio existente se rechaza antes de trabajar",
-              lambda: ((lambda t: (t[0] == 2 and "directorio" in t[1], t))(
+        check("--out que apunta a una carpeta existente se rechaza antes de trabajar",
+              lambda: ((lambda t: (t[0] == 2 and "destino-ocupado:" in t[1], t))(
                   _out_rechazado(dir_existente))))
 
-        archivo = os.path.join(tmp, "soy-un-archivo")
+        archivo = os.path.join(tmp, "destino-b")
         with open(archivo, "w", encoding="utf-8") as f:
-            f.write("no soy un directorio\n")
+            f.write("contenido cualquiera\n")
         check("--out con un componente intermedio que es archivo se rechaza antes de trabajar",
-              lambda: ((lambda t: (t[0] == 2 and "archivo" in t[1], t))(
+              lambda: ((lambda t: (t[0] == 2 and "componente-archivo:" in t[1], t))(
                   _out_rechazado(os.path.join(archivo, "adentro.json")))))
 
         check("--out vacio se rechaza antes de trabajar",
-              lambda: ((lambda t: (t[0] == 2 and "vacia" in t[1], t))(_out_rechazado(""))))
+              lambda: ((lambda t: (t[0] == 2 and "ruta-vacia:" in t[1], t))(_out_rechazado(""))))
+
+        check("--out terminado en separador se rechaza antes de trabajar",
+              lambda: ((lambda t: (t[0] == 2 and "termina-en-separador:" in t[1], t))(
+                  _out_rechazado(os.path.join(tmp, "destino-c") + os.sep))))
 
         def _skills_dir_inexistente():
             import io
@@ -895,8 +909,45 @@ def self_test():
                            "--stdout"])
             return (rc == 2 and "directorio de skills" in err.getvalue()), (rc, err.getvalue()[:80])
 
-        check("un --skills-dir inexistente se rechaza antes de clonar y de recuperar",
+        check("un --skills-dir inexistente se rechaza antes de recuperar",
               _skills_dir_inexistente)
+
+        # "antes de CLONAR" es una propiedad aparte, y con `--upstream-clone` es inobservable:
+        # mover el guard despues del bloque de clonado dejaba el check anterior en verde. Se
+        # ejercita sin clon, con una URL inalcanzable: si el guard corriera despues, la corrida
+        # intentaria clonar `example.invalid` y el mensaje de clonado aparecería en stderr.
+        def _no_llega_a_clonar():
+            import io
+            import contextlib
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = main(["--upstream-url", "https://example.invalid/no-existe.git",
+                           "--skills-dir", os.path.join(tmp, "no-existe-este-dir"),
+                           "--stdout"])
+            salida = err.getvalue()
+            return (rc == 2 and "Clonando" not in salida), (rc, salida[:120])
+
+        check("y se rechaza ANTES de clonar: no se intenta la red siquiera",
+              _no_llega_a_clonar)
+
+        # El exit 3 es la ultima puerta por la que se pierde trabajo: la recuperacion salio bien
+        # pero la escritura fallo igual. Un caracter invalido de Windows pasa el pre-flight (el
+        # directorio existe) y revienta en el open(). El reporte tiene que salir por stdout.
+        def _falla_al_escribir():
+            import io
+            import contextlib
+            invalido = os.path.join(tmp, "no-se-puede<>.json")
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = main(["--upstream-clone", up, "--skills-dir", local,
+                           "--skill", "alpha", "--out", invalido])
+            texto = out.getvalue()
+            # el reporte entero por stdout, y ningun .tmp abandonado al lado
+            huerfano = os.path.isfile(invalido + ".tmp")
+            return (rc == 3 and '"skills"' in texto and not huerfano), (rc, len(texto), huerfano)
+
+        check("si la escritura falla igual, el reporte sale por stdout con exit 3 y sin dejar .tmp",
+              _falla_al_escribir)
 
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
@@ -929,10 +980,14 @@ def _out_no_escribible(out):
     necesita saber cuál de las tres formas le tocó, y las tres se ven igual desde afuera.
     """
     if not out or not out.strip():
-        return "es una ruta vacia"
+        return "ruta-vacia: no se paso ningun nombre de archivo"
+    # `abspath` strippea el separador final, así que `C:\x\sub\` se vería como un archivo
+    # llamado `sub` y pasaría el pre-flight para morir recién en el `open()`.
+    if out.rstrip().endswith(("/", "\\")) or out.rstrip().endswith(os.sep):
+        return "termina-en-separador: es un nombre de directorio, no de archivo"
     ap_out = os.path.abspath(out)
     if os.path.isdir(ap_out):
-        return "ya existe y es un directorio"
+        return "destino-ocupado: ya existe y es una carpeta"
     # un componente intermedio que es un archivo hace fallar el makedirs, no el open
     cur = os.path.dirname(ap_out)
     while cur and not os.path.exists(cur):
@@ -940,8 +995,11 @@ def _out_no_escribible(out):
         if padre == cur:
             break
         cur = padre
+    if cur and not os.path.exists(cur):
+        # el while cortó en una raíz que no existe: una unidad no montada, un UNC inalcanzable
+        return "raiz-inexistente: no existe %r" % cur
     if cur and not os.path.isdir(cur):
-        return "el componente %r del camino es un archivo, no un directorio" % cur
+        return "componente-archivo: %r del camino no es una carpeta" % cur
     return None
 
 
@@ -1004,14 +1062,27 @@ def main(argv=None):
     else:
         # `abspath` primero: el dirname de un `--out` relativo sin directorio ("salida.json")
         # es "", y `os.makedirs("")` revienta con el reporte ya calculado.
+        # Se escribe a un temporal al lado y se renombra encima. `open(dest, "w")` TRUNCA antes
+        # de escribir: si la falla llega durante el write o el close —disco lleno, ruta de red
+        # que se cae, que son justo los casos de la red de abajo— el reporte bueno que estaba
+        # ahí queda destruido y reemplazado por JSON parcial. `os.replace` es atómico en el
+        # mismo volumen, así que el destino o tiene el reporte viejo entero o el nuevo entero.
+        destino = os.path.abspath(args.out)
+        tmp_out = destino + ".tmp"
         try:
-            os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-            with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            with open(tmp_out, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
+            os.replace(tmp_out, destino)
         except OSError as exc:
             # Red final: el pre-flight cubre las formas conocidas, pero un permiso, un disco
             # lleno o una ruta de red caída aparecen recién acá, con la recuperación ya hecha.
             # Escupir el reporte por stdout cuesta un redirect; perderlo cuesta la corrida.
+            try:
+                if os.path.isfile(tmp_out):
+                    os.remove(tmp_out)
+            except OSError:
+                pass
             print("No se pudo escribir %s (%s). El reporte va por stdout para no perderlo."
                   % (args.out, exc), file=sys.stderr)
             sys.stdout.write(text)

@@ -78,6 +78,27 @@ foreach ($s in $skills) {
     Assert ([int]$m.Groups[2].Value -eq $nCmds) `
       "$($s.Name): el SKILL.md dice $($m.Groups[2].Value) comandos y el scaffold tiene $nCmds"
   }
+
+  # El mismo conteo se repite un párrafo más abajo, en `This delivers:`, y atar sólo la primera
+  # aparición dejaba la segunda libre de despegarse igual — que es exactamente el bug que este
+  # guard existe para atajar.
+  $nWf   = @(Get-ChildItem (Join-Path $scaffold "docs/ai-workflow") -File).Count
+  $nAg   = @(Get-ChildItem (Join-Path $scaffold "docs/agents") -File).Count
+  $d = [regex]::Match($texto,
+    '\.agents/skills/` \((\d+) skills.*?\.claude/commands/` \((\d+) commands\)')
+  Assert $d.Success "$($s.Name): el SKILL.md declara el conteo del párrafo 'This delivers'"
+  if ($d.Success) {
+    Assert ([int]$d.Groups[1].Value -eq $nSkills) `
+      "$($s.Name): 'This delivers' dice $($d.Groups[1].Value) skills y el scaffold tiene $nSkills"
+    Assert ([int]$d.Groups[2].Value -eq $nCmds) `
+      "$($s.Name): 'This delivers' dice $($d.Groups[2].Value) comandos y el scaffold tiene $nCmds"
+  }
+  $wf = [regex]::Match($texto, '`docs/ai-workflow/` \((\d+) docs\)')
+  $ag = [regex]::Match($texto, '`docs/agents/` \((\d+) docs\)')
+  Assert ($wf.Success -and [int]$wf.Groups[1].Value -eq $nWf) `
+    "$($s.Name): 'This delivers' declara los $nWf docs de ai-workflow (dice: $($wf.Groups[1].Value))"
+  Assert ($ag.Success -and [int]$ag.Groups[1].Value -eq $nAg) `
+    "$($s.Name): 'This delivers' declara los $nAg docs de agents (dice: $($ag.Groups[1].Value))"
 }
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
