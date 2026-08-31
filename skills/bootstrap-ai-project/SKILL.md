@@ -31,7 +31,9 @@ Run **Step 2** exactly as written (the `copy-scaffold.ps1` script, which merges 
 
 ### B. Park the original CLAUDE.md
 
-**Only if `.bootstrap-backup/CLAUDE.md` exists after the copy.** For this one file take the **un-numbered** path — the opposite of the rule for every other entry. The numbered copies (`.2`, `.3`) hold what a later run overwrote, which by then is the canonical template, possibly edited; the un-numbered one is the project's own original, and that is what step C has to classify. Everywhere else you want the newest, here you want the oldest.
+**First look at `docs/agents/legacy-claude.md`.** If it already exists, an earlier run parked the original there and *that file* is it — leave it exactly as it is and go straight to step C. Never move anything on top of it: it is the permanent recovery net, and by the time a re-run makes a fresh backup the project's own text is no longer what gets copied.
+
+Otherwise park it, **only if `.bootstrap-backup/CLAUDE.md` exists after the copy**. For this one file take the **un-numbered** path — the opposite of the rule for every other entry. The numbered copies (`.2`, `.3`) hold what a later run overwrote, which by then is the canonical template; the un-numbered one is the project's own original, and that is what step C has to classify. Everywhere else you want the newest, here you want the oldest.
 
 ```powershell
 Move-Item "$proj\.bootstrap-backup\CLAUDE.md" "$proj\docs\agents\legacy-claude.md" -Force
@@ -39,7 +41,7 @@ Move-Item "$proj\.bootstrap-backup\CLAUDE.md" "$proj\docs\agents\legacy-claude.m
 
 `docs/agents/legacy-claude.md` stays in the repo forever as the recovery net.
 
-If that file does **not** exist, there is no original to park and steps C and E have nothing to classify — skip them, and say exactly that in the Step 6 report instead of the sentence step F would otherwise have you write. That happens when the project had no `CLAUDE.md` at all (Step 0 also routes into adoption on a bare `docs/ai-workflow/`), or when its `CLAUDE.md` was already content-identical to the canonical one, in which case there is nothing of the project's to recover. Never run the `Move-Item` blind: `-Force` does not conjure a missing source, it throws, and it would abort the adoption with the scaffold already landed on the project's files.
+If **neither** `docs/agents/legacy-claude.md` nor `.bootstrap-backup/CLAUDE.md` exists, there is no original to park and steps C and E have nothing to classify — skip them, and say exactly that in the Step 6 report instead of the sentence step F would otherwise have you write. That happens when the project had no `CLAUDE.md` at all (Step 0 also routes into adoption on a bare `docs/ai-workflow/`), or when its `CLAUDE.md` was already content-identical to the canonical one, in which case there is nothing of the project's to recover. Check both before concluding it: a run that died at the approval point leaves the original parked and the `CLAUDE.md` already canonical, so looking only at the backup would report "no original" over a project whose rules were never merged. Never run the `Move-Item` blind: `-Force` does not conjure a missing source, it throws, and it would abort the adoption with the scaffold already landed on the project's files.
 
 ### C. Classify the original's content
 

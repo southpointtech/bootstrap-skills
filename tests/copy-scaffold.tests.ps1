@@ -32,7 +32,8 @@ $script:runRoot = Join-Path ([IO.Path]::GetTempPath()) ("cs-run-$PID-" + [guid]:
 [IO.Directory]::CreateDirectory($script:runRoot) | Out-Null
 # La limpieza del final es una sentencia suelta: un error terminante fuera de un Assert la saltea
 # y el workspace queda filtrado para siempre. Este trap la garantiza en ese camino (`break`
-# re-lanza el error, así que el exit code no cambia). Sin esto se midieron 8 huérfanos acumulados.
+# re-lanza el error, así que el exit code no cambia). Sin esto los abortos filtraban su árbol para
+# siempre y se llegaron a acumular nueve.
 trap {
   if ($script:runRoot -and (Test-Path -LiteralPath $script:runRoot)) {
     Remove-Item -LiteralPath $script:runRoot -Recurse -Force -ErrorAction SilentlyContinue
