@@ -11,46 +11,66 @@ El `CLAUDE.md` pide que cada slice vertical sea *"a small, reviewable unit of �
 diff"*, y aclara que un slice **proyectado** muy por encima hay que partirlo antes de implementar. Lo
 que no decía es **contra qué diff se mide el techo**, y en la práctica se leía como el diff final.
 
-Medido sobre el slice 04c, **un commit por fila** — sin acumulados, que es de donde salieron todas
-las atribuciones falsas de este documento. Cada fila es `git diff --numstat <sha>^ <sha> -- .
-':(exclude)*.md'`, altas más bajas. La clasificación sale del cuerpo de cada commit y del handoff.
+Medido sobre el slice 04c, **un commit por fila** — sin acumulados, que es de donde salieron las
+primeras atribuciones falsas de este documento. Cada fila es `git diff --numstat <sha>^ <sha> -- .
+':(exclude)*.md'`, altas más bajas.
 
-**`tests/techo-del-slice.tests.ps1` verifica esta tabla contra `git` en cada corrida.** Si un número
-de acá abajo deja de ser cierto, la suite se pone roja. No es prosa: es un aserto.
+**`tests/techo-del-slice.tests.ps1` verifica esta tabla contra `git`**: los ocho números, que las
+filas sean exactamente los ocho commits del slice y en orden, y que ninguna fila sea un rango. Lo
+que el test **no** puede verificar es a quién atribuirle cada línea; de eso habla el párrafo que sigue
+a la tabla.
 
-| commit | líneas | qué es |
+| commit | líneas | |
 |---|---|---|
-| `cf925c0` | 117 (111 + 6) | scope (F3, F15) |
-| `64b5587` | 166 (139 + 27) | fixes del loop |
-| `c8ec7ee` | 103 (63 + 40) | fixes del loop |
-| `900ba7f` | 232 (207 + 25) | scope (F2, F4, F5, F6, F21) — lleva el trailer `Slice-Close:` |
-| `0eb467f` | 248 (180 + 68) | fixes del loop |
-| `693d0e2` | 111 (75 + 36) | fixes del loop |
-| `efbe76e` | 37 (20 + 17) | fixes del loop |
-| `2edb0a1` | 18 (8 + 10) | fixes del loop |
+| `cf925c0` | 117 (111 + 6) | |
+| `64b5587` | 166 (139 + 27) | |
+| `c8ec7ee` | 103 (63 + 40) | |
+| `900ba7f` | 232 (207 + 25) | ← lleva el trailer `Slice-Close:`, o sea **declara el cierre del slice** |
+| `0eb467f` | 248 (180 + 68) | |
+| `693d0e2` | 111 (75 + 36) | |
+| `efbe76e` | 37 (20 + 17) | |
+| `2edb0a1` | 18 (8 + 10) | |
 
-Sumados por tipo: **349 de scope** (dos commits) y **683 de fixes del loop** (seis commits). El
-acumulado del slice entero (`3e175b0..2edb0a1`) es **660**, y no coincide con 349 + 683 = 1.032
-porque hay churn: una línea que dos commits tocan cuenta dos veces en la suma por commit y una sola
-en el acumulado. Por eso la suma por commit **sobrecuenta**, y por eso sirve para lo único que se le
-pide acá.
+El acumulado del slice entero (`3e175b0..2edb0a1`) es **660**. No es la suma de las filas (1.032)
+porque hay churn: una línea que dos commits tocan cuenta dos veces por commit y una sola en el
+acumulado. La suma por commit **sobrecuenta**, siempre.
 
-La única conclusión que estos números sostienen: **el loop puso más líneas que el scope**, y el scope
-solo —349, y realmente menos, porque sobrecuenta— está **por debajo** del techo. No hay evidencia de
-que 04c estuviera mal dimensionado al planificarse.
+### Por qué acá no hay un reparto entre "scope" y "fixes del loop"
 
-> **Cuatro versiones de este párrafo, cuatro afirmaciones falsas mías, todas sobre los mismos ocho
-> commits.** (1) *"el primer commit son 117 líneas y el resto lo agregó el review"* — había un commit
-> de scope más, `900ba7f`. (2) *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el
-> review tocara nada"* — el loop ya había corrido dos turnos antes de `900ba7f`
-> (`docs/SESSION_HANDOFF.md:190`) y 269 de esas 494 eran suyas. (3) *"había tres commits de scope
-> más"* — había uno. (4) La tabla que se anunciaba "commit por commit" tenía una fila
-> (`900ba7f..2edb0a1`, 296) que era **un acumulado de cuatro commits**; por commit son 414.
+Porque **no se puede hacer con estos commits**. `0eb467f` es mixto: su cuerpo dice *"F18 y F14, que el
+trailer del commit anterior daba por cerrados sin que el delta los tocara"*, y el handoff (`:22-23`)
+los registra cerrados ahí. F14 y F18 son **scope** —dos de los nueve Medium que el slice vino a
+cerrar— y viajan en el mismo commit que arreglos de hallazgos del loop. Cualquier número que reparta
+esas 248 líneas entre las dos categorías sería una estimación presentada como medición, que es
+exactamente el error que este documento acumuló cinco veces.
+
+Lo que la tabla **sí** sostiene, y alcanza para la decisión:
+
+- Cuatro de los ocho commits son **posteriores al cierre declarado** (`900ba7f`), y suman **414
+  líneas**. Existen porque el `/review-loop` corrió después de que el slice se dio por cerrado: no
+  hay otra cosa que los explique, y son más que el techo entero.
+- El loop también había corrido **antes** de ese cierre —dos turnos, `docs/SESSION_HANDOFF.md:190`
+  (*"turno 2 de 5, NO cerrado"*)—, así que su contribución no está acotada a esos cuatro commits.
+
+Con eso basta: **el loop le agrega líneas al slice que revisa, después de que el slice cerró.** Si el
+techo se mide sobre el diff final, esas líneas cuentan contra un slice que ya no se puede replanificar.
+
+> **Cinco afirmaciones falsas mías en este párrafo, sobre los mismos ocho commits.** (1) *"el primer
+> commit son 117 líneas y el resto lo agregó el review"* — había otro commit de scope, `900ba7f`.
+> (2) *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el review tocara nada"* —
+> el loop ya había corrido dos turnos antes de `900ba7f`. (3) *"había tres commits de scope más"* —
+> había uno. (4) Una tabla anunciada "commit por commit" con una fila (`900ba7f..2edb0a1`, 296) que
+> era un acumulado de cuatro commits; por commit son 414. (5) Clasificar las 248 líneas de `0eb467f`
+> como "fixes del loop" cuando el commit también cierra F14 y F18, que eran scope — y de esa
+> clasificación dependía la conclusión *"el scope solo está por debajo del techo"*, que por eso ya no
+> se afirma.
 >
-> Las cuatro tienen la misma causa y las cuatro las encontró un turno del review-loop leyendo el
-> arreglo del turno anterior. Agregar cláusulas no las cerró. Lo que las cierra es **sacar el número
-> de la prosa**: la tabla de arriba hoy la verifica un test contra `git`, y una quinta versión
-> equivocada se pone roja en vez de publicarse.
+> Fueron **cuatro** las versiones que publicaron alguna de estas cinco —`919e567` la (1), `87f11fe`
+> la (2), `ebfc19b` las (3) y (4), `5ba9aff` la (5)—, así que la correspondencia no es una por
+> versión. A cada una la corrigió el turno siguiente del
+> review-loop leyendo el arreglo del turno anterior. **Todas eran de atribución, no de medición**: los
+> números siempre estuvieron bien; lo que estaba mal era de quién se decía que eran. Poner la
+> medición bajo un test cierra la mitad medible. La otra mitad se cierra **no afirmándola**.
 
 ### Tres formas de contar, y ninguna es "la" forma
 

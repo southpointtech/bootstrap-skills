@@ -113,9 +113,10 @@ git --no-pager diff <range> --stat
 
 If the change approaches or exceeds ~400 lines of logic diff, say so: reviewer accuracy drops
 sharply on large diffs. Review it anyway, and flag in the final report **how large the reviewed
-range is**. Stop at the size: do not turn it into a verdict about how the slice was planned. The
-ceiling is measured at slice open, and on turn 2 onward this range is the loop's own fix turns —
-which the ceiling exempts — so its size says nothing about what the slice projected.
+range is**. Stop at the size: never turn it into a verdict about how the slice was planned. No
+range measured here can establish that — not on turn 2 onward, where the range IS the loop's own fix
+turns, which the ceiling exempts, and not on turn 1 either, where it is the closing diff and the
+ceiling was spent at open. Its size says nothing about what the slice projected.
 
 If the diff is only a deliberately failing test (TDD RED) with no implementation yet, close with no
 findings — there is nothing to review.

@@ -114,11 +114,15 @@ foreach ($rel in @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")) {
 # --- 4. El pre-flight de /slice-review: no puede fabricar el hallazgo que la regla exime ---
 foreach ($rel in @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")) {
   VerificarSitio $rel @(
-    # `\s+` y no un espacio: el texto envuelve, y "The\nceiling" no matchea "the ceiling".
-    @{ patron = '(?i)the\s+ceiling is measured at slice open'
-       msg    = 'el reviewer sabe que el techo se mide al abrir' }
-    @{ patron = '(?i)says nothing about what the slice projected'
-       msg    = 'el reviewer no convierte el tamano de la delta en un veredicto de planificacion' }
+    # `\s+` donde el texto envuelve: "the\nceiling" no matchea "the ceiling".
+    @{ patron = '(?i)the\s+ceiling was spent at open'
+       msg    = 'el reviewer sabe que el techo pertenece a la apertura del slice' }
+    # Ancla en la forma INCONDICIONAL. La version condicionada ("on turn 2 onward ... says nothing
+    # about what the slice projected") satisfacia un ancla mas corta y dejaba el turno 1 sin cubrir.
+    @{ patron = '(?i)never turn it into a verdict about how the slice was planned'
+       msg    = 'el reviewer prohibe el veredicto de planificacion SIN condicionarlo al turno' }
+    @{ patron = '(?i)not on turn 1 either'
+       msg    = 'la razon cubre tambien el turno 1' }
   ) @(
     @{ patron = '(?i)flag in the final report that the slice should have\s+been split'
        msg    = 'ya no reporta "should have been split" sobre la delta del loop' }
@@ -157,35 +161,33 @@ foreach ($c in Copias ".claude\hooks\review-loop-trigger.ps1") {
 
 # --- 7. La tabla de medicion del ADR-0008, verificada contra git ---
 #
-# POR QUE ESTO EXISTE. Ese parrafo del ADR tuvo CUATRO versiones y CUATRO afirmaciones falsas
-# distintas sobre los mismos ocho commits, cada una encontrada por un turno del review-loop leyendo
-# el arreglo del turno anterior. Agregar clausulas no cerro el ciclo. Lo que lo cierra es sacar el
-# numero de la prosa: aca la tabla se compara contra `git`, asi que una quinta version equivocada se
-# pone ROJA en vez de publicarse.
+# POR QUE ESTO EXISTE. Ese parrafo del ADR acumulo CINCO afirmaciones falsas sobre los mismos ocho
+# commits, cada una encontrada por el turno siguiente del review-loop leyendo el arreglo del turno
+# anterior. Agregar clausulas no cerro el ciclo. Lo cierran dos cosas distintas:
+#   - la mitad MEDIBLE (los numeros) se saca de la prosa y se compara contra `git`, aca abajo;
+#   - la mitad NO medible (a quien atribuirle cada linea) se cierra NO AFIRMANDOLA. `0eb467f` es un
+#     commit mixto: cierra F14 y F18, que eran scope, junto con fixes del loop. Cualquier reparto
+#     scope/loop de sus 248 lineas seria una estimacion presentada como medicion. El ultimo assert
+#     de este bloque impide que ese reparto vuelva al documento.
 #
 # La tabla es `<sha>` | <total> (<altas> + <bajas>) y cada fila es UN commit, medido igual que el
-# resto del ADR: `git diff --numstat <sha>^ <sha> -- . ':(exclude)*.md'`. Si alguien vuelve a meter
-# un rango acumulado como fila, `<sha>^` no es su base y el numero no va a dar.
+# resto del ADR: `git diff --numstat <sha>^ <sha> -- . ':(exclude)*.md'`.
 $adr = Join-Path $repo "docs\adr\0008-el-techo-del-slice-se-mide-al-abrir.md"
 if (-not (Test-Path -LiteralPath $adr)) {
   Assert $false "existe docs/adr/0008-el-techo-del-slice-se-mide-al-abrir.md"
 } else {
-  $filas = [regex]::Matches(
-    [IO.File]::ReadAllText($adr),
+  $txtAdr = [IO.File]::ReadAllText($adr)
+  $filas = [regex]::Matches($txtAdr,
     '(?m)^\|\s*`([0-9a-f]{7,40})`\s*\|\s*(\d+)\s*\((\d+)\s*\+\s*(\d+)\)\s*\|')
   # Sin este piso, borrar la tabla dejaria el bloque entero en verde sin verificar nada: cero filas,
   # cero asserts, "TODOS LOS TESTS PASARON".
   Assert ($filas.Count -eq 8) "la tabla del ADR-0008 tiene sus 8 filas de commit ($($filas.Count))"
 
-  $scope = 0; $loop = 0
   foreach ($f in $filas) {
-    $sha  = $f.Groups[1].Value
-    $tot  = [int]$f.Groups[2].Value
-    $alt  = [int]$f.Groups[3].Value
-    $baj  = [int]$f.Groups[4].Value
-    # La linea entera, para clasificar por lo que la propia fila dice de si misma.
-    $linea = $f.Value + ([regex]::Match([IO.File]::ReadAllText($adr),
-             [regex]::Escape($f.Value) + '([^\r\n]*)').Groups[1].Value)
+    $sha = $f.Groups[1].Value
+    $tot = [int]$f.Groups[2].Value
+    $alt = [int]$f.Groups[3].Value
+    $baj = [int]$f.Groups[4].Value
 
     $a = 0; $d = 0
     $rows = @(git -C $repo diff --numstat "$sha^" $sha -- . ':(exclude)*.md' 2>$null)
@@ -201,18 +203,47 @@ if (-not (Test-Path -LiteralPath $adr)) {
     if (-not $medible) { continue }
     Assert (($a -eq $alt) -and ($d -eq $baj) -and ($tot -eq ($alt + $baj))) `
       "ADR-0008/${sha}: la tabla dice $tot ($alt + $baj) y git mide $($a+$d) ($a + $d)"
-
-    if ($linea -match 'scope') { $scope += $tot } else { $loop += $tot }
   }
 
-  # Los dos totales que el texto publica, recomputados desde las filas que acabamos de verificar.
-  $txtAdr = [IO.File]::ReadAllText($adr)
-  Assert ($txtAdr -match "\*\*$scope de scope\*\*") `
-    "ADR-0008: el total de scope que publica el texto es el que suman sus filas ($scope)"
-  Assert ($txtAdr -match "\*\*$loop de fixes del loop\*\*") `
-    "ADR-0008: el total de fixes que publica el texto es el que suman sus filas ($loop)"
-  Assert ($scope -lt 400) "ADR-0008: el scope solo ($scope) esta por debajo del techo, como afirma"
-  Assert ($loop -gt $scope) "ADR-0008: el loop puso mas lineas que el scope ($loop > $scope)"
+  # MEMBRESIA, no solo medicion. El turno 4 del loop probo que verificar solo los numeros deja pasar
+  # las dos formas en que este parrafo fallo de verdad: cambiar una fila por un commit repetido queda
+  # verde, y AGREGAR una novena fila con un rango acumulado tambien (no parsea como sha, asi que el
+  # piso de 8 lo satisfacen las buenas y la mentirosa se publica sin ningun assert encima).
+  $delSlice = @(git -C $repo rev-list --reverse "3e175b0..2edb0a1" 2>$null)
+  Assert (($LASTEXITCODE -eq 0) -and ($delSlice.Count -eq 8)) `
+    "git enumera los 8 commits del slice 04c ($($delSlice.Count))"
+  $enTabla = @($filas | ForEach-Object { $_.Groups[1].Value })
+  for ($i = 0; $i -lt [Math]::Min($enTabla.Count, $delSlice.Count); $i++) {
+    Assert ($delSlice[$i].StartsWith($enTabla[$i])) `
+      "ADR-0008 fila $($i+1): $($enTabla[$i]) es el commit $($i+1) del slice"
+  }
+
+  # Ninguna fila puede ser un rango. Se mira la REGION de la tabla, no las filas que parsearon: una
+  # fila `a..b` no parsea, y por eso mismo el bucle de arriba nunca la veria.
+  $region = [regex]::Match($txtAdr, '(?ms)^\| commit \|.*?(?=\r?\n\r?\n)').Value
+  Assert ($region -ne "") "se encontro la region de la tabla del ADR-0008"
+  Assert (-not ($region -match '`[0-9a-f]{7,40}\.\.')) `
+    "ninguna fila de la tabla del ADR-0008 es un rango acumulado"
+
+  # El unico numero derivado que el texto publica: las lineas de los commits POSTERIORES al cierre
+  # declarado (`900ba7f`). Es derivable porque son commits enteros; el reparto scope/loop NO lo es.
+  $iCierre = -1
+  for ($i = 0; $i -lt $enTabla.Count; $i++) {
+    if ("900ba7fc72555a659162d81c4975c6d5ce0b57aa".StartsWith($enTabla[$i])) { $iCierre = $i }
+  }
+  Assert ($iCierre -ge 0) "la fila del cierre declarado (900ba7f) esta en la tabla"
+  if ($iCierre -ge 0) {
+    $post = 0
+    for ($i = $iCierre + 1; $i -lt $filas.Count; $i++) { $post += [int]$filas[$i].Groups[2].Value }
+    Assert ($post -gt 0) "hay commits posteriores al cierre declarado ($post lineas)"
+    Assert ($txtAdr -match "\*\*$post[\s\r\n]+lineas\*\*|\*\*$post[\s\r\n]+l\u00edneas\*\*") `
+      "ADR-0008: las lineas posteriores al cierre que publica el texto son las que suman sus filas ($post)"
+    Assert ($post -gt 400) "ADR-0008: esas lineas superan el techo, como afirma el texto ($post)"
+  }
+
+  # La afirmacion que el turno 4 tiro abajo no puede volver por la ventana.
+  Assert (-not ($txtAdr -match '(?i)\d+\s+de scope')) `
+    "ADR-0008 no publica un reparto scope/loop, que 0eb467f vuelve no medible"
 }
 
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FALLARON"; exit 1 }
