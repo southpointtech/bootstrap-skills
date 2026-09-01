@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-08-31+4f41e56",
+  "version": "2026-09-01+ef13445",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
@@ -44,7 +44,7 @@
     ".claude/scripts/review-marker.ps1": "761f837502a92df7fcc3d5ac79894508d75ade4d20bf3cd396ca7033f39cd9b9",
     ".claude/settings.json": "61ad880e8ba44d027929cb7b3a2e3fa656a9c19270699f48b004155ac17df9b6",
     ".gitignore": "a2f91fb6d7b01f1048c42ac565ebab4500af100763d103f4bbc6e14fcd72629a",
-    "CLAUDE.md": "abc300903b51e5bdebd4bb416186db9458e1aa35e2e9d86b447ffa56f874040b",
+    "CLAUDE.md": "0cdc34df6a23f8d619534c6b6be145faf62dda1a06f6170d65ea93ec90d9803a",
     "docs/agents/domain.md": "74d9fd35f35245683160091d53dd9ccfa017cf53534339992bab47c0ffb69cee",
     "docs/agents/issue-tracker.md": "810cf0b23f856995ae2e943de7752a97b19892830718bd0cbe884dd7ff758ec6",
     "docs/agents/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
