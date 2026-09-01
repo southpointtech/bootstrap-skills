@@ -17,17 +17,17 @@
 # Anclar ahi da un test que pasa verde contra el texto que la regla vino a reemplazar.
 #
 # QUE ESTA PROBADO NO-VACUO Y QUE NO. El RED se corrio contra 919e567 (el commit que cambio el bullet
-# sin tocar sus ejecutores): 88 fallos, 17 ok. O sea que la mayoria de las aserciones muerden, pero
-# NO todas, y conviene saber cuales:
-#   - Rojas contra 919e567, o sea probadas: las 5 mitades negativas de los ejecutores, y las
-#     clausulas nuevas del bullet (artefacto nombrado, distincion con la red del hook, disparo no
-#     espurio).
-#   - Verdes contra 919e567, o sea NO probadas por ese RED: "el techo se mide al ABRIR" y "las lineas
-#     del loop no cuentan" (ya estaban en 919e567: son pins contra un revert, no contra este cambio),
-#     "el umbral del hook sigue siendo 400" (verde a proposito: el hook no cambia), y la mitad
-#     negativa del bullet en la linea marcada mas abajo, cuya redaccion vieja ya no estaba en
-#     919e567 — tambien es un pin contra un revert al texto original, no una verificacion de este
-#     cambio. Si agregas aserciones, decidi a proposito en cual de los dos grupos caen.
+# sin tocar sus ejecutores). La mayoria de las aserciones se ponen rojas ahi; unas pocas NO, y son
+# estas cinco — el resto queda probado por ese RED:
+#   - "el techo se mide al ABRIR" y "las lineas del loop no cuentan": ya estaban en 919e567, asi que
+#     son pins contra un revert, no verificaciones de este cambio.
+#   - "el umbral del hook sigue siendo 400": verde a proposito, el hook no cambia. Su no-vacuidad se
+#     probo aparte, con el `\b` (ver el comentario de esa linea).
+#   - la mitad negativa del bullet marcada mas abajo: su redaccion vieja ya no estaba en 919e567,
+#     asi que tambien es un pin contra revert.
+#   - "hay al menos 3 skills bootstrap-*-project": es un piso, no una verificacion del cambio.
+# No se anotan totales de fallos aca: cambian cada vez que se agrega una asercion, y quedaron
+# desactualizados dos veces. Si necesitas el numero, corre el test contra 919e567 en un worktree.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $skills = @(Get-ChildItem (Join-Path $repo "skills") -Directory | Where-Object Name -like "bootstrap-*-project")
@@ -92,8 +92,8 @@ foreach ($rel in @(".claude\commands\review-loop.md", ".agents\skills\review-loo
        msg    = 'el pre-flight no ordena partir' }
     @{ patron = '(?i)exempt from that ceiling'
        msg    = 'declara exentas las lineas del propio loop' }
-    @{ patron = '(?i)it says nothing about what the slice projected when it opened'
-       msg    = 'el pre-flight no concluye un veredicto de planificacion desde la delta' }
+    @{ patron = '(?i)never turn it into a verdict about how the slice was planned'
+       msg    = 'el pre-flight prohibe el veredicto de planificacion SIN condicionarlo al turno' }
   ) @(
     @{ patron = '(?i)stop and split it into smaller slices'
        msg    = 'ya no ordena partir a mitad del loop' }
@@ -153,6 +153,66 @@ foreach ($c in Copias ".claude\hooks\review-loop-trigger.ps1") {
   # Es una trampa ya documentada en este repo (ver el comentario de review-loop-incremental.tests.ps1
   # y el handoff del 2026-08-13), y se colo igual en la primera version de este archivo.
   Assert ($txt -match '\$lines\s+-le\s+400\b') "${nombre}: el umbral del hook sigue siendo 400"
+}
+
+# --- 7. La tabla de medicion del ADR-0008, verificada contra git ---
+#
+# POR QUE ESTO EXISTE. Ese parrafo del ADR tuvo CUATRO versiones y CUATRO afirmaciones falsas
+# distintas sobre los mismos ocho commits, cada una encontrada por un turno del review-loop leyendo
+# el arreglo del turno anterior. Agregar clausulas no cerro el ciclo. Lo que lo cierra es sacar el
+# numero de la prosa: aca la tabla se compara contra `git`, asi que una quinta version equivocada se
+# pone ROJA en vez de publicarse.
+#
+# La tabla es `<sha>` | <total> (<altas> + <bajas>) y cada fila es UN commit, medido igual que el
+# resto del ADR: `git diff --numstat <sha>^ <sha> -- . ':(exclude)*.md'`. Si alguien vuelve a meter
+# un rango acumulado como fila, `<sha>^` no es su base y el numero no va a dar.
+$adr = Join-Path $repo "docs\adr\0008-el-techo-del-slice-se-mide-al-abrir.md"
+if (-not (Test-Path -LiteralPath $adr)) {
+  Assert $false "existe docs/adr/0008-el-techo-del-slice-se-mide-al-abrir.md"
+} else {
+  $filas = [regex]::Matches(
+    [IO.File]::ReadAllText($adr),
+    '(?m)^\|\s*`([0-9a-f]{7,40})`\s*\|\s*(\d+)\s*\((\d+)\s*\+\s*(\d+)\)\s*\|')
+  # Sin este piso, borrar la tabla dejaria el bloque entero en verde sin verificar nada: cero filas,
+  # cero asserts, "TODOS LOS TESTS PASARON".
+  Assert ($filas.Count -eq 8) "la tabla del ADR-0008 tiene sus 8 filas de commit ($($filas.Count))"
+
+  $scope = 0; $loop = 0
+  foreach ($f in $filas) {
+    $sha  = $f.Groups[1].Value
+    $tot  = [int]$f.Groups[2].Value
+    $alt  = [int]$f.Groups[3].Value
+    $baj  = [int]$f.Groups[4].Value
+    # La linea entera, para clasificar por lo que la propia fila dice de si misma.
+    $linea = $f.Value + ([regex]::Match([IO.File]::ReadAllText($adr),
+             [regex]::Escape($f.Value) + '([^\r\n]*)').Groups[1].Value)
+
+    $a = 0; $d = 0
+    $rows = @(git -C $repo diff --numstat "$sha^" $sha -- . ':(exclude)*.md' 2>$null)
+    $medible = ($LASTEXITCODE -eq 0)
+    foreach ($r in $rows) {
+      $c = $r -split "`t"
+      if ($c.Count -ge 2 -and $c[0] -match '^\d+$' -and $c[1] -match '^\d+$') {
+        $a += [int]$c[0]; $d += [int]$c[1]
+      }
+    }
+    # Si git no pudo medir, esto NO puede pasar en silencio: seria el test verde sobre nada.
+    Assert $medible "ADR-0008/${sha}: git pudo medir el commit"
+    if (-not $medible) { continue }
+    Assert (($a -eq $alt) -and ($d -eq $baj) -and ($tot -eq ($alt + $baj))) `
+      "ADR-0008/${sha}: la tabla dice $tot ($alt + $baj) y git mide $($a+$d) ($a + $d)"
+
+    if ($linea -match 'scope') { $scope += $tot } else { $loop += $tot }
+  }
+
+  # Los dos totales que el texto publica, recomputados desde las filas que acabamos de verificar.
+  $txtAdr = [IO.File]::ReadAllText($adr)
+  Assert ($txtAdr -match "\*\*$scope de scope\*\*") `
+    "ADR-0008: el total de scope que publica el texto es el que suman sus filas ($scope)"
+  Assert ($txtAdr -match "\*\*$loop de fixes del loop\*\*") `
+    "ADR-0008: el total de fixes que publica el texto es el que suman sus filas ($loop)"
+  Assert ($scope -lt 400) "ADR-0008: el scope solo ($scope) esta por debajo del techo, como afirma"
+  Assert ($loop -gt $scope) "ADR-0008: el loop puso mas lineas que el scope ($loop > $scope)"
 }
 
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FALLARON"; exit 1 }

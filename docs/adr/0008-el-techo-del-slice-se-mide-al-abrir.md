@@ -11,34 +11,46 @@ El `CLAUDE.md` pide que cada slice vertical sea *"a small, reviewable unit of �
 diff"*, y aclara que un slice **proyectado** muy por encima hay que partirlo antes de implementar. Lo
 que no decía es **contra qué diff se mide el techo**, y en la práctica se leía como el diff final.
 
-Medido sobre el slice 04c, **commit por commit** y no por acumulados, contando altas más bajas y
-excluyendo `.md`. Los commits están clasificados por lo que dice su propio cuerpo:
+Medido sobre el slice 04c, **un commit por fila** — sin acumulados, que es de donde salieron todas
+las atribuciones falsas de este documento. Cada fila es `git diff --numstat <sha>^ <sha> -- .
+':(exclude)*.md'`, altas más bajas. La clasificación sale del cuerpo de cada commit y del handoff.
 
-| tramo | líneas | qué es |
+**`tests/techo-del-slice.tests.ps1` verifica esta tabla contra `git` en cada corrida.** Si un número
+de acá abajo deja de ser cierto, la suite se pone roja. No es prosa: es un aserto.
+
+| commit | líneas | qué es |
 |---|---|---|
-| `3e175b0..cf925c0` | 117 (111 + 6) | scope |
-| `cf925c0..64b5587` | 166 (139 + 27) | fixes del loop |
-| `64b5587..c8ec7ee` | 103 (63 + 40) | fixes del loop |
-| `c8ec7ee..900ba7f` | 232 (207 + 25) | scope (F2, F4, F5, F6, F21) — lleva el trailer `Slice-Close:` |
-| `900ba7f..2edb0a1` | 296 (224 + 72) | fixes del loop |
-| **acumulado `3e175b0..2edb0a1`** | **660** (604 + 39 en `tools/recover-skill-bases.py`, 13 + 4 en su test) | |
+| `cf925c0` | 117 (111 + 6) | scope (F3, F15) |
+| `64b5587` | 166 (139 + 27) | fixes del loop |
+| `c8ec7ee` | 103 (63 + 40) | fixes del loop |
+| `900ba7f` | 232 (207 + 25) | scope (F2, F4, F5, F6, F21) — lleva el trailer `Slice-Close:` |
+| `0eb467f` | 248 (180 + 68) | fixes del loop |
+| `693d0e2` | 111 (75 + 36) | fixes del loop |
+| `efbe76e` | 37 (20 + 17) | fixes del loop |
+| `2edb0a1` | 18 (8 + 10) | fixes del loop |
 
-Sumados por tipo: **349 de scope** (117 + 232) y **565 de fixes del loop** (166 + 103 + 296). Los dos
-sumandos no dan 660 y **no tienen por qué darlo**: hay churn — líneas que un commit agrega y otro
-posterior borra — así que el acumulado no es la suma de los tramos.
+Sumados por tipo: **349 de scope** (dos commits) y **683 de fixes del loop** (seis commits). El
+acumulado del slice entero (`3e175b0..2edb0a1`) es **660**, y no coincide con 349 + 683 = 1.032
+porque hay churn: una línea que dos commits tocan cuenta dos veces en la suma por commit y una sola
+en el acumulado. Por eso la suma por commit **sobrecuenta**, y por eso sirve para lo único que se le
+pide acá.
 
-De ahí sale la única conclusión que estos números sostienen: **el loop puso más líneas que el scope**,
-y los commits de scope solos (349) están **por debajo** del techo. No hay evidencia de que 04c
-estuviera mal dimensionado al planificarse.
+La única conclusión que estos números sostienen: **el loop puso más líneas que el scope**, y el scope
+solo —349, y realmente menos, porque sobrecuenta— está **por debajo** del techo. No hay evidencia de
+que 04c estuviera mal dimensionado al planificarse.
 
-> **Tres versiones de este párrafo, tres afirmaciones falsas mías.** La primera decía *"el primer
-> commit son 117 líneas y el resto lo agregó el review"* — falso, había tres commits de scope más. La
-> segunda decía *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el review tocara
-> nada"* y concluía que 04c estaba mal planificado — también falso: el loop ya había corrido **dos
-> turnos** antes de `900ba7f` (`docs/SESSION_HANDOFF.md:190`, *"turno 2 de 5, NO cerrado"*), y 269 de
-> esas 494 líneas eran suyas. Las dos tenían la misma causa: **atribuir a partir de dos diffs
-> acumulados**. Un acumulado dice cuánto creció el slice; no dice quién lo hizo crecer. La atribución
-> solo sale commit por commit, que es como está medida la tabla de arriba.
+> **Cuatro versiones de este párrafo, cuatro afirmaciones falsas mías, todas sobre los mismos ocho
+> commits.** (1) *"el primer commit son 117 líneas y el resto lo agregó el review"* — había un commit
+> de scope más, `900ba7f`. (2) *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el
+> review tocara nada"* — el loop ya había corrido dos turnos antes de `900ba7f`
+> (`docs/SESSION_HANDOFF.md:190`) y 269 de esas 494 eran suyas. (3) *"había tres commits de scope
+> más"* — había uno. (4) La tabla que se anunciaba "commit por commit" tenía una fila
+> (`900ba7f..2edb0a1`, 296) que era **un acumulado de cuatro commits**; por commit son 414.
+>
+> Las cuatro tienen la misma causa y las cuatro las encontró un turno del review-loop leyendo el
+> arreglo del turno anterior. Agregar cláusulas no las cerró. Lo que las cierra es **sacar el número
+> de la prosa**: la tabla de arriba hoy la verifica un test contra `git`, y una quinta versión
+> equivocada se pone roja en vez de publicarse.
 
 ### Tres formas de contar, y ninguna es "la" forma
 
@@ -47,11 +59,13 @@ vueltas** sobre el mismo rango `3e175b0..2edb0a1`:
 
 | base | líneas | quién la usa |
 |---|---|---|
-| altas solas, excluyendo `.md` | **617** | el handoff del 2026-09-01 (y el 716 de 04b) |
+| altas solas, excluyendo `.md` | **617** | el handoff del 2026-09-01 |
 | altas + bajas, excluyendo `.md` | **660** | este ADR |
 | altas + bajas, con el `$skipPat` real del hook (que **no** excluye `.md`) | **874** | `.claude/hooks/review-loop-trigger.ps1` |
 
-Ninguna está mal; no son comparables entre sí. Y la exclusión de `.md` que aplicaron el handoff y
+Un cuarto número, el **716** que el handoff publica para 04b (`docs/SESSION_HANDOFF.md:398`), **no reproduce con ninguna de las tres** sobre el rango que el propio handoff declara (`:351`): esa base da 735, y 607 con la otra frontera. Queda anotado como no reproducido en vez de asignado a una base que no lo produce.
+
+Ninguna de las tres está mal; no son comparables entre sí. Y la exclusión de `.md` que aplicaron el handoff y
 este ADR **no la concede ninguna regla escrita**: ni el bullet del `CLAUDE.md` ni el `$skipPat` del
 hook la mencionan. Se aplicó por criterio, no por contrato. Cerrar esa ambigüedad —qué cuenta como
 "línea de lógica", y si se cuentan altas o altas+bajas— queda fuera del alcance de esta decisión y es
@@ -87,13 +101,15 @@ marcador; mover la base a mitad de camino deja turnos revisando rangos que ya no
   the slice" de `tdd`, el pre-flight de `/slice-review` y los dos docs de `docs/ai-workflow/` que el
   `CLAUDE.md` declara lectura obligatoria. `tests/techo-del-slice.tests.ps1` verifica las dos mitades
   —cláusula nueva presente, instrucción vieja ausente— en las 4 copias de cada sitio, porque
-  `mirror.tests.ps1` tiene `assets/scaffold/CLAUDE.md` en su allowlist y ninguna suite lo miraba.
+  `mirror.tests.ps1` tiene `assets/scaffold/CLAUDE.md` en su allowlist, así que ninguna suite miraba
+  **el bullet** (sí hay otras que leen esos archivos por otras reglas).
 
 ### Evaluación de Forecasting App (regla del `CLAUDE.md`)
 
 El `CLAUDE.md` pide evaluar si un cambio al template aplica también al `CLAUDE.md` real de
 Forecasting App. **Evaluado el 2026-09-01: aplica.** `C:\Repos\SOUTHPOINTLABS\Forecasting App\CLAUDE.md:98`
-tiene el bullet viejo, medido al cerrar. **No se aplicó desde acá**, a propósito: ese repo se
+tiene el bullet viejo —el que no dice contra qué diff se mide, que es justamente lo que esta
+decisión cierra—. **No se aplicó desde acá**, a propósito: ese repo se
 actualiza por el rollout del issue 18, que además necesita aprobación humana. Dato para ese rollout:
 el bullet del `/review-loop` de Forecasting (`:82`) está **más adelantado** que el de esta rama —ya
 trae el gate de docs de `main`—, así que el merge no es en una sola dirección.
