@@ -1,6 +1,14 @@
-# Session Handoff — 2026-08-31 (noche) — Review-loop de 5 turnos sobre la deuda del cap anterior: COMMITEADO (`2046664`) en `fix/copy-scaffold-respalda`. **SIN mergear, SIN pushear, SIN deployar.** Cerró POR CAP.
+# Session Handoff — 2026-08-31 (noche) — Review-loop de 5 turnos sobre la deuda del cap anterior: COMMITEADO (`2046664`). **Mergeado, pusheado y deployado el 2026-09-01** (ver el bloque de abajo). Cerró POR CAP.
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+> **Actualizado 2026-09-01**: lo que este bloque daba por pendiente YA ESTÁ HECHO.
+> `fix/copy-scaffold-respalda` (`7efbca7`, dos commits — el handoff quedó afuera de la cuenta
+> original) se mergeó ff-only a `main`, se pusheó, se deployó con `tools/sync-skills.ps1` y se
+> verificó en el sink por SHA-256 (172 archivos, 0 faltantes, 0 distintos). Los manifests
+> resellados están en `9d48b0e`, pusheado. Las 14 suites en verde antes del deploy.
+> **La deuda declarada de `2046664` sigue abierta**, y el marcador quedó en `4569d51` con el
+> ancla del slice en `4ff2c9f` a propósito: el loop cerró por cap, no limpio.
 
 ✅ **`fix/copy-scaffold-respalda` = `2046664`**, un commit por delante de `main` (`4569d51`).
 Working tree **limpio**. Las **14 suites en verde**. El golden en sync (`reseal -Check` → exit 0).
