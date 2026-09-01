@@ -1,3 +1,854 @@
+# Session Handoff — 2026-09-01 (madrugada) — **SLICE 04c CERRADO**, review-loop cerrado LIMPIO en el turno 4
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **26 commits, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills`.
+
+## Estado: el slice 04c cerró, y cerró limpio
+
+Los **nueve Medium** del review del issue 04 están cerrados. Ninguno quedó declarado sin cerrar: el
+pase de coherencia los verificó uno por uno contra el estado final del archivo.
+
+| # | qué | estado |
+|---|---|---|
+| F3 | `_history` heredaba `diff.renames`/`diff.renameLimit` | ✅ `cf925c0` |
+| F15 | el renombre CON edición (`R<100`) sin cobertura | ✅ `cf925c0` |
+| — | `core.quotePath`, un tercer knob heredado | ✅ `64b5587` |
+| F2 | el empate se calculaba sobre el ratio, no sobre el cuerpo | ✅ `900ba7f` — `base.tieOnIdenticalBodies` + `summary.tiedOnDifferentBodies` |
+| F4 | `never-upstream` afirmaba lo que no midió | ✅ `900ba7f` + `0eb467f` — `no-match-above-threshold`, `DEFAULT_THRESHOLD`, frontera asertada |
+| F5 | `orphaned` estaba en el glosario como término a evitar | ✅ `900ba7f` — `gone-from-upstream-head` |
+| F21 | contrato de campos no uniforme, `bestSimilarity` indocumentado | ✅ `900ba7f` — `method.fieldsByStatus`, verificado por igualdad de conjuntos |
+| F6 | la limitación de `autojunk` sin documentar | ✅ `900ba7f` + `0eb467f` |
+| F14 | la invariante `commit:path → blob` es tautológica | ✅ `0eb467f` — dice qué verifica de verdad, y está asertada |
+| F18 | `similarity()` sin aserción de valor | ✅ `0eb467f` — el mutante `quick_ratio()` muere |
+
+**Commits del slice**: `cf925c0`, `64b5587`, `c8ec7ee`, `900ba7f` (trailer `Slice-Close`), `0eb467f`,
+`693d0e2`, `efbe76e`, `2edb0a1`. **Self-test: 64 → 84 aserciones**, 0 fail. Runner en verde con
+`$ExpectedChecks = 84`. El ancla `slice-open` se limpió al cerrar (`-Action close`); `slice-base`
+vuelve a `feb3f23`.
+
+## Lo que encontró el review-loop — 4 turnos, cerró LIMPIO (no por cap)
+
+Turno 1: 5 focos + mutación + `/code-review`. Turnos 2-4: sin mutación ni `/code-review`.
+
+| turno | qué destapó |
+|---|---|
+| 1 | 🔴 el check del umbral era **tautológico** (verificaba cableado, no valor): con `DEFAULT_THRESHOLD = 0.50` el self-test seguía verde, y toda la banda (0, 0.97] pasaba limpia. Más 4 literales `0.60` paralelos, dos con label que decía "el umbral" |
+| 1 | 🔴 la explicación de `autojunk` que yo había escrito era **falsa, y ya estaba publicada en `method.similarity`**, o sea en el JSON que consume el lockfile |
+| 2 | 🔴 el guard que agregué para cerrar F14 **pasaba sin verificar nada**: contaba sobre el reporte, no sobre lo que el bucle recorría; un `continue` incondicional lo dejaba verde |
+| 3 | dos números míos que no medían lo que decían (`~20 checks` eran 37-43) y un cache **que no cacheaba** (3 claves distintas → 0 hits) |
+| 4 | cero medium/high en los dos focos → **cierre limpio** |
+
+## 🔴 El patrón, otra vez: los hallazgos fueron afirmaciones mías, no bugs de lógica
+
+**Nueve afirmaciones falsas propias en cuatro turnos**, y —como en la sesión anterior— varias
+escritas *dentro de los commits que corregían afirmaciones falsas*. Ninguna la habría agarrado un test:
+
+1. `0.9914040114613181` para la colisión → el real es `0.9913985345651481`. Lo medí **fuera de
+   `body_of`**, que recorta extremos. Ahora lo fija un check en vez de vivir en un comentario.
+2. *"solo distorsiona en cuerpos > 7 KB"* sobre `autojunk` → se dispara por el largo de **`b`** (el
+   blob de upstream, `len(b) >= 200`), o sea en casi toda comparación. Medido: `zoom-out`, con 169 B
+   de cuerpo, se distorsiona 4,2×; y la comparación inversa, donde `b` no llega a 200, no se mueve.
+3. *"los excluye del matching"* → los populares no **siembran** matches pero sí se extienden; por eso
+   un cuerpo contra sí mismo sigue dando 1.0.
+4. *"si la detección de renombres se degrada, la invariante se cae"* → **no se cae**: con
+   `renames=false` el renombre se parte en `D`+`A`, el `A` queda en el path nuevo del mismo commit y
+   los 22 registros siguen cerrando.
+5. *"el ratio del que depende todo el reporte no pasa por `similarity()`"* → los candidatos a sucesor
+   también se publican, y el comentario de F18 del **mismo commit** decía lo contrario.
+6. *"los ~20 checks que siguen"* → son 37-43.
+7. *"el cache evita pagar la corrida dos veces"* → 3 misses, 0 hits. Se sacó el cache.
+8. *"las 9 bases publicadas"* → son **10** las entradas que publican `base`; 9 traen `commit`.
+9. El trailer de `900ba7f` daba por cerrados **F14 y F18** sin que el delta los tocara. Se cerraron
+   de verdad en `0eb467f` (hasta ahí, el mutante `quick_ratio()` sobrevivía).
+
+**Presupuestarlo de nuevo.** Y lo que cerró el ciclo no fue matizar: fue **quitar** (el cache, el par
+43/37, la cláusula sobre `exactBodyMatches`). Coincide con lo ya medido: parchar prosa agregando
+cláusulas no converge.
+
+## Gotchas medidos esta sesión
+
+- 🔴 **Lanzar 8 agentes de golpe mató 5**: API errors y stalls de 600 s. La banda medida (4-6) es
+  real y **incluye a `/code-review`**. Las olas de 3-5 anduvieron sin caídas. `/code-review` se cayó
+  por stall las dos veces que se intentó, así que el turno 1 corrió sin él.
+- 🔴 **Avanzar el marcador DESPUÉS de commitear los fixes deja el rango del turno siguiente vacío**
+  (pasó en el turno 3). El orden es: review → `advance` → recién ahí aplicar fixes. No hay verbo para
+  retroceder el marcador; se compensa pasándole el rango explícito a los reviewers.
+- **Un guard que cuenta sobre el reporte no protege al bucle que verifica**: el contador tiene que
+  incrementarse *dentro* del bucle, o un `continue` incondicional lo deja en verde.
+- **Hoistear una llamada fuera del lambda de `check()` le saca el aislamiento**: una excepción aborta
+  la corrida entera —sin línea de resumen— en vez de contarse como un FAIL.
+- **Un assert que compara `parse_args() == CONSTANTE == method.threshold` es tautológico**: los tres
+  términos leen la misma constante. Para fijar un valor hay que compararlo contra un literal.
+- **Una constante de frontera puede derivar y volver el check un no-op**: `DRIFT_RAW` necesitaba su
+  propio assert contra el ratio que el fixture produce hoy.
+- 🔴 **El handoff anterior tiene un número falso**: decía `tdd 0.8625→0.8265` con `autojunk` off.
+  Medido el 2026-08-31 contra su base: **0.8625 con y sin**. Parece un swap de dígitos.
+- **El sandbox de la Bash tool rechaza heredocs largos de Python**: partirlos o escribir el contenido
+  con la herramienta Write y concatenar.
+
+## El techo de tamaño, otra vez
+
+**04c quedó en 617 líneas de lógica** (`3e175b0..HEAD`, excluyendo `.md`), 1,5× el techo de ~400.
+Arrancó en 293 y creció por los fixes del propio loop — **la misma tensión estructural que 04b**
+(716). No es un slice mal planificado: es que el loop agrega líneas al slice que revisa. Vale la pena
+decidir si el techo se mide al abrir el slice o al cerrarlo, porque hoy la regla se viola sola.
+
+## Pendientes concretos
+
+1. 🔴 **`.scratch/bootstrap-v2/skill-bases.json` quedó con el esquema viejo** (`generatedAt`
+   2026-08-28): sin el `upstreamRelation` nuevo, sin `fieldsByStatus`, sin los campos de empate. **Hay
+   que regenerarlo antes de que el issue 05 lo consuma**, o el lockfile se sella sobre el vocabulario
+   que `CONTEXT.md` ya lista como a evitar. Necesita red y ~98 s.
+2. 🔴 **El issue 19 sigue mal escrito** y bloquea al 05. Sin cambios: su repro no reproduce y su
+   criterio #1 pasaría en verde hoy. El repro correcto medido está más abajo en este archivo (drift
+   prependido, acantilado entre 4400 y 4600 caracteres).
+3. **`summary.tiedOnDifferentBodies` no tiene valor de una corrida real** contra upstream: está
+   verificado contra el fixture sintético y contra los tres empates conocidos, que dan 0. Si el issue
+   05 depende de verlo en > 0, ese camino todavía no se ejercitó con datos reales.
+4. **Sin commitear** (todo `.md`, de la línea del grill, no del slice): este handoff, los tres
+   `docs/adr/0004..0006` y la nota de research de dieta de contexto. `CONTEXT.md` **sí** se commiteó
+   (su glosario era parte de F5).
+
+## Antes de tocar código
+
+- **Reclonar upstream** si hace falta: `git clone https://github.com/mattpocock/skills.git`. HEAD de
+  referencia `6654f6b`, 471 commits, 413 blobs `*/SKILL.md`.
+- El `alignment-gate` bloquea el primer edit de código de la sesión: la alineación de este release ya
+  está hecha (grill del 2026-08-28, PRD + 19 issues aprobados). **Reintentar el edit y seguir.**
+- Al commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- 🔴 **Prohibirles a los reviewers correr `tests/gen-mcp-json.tests.ps1` y
+  `tests/copy-scaffold.tests.ps1`**: barren `%TEMP%` por prefijo global, abortan, y su rojo se
+  diagnostica como regresión falsa.
+- **Mergear/rebasar `main` ANTES de tocar el issue 14**: `bc973c2` agrandó el bullet del
+  `/review-loop` en `CLAUDE.md`. Los únicos conflictos son los `.bootstrap-manifest.json`, que son
+  **generados**: tomar cualquier lado y regenerar con `tools/gen-manifest.ps1`.
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola** — y esta sesión lo confirmó a los golpes.
+- No usar `/compact`: handoff + terminal nueva.
+
+---
+# Session Handoff — 2026-08-31 (noche) — SLICE 04c EN CURSO: F3 + F15 + `core.quotePath` cerrados; **F2/F4/F5/F21/F6 sin empezar**
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **22 commits, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills`, hoy en `fix/copy-scaffold-respalda`.
+
+## ▶▶▶▶▶▶▶ LO PRIMERO: la bifurcación que quedó abierta
+
+El usuario cortó la sesión con una decisión **sin tomar**. Las dos opciones, tal como se le
+presentaron:
+
+1. **Seguir el review-loop hasta que cierre** (va en el turno 2 de 5) y recién después implementar
+   F2/F4/F5/F21/F6.
+2. **Implementar el resto de 04c ahora** —incluido el renombre de vocabulario ya aprobado— y correr
+   el loop una sola vez al declarar `Slice-Close`.
+
+**La recomendación dada fue la 2**, con este argumento: el turno 3 revisaría ~70 líneas casi todas
+de comentarios, mientras que F4/F5 van a tocar el contrato de salida que el issue 05 sella; conviene
+que el loop lea el slice completo y no en dos mitades. El costo aceptado es que el turno 3 queda
+**pendiente, no salteado**. **Preguntale al usuario antes de arrancar**: no contestó.
+
+## Estado del slice 04c
+
+| # | qué | estado |
+|---|---|---|
+| F3 | `_history` heredaba `diff.renames`/`diff.renameLimit` del entorno | ✅ `cf925c0` |
+| F15 | el renombre CON edición (`R<100`) sin cobertura | ✅ `cf925c0` — lo forzó F3 (ver abajo) |
+| — | **`core.quotePath`**: un TERCER knob heredado, no estaba en la lista | ✅ `64b5587` |
+| F2 | el empate se calcula sobre el ratio, no sobre el cuerpo | ⬜ **sin empezar** |
+| F4 | `never-upstream` afirma lo que no midió | ⬜ **sin empezar** |
+| F5 | `orphaned` está en el glosario como término a evitar | ⬜ **sin empezar** |
+| F21 | `unmatched` sin `upstreamHead`/`similarity`; emite `bestSimilarity` indocumentado | ⬜ **sin empezar** |
+| F6 | la limitación de `autojunk` no se documenta; los dos números publicados son artefactos | ⬜ **sin empezar** |
+
+Commits del slice: `cf925c0`, `64b5587`, `c8ec7ee` (los tres sin trailer `Slice-Close`).
+**Self-test: 59 → 64 aserciones**, 0 fail. Runner `tests/recover-skill-bases.tests.ps1` en verde.
+
+### 🔴 DECISIÓN DEL USUARIO YA FIRMADA — no volver a preguntarla
+
+Para **F4 + F5**, eligió la opción "renombrar los dos a lo medido":
+
+- `never-upstream` → **`no-match-above-threshold`**
+- `orphaned` → **`gone-from-upstream-head`** (alineado con `upstreamHead.status: gone` y
+  `summary.goneFromUpstreamHead`, que el JSON ya usa)
+- **Ambos términos se agregan al glosario de `CONTEXT.md`. Sin ADR**: no hay nada que justificar,
+  los nombres dicen lo que se mide.
+
+Para **F21** se decidió (técnico, no elevado): documentar el **contrato condicional real** en el doc
+y en el bloque `method`, en vez de inventar campos vacíos para una entrada que por definición no
+tiene base.
+
+Para **F6**: documentar la limitación de `autojunk` y corregir los dos números publicados.
+**NO apagar `autojunk`** (cuesta 2.500-3.500 s contra 98 s), y *cambiar* la métrica es el issue 19,
+no éste.
+
+## 🔴 Estado del review-loop — turno 2 de 5, NO cerrado
+
+- **Marcador**: `4ac3635`. El delta sin revisar es `c8ec7ee` (los fixes del turno 2).
+- **Ancla de coherencia (`slice-open`)**: `dca6e09` — 🔴 **apunta al arranque del slice 04b**, no
+  del 04c. 04b cerró por tope de 5 turnos, y un cierre por cap **conserva el ancla a propósito**
+  (ADR-0002), así que nunca se limpió. Consecuencia: el pase de coherencia al cierre de 04c va a
+  leer 04b+04c (~848 líneas) en vez de solo 04c (~276). **Decidir qué hacer con esto antes de
+  cerrar**: no lo toqué.
+- El loop lo disparó la **red de seguridad de las ~400 líneas**, no un cierre de slice. Ese delta
+  (que arrastraba los 3 commits que la sesión anterior dejó sin revisar) ya está revisado.
+
+### Medición del techo — corrige un hallazgo del propio loop
+
+El foco de reglas reportó "848 líneas, el techo está reventado". **Es cierto pero mal atribuido**:
+
+| medición | líneas |
+|---|---|
+| desde `dca6e09` (04b + 04c juntos) | ~848 |
+| **slice 04c solo** (`3e175b0..HEAD`) | **~276** |
+
+**04c está dentro del techo.** Lo sobredimensionado es el acumulado apilado. No aceptar el hallazgo
+tal cual viene.
+
+## Lo que encontró el review-loop (2 turnos, 12 reviewers)
+
+**Turno 1** (7 reviewers: 5 focos + mutación + `/code-review`), **turno 2** (5 focos).
+
+Hallazgos reales cerrados en `64b5587` y `c8ec7ee`:
+
+1. 🔴 **`core.quotePath` es un tercer knob con el mismo modo de falla que F3, y su default (`true`)
+   ya es el valor peligroso.** Con él, todo path con byte no ASCII sale C-quoteado y la skill se cae
+   del inventario → sale `gone`/`orphaned` estando viva. Se fijó en `_history` (`log --raw`) y en el
+   `ls-tree` de `recover()`. Fixture nuevo: `skills/café/SKILL.md`. Los dos mutantes mueren por
+   separado. **Impacto real hoy: cero** — medido, 0 paths no-ASCII en toda la historia de upstream;
+   el fix es defensivo.
+2. **El guard de la precondición del `renameLimit`**: el check sólo muerde mientras `commit 5b`
+   tenga DOS pares de renombre, y nada lo asertaba. `rpar` no tiene copia local → borrarlo por "no
+   se usa" devolvía el check a vacuo EN SILENCIO.
+3. **El piso de aserciones pasó de `-ge` a `-eq`.** Con `-ge` la deriva es silenciosa: quedó en 59
+   con el self-test en 62, o sea los tres checks recién agregados eran borrables en verde.
+4. Cuatro comentarios que describían implementaciones ya reemplazadas o afirmaban cobertura que el
+   test no da.
+
+## 🔴 Afirmaciones falsas encontradas — TRES, todas mías
+
+Sigue siendo el patrón de mayor rendimiento del repo. **Presupuestarlo.** Y esta vez con un agravante:
+**dos se escribieron en el commit que corregía afirmaciones falsas.**
+
+1. *"4 de las 13 líneas `R<100` tocan skills nuestras (`to-prd`, `to-spec`, `to-issues`,
+   `grill-with-docs`)"* → **son 5 líneas sobre 4 skills**. Faltaba `R053 github-triage → triage`, y
+   `to-spec` **no es skill nuestra**: es el nombre que upstream le puso a la suya (ADR-0006).
+   Verificado contra un clon real en `6654f6b`. Las 13 líneas sí eran 13.
+2. *"(61 ok, 1 fail)"* al describir el mutante del doble-close → **es 63 ok, 1 fail**. Se midió con
+   62 checks y el mismo commit los subió a 64. Se sacó el total en vez de fijarlo.
+3. **Saqué dos citas a ADR-0006 por no estar respaldadas y metí una tercera** en el docstring de
+   `_history`. Matiz que dos reviewers discutieron y se resolvió leyendo el ADR: ADR-0006 **no**
+   enuncia que los sucesores se reserven a un humano (la cita agregada sobreafirma), pero **sí**
+   registra el mapeo de `to-issues`, así que el puntero que había sacado de `uh["note"]` era
+   correcto y se restauró.
+
+## Gotchas medidos esta sesión
+
+- 🔴 **`git checkout -- <archivo>` para revertir un mutante borró TODO el trabajo sin commitear de
+  ese archivo** (~30 min). Está en la memoria del usuario como gotcha conocido y se repitió igual.
+  **Revertir mutantes con Edit, que es reversible. Nunca con `git checkout`.**
+- 🔴 **Un test de `renameLimit` sobre UN solo par de renombre es vacuo.** Git compara la *matriz* de
+  candidatos contra el límite: con un par borrado/agregado la matriz es 1×1, no supera
+  `renameLimit=1` y la detección corre igual. El mutante sobrevivió las 62 aserciones antes de
+  agrandar el fixture a dos pares.
+- **Un renombre exacto (`R100`) no sirve para probar `renameLimit`**: git lo casa por hash antes de
+  mirar el límite. Sólo el renombre CON edición (`R<100`) gasta presupuesto.
+- **Un guard que asserta contra una lista vacía puede pasar por el motivo equivocado**: una lista
+  vacía es también lo que sale si el comando de git falla. Assertar la forma degradada real
+  (`['D', 'A']`), y mirar el `returncode`.
+- **El sandbox del worktree rechaza comandos bash "complejos"** (loops `for`, `git -C <ruta
+  computada>`, pipes encadenados). Partirlos en comandos simples y separados.
+- **La Bash tool corrompe escapes en heredocs de Python**: `"skills/caf\xe9"` dentro de un heredoc
+  no matchea. Para strings con escapes, usar la herramienta Edit.
+- **`rev-list --objects` NO aplica `core.quotePath`**, pero `ls-tree --name-only` y `log --raw` sí:
+  sin fijarlo, las dos vistas del mismo path no coinciden entre sí.
+- **`rev-parse --show-toplevel` / `--absolute-git-dir` no quotean**, así que `is_git_repo` no
+  necesita el flag (verificado por dos reviewers).
+
+## Sobre worktrees en paralelo — analizado y DESCARTADO por ahora
+
+El usuario preguntó si se podían avanzar slices en simultáneo con worktrees. Se midió:
+
+| mecanismo | resultado |
+|---|---|
+| Marcador de revisión | ✅ **No colisiona**: `--git-dir` es `.git/worktrees/<n>`, el estado es por-worktree, y las claves llevan el nombre de rama (git prohíbe la misma rama en dos worktrees) |
+| Stash compartido | ✅ **No muerde al loop**: `advance` usa `git stash create`, que no toca `refs/stash` |
+| Suite de tests | 🔴 **Colisiona, y los worktrees NO lo arreglan**: `copy-scaffold.tests.ps1:25` y `export-shareable.tests.ps1:23` barren `%TEMP%` por prefijo **global** al arrancar; `%TEMP%` es de la máquina. `gen-mcp-json` ya es inmune (usa `$runId`) |
+| Techo de concurrencia | 🔴 **Es de la máquina**: 4-6 agentes → 3,1×; 7-12 → 2,0×. Dos worktrees con review-loop simultáneo caen a la banda mala |
+
+**Decisión del usuario: "arrancá solo con 04c hasta que sea más viable trabajar en worktrees
+paralelos."** El plan propuesto, si se retoma: carril A (04c → 19 → 05 → 06-12) y carril B
+(**02 → 03**, desbloqueado hoy, sin un solo archivo en común), con el issue 02 arreglando primero
+los dos barridos globales de `%TEMP%`.
+
+## 🔴 El issue 19 sigue MAL ESCRITO y bloquea al 05
+
+Sin cambios: su repro no reproduce y su criterio #1 pasaría en verde hoy. **El repro correcto,
+medido**: drift *prependido* a un cuerpo real, acantilado entre 4400 y 4600 caracteres
+(`ON=0.7800 → ON=0.0842`, con `OFF=0.7723`). Reescribir
+`.scratch/bootstrap-v2/issues/19-metrica-de-similitud-y-autojunk.md` **antes** de implementarlo.
+
+## Tests — estado verificado al cierre
+
+```
+python tools/recover-skill-bases.py --self-test          # 64 ok, 0 fail, ~10 s, offline
+pwsh -NoProfile -File tests/recover-skill-bases.tests.ps1 # Todo verde (5 asserts)
+```
+
+🔴 **Al lanzar reviewers en paralelo, prohibirles correr `tests/gen-mcp-json.tests.ps1` y
+`tests/copy-scaffold.tests.ps1`** desde el árbol compartido: está medido que abortan y su rojo se
+diagnostica como regresión falsa.
+
+## Sin commitear (todo `.md`, de la línea del grill, no del slice)
+
+`CONTEXT.md` (modificado), `docs/adr/0004..0006` (untracked), la nota de research de dieta de
+contexto, y este handoff. No se commitearon porque el usuario no lo pidió.
+
+⚠️ **`CONTEXT.md` tiene un hallazgo abierto** (lo levantaron `/code-review` y el foco de contratos):
+la entrada nueva **"Fork propio"** define *un* término para los *dos* conjuntos que la herramienta
+separa a propósito, y desaconseja bajo `_Avoid_` la palabra que el JSON emite como valor. **Se cierra
+junto con F4/F5**, cuando el vocabulario se renombre.
+
+## Antes de tocar código
+
+- **Reclonar upstream** si hace falta: `git clone https://github.com/mattpocock/skills.git`. HEAD de
+  referencia `6654f6b`, 471 commits, 413 blobs `*/SKILL.md`. Se borró el clon al cerrar la sesión.
+- El `alignment-gate` bloquea el primer edit de código de la sesión: la alineación de este release ya
+  está hecha (grill del 2026-08-28, PRD + 19 issues aprobados). **Reintentar el edit y seguir.**
+- Al commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- Trabajar en `feat/bootstrap-v2`. No `cd` al repo original.
+- **Mergear/rebasar `main` ANTES de tocar el issue 14**: `bc973c2` agrandó el bullet del
+  `/review-loop` en `CLAUDE.md` a ~2.000 caracteres. Recortarlo desde la base vieja lo borra sin que
+  git se queje. Los únicos conflictos son los `.bootstrap-manifest.json`, que son **generados**:
+  tomar cualquier lado y regenerar con `tools/gen-manifest.ps1`.
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola**.
+- No usar `/compact`: handoff + terminal nueva.
+
+---
+# Session Handoff — 2026-08-31 (tarde) — SLICE 04b CERRADO tras review-loop de 5 turnos — próximo: **slice 04c**
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **19 commits, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills`. Árboles separados.
+
+## ▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: slice 04c
+
+| # | slice | commits | estado |
+|---|---|---|---|
+| 01 | test del exportador escribe en su clon | `2d045ba`…`1ec2f08` | ✅ cerrado |
+| 17 | backlog de julio | `0058159` `b0d1631` `fa72ed0` | ✅ cerrado |
+| 04 | recuperación de la base por similitud | `08bd153` `00c2160` | ✅ implementado; 13 Medium salieron del review |
+| **04b** | **arnés del self-test + guards de entrada** | `1c52fe0`…`3e175b0` (8 commits) | ✅ **CERRADO** — cierra F13, F7, F8, F20 |
+| **04c** | **los 9 Medium restantes del 04** | — | ⬜ **PRÓXIMO** |
+
+**Cerrado en 04b**: F13 (el `--self-test` entró a la suite), F7 (`is_git_repo` compara contra la
+raíz), F8 (`--out` sin directorio), F20 (`missing-locally` contado + exit ≠ 0 + documentado).
+
+**Self-test: 39 → 59 aserciones.** Los **14 runners** de `tests/` en verde.
+
+## 🔴 LO PRIMERO: el slice 04c — los 9 Medium que quedan
+
+Ya están **verificados con repro**; no hace falta re-descubrirlos. Y hay **mediciones nuevas de
+esta sesión que corrigen al reviewer original** — usarlas, no las del handoff viejo:
+
+| id | qué | corrección medida esta sesión |
+|---|---|---|
+| F3 (95) | `_history` hereda `diff.renames`/`diff.renameLimit` del entorno | Con `diff.renames=false` caen `grill-me` **y** `to-prd`; con `diff.renameLimit=1` cae **SOLO `to-prd`** (el hallazgo decía "degradación parcial" sin nombrar). Mecanismo: la cadena de `grill-me` es de renombres exactos R100 (se detectan por hash, antes del renameLimit); `to-prd` tiene un eslabón **R078** (`skills/engineering/to-prd/` → `to-spec/`, commit `386d4ff7`), que sí necesita presupuesto. **Las bases NO se mueven** (`blob`/`commit`/`commitDate`/`upstreamPath`/`similarity` bit-idénticos en las 3 corridas): lo que se rompe es la clasificación. Fix: `-c diff.renames=true -c diff.renameLimit=0`, no sólo `-M`. Git avisa por stderr y `_git_bytes` lo tira (lee `p.stderr` solo si `returncode != 0`). |
+| F6 (88) | autojunk | Los **4 números se replican exactos**: `review-loop` 0.0308→**0.1305**, `slice-review` 0.0202→**0.1101**. Blob distinto confirmado, y para `review-loop` es **otro archivo** (`wayfinder/SKILL.md` → `improve-codebase-architecture/SKILL.md`), no otra revisión. Solo esas dos pasan 7 KB (3ª = 6.335 B). **Matiz**: 0.1305 y 0.1101 siguen bajo el umbral 0.60, así que el veredicto `unmatched`/`never-upstream` **no cambia** — el artefacto es el número publicado y el blob citado. Costo de `autojunk=False`: **~2.500-3.500 s (40-60 min)** contra 98 s, no ">600 s". |
+| F2 (92) | el empate se calcula sobre el ratio, no sobre el cuerpo | Mecanismo **reproducido** (`best=0.9994`, `tied=['AAA','BBB']`, cuerpos distintos). **PERO la inferencia del reviewer es FALSA**: en `to-issues` (0.9466) los dos blobs **sí** son byte-idénticos (`e0a4608b6aaa`, 3.294 B) — el ratio <1.0 se mide contra *nuestro* cuerpo local con drift, no entre los blobs. Hoy la frase "mismo cuerpo, distinto frontmatter" **no es falsa en ninguna de las 3** skills que empatan. Es una aserción no verificada con mecanismo presente: 36 colisiones de ratio entre cuerpos distintos en el corpus, la más alta 0.086957, ninguna sobre el máximo. |
+| F4 (90) | `never-upstream` afirma lo que no midió | renombrar a `no-match-above-threshold` |
+| F21 (90) | `unmatched` no tiene `upstreamHead` ni `similarity` (emite `bestSimilarity`, indocumentado) | 18 % de la salida real |
+| F14 (85) | la invariante `commit:path → blob` es tautológica | asertarla en el self-test, donde sí es guard contra F15 |
+| F18 (88) | `similarity()` sin aserción de valor: el mutante `ratio()`→`quick_ratio()` sobrevive | contra el clon real infla 3,7× y cambia los 3 paths |
+| F15 (70) | el renombre CON edición (`R<100`) sin cobertura | **13 líneas `R<100`** en la historia real, y **4 de las 13 tocan skills nuestras** (`to-prd`←`write-a-prd`, `to-spec`←`to-prd`, `to-issues`←`prd-to-issues`, `grill-with-docs`←`domain-model`). No es un caso de borde: es el patrón por el que upstream renombra estas skills. |
+| F5 (72) | terminología: `orphaned` está en el glosario de `CONTEXT.md` como término **a evitar** | necesita ADR |
+
+## 🔴 SEGUNDO: el issue 19 sigue MAL ESCRITO y bloquea al 05
+
+Sin cambios respecto del handoff anterior: su repro no reproduce y su criterio #1 pasaría en verde
+hoy. **El repro correcto, medido**: drift *prependido* a un cuerpo real, acantilado entre 4400 y
+4600 caracteres (`ON=0.7800 → ON=0.0842`, con `OFF=0.7723`). Reescribir
+`.scratch/bootstrap-v2/issues/19-metrica-de-similitud-y-autojunk.md` **antes** de implementarlo.
+
+## Lo que el review-loop del 04b encontró (5 turnos, 22 findings Medium/High)
+
+| turno | qué destapó |
+|---|---|
+| 1 | el guard de F20 **seguía abierto** por una carpeta sin `SKILL.md`; los 3 `SKILL.md` decían 10 donde el scaffold trae 11 (4 reviewers lo vieron por separado) |
+| 2 | asserts que **no mordían**: el motivo de `--out` lo satisfacía el **nombre del fixture** (`soy-un-directorio`), porque el mensaje imprime la ruta con `%r` |
+| 3 | coberturas **vacuas**: la escritura atómica sin test; un rojo espurio por concurrencia |
+| 4 | 🔴 un test que **escribía fuera de su fixture**: `Z:` hardcodeada, y con `Z:` mapeada a un share la herramienta escribía **en el share** |
+| 5 | 🔴 un **doble-close** que convertía Ctrl-C en `OSError`, enmascaraba bugs como "falló el disco" y hacía que un ENOSPC real reportara "Bad file descriptor" |
+
+Los dos 🔴 fueron **regresiones introducidas arreglando el turno anterior**, y ningún test los
+agarraba. Cada uno se cerró con su assert y su mutante visto fallar.
+
+## 🔴 Dos cosas ABIERTAS que el próximo debe saber
+
+1. **El slice 04b quedó en 716 líneas de lógica — 1,8× el techo de ~400 del repo.** Arrancó en 398
+   y creció por los propios fixes del loop. Es una **tensión estructural del proceso**, no un
+   descuido: el loop exige arreglar lo que encuentra y eso agranda el diff que el techo quiere
+   chico. Vale medirlo antes de proponer cambios (regla del usuario: exigir medición).
+2. **El marcador de revisión quedó en `bb2d320`**, o sea los fixes de los turnos 5 y el cierre
+   **nadie los revisó**. Es a propósito: el próximo `/review-loop` los toma. **No lo avances
+   "para limpiar"**.
+
+## Afirmaciones falsas encontradas (todas mías, todas al explicar el fix del turno anterior)
+
+Es el patrón de mayor rendimiento del repo y se sostuvo los 5 turnos. Presupuestarlo:
+
+1. El tiempo del self-test mal atribuido ("los ~25 s son las tres recuperaciones completas": eran
+   dos, una sola por el CLI, y manda la carga de la máquina, no la cantidad de aserciones).
+2. "El `finally` faltante es el mecanismo que dejó los 606 huérfanos" — **falso**: esa limpieza no
+   existía entonces (antes de `b0d1631` había 4 `Remove-Item` inline y ningún barrido final), y
+   606/~100 corridas ≈ 6 = exactamente los que no estaban listados. Fue el olvido de listar.
+3. "El corte por timestamp evita pisar corridas concurrentes" — **falso**, reproducido por dos
+   reviewers lanzando dos corridas solapadas.
+4. "El prefijo no tiene ninguno de los dos problemas" — el modo de falla vacuo lo tiene igual.
+5. **El conteo de runners**: los mensajes dijeron 9 → 13 → 7 sin definir el conjunto. Lo medido:
+   `tests/` tiene **14 runners**, la rama toca **4** (`export-shareable`, `gen-mcp-json`, `mirror`,
+   `recover-skill-bases`).
+
+## Gotchas medidos esta sesión
+
+- 🔴 **Los reviewers paralelos se contaminan corriendo la misma suite.** `tests/gen-mcp-json.tests.ps1`
+  abortó **3 de 3** corridas mientras 7 agentes corrían en paralelo, y en máquina ociosa da verde
+  3/3. Casi se diagnostica como regresión. **Al lanzar reviewers, prohibirles correr
+  `gen-mcp-json.tests.ps1` y `copy-scaffold.tests.ps1` desde el árbol compartido**: que copien al
+  scratchpad. Antes de creerle a un rojo raro: `Get-Process pwsh,python`.
+- **`git clone` a `example.invalid` NO es offline.** Sale a DNS, y con un DNS que secuestra NXDOMAIN
+  o un proxy que pide credenciales puede colgarse. Para testear un clon fallido, usar una **ruta
+  local inexistente**: falla igual de rápido por el mismo camino.
+- **`contextlib.redirect_stderr` no redirige el fd 2**, así que el stderr de un subproceso se
+  escapa a la consola igual.
+- **Un `return` dentro de un `finally`** descarta la excepción y sobreescribe el código de salida.
+  Casi entra uno: habría hecho que toda corrida devolviera 3.
+- **`os.close(fd)` después de un `with` sobre `os.fdopen(fd)`** es doble-close: tira EBADF *dentro*
+  del handler, el `raise` no corre, y EBADF reemplaza a la excepción original.
+- **`mkstemp` crea en 0600** y `os.replace` traslada ese modo al destino.
+- **Un test que hardcodea una letra de unidad** (`Z:`) depende de cómo esté montada la máquina y
+  puede escribir fuera de su fixture. Simular con un parche de `os.path.exists` es determinista.
+- **Un piso escrito sin medir falla en la primera corrida**: puse `-ge 15` donde el valor real era 6.
+
+## Tests — estado verificado al cierre
+
+`pwsh -NoProfile -File tests/<x>.tests.ps1` (runners propios, **no Pester**: cero archivos usan
+`Describe`/`It`/`Should`). **Los 14 en verde.** El self-test:
+`python tools/recover-skill-bases.py --self-test` → **59 ok, 0 fail**, ~10 s, offline de verdad.
+
+## Sin commitear (todo `.md`, de la línea del grill, no del slice)
+
+`CONTEXT.md` (modificado), `docs/adr/0004..0006` (untracked), la nota de research de dieta de
+contexto, y este handoff. No se commitearon porque el usuario no lo pidió.
+
+## Antes de tocar código
+
+- **Reclonar upstream** si no está: `git clone https://github.com/mattpocock/skills.git`. HEAD de
+  referencia `6654f6b`, 471 commits, 413 blobs `*/SKILL.md`.
+- El `alignment-gate` bloquea el primer edit de código de la sesión: la alineación de este release
+  ya está hecha (grill del 2026-08-28). Reintentar el edit y seguir.
+- Al commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- Trabajar en `feat/bootstrap-v2`. No `cd` al repo original.
+- **Mergear/rebasar `main` ANTES de tocar el issue 14**: `bc973c2` agrandó el bullet del
+  `/review-loop` en `CLAUDE.md` a ~2.000 caracteres con el gate solo-docs. Recortarlo desde la base
+  vieja lo borra sin que git se queje. Los únicos conflictos son los `.bootstrap-manifest.json`,
+  que son **generados**: tomar cualquier lado y regenerar con `tools/gen-manifest.ps1`.
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola** (3,1×; cae a 2,0× con 7-12).
+- No usar `/compact`: handoff + terminal nueva.
+
+---
+# Session Handoff — 2026-08-31 (SLICE 17 CERRADO tras review-loop de 5 turnos · slice 04 REVISADO con 13 Medium abiertos — próximo: **slice 04b**)
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **11 commits, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills` (ahora en `main` = `origin/main` =
+> `6422828`). Árboles separados: no se comparten archivos.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — próximo: slice 04b
+
+| # | slice | commits | estado |
+|---|---|---|---|
+| 01 | test del exportador escribe en su clon | `2d045ba`…`1ec2f08` | ✅ cerrado (sesión anterior) |
+| 17 | backlog de julio (secretos, plantillas, Firebase) | `0058159` + `b0d1631` + `fa72ed0` | ✅ **CERRADO**: 6/6 criterios cumplidos, coherencia corrida |
+| 04 | recuperación de la base por similitud | `08bd153` + `00c2160` | 🔴 **revisado, 13 Medium sin arreglar → slice 04b** |
+
+**El review-loop de esta sesión**: 5 turnos (tope), 30 agentes, 27 hallazgos deduplicados → 26
+sobrevivieron el confidence pass (16 Medium, 10 Low, 1 falso positivo descartado).
+
+## 🔴 LO PRIMERO: el slice 04b — los 13 Medium de `tools/recover-skill-bases.py`
+
+Todos con score del confidence pass entre paréntesis. **Ya están verificados con repro**; no hace
+falta re-descubrirlos, sí decidir el orden y arreglarlos test-first.
+
+| id | qué | dónde |
+|---|---|---|
+| F13 (95) | El `--self-test` (39 asserts, 5 s, offline) **existe y no lo corre nadie**. La justificación del doc — *"la suite de este repo es Pester"* — es **falsa**: los 13 archivos de `tests/` son runners sin Pester. Fix: corregir la afirmación + envolverlo en `tests/recover-skill-bases.tests.ps1` (~10 líneas, assertando exit code **y** el `39 ok, 0 fail`, las dos puntas) | `docs/agents/recuperar-base-de-skills.md:196` |
+| F7 (98) | `is_git_repo` acepta cualquier path **adentro** de un repo (`git rev-parse` sube por el árbol). Un `--upstream-clone` mal tipeado analiza ESTE repo, que tiene **94 blobs `*/SKILL.md`** propios, y emite bases con `similarity: 1.0` citando commits nuestros. Fix: comparar `abspath` contra `rev-parse --show-toplevel` | `tools/recover-skill-bases.py:36-48` |
+| F8 (100) | `--out salida.json` (sin directorio) revienta con `FileNotFoundError` **después** de los ~80 s de trabajo, y se pierde el JSON entero. Fix: `os.path.dirname(os.path.abspath(args.out))` | `:821` |
+| F3 (95) | La detección de renombres hereda `diff.renames`/`diff.renameLimit` del entorno. Con `diff.renames=false`, `grill-me` y `to-prd` pasan a `orphaned` — **archivos vivos en HEAD**. `diff.renameLimit=1` degrada parcialmente. Git **avisa por stderr** y `_git_bytes` tira el warning. El merge base sobrevive; la clasificación no. Fix: `git -c diff.renames=true -c diff.renameLimit=0 log … -M` | `:153-155`, `_head_path` `:218-234` |
+| F4 (90) | `never-upstream` afirma *"esta skill nunca salio de upstream"* midiendo solo `best_ratio < threshold`. Issue 05 lo sella como fork propio y la skill **sale del camino de merge de tres vías**. El umbral no tiene aserción de frontera y el default de argparse nunca se ejercita (`self_test` llama a `recover()` con el literal `0.60`). Fix: renombrar a `no-match-above-threshold` y que la nota diga lo medido | `:280,283-284`; doc:70 |
+| F6 (88) | La limitación de `autojunk` no se documenta en nada de lo que se entrega. **Y los dos números que el doc publica como evidencia de cierre son artefactos del heurístico**: `0,0308`/`0,0202` con autojunk on vs **0.1305/0.1101** off, y la herramienta elige un **blob distinto**. Son las dos únicas skills con cuerpo >7 KB | doc:76, `:98-99`, `:205` |
+| F2 (92) | El empate se calcula sobre el **ratio**, no sobre el cuerpo: dos cuerpos distintos empatan (reproducido a `0.9994`), y la salida emite *"mismo cuerpo, distinto frontmatter"* — afirmación falsa en el artefacto que alimenta el lockfile. Ojo: `to-issues` empata en **0.9466**, y un empate por debajo de 1.0 no se auto-demuestra. Fix: comparar `bodies[oid]` antes de emitir esa cláusula | `:208-215`, `:337-340` |
+| F20 (92) | `missing-locally` es indocumentado, no se cuenta en `summary` y sale con **exit 0**. Peor: un typo en `--skill` **pisa** `.scratch/bootstrap-v2/skill-bases.json` con un reporte todo-ceros e imprime `Escrito:` | `:268`, `:387-398` |
+| F21 (90) | Las entradas `unmatched` no tienen `upstreamHead` ni `similarity` (emiten `bestSimilarity`), y el doc los lista como incondicionales. Es el **18 %** de la salida real. `bestSimilarity` no está documentado en ningún lado | `:278-286` vs `:342-361`; doc:76, doc:93-94 |
+| F14 (85) | La invariante `commit:path → blob` es **tautológica**: se cumple igual con las 4 bases que `00c2160` declara equivocadas (verificado contra el clon real). El doc la presenta como corroboración. Fix: decir qué verifica de verdad, **y** asertarla en el self-test (~6 líneas), donde sí es un guard real contra F15 | doc:84-85 |
+| F18 (88) | `similarity()` no tiene ninguna aserción de valor: el mutante `ratio()`→`quick_ratio()` sobrevive las 39. Contra el clon real infla los números 3,7× **y cambia los tres paths reportados**; `to-tickets` —el sucesor real de `to-issues`— desaparece de la lista | `:98` |
+| F15 (70) | El renombre **con edición** (`R<100`) no tiene cobertura; dos mutantes sobreviven. Hay **13 líneas `R<100`** en la historia real, una en la ascendencia de una de nuestras nueve. Se cierra junto con F14 | `:168`, `:171` |
+| F5 (72) | Terminología paralela: el código emite `never-upstream`/`orphaned`, y `orphaned` = "huérfana", que el glosario de `CONTEXT.md` lista explícitamente como término **a evitar**. El split es legítimo (`zoho-out` es `orphaned` **y** tiene base recuperada, así que issue 05 lo necesita) pero no está en el glosario ni en un ADR | `:280,361`; doc:69-74 |
+
+**Low del 04, no bloqueantes** (F1 85, F9 97, F10 100, F11 95, F12 90, F16 62, F17 62, F19 70): están
+en `.scratch/bootstrap-v2/` y en el cuerpo de esta sesión. Dos avisos sobre ellos:
+
+- **F1: el fix que el reviewer propuso está FALSIFICADO.** Proponía `(-seq, epoch, path)` diciendo
+  haberlo verificado. `seq` es el orden de **emisión** de `git log` (cola de prioridad por fecha), no
+  topológico: con un ref tip en el ancestro viejo, **las dos versiones fallan**. El fix real es
+  `--topo-order` en el `git log` de `_history` **y después** `-seq` primero. Además es inalcanzable
+  hoy: cero aristas no monótonas en los 471 commits de upstream, y las 11 skills dan idéntico con
+  ambas claves.
+- **F16 y F17 se sostienen como huecos de cobertura, pero su evidencia citada es falsa.** F16 decía
+  que la ruta absoluta filtra `MartinDele703` — el test de leaks no escanea `.scratch/`, y el usuario
+  de Windows es `marti`. F17 citaba números que no se replican (`tdd` 1.0→0,9631; lo medido es
+  0.8625→0.8265) y una consecuencia que no ocurre.
+
+## 🔴 SEGUNDO: el issue 19 está MAL ESCRITO y bloquea al 05
+
+Medido esta sesión, y **cambia lo que hay que implementar**:
+
+- Su repro **no reproduce**. *"Dos cuerpos de 7.800 caracteres que difieren solo en la primera línea
+  dan 0.0"*: medido sobre seis cuerpos reales padeados a 7800 → **0.9952–0.9963**, seis de seis.
+  Solo colapsa con un alfabeto degenerado que el markdown real nunca produce.
+- Su **criterio de aceptación #1 pasaría en verde hoy**, así que un test escrito contra él nunca se
+  vería fallar — violando el propio criterio del issue de ver fallar cada aserción.
+- **El repro correcto, medido**: drift *prependido* a un cuerpo real. Acantilado entre 4400 y 4600
+  caracteres: `ON=0.7800 → ON=0.0842` (con `OFF=0.7723`), en ambos órdenes de argumentos. 0,77 está
+  sobre el umbral de 0,60 y 0,08 no → una skill que **sí** vino de upstream sale `unmatched` +
+  `never-upstream`. Ese es el mecanismo realista de F4.
+- Corroborado: `autojunk=False` pasa de ~82 s a más de 600 s (timeout en foreground).
+
+**Acción**: reescribir `.scratch/bootstrap-v2/issues/19-metrica-de-similitud-y-autojunk.md` con el
+repro medido antes de implementarlo.
+
+## Decisiones firmadas esta sesión
+
+1. **Cerrar el 17 y abrir 04b como slice apilado** (patrón 08a→08b, A1→A1b), en vez de meter los 13
+   fixes sobre un slice que ya viola el techo de tamaño con 646 líneas de lógica.
+2. **Allowlist en vez de heurística** para el detector anti-fuga del `.mcp.json`: 20 literales
+   derivados corriendo los tres generadores. Baja el bloque y agarra más fugas. Costo aceptado: cuando
+   el catálogo cambie legítimamente (~2-3 veces al año) el test falla hasta que alguien agregue una
+   línea — es revisión humana sobre un archivo que se commitea, no un impuesto.
+
+## 🔴 El marcador de revisión NO se avanzó, a propósito
+
+Está en `dca6e09`. Los fixes de los turnos 3-5 del loop (el allowlist, el parser AST, las correcciones
+de afirmaciones) **nadie los revisó**: el tope de 5 turnos se agotó antes. Dejarlo atrás hace que el
+próximo `/review-loop` los tome. **No lo avances "para limpiar"**: marcaría como leído código que
+nadie leyó.
+
+## Aviso de la sesión hermana (medido por ella, no por mí)
+
+`main` se movió 7 commits. Midió el merge con `git merge-tree --write-tree`:
+
+- Los 4 `CLAUDE.md` **auto-mergean limpio** (el handoff viejo decía lo contrario: estaba equivocado).
+- Los únicos 3 conflictos son los `.bootstrap-manifest.json`, que son **generados**: tomar cualquier
+  lado y regenerar con `tools/gen-manifest.ps1 -SkillDir <skill>` (uno por skill).
+- 🔴 **Lo que no es conflicto de git pero muerde igual**: `bc973c2` agrandó el bullet del
+  `/review-loop` en `CLAUDE.md` de ~1.100 a ~2.000 caracteres con la especificación del gate
+  solo-docs. **Si la decisión 19 recorta ese bullet partiendo de la base vieja, borra el gate recién
+  portado sin que git se queje.** Orden correcto: mergear/rebasar `main` ANTES de aplicar la decisión
+  19, y recortar sobre el texto nuevo moviendo la especificación al pointer.
+
+## Gotchas medidos esta sesión
+
+- **El test de gen-mcp-json dejaba 6 temporales huérfanos por corrida**: ~100 corridas → 606
+  directorios en `%TEMP%`. Ya se arregla al final del test (verificado: 0 por corrida). **Ojo con la
+  afirmación**: que eso rompiera `copy-scaffold` **NO está verificado** — ese test filtra por su
+  propio prefijo `cs-test-*`. Se limpia por la regla del repo, no por una causa probada.
+- **El sandbox del worktree rechaza comandos bash "complejos"** (loops `for`, pipes con `$?`,
+  redirecciones encadenadas). Partirlos en comandos simples y separados.
+- **La Bash tool corrompe escapes en heredocs**: `\r?\n` dentro de un heredoc de Python llegó como CR
+  literal. Para editar archivos con regex, usar la herramienta Edit o índices de línea, no
+  `str.replace` con escapes.
+- **Un `index()` sobre una cadena que aparece varias veces duplicó 200 líneas** del test sin avisar.
+  Si se edita con Python, verificar el resultado (`wc -l`, `grep -c` de un marcador) antes de seguir.
+- **`$argv = if (…) { @(…) } else { @() }` en PowerShell desenrolla un array de un elemento**: el `if`
+  como expresión emite por el pipeline. Asignar en dos líneas.
+- El foco de afirmaciones encontró afirmaciones falsas **en los 5 turnos**, casi todas escritas al
+  explicar el fix del turno anterior. Presupuestarlo: es el foco de mayor rendimiento del repo.
+
+## Tests — estado verificado al cierre
+
+`pwsh -NoProfile -File tests/<x>.tests.ps1` (**no es Pester**, son runners propios):
+
+| test | resultado |
+|---|---|
+| `gen-mcp-json.tests.ps1` | ✅ verde |
+| `mirror.tests.ps1` | ✅ verde |
+| `shareable-leaks.tests.ps1` | ✅ verde |
+| `copy-scaffold.tests.ps1` | ✅ verde |
+| `tools/recover-skill-bases.py --self-test` | ✅ 39 ok, 0 fail (~5 s, offline) — **pero no está en ninguna suite** (F13) |
+
+## Sin commitear (todo `.md`, de la línea del grill, no del slice)
+
+`CONTEXT.md` (staged), `docs/adr/0004..0006` (untracked), la nota de research de dieta de contexto, y
+este handoff. No se commitearon porque el usuario no lo pidió.
+
+## Antes de tocar código
+
+- **Reclonar upstream** si `<scratchpad>/pocock/` no está:
+  `git clone https://github.com/mattpocock/skills.git`. Lo necesitan el 04b y el 05. HEAD de
+  referencia del doc: `6654f6b`, 471 commits.
+- El `alignment-gate` bloquea el primer edit de código de la sesión: la alineación de este release ya
+  está hecha (grill del 2026-08-28). Reintentar el edit y seguir.
+- Al commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- Trabajar en la rama `feat/bootstrap-v2`. No `cd` al repo original.
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola** (3,1×; cae a 2,0× con 7-12).
+- No usar `/compact`: handoff + terminal nueva.
+
+---
+# Session Handoff — 2026-08-28 (RELEASE `bootstrap-v2` — PRD + 18 issues + 3 slices implementados; slice 01 CERRADO por tope, 04 y 17 con loop PENDIENTE)
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills`
+> (rama `feat/marcador-de-revision`): release + rollout del port solo-docs. **Árboles separados: no se
+> comparten archivos.** Esta rama tiene **9 commits, sin pushear y sin mergear.**
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Fases 1-3 del workflow **CERRADAS** (grill → PRD → issues). Fase 8 (TDD) en curso: 3 de 18 slices
+implementados y commiteados.
+
+| # | slice | commits | loop |
+|---|---|---|---|
+| 01 | test del exportador escribe en su clon | `2d045ba` `bfceae4` `756b1ae` `817c8b2` `8e751a7` `1ec2f08` | **CERRADO por tope de 5 turnos** + coherencia limpia |
+| 17 | backlog de julio (secretos, plantillas, Firebase) | `0058159` | **PENDIENTE** |
+| 04 | recuperación de base por similitud | `08bd153` + fix `00c2160` | turno 1 corrido y aplicado; **turno 2 PENDIENTE** |
+
+**Artefactos**: `.scratch/bootstrap-v2/PRD.md` (45 user stories, 10 módulos) y
+`.scratch/bootstrap-v2/issues/01..18` + el **19 nuevo** que salió del review, no del grill.
+
+### Lo que el review-loop encontró y hay que saber
+
+1. **Las bases de merge estaban mal en 4 de 9.** El desempate entre blobs con el mismo cuerpo elegía
+   el más nuevo; con renombre puro reportaba el commit del renombre. Corregido en `00c2160`:
+   `grill-me` → `a6bdfd9f` 2026-03-26, `handoff` → `d54c497a` 2026-05-19, `to-issues` → `ff3ee1dd`
+   2026-05-06, `zoom-out` → `7afa86d3` 2026-04-28. **El issue 05 sella estas bases: usar las nuevas.**
+2. **Issue 19 (nuevo, BLOQUEA al 05)**: `difflib` con `autojunk` da **0.0** para dos cuerpos de 7.800
+   caracteres que difieren solo en la primera línea. Una skill con drift al principio se reportaría
+   como "nunca vino de upstream". Las nueve actuales no están afectadas. Desactivar la heurística
+   pasa de 82 s a más de una hora: la dirección es comparar por líneas.
+3. **La invariante `commit:path → blob` no verifica corrección**, solo consistencia interna del
+   triple. Se cumple igual con una base equivocada. No usarla como prueba de que las bases son buenas.
+4. **~15 afirmaciones falsas encontradas hoy, casi todas en comentarios y mensajes de commit**, no en
+   el código. La regla de afirmaciones fue, por lejos, la que más hallazgos produjo, y el foco que la
+   audita fue el más productivo en los cinco turnos.
+
+### Gotchas de esta sesión
+
+- **Los subagentes se contaminan entre sí**: uno mutó `tools/export-shareable.ps1` en el árbol real y
+  lo revirtió; otro escribió sobre el laboratorio de un par en el scratchpad compartido. Ninguno rompió
+  nada, pero invalidaron mediciones ajenas. Es el argumento del issue 15.
+- **El marcador de revisión NO se avanzó en toda la sesión**, a propósito: `-Action advance` usa
+  `git stash create`, que captura todo el árbol, y con trabajo de otros slices sin commitear marcaría
+  como revisado lo que nadie leyó. Ahora el árbol está limpio de trabajo ajeno: **ya se puede avanzar**.
+- **El `alignment-gate` bloquea el primer edit de código de cada sesión.** La alineación de este
+  release ya está hecha (grill del 2026-08-28): reintentar el edit y seguir.
+- `gen-manifest.ps1` **sí** es idempotente (dos corridas seguidas dan bytes idénticos); lo que no es,
+  es reproducible entre días, porque estampa la fecha en `version`.
+
+### Sin commitear (todo `.md`, no dispara review)
+
+`CONTEXT.md` (staged, +7 términos), `docs/adr/0004..0006`, la nota de research de dieta de contexto, y
+este handoff. Nada de eso se commiteó porque el usuario no lo pidió.
+
+### Próximos pasos
+
+1. **Loop del slice 17** (acotado: 3 focos, sin mutación — decidido con el usuario) y **turno 2 del
+   loop del 04** (bugs y tests, que son los que encontraron los ALTA).
+2. Avanzar el marcador de revisión, ahora que el árbol no tiene trabajo ajeno en vuelo.
+3. Seguir por el issue **03** (hashing normalizado) o el **02** (runner paralelo), que son los otros
+   dos internos y desbloquean la verificación del resto. El eje del release (05 → 07..12) espera al 03
+   y al 19.
+
+### Antes de tocar código
+
+- **Reclonar upstream** si `<scratchpad>/pocock/` no está: `git clone https://github.com/mattpocock/skills.git`.
+  El clon es efímero y lo necesitan el 04 y el 05.
+- **Bash tool = Git Bash**: `-m "..."` repetidos, nunca here-strings. Python en la Bash tool imprime en
+  cp1252: evitar `≈`/`→` en `print`.
+- El review-loop de un slice de 13 líneas consumió 10 subagentes y 5 turnos. Vale la pena, pero
+  presupuestarlo.
+
+---
+
+# Session Handoff — 2026-08-28 (RELEASE `bootstrap-v2` — worktree propio; grill CERRADO con 22 decisiones firmadas + research de dieta de contexto — CERO código; próximo: `/to-prd`)
+
+> **Esta línea vive en su propio worktree**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama
+> `feat/bootstrap-v2`, salida de `main` (`feb3f23`). Es la **próxima versión del bootstrap** (skills de
+> Pocock, dieta de contexto, config, backlog de julio). La otra terminal trabaja en
+> `C:\Repos\PERSONAL\Bootstrap Skills` (rama `feat/marcador-de-revision`): release + rollout del port
+> solo-docs. **Árboles separados desde 2026-08-28 — ya no hay archivos compartidos ni riesgo de pisarse.**
+> Nada de esta línea está commiteado; el usuario no lo pidió.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (línea B)
+
+Fase 1 del workflow (Alignment / `grill-with-docs`) **COMPLETADA**; el usuario cortó para seguir en
+terminal nueva justo antes de `/to-prd` — **no aprobó todavía el paso a fase 2**. **No se escribió
+código.** Criterio que dio: *"el costo de tokens y horas de implementación no es un problema porque
+vale la pena"* — **la opción más limpia y con menos margen de error.**
+
+### Lo que la investigación cambió respecto del handoff viejo (verificado, no razonado)
+
+1. **Los `computedHash` de `skills-lock.json` son FABRICADOS.** `git log -S computedHash --all` en
+   `mattpocock/skills` → nada; barrido de toda la historia de upstream (1178 blobs `.md` × 7
+   normalizaciones × sha256/sha1/md5 = 24.738 hashes) → **cero matches**; tampoco matchean nuestros
+   propios archivos. Entraron en `f67331f` (2026-06-23). La memoria vieja decía "reconstruible por
+   hash": **falso**. → ADR-0005.
+2. **La base de merge SÍ existe y se recupera por SIMILITUD** (cuerpo sin frontmatter, `difflib`,
+   sobre todos los blobs `*/SKILL.md` de `git rev-list --objects --all` del clon): **7 de 9 dan 1.000**
+   (cuerpo intacto; drift = solo la `description` en español). `tdd` 0.863 (sección `Close the slice`
+   / trailer `Slice-Close:`) y `to-issues` 0.947 (regla ≤400). **Todo el drift propio ≈ 20 líneas.**
+   Bases en `<scratchpad>/pocock/bases.json` (oid + path + commit). El clon de upstream está en
+   `<scratchpad>/pocock/` (HEAD `6654f6b`) — **es efímero**, reclonar si no está.
+3. **Upstream sacó el refactor del ciclo TDD** (`80e9dcc`, 2026-06-30: *"Refactoring belongs to the
+   review stage"*), borró `refactoring.md`. `deep-modules.md`/`interface-design.md` **NO** migraron a
+   `codebase-design` (similitud 0.21/0.17). → ADR-0004.
+4. **`grilling` upstream son 28 líneas**; `grill-me`/`grill-with-docs` son punteros de 6-7 líneas
+   (`Call the Skill tool with "grilling"` / `..."grilling" and "domain-modeling"`).
+5. **Dieta de contexto** (research en `docs/superpowers/notes/2026-08-28-research-dieta-de-contexto.md`,
+   doc oficial + Pocock + arXiv:2602.11988): la palanca es **`disable-model-invocation`**, no el
+   largo. Scaffold hoy: CLAUDE.md 7.250 ch + 11 descriptions 2.996 ch. Con la regla de invocación el
+   listado baja a **1.039 ch (−65 %)** y los **19 comandos del release entran por +12 %** (vs +100 %).
+   El bullet del `/review-loop` en el CLAUDE.md del scaffold pesa **2.000 ch** y documenta el hook que
+   ya enforza lo mismo (**cache de mecanismo**). La máquina del usuario carga **14.814 ch** de
+   descriptions = **206 % del presupuesto oficial (1 % de la ventana) en 200k** — tarea suya, aparte.
+   `.agents/skills/` **no lo lee Claude Code** (solo `.claude/commands|skills`).
+
+### ✅ LAS 22 DECISIONES FIRMADAS (grill 2026-08-28)
+
+**Entrega**
+1. Partir por naturaleza: lo **interno** al repo (bug `export-shareable`, suite paralela, autocrlf) se
+   mergea a `main` sin versión ni rollout; lo que toca el **scaffold** va en UN release con UN rollout.
+2. **Pocock sale primero** — el usuario quiere probar el grill nuevo.
+3. **Gating del A/B**: Outsourcing y Forecasting **congelados** hasta el re-freeze de septiembre; el
+   resto de los repos recibe el rollout al cerrar.
+
+**Pocock**
+4. **Merge de 3 vías con base recuperada por similitud** (no adopción a ciegas, no rebase a mano).
+5. **Punteros como upstream**: `grill-me`→`grilling`; `grill-with-docs`→`grilling`+`domain-modeling`.
+6. **Conservar NUESTROS nombres** (`to-prd`, `to-issues`) con los cuerpos de `to-spec`/`to-tickets`;
+   el lockfile registra el mapeo al path upstream. → ADR-0006.
+7. `zoom-out` queda como **fork propio** (upstream la eliminó).
+8. **Lockfile real y verificable con test** (commit base, path upstream, hash por script del repo,
+   marca de fork propio; test recomputa y falla si miente). → ADR-0005.
+9. **9 skills nuevas**: `grilling`, `domain-modeling`, `git-guardrails-claude-code`,
+   `writing-for-agents`, `diagnosing-bugs`, `wizard`, `resolving-merge-conflicts`,
+   `to-questionnaire`, `research`. **`codebase-design` afuera.** Descartadas: `code-review`,
+   `implement`, `wayfinder`, `ask-matt`, `improve-codebase-architecture`, `teach`, `wait-what`,
+   `prototype`, las 3 de stack TS, las 8 `in-progress`.
+10. Todas al scaffold **salvo `writing-for-agents`** (meta, solo este repo).
+11. **`red → green`**: el refactor sale del ciclo TDD y vive en el review. → ADR-0004.
+12. `deep-modules.md` + `interface-design.md` se conservan como fork propio dentro de `tdd`.
+
+**Config**
+13. **Reviewers de `/slice-review` como agents declarados** en `.claude/agents/` con
+    `disallowedTools: Write, Edit` (hoy 84/345 reviewers escriben pese a la prosa —
+    `slice-review/SKILL.md:139`). Toca el motor → sujeto al gating (3).
+14. **Allowlist de permisos, medida antes** con `fewer-permission-prompts` (el usuario usa bypass acá;
+    el valor es para los repos sin bypass).
+15. **Modelo fijado solo para los reviewers**; el resto libre (prefiere Opus 4.8).
+
+**Scaffold**
+16. **Backlog de julio COMPLETO**: regla de secretos, Firebase MCP de fábrica, bundle de
+    `verify-downstream-arrival` + `debug-source-first` (limpiar refs a DOMO), plantillas de documentos.
+17. **Re-sellar manifests con el método nuevo (autocrlf) en la misma pasada del rollout.**
+
+**Dieta de contexto**
+18. **Regla de invocación con test**: model-invoked SOLO lo que el agente u otra skill debe alcanzar
+    (`review-loop`, `slice-review`, `tdd`, `grilling`, `domain-modeling`, `diagnosing-bugs`, `wizard`,
+    `research`, `resolving-merge-conflicts`, `git-guardrails`, las 2 disciplinas); **user-invoked**
+    (`disable-model-invocation: true`, description de una línea, sin triggers): `grill-me`,
+    `grill-with-docs`, `to-prd`, `to-issues`, `triage`, `handoff`, `to-questionnaire`,
+    `setup-matt-pocock-skills`, `zoom-out`. Un test lee el frontmatter contra una lista declarada.
+    **OJO**: una user-invoked **no puede ser llamada por otra skill ni por el hook** — por eso
+    `review-loop`/`slice-review` deben seguir model-invoked (mismo error que documentó ADR-0003).
+19. **Bullets-hook → 3 oraciones + pointer** a `docs/ai-workflow/REVIEW_LOOP.md` (el de 2.000 ch) y
+    el del `alignment-gate` (611 ch). Correr `/doctor` (instalado 2.1.250; ≥2.1.206 propone trims)
+    como segunda opinión antes de editar.
+20. Descriptions de los reviewers-agents: **una línea** ("foco X del fan-out; no invocar a mano").
+21. Dieta de la máquina del usuario: **tarea aparte**, `/doctor` + `skillOverrides`. No entra al release.
+22. Este release **no toca el marcador ni el review-loop** salvo (13); la medición Track B sigue intacta.
+
+### ❓ Abiertas para el PRD (ninguna bloquea)
+
+- **`diagnosing-bugs` vs `debug-source-first`** se pisan y ambas entran: definir cuál manda en qué caso.
+- **Nombre del release** (los artefactos van a `.scratch/<nombre>/PRD.md` + `issues/`).
+- Las user-invoked pierden los triggers en español: ¿el `CLAUDE.md` del scaffold las nombra en la lista
+  de pasos para que el humano sepa que existen? (hoy ya dice "suggest `/grill-with-docs`", "suggest
+  `/to-prd`" — probablemente alcanza).
+- **Orden interno recomendado**: aunque Pocock es la prioridad, el bug de
+  `tests/export-shareable.tests.ps1:41` (escribe `LEAK-TEST.md` **dentro del repo real**) va
+  primero: pocas líneas, desbloquea la suite en paralelo (6-11 min por cierre de slice) y se paga en
+  dos slices.
+
+### Archivos de esta línea (todos `.md`, sin commitear)
+
+- `CONTEXT.md` — +7 términos: *Base de merge, Drift, Fork propio, Skill puntero, Skill
+  model-invoked, Skill user-invoked, Cache de mecanismo*.
+- `docs/adr/0004-el-refactor-sale-del-ciclo-tdd.md`
+- `docs/adr/0005-el-lockfile-de-skills-se-verifica-o-no-existe.md`
+- `docs/adr/0006-conservamos-nuestros-nombres-de-skills.md`
+- `docs/superpowers/notes/2026-08-28-research-dieta-de-contexto.md`
+- Memorias (`~/.claude/projects/.../memory/`): `skills-pocock-drift-sin-base-de-merge` **reescrita**
+  (las dos afirmaciones viejas eran falsas), `dieta-de-contexto-invocacion-no-largo` **nueva**, índice
+  actualizado.
+
+### Comandos corridos / tests
+
+Solo lectura y medición: clon de upstream al scratchpad, scripts Python de hashing y similitud,
+`claude --version` (2.1.250), WebFetch a aihero/arXiv/doc oficial. **Ningún test de la suite se
+corrió** (no hubo código). Nada falló.
+
+### Próximos pasos (línea B)
+
+1. **Pedir aprobación para `/to-prd`** y correrlo con el contexto de arriba → `.scratch/<nombre>/PRD.md`.
+2. `/to-issues` → slices. Primer slice sugerido: bug de `export-shareable` (interno, chico). Segundo:
+   reconstruir el lockfile + merge de 3 vías de las 9 (con las bases de `bases.json`).
+3. Resolver con el usuario el nombre del release y el caso `diagnosing-bugs`/`debug-source-first`.
+
+### Antes de tocar código (línea B)
+
+- **Reclonar upstream** si `<scratchpad>/pocock/` no existe: `git clone https://github.com/mattpocock/skills.git`.
+  Recalcular bases con el método de similitud (descrito en el research y en ADR-0005; ~1 min).
+- **Worktree propio**: el árbol ya no se comparte. La otra terminal está en `Bootstrap Skills`
+  (`feat/marcador-de-revision`); no hace falta stagear archivo por archivo ni evitar `git checkout`.
+- **No commitear sin que lo pida.** Nada a Zoho. Impacto medido antes de cambiar el proceso. Decidir
+  lo técnico, preguntar lo de diseño. Paraleliza todo lo posible (techo medido: 4-6 agentes).
+- **Bash tool = Git Bash**: `-m "..."` repetidos, nunca `@'...'@`. Python en la Bash tool imprime en
+  cp1252: evitar `≈`/`→` en `print` o falla con `UnicodeEncodeError`. Heredocs largos con comillas
+  simples adentro rompen el parser de la tool: escribir a archivo con Write y prependear con Python.
+
+---
+
 # Session Handoff — 2026-08-27 parte 3 (RELEASE PUSHEADO + ROLLOUT COMPLETO a los 4 repos — pedido B CERRADO + las 3 decisiones pendientes FIRMADAS; próximo: ROLLOUT de los 18 repos restantes, lista completa relevada abajo)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — no queda nada del release ni del rollout
