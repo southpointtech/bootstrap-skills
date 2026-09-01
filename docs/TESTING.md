@@ -66,16 +66,27 @@ Por qué las tres partes hacen falta, y qué pasa si falta cada una:
 | recolección **por edad** | lo que el trap no alcanza | lo que dejan un `exit` temprano, un Ctrl+C, un proceso matado y un borrado que falló |
 
 La tercera **no es opcional**: el `trap` sólo corre en errores terminantes, así que un `exit`
-temprano (`review-marker.tests.ps1` tiene uno si falta el script del marcador), un Ctrl+C o un
-`pwsh` matado dejan la raíz en disco, y la recolección por edad es lo único que la junta después.
-Y su filtro de fecha es igual de obligatorio: sin él es un glob incondicional que borra los
-fixtures **en uso** de las corridas concurrentes, que en este repo son la norma porque el
-review-loop lanza reviewers en paralelo. `export-shareable.tests.ps1` lo hacía.
+temprano, un Ctrl+C o un `pwsh` matado dejan la raíz en disco, y la recolección por edad es lo
+único que la junta después. Y su filtro de fecha es igual de obligatorio: sin él es un glob
+incondicional que borra los fixtures **en uso** de las corridas concurrentes, que en este repo son
+la norma porque el review-loop lanza reviewers en paralelo. `export-shareable.tests.ps1` lo hacía.
 
-Usa `LastWriteTime`, no `CreationTime`: crear un hijo actualiza el `LastWriteTime` del padre
-(medido), así que una corrida viva y larga se rejuvenece sola, mientras que un huérfano de verdad
-no se toca más y envejece igual. Con `CreationTime` una corrida de más de un día se borraba a sí
-misma los fixtures en pleno uso.
+Usa `LastWriteTime`, no `CreationTime`. Medido: crear una entrada **directa** del run root
+actualiza su `LastWriteTime`; escribir más adentro, no. O sea que `LastWriteTime` marca la última
+vez que la corrida creó un workspace y `CreationTime` el momento en que arrancó — nunca es más
+vieja, así que protege estrictamente mejor a una corrida larga. **No es autorrefresco**: una
+corrida que ya creó todos sus workspaces envejece igual.
+
+Los tres chequeos estructurales del lint van por el **AST**, no por tokens ni por regex: "el trap
+cuelga del cuerpo del script", "la limpieza de la raíz está al terminar y no dentro de un `if`" y
+"esto es un dot-source y no una mención" son propiedades de posición y de scope. Medido, la versión
+por tokens aceptaba un `trap` metido en una función (o sea muerto), un dot-source cuyo path venía
+en el comentario del final de la línea, y el borrado de la limpieza final en las suites que tenían
+una tercera invocación. Es el mismo salto que ya se había hecho de grep a tokens, un escalón arriba.
+
+Lo que el lint **no** ve, a sabiendas: `[Environment]::GetEnvironmentVariable('TEMP')`,
+`Get-Item Env:TEMP`, un path armado desde `$env:LOCALAPPDATA`, y cualquier cosa dentro de un string
+sin interpolar — incluido el código que una suite le pasa a un `pwsh` hijo, que es invisible.
 
 **Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
 **archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.
@@ -91,10 +102,15 @@ Dos precisiones sobre esa medición, para quien la repita y crea que la rompió:
   avisa con un `Write-Warning` si aun así queda; contado inmediatamente después de esa suite, el
   delta puede dar +1 sin que nada esté roto.
 - **Los rastros LEGACY no se recolectan solos.** El colector busca `<prefijo>-run-*` y sólo
-  directorios, así que los nombres viejos (`mcp-test-*`, `export-test-<guid>`, `cs-test-*`, y los
-  **archivos** `wscfg-*.json`) quedan fuera de su alcance para siempre. Se barrieron a mano una vez
-  en esta máquina (112 el 2026-09-01); en otro clon siguen ahí. **No agregar un glob incondicional
-  para "arreglarlo"** — es el bug que este trabajo sacó. Barrelos a mano si molestan.
+  directorios, así que **todos** los nombres previos quedan fuera de su alcance para siempre:
+  `mcp-test-*`, `export-test-<guid>`, `cs-test-*`, `ag-test-*`, `rlt-test-*`, `rlt-[test]-*`,
+  `rlt-ms-*`, `rlg-test-*`, `rm-test-*`, `rm-nogit-*`, `rm-clone-*`, `rm-push-*`, y los **archivos**
+  `wscfg-*.json`. Se barrieron a mano una vez en esta máquina (112 el 2026-09-01); en otro clon
+  siguen ahí. **No agregar un glob incondicional para "arreglarlo"** — es el bug que este trabajo
+  sacó. Barrelos a mano si molestan.
+- **Fuera del alcance del lint**, y preexistente: `.claude/hooks/alignment-gate.ps1` escribe su
+  `alignment-gate-state.json` en la raíz de `%TEMP%` cuando no hay repo git. No es una suite, así
+  que ni el lint lo mira ni el colector lo alcanza.
 
 ## El golden del Step 0b
 

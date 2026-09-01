@@ -13,11 +13,12 @@
 # 2. Un `trap` que borra esa raíz también en el camino de aborto. La limpieza del final es una
 #    sentencia suelta: con $ErrorActionPreference=Stop, un error terminante fuera de un Assert la
 #    saltea. El trap tiene que vivir en el scope del SCRIPT que se está corriendo, no acá adentro:
-#    un trap queda atado al frame que lo ejecuta, y el frame de este archivo termina cuando el
-#    dot-source vuelve, así que desde acá no atraparía nada de lo que pase después en la suite
-#    (verificado: un `throw` en el script llamador pasa de largo). Por eso este archivo NO lo
-#    declara y cada suite pone el suyo. `tests/temp-hygiene.tests.ps1` verifica que lo tenga: sin
-#    esa verificación, olvidarlo deja la parte 2 muerta y nada se pone rojo.
+#    un `trap` se aplica al bloque de script donde está escrito, así que uno declarado en este
+#    archivo no cubre lo que pase después en la suite (verificado: un `throw` en el script llamador
+#    pasa de largo), y uno declarado dentro de una función sólo cubre esa función. Por eso este
+#    archivo NO lo declara y cada suite pone el suyo, en el cuerpo del script.
+#    `tests/temp-hygiene.tests.ps1` lo verifica por el AST, justamente para distinguir el trap del
+#    cuerpo de uno metido en una función, que está muerto y se lee igual.
 #    El trap NO cubre `exit` ni que maten el proceso; para esos está la parte 3.
 # 3. Recolección de huérfanos POR EDAD, nunca por glob incondicional. En este repo las corridas
 #    concurrentes son la norma (el review-loop lanza reviewers en paralelo), y un glob
@@ -37,28 +38,29 @@
 function New-TestRunRoot {
   param([Parameter(Mandatory)][string]$Prefix)
   $temp = [IO.Path]::GetTempPath()
-  # 8 hex y no un GUID entero: el anidado suma al largo del path y los fixtures más profundos de
-  # `export-shareable` llegaban a 249 de los 260 de MAX_PATH — once caracteres de margen, o sea que
-  # pasaba en esta máquina y reventaba en la de alguien con un usuario más largo. Medido. El PID
-  # es lo que separa corridas concurrentes; los 8 hex separan corridas sucesivas del mismo proceso.
+  # 8 hex y no un GUID entero: el anidado suma al largo del path. Medido con el payload real de
+  # `export-shareable` (que copia sólo bootstrap-ai-project y upgrade-bootstrap) y este %TEMP%, el
+  # peor caso daba 241 de los 260 de MAX_PATH; 19 caracteres de margen los consume un nombre de
+  # usuario un poco más largo. Con 8 hex quedan 67. El PID separa corridas concurrentes; los 8 hex,
+  # corridas sucesivas del mismo proceso. Sin test: pediría fabricar un %TEMP% profundo.
   $root = Join-Path $temp ("$Prefix-run-$PID-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
   # CreateDirectory y no New-Item: el path es literal y no se interpreta como wildcard, que es lo
   # que necesita el caso de los proyectos con corchetes en el nombre.
   [IO.Directory]::CreateDirectory($root) | Out-Null
   # Por edad: sin el filtro de fecha esto es el glob incondicional que mata corridas concurrentes.
   #
-  # LastWriteTime y no CreationTime. Medido en esta máquina: crear un hijo actualiza el
-  # LastWriteTime del directorio padre y deja su CreationTime congelado en el arranque. O sea que
-  # con CreationTime una corrida VIVA de más de un día —un review-loop largo, una suite colgada
-  # esperando un prompt de git— se borra a sí misma los fixtures en pleno uso; con LastWriteTime
-  # una corrida activa se rejuvenece sola cada vez que escribe. Y los huérfanos de verdad no se
-  # tocan más, así que igual envejecen y se recolectan. La versión anterior elegía CreationTime
-  # con un comentario que describía, exactamente, la ventaja de LastWriteTime.
+  # LastWriteTime y no CreationTime. Medido: crear una entrada DIRECTA del run root actualiza su
+  # LastWriteTime; escribir más adentro, no. Así que LastWriteTime marca la última vez que la
+  # corrida creó un workspace, y CreationTime el momento en que arrancó — la primera es más nueva o
+  # igual, nunca más vieja, así que protege estrictamente mejor a una corrida larga. No es
+  # autorrefresco: una corrida que ya creó todos sus workspaces envejece igual.
+  # `tests/temp-hygiene.tests.ps1` cubre la diferencia con un fixture de tres días que escribió
+  # recién; sin él, revertir esta línea a CreationTime pasaba en verde.
   #
   # -LiteralPath y no posicional: `-Path` interpreta wildcards, y si %TEMP% resolviera bajo un path
   # con corchetes la enumeración devolvería vacío y la recolección moriría en silencio — con
   # `-ErrorAction SilentlyContinue` tapando cualquier rastro. Es la misma razón por la que arriba
-  # se usa CreateDirectory.
+  # se usa CreateDirectory. Sin test: haría falta un %TEMP% con corchetes.
   Get-ChildItem -LiteralPath $temp -Directory -Filter "$Prefix-run-*" -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -ne $root -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -71,18 +73,21 @@ function Remove-TestRunRoot {
   param([string]$Root)
   if (-not $Root -or -not (Test-Path -LiteralPath $Root)) { return }
   Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue
-  # Un reintento, porque en Windows el borrado puede quedar PENDIENTE mientras otro proceso
-  # sostiene un handle: medido, `review-loop-docs-gate` dejaba su raíz en disco en 3 de 3 corridas
-  # verdes porque el proceso de fondo de git todavía tenía abierto el `.git` del fixture, y el
-  # árbol desaparecía solo unos segundos después. Sin el reintento no hay forma de distinguir
-  # "borrado pendiente" de "nunca se borró", y `-ErrorAction SilentlyContinue` se come la
-  # diferencia. El Warning no rompe la suite: es una fuga, no un test fallado, y hacerla fallar
-  # convertiría un handle ajeno en un rojo que nadie puede arreglar desde acá.
+  # Un reintento, porque en Windows el borrado puede quedar PENDIENTE mientras otro proceso sostiene
+  # un handle — con fixtures git es el proceso de fondo de git el que lo sostiene. Se observó al
+  # menos una vez que la raíz sobrevivía a un `Remove-Item` verde y desaparecía después; el
+  # reintento no reproduce hoy en corridas quiescentes. Su valor es el aviso: sin él,
+  # `-ErrorAction SilentlyContinue` hace indistinguible "quedó pendiente" de "nunca se borró".
+  # No se hace fallar la suite: es una fuga, no un test fallado, y un handle ajeno sería un rojo
+  # que nadie puede arreglar desde acá.
   if (Test-Path -LiteralPath $Root) {
     Start-Sleep -Milliseconds 300
     Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $Root) {
-      Write-Warning "no se pudo borrar la raíz temporal $Root (queda para la recolección por edad)"
+      # -WarningAction Continue explícito: con `$WarningPreference = 'Stop'` un Write-Warning suelto
+      # LANZA (medido), y esta función se llama desde el trap y desde un finally, donde eso taparía
+      # el error original. Una fuga no es un test fallado.
+      Write-Warning -WarningAction Continue -Message "no se pudo borrar la raíz temporal $Root (queda para la recolección por edad)"
     }
   }
 }
@@ -98,10 +103,15 @@ function New-TestWorkspace {
   )
   # 8 hex por lo mismo que el run root: MAX_PATH. Con tan pocos, dos workspaces de la misma corrida
   # pueden chocar, así que se reintenta en vez de devolver uno ya usado — un fixture compartido por
-  # dos casos es un test que miente.
-  do {
-    $d = Join-Path $Root ("$Name-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-  } while (Test-Path -LiteralPath $d)
+  # dos casos es un test que miente. El tope de intentos NO es decorativo: sin él, un nombre que se
+  # genere siempre igual convierte esto en un cuelgue en vez de un fallo, y medido eso dejó una
+  # corrida colgada dos minutos y su árbol entero en %TEMP%.
+  $d = $null
+  for ($i = 0; $i -lt 20; $i++) {
+    $cand = Join-Path $Root ("$Name-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    if (-not (Test-Path -LiteralPath $cand)) { $d = $cand; break }
+  }
+  if (-not $d) { throw "New-TestWorkspace: 20 intentos sin un nombre libre bajo $Root (¿nombre determinístico?)" }
   [IO.Directory]::CreateDirectory($d) | Out-Null
   return $d
 }
@@ -114,8 +124,13 @@ function New-TestTempPath {
     [string]$Name = "f",
     [string]$Extension = ""
   )
-  do {
+  # El chequeo sólo descarta nombres que YA existen en disco. Como esta función no crea el archivo
+  # a propósito, dos llamadas seguidas antes de que se escriba ninguno pueden devolver el mismo
+  # nombre: no da unicidad, sólo evita pisar algo existente. Mismo tope que arriba, por la misma
+  # razón.
+  for ($i = 0; $i -lt 20; $i++) {
     $p = Join-Path $Root ("$Name-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + $Extension)
-  } while (Test-Path -LiteralPath $p)
-  return $p
+    if (-not (Test-Path -LiteralPath $p)) { return $p }
+  }
+  throw "New-TestTempPath: 20 intentos sin un nombre libre bajo $Root (¿nombre determinístico?)"
 }

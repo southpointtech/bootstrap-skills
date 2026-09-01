@@ -20,13 +20,20 @@ function Assert($cond, $msg) {
 $script:runRoot = New-TestRunRoot "thyg"
 trap { Remove-TestRunRoot $script:runRoot; break }
 
-# Envejece una raíz de fixture en las DOS marcas. El helper decide por una sola, pero fijar ambas
-# mantiene el fixture honesto si esa decisión cambia: si sólo se fijara la que el helper mira, el
-# test pasaría por construcción en vez de por comportamiento.
-function Set-EdadDeRaiz([string]$path, [datetime]$cuando) {
-  $i = Get-Item -LiteralPath $path -Force
-  $i.CreationTime  = $cuando
-  $i.LastWriteTime = $cuando
+# Envejece una raíz de fixture. Las dos marcas se fijan POR SEPARADO a propósito: la versión
+# anterior ponía la misma fecha en ambas "para que el fixture no dependa de cuál mira el helper", y
+# el efecto era el contrario — con ambas iguales, `CreationTime` y `LastWriteTime` se comportan
+# idéntico y la elección entre las dos no se puede medir con ningún umbral. Medido: revertir el
+# helper a `CreationTime` pasaba la suite entera en verde.
+function Set-EdadDeRaiz {
+  param(
+    [Parameter(Mandatory)][string]$Path,
+    [Parameter(Mandatory)][datetime]$Creacion,
+    [Parameter(Mandatory)][datetime]$Escritura
+  )
+  $i = Get-Item -LiteralPath $Path -Force
+  $i.CreationTime  = $Creacion
+  $i.LastWriteTime = $Escritura
 }
 
 # ---------------------------------------------------------------------------
@@ -42,11 +49,16 @@ function Set-EdadDeRaiz([string]$path, [datetime]$cuando) {
 # buscar. Recortar comentarios con regex sería parsear código con regex, que en este repo ya está
 # documentado como pozo. El parser los devuelve como tokens aparte y el problema desaparece.
 #
-# El vocabulario son TODAS las formas de llegar a la raíz de %TEMP%, no las dos que las suites
-# usaban: medido, el predicado anterior veía 2 de 6. Las que faltaban no eran exóticas —
-# `"$env:TEMP\x"` es la forma más idiomática del caso directorio, y GetTempFileName /
-# New-TemporaryFile dejan ARCHIVOS sueltos, que es exactamente la mitad del problema que este
-# slice arregla (los 34 `wscfg-*.json` de apply-env) y la que hizo fallar el primer intento manual.
+# El vocabulario cubre las formas que estas suites usan o podrían usar sin esfuerzo, no todas las
+# imaginables: medido, el predicado anterior veía 1 de las 7 del fixture de abajo. Las que faltaban
+# no eran exóticas — `"$env:TEMP\x"` es la forma más idiomática del caso directorio, y
+# GetTempFileName / New-TemporaryFile dejan ARCHIVOS sueltos, que es la mitad del problema que este
+# trabajo arregla (los 34 `wscfg-*.json` de apply-env) y la que hizo fallar el primer intento manual.
+#
+# Lo que NO ve, a sabiendas: `[Environment]::GetEnvironmentVariable('TEMP')`, `Get-Item Env:TEMP`,
+# un path armado desde `$env:LOCALAPPDATA`, y —la que más importa— cualquier cosa adentro de un
+# string NO interpolado, incluido el código que estas suites le pasan a un `pwsh` hijo. Un script
+# hijo es invisible para este lint.
 $script:ApisDeTemp = @('GetTempPath', 'GetTempFileName', 'New-TemporaryFile')
 
 function Get-UsosDeTempDirecto([string]$path) {
@@ -74,11 +86,9 @@ function Get-UsosDeTempDirecto([string]$path) {
   })
 }
 
-# A0. El detector, contra un fixture con TODAS las formas de llegar a la raíz de %TEMP%.
-# Sin esto el lint se probaba solo contra las dos grafías que las suites ya usaban, y las otras
-# cuatro pasaban en verde: `"$env:TEMP\x"` (la más idiomática para el caso de directorio) y
-# New-TemporaryFile / GetTempFileName (que dejan ARCHIVOS sueltos, que es la mitad del problema
-# que este slice arregla). Medido: el predicado anterior veía 2 de 6.
+# A0. El detector, contra un fixture con las formas que se le exigen reconocer.
+# Sin esto el lint se probaba solo contra la grafía que las suites ya usaban: medido, el predicado
+# anterior veía 1 de estas 7.
 $formas = @(
   @{ codigo = '$a = [IO.Path]::GetTempPath()';                nombre = '[IO.Path]::GetTempPath()' }
   @{ codigo = '$b = "$env:TEMP\x"';                           nombre = 'interpolado "$env:TEMP\x"' }
@@ -101,84 +111,152 @@ $fxLimpio = New-TestTempPath $script:runRoot "limpio" ".ps1"
 $patron = 'GetTempPath'
 $ruta = Join-Path $script:runRoot "ws"
 '@ | Set-Content $fxLimpio -Encoding UTF8
-Assert ((Get-UsosDeTempDirecto $fxLimpio).Count -eq 0) "el detector NO ve menciones en comentarios ni en literales de string"
+Assert ((Get-UsosDeTempDirecto $fxLimpio).Count -eq 0) "el detector NO ve menciones en comentarios ni en literales sin interpolar"
 
-# Cuenta invocaciones REALES de un comando, por el parser: los tokens de comando/argumento con ese
-# texto, sin comentarios ni cuerpos de string. Contar con [regex]::Matches sobre el archivo cuenta
-# también las menciones en prosa y en here-strings — medido, esta misma suite daba 10 apariciones
-# de `Remove-TestRunRoot` de las cuales la mayoría eran comentarios y el texto del probe, así que
-# borrarle la limpieza final la dejaba en 9 y el piso de 2 seguía pasando en verde.
-function Get-InvocacionesDe([string]$path, [string]$comando) {
-  $tokens = $null; $errs = $null
-  [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errs)
-  return @($tokens | Where-Object { $_.Kind -ne 'Comment' -and $_.Text -eq $comando })
+# Estos tres chequeos van por el ÁRBOL (AST), no por la lista de tokens. La razón es la misma que
+# llevó de grep a tokens, un escalón más arriba: las tres propiedades son estructurales —dónde está
+# la limpieza, de qué scriptblock cuelga el trap, qué comando lleva el operador de dot-source— y
+# la lista de tokens no tiene forma de expresarlas. Medido, la versión por tokens dejaba pasar:
+# un `trap` declarado DENTRO de una función (o sea muerto, que es contra lo que advierte el propio
+# helper); un dot-source falso donde el path venía en el comentario del final de la línea; y el
+# borrado de la limpieza final en las dos suites que tienen una tercera invocación.
+function Get-AstDe([string]$path) {
+  $t = $null; $e = $null
+  return [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$t, [ref]$e)
 }
 
-# ¿El archivo dot-sourcea ese path, o solo lo menciona? El parser distingue el operador `.` seguido
-# del path de una mención en un comentario: un `-match` sobre el texto crudo los confunde, y
-# `copy-scaffold.tests.ps1` ya nombra el helper en un comentario — con el chequeo anterior se podía
-# reemplazar el dot-source por una redefinición local sin filtro de edad, dejar el comentario, y el
-# assert cuyo mensaje dice "en vez de redefinirlo" pasaba igual.
-function Test-DotSourceaA([string]$path, [string]$fragmento) {
-  $tokens = $null; $errs = $null
-  [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errs)
-  # Variables asignadas a algo que nombra el helper, para reconocer la forma `$lib = ...` + `. $lib`
-  # que usa esta misma suite (necesita el path después, para el probe de la parte C).
-  $varsConElPath = @{}
-  for ($i = 0; $i -lt $tokens.Count - 2; $i++) {
-    if ($tokens[$i].Kind -ne 'Variable' -or $tokens[$i + 1].Kind -ne 'Equals') { continue }
-    for ($j = $i + 2; $j -lt $tokens.Count -and $tokens[$j].Kind -ne 'NewLine'; $j++) {
-      if ($tokens[$j].Text -match $fragmento) { $varsConElPath[$tokens[$i].Text] = $true; break }
-    }
+# ¿Cuelga este nodo de una función o de un scriptblock anidado, en vez del cuerpo del archivo?
+function Test-Anidado($nodo) {
+  $p = $nodo.Parent
+  while ($null -ne $p) {
+    if ($p -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
+        $p -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) { return $true }
+    $p = $p.Parent
   }
-  for ($i = 0; $i -lt $tokens.Count - 1; $i++) {
-    if ($tokens[$i].Kind -ne 'Dot') { continue }
-    # Un `Dot` es dot-source sólo al principio de un comando; el acceso a miembro (`$o.FullName`)
-    # produce el MISMO Kind, y sin este filtro un `$algo.$lib` cualquiera contaría como dot-source.
-    $previo = if ($i -eq 0) { $null } else { $tokens[$i - 1].Kind }
-    if ($null -ne $previo -and $previo -notin @('NewLine', 'Semi', 'LCurly')) { continue }
-    # El argumento puede ser el path suelto, un (Join-Path ...) o una variable: alcanza con que el
-    # fragmento —o una variable que lo contiene— aparezca antes del fin de línea.
-    for ($j = $i + 1; $j -lt $tokens.Count -and $tokens[$j].Kind -ne 'NewLine'; $j++) {
-      if ($tokens[$j].Text -match $fragmento) { return $true }
-      if ($varsConElPath.ContainsKey($tokens[$j].Text)) { return $true }
+  return $false
+}
+
+# La limpieza del final tiene que estar en el CUERPO del script, no adentro de un `if`, un `try`,
+# una función ni el propio trap: "borra la raíz al terminar" es una afirmación sobre la POSICIÓN,
+# y un piso de apariciones no la puede expresar. Medido dos veces: contando, `review-marker` (3
+# invocaciones tras agregarle la limpieza del `exit`) y `temp-hygiene` (6) quedaban por encima del
+# piso aunque se les borrara la limpieza final, así que el arreglo de una fuga había desarmado la
+# red que la cubría.
+function Test-LimpiezaAlTerminar([string]$path, [string]$comando, [string]$argumento) {
+  $ast = Get-AstDe $path
+  $cmds = @($ast.FindAll({
+    param($n)
+    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $comando
+  }, $true))
+  foreach ($c in $cmds) {
+    # Tiene que borrar LA RAÍZ DE LA CORRIDA, no cualquier cosa: medido, sin este filtro alcanzaba
+    # con que la suite tuviera en algún lado un `Remove-TestRunRoot` de otro path —la parte C de
+    # esta misma suite limpia la raíz de su probe— y borrarle la limpieza de verdad pasaba en verde.
+    if ($c.CommandElements.Count -lt 2 -or $c.CommandElements[1].Extent.Text -ne $argumento) { continue }
+    if (Test-Anidado $c) { continue }
+    $p = $c.Parent; $condicional = $false
+    while ($null -ne $p) {
+      if ($p -is [System.Management.Automation.Language.IfStatementAst] -or
+          $p -is [System.Management.Automation.Language.TryStatementAst] -or
+          $p -is [System.Management.Automation.Language.TrapStatementAst] -or
+          $p -is [System.Management.Automation.Language.LoopStatementAst]) { $condicional = $true; break }
+      $p = $p.Parent
+    }
+    if (-not $condicional) { return $true }
+  }
+  return $false
+}
+
+# El trap tiene que colgar del cuerpo del ARCHIVO y borrar la raíz. Uno declarado dentro de una
+# función sólo atrapa lo de esa función: está muerto, y el regex de texto lo aceptaba igual porque
+# sólo miraba que la línea empezara con `trap`.
+function Test-TrapDeScript([string]$path, [string]$comando) {
+  $ast = Get-AstDe $path
+  $traps = @($ast.FindAll({
+    param($n) $n -is [System.Management.Automation.Language.TrapStatementAst]
+  }, $true))
+  foreach ($t in $traps) {
+    if (Test-Anidado $t) { continue }
+    $borra = @($t.Body.FindAll({
+      param($n)
+      $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $comando
+    }, $true))
+    if ($borra.Count -gt 0) { return $true }
+  }
+  return $false
+}
+
+# ¿El archivo dot-sourcea ese path, o solo lo menciona? Con el AST el operador de dot-source es un
+# atributo del comando (`InvocationOperator`), y el Extent del comando TERMINA donde termina el
+# comando: un comentario al final de la línea queda afuera. La versión por tokens escaneaba hasta
+# el fin de línea y por eso aceptaba `. .\otro.ps1  # ex lib\temp-workspace.ps1` — con lo cual se
+# podía dot-sourcear un stub que reintroducía el glob incondicional y el assert seguía verde.
+function Test-DotSourceaA([string]$path, [string]$fragmento) {
+  $ast = Get-AstDe $path
+  $ds = @($ast.FindAll({
+    param($n)
+    $n -is [System.Management.Automation.Language.CommandAst] -and $n.InvocationOperator -eq 'Dot'
+  }, $true))
+  if ($ds.Count -eq 0) { return $false }
+  # Variables asignadas a algo que nombra el helper, para la forma `$lib = ...` + `. $lib` que usa
+  # esta misma suite (necesita el path después, para el probe de la parte C).
+  $varsConElPath = @{}
+  foreach ($a in @($ast.FindAll({
+    param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst]
+  }, $true))) {
+    if ($a.Right.Extent.Text -match $fragmento) { $varsConElPath[$a.Left.Extent.Text] = $true }
+  }
+  foreach ($c in $ds) {
+    if ($c.Extent.Text -match $fragmento) { return $true }
+    foreach ($e in $c.CommandElements) {
+      if ($varsConElPath.ContainsKey($e.Extent.Text)) { return $true }
     }
   }
   return $false
 }
 
-$suites = @(Get-ChildItem $PSScriptRoot -Filter "*.tests.ps1" -File)
+$suites = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter "*.tests.ps1" -File)
 # Contra el piso conocido: sin esto, un glob que no matchea nada deja el foreach vacío y las
 # aserciones de abajo "pasan" sin haber leído un solo archivo.
 Assert ($suites.Count -ge 15) "el lint ve las suites del repo (encontradas: $($suites.Count))"
+
+# Todo lo que hay bajo tests/lib/ además del helper. Era un punto ciego: el glob de arriba es sólo
+# `*.tests.ps1` y no recursivo, así que un stub puesto ahí podía crear temporales en la raíz de
+# %TEMP% —con el glob incondicional y todo— sin que nada lo mirara, y encima una suite podía
+# dot-sourcearlo. Medido: ese fue un mutante que sobrevivió.
+$auxiliares = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "lib") -Filter "*.ps1" -File -Recurse |
+  Where-Object { $_.Name -ne "temp-workspace.ps1" })
+foreach ($a in $auxiliares) {
+  $u = Get-UsosDeTempDirecto $a.FullName
+  Assert ($u.Count -eq 0) "lib/$($a.Name): no construye temporales en la raíz de %TEMP% (usos directos: $($u.Count))"
+}
 
 $conHelper = 0
 foreach ($s in $suites) {
   $sueltos = Get-UsosDeTempDirecto $s.FullName
   Assert ($sueltos.Count -eq 0) "$($s.Name): no construye temporales en la raíz de %TEMP% (usos directos: $($sueltos.Count))"
 
-  if ((Get-InvocacionesDe $s.FullName 'New-TestRunRoot').Count -gt 0) {
+  $usa = @((Get-AstDe $s.FullName).FindAll({
+    param($n)
+    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'New-TestRunRoot'
+  }, $true))
+  if ($usa.Count -gt 0) {
     $conHelper++
     Assert (Test-DotSourceaA $s.FullName 'lib[\\/]temp-workspace\.ps1') `
       "$($s.Name): dot-sourcea el helper en vez de redefinirlo"
-    # El trap se escribe en UNA línea y siempre igual, para que esto lo pueda verificar exacto:
-    # un regex laxo sobre un bloque multilínea acepta un trap que atrapa y no borra.
-    $txt = Get-Content $s.FullName -Raw
-    Assert ($txt -match '(?m)^\s*trap\s*\{\s*Remove-TestRunRoot\s+\$script:runRoot\s*;\s*break\s*\}\s*$') `
-      "$($s.Name): declara el trap de una línea que borra la raíz en el camino de aborto"
-    # Dos invocaciones: la del trap y la del final. El trap solo no alcanza — cubre el aborto, no la
-    # salida normal.
-    $cleanups = Get-InvocacionesDe $s.FullName 'Remove-TestRunRoot'
-    Assert ($cleanups.Count -ge 2) `
-      "$($s.Name): además del trap, borra la raíz al terminar (invocaciones: $($cleanups.Count))"
+    Assert (Test-TrapDeScript $s.FullName 'Remove-TestRunRoot') `
+      "$($s.Name): el trap que borra la raíz cuelga del cuerpo del script (no de una función)"
+    Assert (Test-LimpiezaAlTerminar $s.FullName 'Remove-TestRunRoot' '$script:runRoot') `
+      "$($s.Name): además del trap, borra la raíz al terminar, en el cuerpo del script"
   }
 }
 
 # Piso del set que se chequea, no sólo del set que se lee. Todo lo de arriba vive dentro del `if`,
-# así que una suite que deja de usar el helper sale del conjunto verificado EN SILENCIO: sin este
-# assert, revertir cualquiera de las ocho migraciones no pone nada en rojo. Ocho es el número que
-# el slice migró; sube si se migra otra, y baja sólo borrando una suite a propósito.
-Assert ($conHelper -ge 8) "al menos 8 suites siguen usando el helper (usándolo: $conHelper)"
+# así que una suite que deja de usar el helper sale del conjunto verificado EN SILENCIO.
+# NUEVE, no ocho: son las ocho migraciones MÁS esta misma suite, que también usa el helper. Con el
+# piso en ocho quedaba un lugar de sobra y revertir una migración pasaba en verde — el assert no
+# alcanzaba para lo que su propio comentario decía que existía.
+Assert ($conHelper -ge 9) "las 8 suites migradas + esta siguen usando el helper (usándolo: $conHelper)"
 
 # El helper es el único lugar donde resolver la raíz de %TEMP% es legítimo, y tiene que seguir
 # haciéndolo: si alguien lo vacía, el lint de arriba pasa en verde sobre un repo que ya no recolecta
@@ -196,7 +274,12 @@ Assert ((Get-UsosDeTempDirecto $lib).Count -ge 1) "el helper sí resuelve la ra�
 # fixtures y su limpieza los dejaba en la raíz de %TEMP% bajo un prefijo que ningún glob futuro
 # alcanza: irreclamables para siempre, en la suite que existe justamente para que no haya rastros.
 # Con el prefijo fijo, la propia recolección por edad del helper los junta en la próxima corrida.
-# El PID en el nombre es lo que separa dos corridas concurrentes de esta misma suite.
+#
+# El costo: dos corridas concurrentes de esta suite COMPARTEN el prefijo, y el colector globea
+# `<prefijo>-run-*` sin mirar el PID, así que una puede borrarle el `$viejo` a la otra antes de que
+# ésta llegue a su propio New-TestRunRoot. Eso daría un verde de más, no un rojo de más — el
+# `$fresco` y la `$larga` nunca caen por edad. Se midieron 28 corridas concurrentes sin un solo
+# fallo ni residuo; se acepta a cambio de que los fixtures sean reclamables.
 #
 # El temp se deriva de la raíz que el helper ya creó, no de GetTempPath(): esta suite se lintea a
 # sí misma, y una excepción tallada para ella es justo el agujero por el que se cuela la próxima.
@@ -215,18 +298,29 @@ try {
   # pasaba estos cuatro asserts y aun así destruía una corrida concurrente de 30 segundos, que es
   # exactamente el desastre que este bloque dice prevenir. Con el fresco a dos horas, el assert
   # fija el umbral en algún lugar útil.
-  Set-EdadDeRaiz $viejo  (Get-Date).AddDays(-2)
-  Set-EdadDeRaiz $fresco (Get-Date).AddHours(-2)
+  Set-EdadDeRaiz -Path $viejo  -Creacion (Get-Date).AddDays(-2)  -Escritura (Get-Date).AddDays(-2)
+  Set-EdadDeRaiz -Path $fresco -Creacion (Get-Date).AddHours(-2) -Escritura (Get-Date).AddHours(-2)
+  # La corrida LARGA: arrancó hace tres días pero escribió recién. Es el caso que separa las dos
+  # marcas — con `CreationTime` el helper le borra los fixtures en pleno uso, con `LastWriteTime`
+  # no. Sin este fixture, revertir el helper a `CreationTime` pasaba la suite en verde: el cambio
+  # principal de todo este trabajo estaba sin test.
+  $larga = Join-Path $temp "$pref-run-$PID-larga"
+  [IO.Directory]::CreateDirectory($larga) | Out-Null
+  $fixtureLargo = Join-Path $larga "fixture-de-corrida-larga.txt"
+  "una corrida de tres días que sigue escribiendo" | Set-Content -LiteralPath $fixtureLargo -Encoding UTF8
+  Set-EdadDeRaiz -Path $larga -Creacion (Get-Date).AddDays(-3) -Escritura (Get-Date).AddMinutes(-1)
 
   $rootB = New-TestRunRoot $pref
   Assert (Test-Path -LiteralPath $rootB) "New-TestRunRoot crea la raíz de la corrida"
   Assert ($rootB -like (Join-Path $temp "$pref-run-$PID-*")) "la raíz lleva el prefijo y el PID de la corrida"
   Assert (-not (Test-Path -LiteralPath $viejo)) "recolecta la raíz huérfana de hace más de un día"
   Assert (Test-Path -LiteralPath $fixture) "NO toca la raíz de una corrida concurrente de 2 horas"
+  Assert (Test-Path -LiteralPath $fixtureLargo) "NO toca una corrida VIVA de 3 días que escribió recién (LastWriteTime, no CreationTime)"
 } finally {
   Remove-TestRunRoot $rootB
   Remove-TestRunRoot $viejo
   Remove-TestRunRoot $fresco
+  Remove-TestRunRoot $larga
 }
 
 # ---------------------------------------------------------------------------
