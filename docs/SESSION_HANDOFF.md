@@ -1,3 +1,213 @@
+# Session Handoff — 2026-09-01 (tarde) — issue 19 REESCRITO, `skill-bases.json` REGENERADO, cambio de regla del techo con review-loop CERRADO POR TOPE
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **34 commits, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills`, rama `fix/suites-que-no-limpian-temp`.
+
+## Objetivo del proyecto y del release
+
+Repo de skills de bootstrap para proyectos asistidos por IA. El release en curso es `bootstrap-v2`:
+PRD + 19 issues en `.scratch/bootstrap-v2/` (gitignored). Cerrados: **01, 04 (+04b, 04c), 17**.
+
+## Lo que hizo esta sesión — tres pedidos, los tres cerrados
+
+### 1. Issue 19 reescrito (`.scratch/bootstrap-v2/issues/19-metrica-de-similitud-y-autojunk.md`)
+
+Su repro anterior **no reproducía**, y su criterio #1 pasaba en verde. Medido de nuevo hoy:
+
+- El repro viejo (*"dos cuerpos de 7.800 ch que difieren solo en la primera línea dan 0.0"*): los nueve
+  cuerpos reales de `.agents/skills/` que pasan los 400 ch dan **0.9860–0.9956**. Nunca 0.0.
+- **El repro correcto**: cuerpo de `setup-matt-pocock-skills` (6.269 ch, 115 líneas,
+  `sha1(body)[:12]=fc4f744e0756`) con **637 ch** de prosa real de `grill-with-docs` **prependidos**
+  (`sha1[:12]=a1ac6eeefc0b`): `char_ON = 0.3361` (BAJO el umbral de 0.60), `char_OFF = 0.9517`,
+  por líneas `0.9091`. El mismo drift **apendeado** da 0.9517 — es la **posición**, no el contenido.
+  Orden de argumentos invertido: 0.3347 (colapsa en las dos direcciones).
+- Es **específico del par**: otras 4 fuentes de drift sobre la misma víctima dan 0.8814–0.8887, y el
+  mismo drift sobre los otros diez cuerpos no mueve el ratio (`ON == OFF` a 4 decimales).
+- El acantilado "entre 4400 y 4600 caracteres" del handoff anterior **no se sostiene** barriendo el largo.
+- Costo medido: par más grande del corpus, `char_ON` 0.29 s vs `char_OFF` **25,7 s** (~88×), `line_ON` 0,000 s.
+- Costo de tokenizar por líneas: `zoom-out` (169 ch, **una sola línea**) da 0.4000 por líneas contra
+  0.5671 por caracteres. Quedó como criterio de aceptación propio.
+- El test **debe congelar el par como fixture**: el colapso vive en el par y `.agents/skills/*` cambia.
+
+### 2. `.scratch/bootstrap-v2/skill-bases.json` regenerado (113 s, con red)
+
+Clon de upstream en `C:\Users\marti\AppData\Local\Temp\claude\C--Repos-PERSONAL-Bootstrap-Skills-bootstrap-v2\143e32c5-e313-4b25-9513-64b764c7cb78\scratchpad\upstream-skills`
+(HEAD `6654f6b`, sin moverse desde agosto, 413 blobs). Self-test 84/84 antes de correr.
+
+- **Esquema nuevo completo**: `upstreamRelation`, `method.fieldsByStatus`, `method.tieBreak`,
+  y en las bases `tieOnIdenticalBodies` / `tiedCandidates` / `tieNote` / `alsoSeenAtPaths`.
+  El vocabulario nuevo llegó: `no-match-above-threshold` y `gone-from-upstream-head`.
+- **Veredictos sin cambios**: 9 `recovered` / 2 `unmatched`, 7 exactos, `tdd` 0.8625, `to-issues` 0.9466.
+- **Cuatro bases cambiaron de commit**, todas a una **más vieja**, verificado: `grill-me`
+  (`62f43a18`→`a6bdfd9f`, no es empate: mismo blob visto antes en otro path), y `handoff`
+  (`221ffca9`→`d54c497a`), `to-issues` (`→ff3ee1dd`), `zoom-out` (`→7afa86d3`), los tres por empate.
+  Verifiqué a mano que los cuerpos normalizados de los blobs empatados son **idénticos** (666, 3.288 y
+  169 ch) y los blobs crudos **difieren**. `summary.tiedOnDifferentBodies` = **0** en corrida real, así
+  que la rama de > 0 sigue sin ejercitarse con datos reales.
+- 🔴 **Hallazgo para el issue 05**: `upstream.clone` guarda una ruta absoluta del temp de la sesión
+  (el reporte viejo también). El documento **nunca es byte-estable** entre corridas ni máquinas. Si el
+  lockfile sella el documento entero, ese campo hay que excluirlo o normalizarlo.
+
+### 3. Cambio de regla del techo del slice (decisión firmada por el usuario) — 6 commits
+
+**Decisión**: el techo de ~400 líneas se mide **cuando el slice ABRE**, no al cerrarlo. Registrada en
+`docs/adr/0008-el-techo-del-slice-se-mide-al-abrir.md`. Aplicada a los 4 `CLAUDE.md` y a los **5 sitios
+que la ejecutan** (pre-flight de `/review-loop`, paso "Close the slice" de `tdd`, pre-flight de
+`/slice-review`, y los dos docs de `docs/ai-workflow/`), ×4 copias cada uno.
+
+## 🔴 El review-loop cerró POR TOPE, no limpio — y lo que enseñó
+
+Cinco turnos. **Cero bugs de lógica.** Los quince hallazgos fueron **afirmaciones mías**, y todas de la
+misma clase: **atribución** (a quién se le adjudican las líneas), nunca **medición** (los números
+siempre dieron bien). Seis versiones del mismo párrafo del ADR, seis atribuciones falsas, cada una
+encontrada por el turno que leía el arreglo del turno anterior:
+
+1. *"el primer commit son 117 líneas y el resto lo agregó el review"* — había más commits de scope.
+2. *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el review tocara nada"* — el
+   loop ya había corrido **dos turnos** antes de `900ba7f`, y 269 de esas 494 eran suyas.
+3. *"había tres commits de scope más"* → se corrigió a *"había uno"*, **también falso**.
+4. Una tabla anunciada "commit por commit" con una fila que era un **acumulado de cuatro commits**.
+5. Clasificar las 248 líneas de `0eb467f` como "fixes del loop" cuando ese commit **también cierra
+   F14 y F18**, que eran scope. De ahí dependía *"el scope solo está por debajo del techo"*.
+6. La retractación de (3) se había calculado con la clasificación que (5) derogó.
+
+**Lo que cortó el ciclo fueron dos cosas, ninguna escribir mejor el párrafo:**
+
+- **Sacar el número de la prosa** (`5ba9aff`): `tests/techo-del-slice.tests.ps1` verifica la tabla del
+  ADR contra `git` — los 8 números, que las filas sean exactamente los 8 commits de
+  `3e175b0..2edb0a1` **y en orden**, y que ninguna fila sea un rango.
+- **No afirmar lo no medible** (`4227fde`): `0eb467f` es mixto, así que **ningún reparto scope/loop es
+  medible**. El documento dejó de publicarlo. Lo que sí sostiene: los 4 commits posteriores al cierre
+  declarado suman **414 líneas**, más que el techo entero.
+
+Esto **confirma y extiende** la memoria `parchar-prosa-de-procedimiento-no-converge`: van tres
+episodios medidos, y el patrón es que lo único que cierra es **cambiar de instrumento o quitar la
+afirmación**.
+
+## Commits de esta sesión (7)
+
+| commit | qué |
+|---|---|
+| `92487c9` | los 3 ADR del grill (0004-0006) + la nota de research, 4 sesiones sin commitear |
+| `919e567` | la regla nueva en los 4 `CLAUDE.md` + ADR-0008 + manifests |
+| `87f11fe` | los 5 sitios que ejecutan la regla + `tests/techo-del-slice.tests.ps1` (nuevo) |
+| `ebfc19b` | atribución commit por commit, no entre acumulados |
+| `5ba9aff` | **cambio de instrumento**: la tabla del ADR la verifica `git` |
+| `4227fde` | el reparto scope/loop sale del documento; el test verifica **membresía** |
+| `e6ccd72` | la sexta atribución sale; los dos guards dejan de ser esquivables |
+
+## Estado del marcador de revisión — LEER ANTES DE CORRER `/review-loop`
+
+- **`marker:feat/bootstrap-v2` = `ebfc19b`, a propósito.** El turno 5 revisó hasta ahí; sus fixes
+  (`e6ccd72`) **no los revisó nadie**. Avanzarlo los escondería. El próximo turno los va a leer.
+- **`slice-open` = `9b9368d`, se conserva**: el cierre fue **por tope**, y un cap close conserva el
+  ancla a propósito (ADR-0002). Si el próximo slice es otro, el pase de coherencia va a leer de más.
+- 🔴 **Un marcador "WIP on ..." es NORMAL, no un bug.** `-Action advance` corta el marcador con
+  `git stash create` para capturar el árbol sin commitear, así que el objeto no es ancestro de HEAD.
+  Se usa `git diff <marcador>` **pelado**; la forma `<marcador>..HEAD` imprime el diff **invertido**.
+  (Esta sesión lo reportó como contradicción y estaba equivocado.)
+
+## Gotchas medidos esta sesión
+
+- 🔴 **Me salté el avance del marcador después de los turnos 2 y 4.** El orden es review → `advance` →
+  fixes. Consecuencia benigna (se revisa de más), pero pasó **dos veces en el mismo loop**.
+- 🔴 **`git worktree add` con ruta larga falla**: `Filename too long` en
+  `skills/bootstrap-southpoint-project/assets/scaffold/.agents/skills/setup-matt-pocock-skills/*`.
+  Usar `C:\Users\marti\AppData\Local\Temp\<algo corto>`, **no** el scratchpad de la sesión.
+- **El hook de esta rama no tiene el gate de docs**; el de `main` sí (`bc973c2`). Un commit
+  100 % `.md` dispara el loop acá y no en `main`. Mergear `main` lo arregla.
+- **`main` divergió bastante en `CLAUDE.md`**: gate de docs, bullet de copy-scaffold con respaldo, y
+  el golden del Step 0b. Además **`main` tiene `docs/adr/0007`** y esta rama no — por eso el ADR nuevo
+  se numeró **0008**. Ojo al numerar ADRs con dos líneas en paralelo.
+- **El sandbox de la Bash tool mangleá los regex con `\r?\n` dentro de heredocs de Python**: escribir
+  el script con la herramienta Write y ejecutarlo.
+- **`tests/mirror.tests.ps1:21` tiene `assets/scaffold/CLAUDE.md` en su `$allow`**, así que **ninguna
+  suite miraba el bullet**. Por eso existe `tests/techo-del-slice.tests.ps1`.
+- **`-le 400` sin `\b` matchea `-le 4000`** — trampa ya fichada en el repo, se coló igual en la
+  primera versión del test nuevo. Verificado: `True` sin frontera, `False` con.
+- **Un guard sobre prosa no puede distinguir la cita de la afirmación**: el bloque de retractación del
+  ADR cita las falsedades a propósito, y los guards tuvieron que excluir las líneas de blockquote.
+
+## Tests
+
+Las **13 suites seguras** en verde (las 15 de `tests/` menos las 2 prohibidas):
+
+```
+pwsh -NoProfile -File tests/techo-del-slice.tests.ps1      # NUEVO
+pwsh -NoProfile -File tests/mirror.tests.ps1
+pwsh -NoProfile -File tests/shareable-leaks.tests.ps1
+pwsh -NoProfile -File tests/slice-review.tests.ps1
+pwsh -NoProfile -File tests/regla-de-afirmaciones.tests.ps1
+pwsh -NoProfile -File tests/review-loop-incremental.tests.ps1
+pwsh -NoProfile -File tests/export-shareable.tests.ps1
+pwsh -NoProfile -File tests/review-loop-trigger.tests.ps1
+pwsh -NoProfile -File tests/review-marker.tests.ps1
+pwsh -NoProfile -File tests/alignment-gate.tests.ps1
+pwsh -NoProfile -File tests/recover-skill-bases.tests.ps1
+pwsh -NoProfile -File tests/apply-env.tests.ps1
+pwsh -NoProfile -File tests/install-clients.tests.ps1
+python tools/recover-skill-bases.py --self-test            # 84 ok, 0 fail
+```
+
+🔴 **PROHIBIDO** correr `tests/gen-mcp-json.tests.ps1` y `tests/copy-scaffold.tests.ps1`: barren
+`%TEMP%` por prefijo global, abortan, y su rojo se diagnostica como regresión falsa. **La otra terminal
+está justamente arreglando eso** (rama `fix/suites-que-no-limpian-temp`).
+
+**Ningún test falla.**
+
+## Bugs abiertos (declarados, NO arreglados)
+
+1. 🔴 **Ningún test verifica que un manifest esté sincronizado con su scaffold.** `compare-scaffold.ps1`
+   (líneas ~24-35) itera `$canon.files` y **nunca hashea los archivos canónicos**: con un hash viejo, un
+   proyecto downstream con el contenido VIEJO da `uptodate` y el cambio **nunca le llega**.
+   `export-shareable.tests.ps1:33-34` solo asserta `generatedFrom`, que `gen-manifest.ps1` deriva del
+   nombre del directorio. Preexistente, es su propio slice.
+2. 🔴 **Los hashes del manifest son crudos, sin normalizar fines de línea.** De los 53 archivos que el manifest
+   lista, **50 son CRLF en disco y 3 LF**  (el `.bootstrap-manifest.json`, que `gen-manifest` se
+   auto-excluye, es el 54º y también CRLF) (`CLAUDE.md`, `ESTIMATION_GUIDE.md`, `RUNBOOK_TEMPLATE.md`
+   — los últimos escritos por un agente). Con `autocrlf=true` y sin `.gitattributes`, en un clon nuevo
+   esos tres materializan CRLF y `compare-scaffold.ps1` los rutea a `customized`. Es la memoria
+   `bug-autocrlf-manifests-hashes-mixtos`, y este slice re-estampó uno de los tres.
+3. **Mutante sobreviviente** en `tools/recover-skill-bases.py:1094`: el argumento de umbral de ese
+   `_rep(...)` no está cubierto (con 1.0 el self-test sigue verde). Severidad baja, defendible.
+4. **El guard negativo del ADR es un alambre de tropiezo, no una prueba**: cubre 4 formulaciones del
+   reparto scope/loop; una redacción nueva lo esquiva. Declarado en el comentario del test.
+
+## Pendientes concretos
+
+1. 🔴 **Abrir el slice 05** (`.scratch/bootstrap-v2/issues/05-lockfile-sellado-y-verificado.md`). Ya
+   NO está bloqueado: el issue 19 está bien escrito y `skill-bases.json` tiene el esquema nuevo.
+   Al planificarlo, contemplar el hallazgo de `upstream.clone` (ruta absoluta → no byte-estable).
+2. **Mergear/rebasar `main`** antes del issue 14, y conviene antes que después: trae el gate de docs
+   (deja de disparar el loop en commits solo-`.md`) y el ADR-0007. Los únicos conflictos esperados son
+   los `.bootstrap-manifest.json`, que son **generados**: tomar cualquier lado y regenerar con
+   `tools/gen-manifest.ps1 -SkillDir skills/bootstrap-<variante>-project` (una corrida por skill).
+3. **Implementar el issue 19** cuando toque, con el par congelado como fixture.
+4. **Rollout del issue 18**: `C:\Repos\SOUTHPOINTLABS\Forecasting App\CLAUDE.md:98` tiene el bullet
+   viejo del techo. Evaluado 2026-09-01: **aplica**. Dato: su bullet del `/review-loop` (`:82`) está
+   **más adelantado** que el de esta rama, así que el merge no es en una sola dirección.
+
+## Antes de tocar código
+
+- El `alignment-gate` bloquea el primer edit de código de la sesión. La alineación de este release ya
+  está hecha (grill del 2026-08-28, PRD + 19 issues aprobados). **Reintentar el edit y seguir.**
+- Al commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- Los tres scaffolds se mantienen espejados: cualquier cambio va en las **4 copias** (repo + 3
+  scaffolds) y después **regenerar los 3 manifests**.
+- Para editar archivos con fines de línea distintos (repo CRLF, scaffolds LF), leer/escribir en
+  **bytes** y preservar el estilo de cada archivo. Un reemplazo whole-file con el newline equivocado
+  genera un diff gigante espurio.
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola**.
+- No usar `/compact`: handoff + terminal nueva.
+
+---
+
 # Session Handoff — 2026-09-01 (madrugada) — **SLICE 04c CERRADO**, review-loop cerrado LIMPIO en el turno 4
 
 > **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
