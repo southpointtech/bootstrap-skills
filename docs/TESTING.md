@@ -37,6 +37,42 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - Si un run baseline corre `npm install`, borrar su `node_modules` antes de levantar el viewer (el escaneo recursivo se cuelga).
 - Borrar el workspace de evals al terminar (regla del repo).
 
+## Workspaces temporales de las suites (`tests/lib/temp-workspace.ps1`)
+
+Ninguna suite crea temporales por su cuenta: todas cuelgan de una raíz única por corrida que
+entrega el helper. `tests/temp-hygiene.tests.ps1` lo verifica y se pone rojo si alguna lo esquiva.
+
+Para una suite nueva, son tres líneas y una al final:
+
+```powershell
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "<prefijo>"
+trap { Remove-TestRunRoot $script:runRoot; break }
+# ... $t = New-TestWorkspace $script:runRoot "caso"   /   $p = New-TestTempPath $script:runRoot "cfg" ".json"
+Remove-TestRunRoot $script:runRoot
+```
+
+El trap se escribe **en una línea y siempre igual**: el lint lo verifica exacto, porque un regex
+laxo sobre un bloque multilínea acepta un trap que atrapa y no borra. Y no puede vivir dentro del
+helper: un `trap` declarado en una función solo atrapa lo de esa función.
+
+Por qué las tres partes hacen falta, y qué pasa si falta cada una:
+
+| parte | qué cubre | qué se filtra sin ella |
+|---|---|---|
+| raíz única por corrida | la salida normal | lo que un camino intermedio no alcanzó a borrar |
+| `trap` | el aborto | **todo** el árbol, cada vez que un error terminante saltea la limpieza final |
+| recolección **por edad** | los huérfanos viejos | nada — pero sin el filtro de fecha borra los fixtures **en uso** de las corridas concurrentes |
+
+Esa última es la que más importa acá: el review-loop lanza reviewers en paralelo, así que las
+corridas concurrentes son la norma. `export-shareable.tests.ps1` barría por glob incondicional y les
+borraba los fixtures en pleno uso.
+
+**Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
+**archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.
+Contar solo directorios no sirve: `apply-env` deja archivos (`wscfg-*.json`, 34 medidos), y ese fue
+justamente el error que hizo fallar el primero de los tres intentos manuales de arreglar esto.
+
 ## El golden del Step 0b
 
 La mecánica del modo adopción está congelada en `tests/fixtures/step0b.golden.md`, y `mirror.tests.ps1`

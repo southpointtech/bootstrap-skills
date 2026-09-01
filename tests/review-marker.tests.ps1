@@ -4,6 +4,9 @@ $ErrorActionPreference = "Stop"
 $repo   = Split-Path $PSScriptRoot -Parent
 $marker = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/scripts/review-marker.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "rm"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
@@ -20,8 +23,7 @@ function Init-Repo([string]$t, [string]$branch) {
   git -C $t config core.excludesFile ""
 }
 function New-Repo {
-  $t = Join-Path ([IO.Path]::GetTempPath()) ("rm-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $t | Out-Null
+  $t = New-TestWorkspace $script:runRoot "rm-test"
   Init-Repo $t "master"
   "base" | Set-Content (Join-Path $t "file.txt")
   git -C $t add -A; git -C $t commit -q -m base
@@ -42,8 +44,7 @@ function Marker($dir, $action) {
   return (($out -join "`n")).Trim()
 }
 function New-RepoOn([string]$branch) {
-  $t = Join-Path ([IO.Path]::GetTempPath()) ("rm-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $t | Out-Null
+  $t = New-TestWorkspace $script:runRoot "rm-test"
   Init-Repo $t $branch
   "base" | Set-Content (Join-Path $t "file.txt")
   git -C $t add -A; git -C $t commit -q -m base
@@ -115,8 +116,7 @@ Remove-Item -Recurse -Force $t
 # --- Fuera de un repo git: vacío y sin romper, para los tres verbos ---
 # Exit 2, no 0: "no puedo determinar el rango" es distinto de "no hay nada nuevo que revisar".
 # Con 0 el loop cerraría reportando limpio un slice que nadie miró.
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rm-nogit-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
+$t = New-TestWorkspace $script:runRoot "rm-nogit"
 foreach ($a in @("get", "range", "advance")) {
   $o = Marker $t $a
   Assert ($o -eq "") "fuera de un repo git, '$a' no imprime nada"
@@ -211,7 +211,8 @@ Remove-Item -Recurse -Force $t
 # rama no existe. Si la base no resuelve, el rango se vacía y el slice entero queda sin revisar.
 $up = New-Repo
 git -C $up checkout -q master
-$cl = Join-Path ([IO.Path]::GetTempPath()) ("rm-clone-" + [guid]::NewGuid().ToString('N'))
+# New-TestTempPath y no New-TestWorkspace: `git clone` quiere crear el destino él mismo.
+$cl = New-TestTempPath $script:runRoot "rm-clone"
 git clone -q $up $cl 2>$null
 git -C $cl config user.email a@b.c; git -C $cl config user.name a
 git -C $cl checkout -q -b feat/y
@@ -417,7 +418,7 @@ Remove-Item -Recurse -Force $t
 # problema que la hermana, y la exclusión de `origin/<rama>` no lo cubre porque el nombre difiere.
 $up = New-RepoOn "trunk"
 git -C $up config receive.denyCurrentBranch ignore
-$cl = Join-Path ([IO.Path]::GetTempPath()) ("rm-push-" + [guid]::NewGuid().ToString('N'))
+$cl = New-TestTempPath $script:runRoot "rm-push"
 git clone -q $up $cl 2>$null
 git -C $cl config user.email a@b.c; git -C $cl config user.name a; git -C $cl config commit.gpgsign false
 git -C $cl checkout -q -b feat/w
@@ -511,8 +512,7 @@ Assert ($cp -eq "850") "control positivo: el pwsh hijo del fixture corre en code
 # encoding se guardó ESTE archivo ni de con cuál lo lea el runner.
 $enye = [string][char]0x00F1
 $uacc = [string][char]0x00FA
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rm-test-" + $enye + "and" + $uacc + "-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
+$t = New-TestWorkspace $script:runRoot ("rm-test-" + $enye + "and" + $uacc)
 Init-Repo $t "master"
 "base" | Set-Content (Join-Path $t "file.txt")
 git -C $t add -A; git -C $t commit -q -m base
@@ -533,8 +533,7 @@ Remove-Item -Recurse -Force -LiteralPath $t
 # El hook delega acá la resolución de base cuando las ramas nombradas (main/master/develop/origin-HEAD)
 # fallan, para no quedar mudo en un repo cuya base se llama `trunk`, `dev`, etc. Devuelve el
 # merge-base (un commit), con el mismo contrato de exit codes que `range`: 0+ref resoluble / 2+vacío.
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rm-test-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
+$t = New-TestWorkspace $script:runRoot "rm-test"
 Init-Repo $t "trunk"
 "base" | Set-Content (Join-Path $t "file.txt")
 git -C $t add -A; git -C $t commit -q -m base
@@ -793,5 +792,7 @@ $stillCorrupt = [IO.File]::ReadAllText($statePath)
 Assert ($stillCorrupt -eq $before) "close NO pisa un estado corrupto (queda byte-idéntico, la clave de otra rama es recuperable)"
 Assert (-not (Test-Path -LiteralPath "$statePath.bad")) "close no crea .bad (sale antes de escribir; no necesita cuarentena)"
 Remove-Item -Recurse -Force $t
+
+Remove-TestRunRoot $script:runRoot
 
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

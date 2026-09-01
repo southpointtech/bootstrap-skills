@@ -14,14 +14,16 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $hook = Join-Path $repoRoot "skills/bootstrap-personal-project/assets/scaffold/.claude/hooks/review-loop-trigger.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "rlg"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 
 function New-Repo {
-  $t = Join-Path ([IO.Path]::GetTempPath()) ("rlg-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $t | Out-Null
+  $t = New-TestWorkspace $script:runRoot "rlg-test"
   git -C $t init -q -b master; git -C $t config user.email a@b.c; git -C $t config user.name a
   # Mismo aislamiento del gitconfig global que el resto de la suite: con `commit.gpgsign=true` en la
   # máquina los commits del fixture no se crean y todos los asserts de ausencia pasan en falso.
@@ -434,6 +436,8 @@ if ($hookSrc -notmatch "(?m)^\s*\`$govern\s*=\s*'([^']+)'") {
     Assert ($bullet -match 'never documentation') "$etiqueta dice que lo que gobierna al agente NUNCA es documentación"
   }
 }
+
+Remove-TestRunRoot $script:runRoot
 
 Write-Host ""
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

@@ -5,18 +5,22 @@ $ErrorActionPreference = "Stop"
 $repo   = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $repo "tools/export-shareable.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+# La recolección de huérfanos de esta suite era un `Remove-Item` por glob INCONDICIONAL sobre la raíz
+# de %TEMP%: le borraba los fixtures en pleno uso a cualquier corrida concurrente, y en este repo las
+# corridas concurrentes son la norma (el review-loop lanza reviewers en paralelo). New-TestRunRoot
+# recolecta por edad y solo lo que tiene más de un día.
+$script:runRoot = New-TestRunRoot "export-test"
+trap { Remove-TestRunRoot $script:runRoot; break }
+
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 function NewClone {
-  $d = Join-Path ([IO.Path]::GetTempPath()) ("export-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $d | Out-Null
+  $d = New-TestWorkspace $script:runRoot "export-test"
   git -C $d init -b main --quiet
   $d
 }
-
-# Workspaces huérfanos de corridas anteriores abortadas
-Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "export-test-*" | Remove-Item -Recurse -Force
 
 # 1. Happy path: estructura completa en el clon
 $t = NewClone
@@ -49,11 +53,13 @@ try {
 Remove-Item -Recurse -Force $t2
 
 # 4. No es un clon git -> aborta
-$t3 = Join-Path ([IO.Path]::GetTempPath()) ("export-test-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t3 | Out-Null
+# Sin NewClone a propósito: este caso necesita el directorio SIN `git init`.
+$t3 = New-TestWorkspace $script:runRoot "export-test"
 & pwsh -NoProfile -File $script -PublicRepoDir $t3 2>&1 | Out-Null
 Assert ($LASTEXITCODE -ne 0) "PublicRepoDir sin .git: aborta"
 Remove-Item -Recurse -Force $t3
+
+Remove-TestRunRoot $script:runRoot
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

@@ -5,13 +5,16 @@ $personal   = Join-Path $repo "skills/bootstrap-personal-project/scripts/gen-mcp
 $southpoint = Join-Path $repo "skills/bootstrap-southpoint-project/scripts/gen-mcp-json.ps1"
 $shareable  = Join-Path $repo "skills/bootstrap-ai-project/scripts/gen-mcp-json.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "mcp"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
+# Esta suite era el caso medido más claro de la fuga: creaba 6 workspaces por corrida y borraba 2.
 function NewTmp {
-  $d = Join-Path ([IO.Path]::GetTempPath()) ("mcp-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $d | Out-Null; $d
+  return (New-TestWorkspace $script:runRoot "mcp-test")
 }
 # Corre el script como subproceso; devuelve @{ exit; out } (out = stdout crudo)
 function RunScript($scriptPath, [string[]]$ServerArgs, $ProjectDir, [switch]$Force) {
@@ -98,6 +101,8 @@ $tsh2 = NewTmp
 $rsh2 = RunScript $shareable @("zoho-personal") $tsh2
 Assert ($rsh2.exit -ne 0) "shareable: zoho-personal invalido en el catalogo compartible"
 Remove-Item -Recurse -Force $tsh2
+
+Remove-TestRunRoot $script:runRoot
 
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
