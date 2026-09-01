@@ -218,12 +218,17 @@ if (-not (Test-Path -LiteralPath $adr)) {
       "ADR-0008 fila $($i+1): $($enTabla[$i]) es el commit $($i+1) del slice"
   }
 
-  # Ninguna fila puede ser un rango. Se mira la REGION de la tabla, no las filas que parsearon: una
-  # fila `a..b` no parsea, y por eso mismo el bucle de arriba nunca la veria.
-  $region = [regex]::Match($txtAdr, '(?ms)^\| commit \|.*?(?=\r?\n\r?\n)').Value
-  Assert ($region -ne "") "se encontro la region de la tabla del ADR-0008"
-  Assert (-not ($region -match '`[0-9a-f]{7,40}\.\.')) `
-    "ninguna fila de la tabla del ADR-0008 es un rango acumulado"
+  # Ninguna fila de NINGUNA tabla puede ser un rango. Se mira el documento entero, no la region de
+  # la tabla principal: el turno 5 probo que acotarlo a esa region dejaba pasar una SEGUNDA tabla,
+  # 15 lineas mas abajo, titulada "Reparto, commit por commit" y hecha de rangos acumulados. Una
+  # fila `a..b` no parsea como sha, asi que el bucle de medicion tampoco la ve: si no se la caza
+  # aca, no la caza nadie.
+  # Se ancla en la PRIMERA celda, que es donde va el commit. Un rango nombrado en otra columna es
+  # legitimo (la tabla de bases dice sobre que rango mide cada una); lo que no puede pasar es que un
+  # rango ocupe el lugar de un commit.
+  $filasRango = @([regex]::Matches($txtAdr, '(?m)^\|\s*`[0-9a-f]{7,40}\.\.'))
+  Assert ($filasRango.Count -eq 0) `
+    "ninguna fila de tabla del ADR-0008 tiene un rango acumulado donde va el commit ($($filasRango.Count))"
 
   # El unico numero derivado que el texto publica: las lineas de los commits POSTERIORES al cierre
   # declarado (`900ba7f`). Es derivable porque son commits enteros; el reparto scope/loop NO lo es.
@@ -241,9 +246,34 @@ if (-not (Test-Path -LiteralPath $adr)) {
     Assert ($post -gt 400) "ADR-0008: esas lineas superan el techo, como afirma el texto ($post)"
   }
 
-  # La afirmacion que el turno 4 tiro abajo no puede volver por la ventana.
-  Assert (-not ($txtAdr -match '(?i)\d+\s+de scope')) `
-    "ADR-0008 no publica un reparto scope/loop, que 0eb467f vuelve no medible"
+  # La afirmacion que el turno 4 tiro abajo no puede volver por la ventana. DOS MITADES, porque una
+  # sola no alcanza:
+  #
+  # La NEGATIVA es un ALAMBRE DE TROPIEZO, no una prueba. Vigila las formas conocidas de escribir el
+  # reparto; una redaccion nueva lo esquiva, y el turno 5 lo demostro: con el ancla vieja
+  # (`\d+ de scope`), la frase "El scope aporta 349 lineas y el loop las 683 restantes" pasaba en
+  # verde. Es la trampa ya fichada en este repo: un match sobre prosa no expresa semantica. Por eso
+  # va acompanada de la mitad POSITIVA, que ancla en la seccion donde el documento explica POR QUE no
+  # hay reparto: mientras esa seccion siga ahi, republicar el reparto se contradice con ella a la
+  # vista, que es lo mas que un test de prosa puede dar.
+  # El bloque de retractacion CITA las falsedades a proposito, asi que los guards no pueden mirarlo:
+  # un guard que confunde la cita con la afirmacion es inservible. La retractacion es una blockquote,
+  # y solo ella lo es en este documento — se descartan las lineas que empiezan con `>`.
+  $sinCitas = ($txtAdr -split "`r?`n" | Where-Object { $_ -notmatch '^\s*>' }) -join "`n"
+  Assert ($sinCitas -match '(?m)^### Por qué acá no hay un reparto') `
+    "el filtro de citas no se comio el cuerpo del documento"
+  foreach ($mala in @(
+      '(?i)\d[\d.,]*\s+de scope',
+      '(?i)(scope|loop)\s+(aporta|aportó|aporto|puso|sum[oa]|agreg[oa])\s+(las\s+)?\*{0,2}\d',
+      '(?i)el scope solo está por debajo del techo',
+      '(?i)\*{0,2}\d[\d.,]*\*{0,2}\s+líneas?\s+de\s+(scope|fixes del loop)')) {
+    Assert (-not ($sinCitas -match $mala)) `
+      "ADR-0008 no republica el reparto scope/loop en la forma /$mala/"
+  }
+  Assert ($txtAdr -match '(?m)^###\s+Por qué acá no hay un reparto') `
+    "ADR-0008 conserva la seccion que explica por que el reparto no es medible"
+  Assert ($txtAdr -match '(?i)sería una estimación presentada como medición') `
+    "ADR-0008 dice explicitamente que repartir esas lineas seria estimar, no medir"
 }
 
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FALLARON"; exit 1 }

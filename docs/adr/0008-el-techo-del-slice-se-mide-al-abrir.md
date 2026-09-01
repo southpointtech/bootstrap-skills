@@ -17,8 +17,8 @@ primeras atribuciones falsas de este documento. Cada fila es `git diff --numstat
 
 **`tests/techo-del-slice.tests.ps1` verifica esta tabla contra `git`**: los ocho números, que las
 filas sean exactamente los ocho commits del slice y en orden, y que ninguna fila sea un rango. Lo
-que el test **no** puede verificar es a quién atribuirle cada línea; de eso habla el párrafo que sigue
-a la tabla.
+que el test **no** puede verificar es a quién atribuirle cada línea; de eso habla la sección
+*«Por qué acá no hay un reparto»*, más abajo.
 
 | commit | líneas | |
 |---|---|---|
@@ -55,13 +55,18 @@ Lo que la tabla **sí** sostiene, y alcanza para la decisión:
 Con eso basta: **el loop le agrega líneas al slice que revisa, después de que el slice cerró.** Si el
 techo se mide sobre el diff final, esas líneas cuentan contra un slice que ya no se puede replanificar.
 
-> **Cinco afirmaciones falsas mías en este párrafo, sobre los mismos ocho commits.** (1) *"el primer
-> commit son 117 líneas y el resto lo agregó el review"* — había otro commit de scope, `900ba7f`.
-> (2) *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el review tocara nada"* —
-> el loop ya había corrido dos turnos antes de `900ba7f`. (3) *"había tres commits de scope más"* —
-> había uno. (4) Una tabla anunciada "commit por commit" con una fila (`900ba7f..2edb0a1`, 296) que
-> era un acumulado de cuatro commits; por commit son 414. (5) Clasificar las 248 líneas de `0eb467f`
-> como "fixes del loop" cuando el commit también cierra F14 y F18, que eran scope — y de esa
+> **Cinco afirmaciones falsas mías en este párrafo, sobre los mismos ocho commits.** (1) *"El primer
+> commit del slice son 117 líneas; el resto lo agregó el review."* — había más commits que cierran
+> scope. (2) *"Cuando 04c declaró su cierre ya estaba en 494 líneas, 1,2× el techo, antes de que el
+> review tocara nada"* — el loop ya había corrido dos turnos antes de `900ba7f`. (3) *"había tres
+> commits de scope más"* — la corrección que se publicó en su lugar (*"había uno"*) también era
+> falsa, y por la misma causa: se calculó con la clasificación que la falsedad (5) derogó cuatro
+> líneas más abajo. Lo verificable es la **membresía**, no el reparto de líneas: **tres** commits
+> cierran alguno de los nueve Medium — `cf925c0` (F3, F15), `900ba7f` (F2, F4, F5, F6, F21) y
+> `0eb467f` (F14, F18) —, y el último es mixto. (4) Una tabla anunciada "commit por commit" con una
+> fila (`900ba7f..2edb0a1`, 296) que era un acumulado de cuatro commits; por commit son 414.
+> (5) Clasificar las 248 líneas de `0eb467f` como "fixes del loop" cuando el commit también cierra
+> F14 y F18, que eran scope — y de esa
 > clasificación dependía la conclusión *"el scope solo está por debajo del techo"*, que por eso ya no
 > se afirma.
 >
@@ -79,9 +84,11 @@ vueltas** sobre el mismo rango `3e175b0..2edb0a1`:
 
 | base | líneas | quién la usa |
 |---|---|---|
-| altas solas, excluyendo `.md` | **617** | el handoff del 2026-09-01 |
+| altas solas, excluyendo `.md` | **617** | este ADR, sobre `3e175b0..2edb0a1` (ver abajo) |
 | altas + bajas, excluyendo `.md` | **660** | este ADR |
 | altas + bajas, con el `$skipPat` real del hook (que **no** excluye `.md`) | **874** | `.claude/hooks/review-loop-trigger.ps1` |
+
+El **617** viene del handoff (`docs/SESSION_HANDOFF.md:92`), pero **no sobre el rango que el handoff declara**: ahí dice `3e175b0..HEAD`, y ese rango hoy mide 919 altas. Reproduce sobre `3e175b0..2edb0a1`, que es el que usa este ADR — o sea que el número es correcto y la referencia del handoff quedó vieja al seguir avanzando `HEAD`.
 
 Un cuarto número, el **716** que el handoff publica para 04b (`docs/SESSION_HANDOFF.md:398`), **no reproduce con ninguna de las tres** sobre el rango que el propio handoff declara (`:351`): esa base da 735, y 607 con la otra frontera. Queda anotado como no reproducido en vez de asignado a una base que no lo produce.
 
@@ -116,10 +123,12 @@ marcador; mover la base a mitad de camino deja turnos revisando rangos que ya no
 - La red de seguridad del hook `review-loop-trigger` **no cambia**: sigue midiendo el delta sin
   revisar contra la misma guía de ~400 líneas para disparar un review en un commit sin trailer. Esa
   guía responde otra pregunta —"¿esto quedó sin revisar?"— y no es el techo de planificación.
-- La regla se propaga a cuatro lugares más que la **ejecutan**, y cambiarla en el `CLAUDE.md` sin
+- La regla se propaga a **cinco** sitios más que la **ejecutan**, y cambiarla en el `CLAUDE.md` sin
   tocarlos deja instrucciones contradictorias vivas: el pre-flight de `/review-loop`, el paso "Close
-  the slice" de `tdd`, el pre-flight de `/slice-review` y los dos docs de `docs/ai-workflow/` que el
-  `CLAUDE.md` declara lectura obligatoria. `tests/techo-del-slice.tests.ps1` verifica las dos mitades
+  the slice" de `tdd`, el pre-flight de `/slice-review`, y los dos docs de `docs/ai-workflow/`
+  (`AI_DEVELOPMENT_WORKFLOW.md` y `DEPLOYMENT_RULES.md`) que el `CLAUDE.md` declara lectura
+  obligatoria. Un sexto portador, `to-issues`, **no** hizo falta tocarlo: ya medía al proyectar
+  (*"a slice projected well over ~400 lines ... MUST be split before it is published"*). `tests/techo-del-slice.tests.ps1` verifica las dos mitades
   —cláusula nueva presente, instrucción vieja ausente— en las 4 copias de cada sitio, porque
   `mirror.tests.ps1` tiene `assets/scaffold/CLAUDE.md` en su allowlist, así que ninguna suite miraba
   **el bullet** (sí hay otras que leen esos archivos por otras reglas).
