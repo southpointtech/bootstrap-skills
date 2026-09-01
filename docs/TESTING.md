@@ -53,12 +53,21 @@ Remove-TestRunRoot $script:runRoot
 ```
 
 Lo que el lint exige del trap no es su grafía sino tres propiedades, verificadas por el AST: que
-sea el **primero** del archivo y cuelgue del **cuerpo del script** (uno dentro de una función sólo
-atrapa lo de esa función, y con dos traps corre el primero y su `break` relanza, así que uno vacío
-puesto antes deja al bueno muerto); que borre **`$script:runRoot`** como sentencia directa; y que
-**termine en `break`**, que es lo que relanza el error — con `continue` el trap se traga el aborto
-y la suite reporta `TODOS LOS TESTS PASARON` con exit 0. La limpieza final se verifica igual: por
+sea **hijo directo del cuerpo del script** y el primero (uno dentro de una función sólo atrapa lo
+de esa función, uno metido en un `if`/`try`/loop no se dispara, y con dos traps sueltos corre el
+primero y su `break` relanza, así que uno vacío puesto antes deja al bueno muerto); que borre
+**`$script:runRoot`** como primer argumento posicional de una sentencia directa; y que **termine
+en `break`**, que es lo que relanza el error — con `continue` el trap se traga el aborto y la
+suite reporta `TODOS LOS TESTS PASARON` con exit 0. La limpieza final se verifica igual: por
 posición en el árbol, con `$script:runRoot` como argumento y fuera de todo `if`/`try`/`switch`/loop.
+
+El chequeo asume traps **sin tipo**, que es lo que usan las suites: con un `trap [TipoDeError]`
+primero, el que corre puede ser otro, y el lint lo reportaría en rojo.
+
+Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del lint **corre una suite
+migrada de verdad** y cuenta lo que dejó en la raíz de `%TEMP%`, filtrando por el PID del proceso
+hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios; cubre una de las
+nueve suites y sólo el camino feliz.
 
 El trap no puede vivir dentro del helper: un `trap` se aplica al bloque de script donde está
 escrito, así que uno declarado en el helper no cubre lo que pasa después en la suite que lo
@@ -78,11 +87,13 @@ temprano, un Ctrl+C o un `pwsh` matado dejan la raíz en disco, y la recolecció
 incondicional que borra los fixtures **en uso** de las corridas concurrentes, que en este repo son
 la norma porque el review-loop lanza reviewers en paralelo. `export-shareable.tests.ps1` lo hacía.
 
-Usa `LastWriteTime`, no `CreationTime`. Medido: crear una entrada **directa** del run root
-actualiza su `LastWriteTime`; escribir más adentro, no. O sea que `LastWriteTime` marca la última
-vez que la corrida creó un workspace y `CreationTime` el momento en que arrancó — nunca es más
-vieja, así que protege estrictamente mejor a una corrida larga. **No es autorrefresco**: una
-corrida que ya creó todos sus workspaces envejece igual.
+Usa `LastWriteTime`, no `CreationTime`. Medido: crear **o borrar** una entrada **directa** del run
+root actualiza su `LastWriteTime`; escribir más adentro, no. O sea que `LastWriteTime` marca la
+última vez que la corrida creó un workspace y `CreationTime` el momento en que arrancó. Bajo las
+operaciones que un run root sufre de verdad la primera nunca queda más vieja que la segunda (sólo
+la atrasaría un seteo explícito hacia atrás, que fuera de los fixtures no se hace), así que
+protege igual o mejor a una corrida larga. **No es autorrefresco**: una corrida que ya creó todos
+sus workspaces envejece igual.
 
 Los tres chequeos estructurales del lint van por el **AST**, no por tokens ni por regex: "el trap
 cuelga del cuerpo del script", "la limpieza de la raíz está al terminar y no dentro de un `if`" y

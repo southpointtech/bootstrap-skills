@@ -56,10 +56,11 @@ function Set-EdadDeRaiz {
 # trabajo arregla (los 34 `wscfg-*.json` de apply-env) y la que hizo fallar el primer intento manual.
 #
 # Lo que NO ve, a sabiendas: `[Environment]::GetEnvironmentVariable('TEMP')`, `Get-Item Env:TEMP`,
-# un path armado desde `$env:LOCALAPPDATA`, y —la que más importa— cualquier cosa adentro de un
-# string SIN interpolar, incluido el código que una suite le pase a un `pwsh` hijo en un
-# here-string literal, o un script hijo escrito a un archivo. (Si el hijo va en un string con
-# comillas dobles, el aplanado de NestedTokens sí lo alcanza; el hueco es el literal.)
+# un path armado desde `$env:LOCALAPPDATA`, y —la que más importa— el código de un `pwsh` hijo.
+# Lo único visible de un hijo es lo que el PADRE interpola (`$env:TEMP` sin escapar, o un
+# `$( ... )` que el aplanado de NestedTokens alcanza); el texto que el hijo ejecuta, venga en un
+# here-string o escrito a un archivo, es opaco. La distinción no es comillas dobles contra
+# literal: es interpolado-por-el-padre contra no.
 $script:ApisDeTemp = @('GetTempPath', 'GetTempFileName', 'New-TemporaryFile')
 
 function Get-UsosDeTempDirecto([string]$path) {
@@ -148,9 +149,19 @@ function Test-Anidado($nodo) {
 # llama Root— y habría dado un rojo sobre código correcto, que es como se termina aflojando un
 # chequeo. Se recorren todos los elementos y se ignoran los que son nombres de parámetro.
 function Test-ArgumentoEs($cmd, [string]$argumento) {
-  foreach ($e in $cmd.CommandElements) {
-    if ($e -is [System.Management.Automation.Language.CommandParameterAst]) { continue }
-    if ($e.Extent.Text -eq $argumento) { return $true }
+  $els = @($cmd.CommandElements)
+  for ($i = 1; $i -lt $els.Count; $i++) {
+    if ($els[$i] -is [System.Management.Automation.Language.CommandParameterAst]) {
+      # `-Root <valor>`: el valor puede venir pegado (`-Root:$x`) o como el elemento siguiente.
+      if ($els[$i].ParameterName -ne 'Root') { continue }
+      if ($null -ne $els[$i].Argument) { return ($els[$i].Argument.Extent.Text -eq $argumento) }
+      if ($i + 1 -lt $els.Count) { return ($els[$i + 1].Extent.Text -eq $argumento) }
+      return $false
+    }
+    # El PRIMER argumento posicional y ninguno más: aceptar la raíz en cualquier posición dejaba
+    # pasar `Remove-TestRunRoot $otra $script:runRoot`, que borra $otra y manda la raíz a $args sin
+    # decir nada (la función no tiene CmdletBinding, así que el extra no da error).
+    return ($els[$i].Extent.Text -eq $argumento)
   }
   return $false
 }
@@ -200,7 +211,14 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
   $ast = Get-AstDe $path
   $traps = @($ast.FindAll({
     param($n) $n -is [System.Management.Automation.Language.TrapStatementAst]
-  }, $true)) | Where-Object { -not (Test-Anidado $_) } | Sort-Object { $_.Extent.StartOffset }
+  }, $true)) | Where-Object {
+    # Hijo DIRECTO del cuerpo del archivo, no "en algún lado que no sea una función".
+    # `Test-Anidado` no alcanza acá: sólo busca funciones y scriptblocks, así que aceptaba un trap
+    # metido en un `if`/`try`/loop de nivel de script — y ésos no se disparan (medido: ninguno
+    # atrapó un error posterior). El chequeo de la limpieza, en la misma función, sí lo verificaba;
+    # el del trap quedaba estrictamente más débil que su hermano.
+    $_.Parent -is [System.Management.Automation.Language.NamedBlockAst] -and $_.Parent.Parent -eq $ast
+  } | Sort-Object { $_.Extent.StartOffset }
   # SÓLO el primero. Medido: con dos traps en el mismo scope corre el que está declarado primero y
   # su `break` relanza, así que el segundo no llega a ejecutarse nunca. Iterando todos, alcanzaba
   # con poner un `trap { break }` ANTES del bueno para dejarlo muerto y pasar igual.
@@ -448,22 +466,35 @@ Assert (Test-Path -LiteralPath $wsCorchetes) "un workspace con corchetes en el n
 # de %TEMP% bajo su prefijo. Es la propiedad que interesa, sin intermediarios.
 function Measure-RastrosDe([string]$suitePath, [string]$prefijo) {
   $raiz = Split-Path $script:runRoot -Parent
-  $antes = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name.StartsWith("$prefijo-run-") } | ForEach-Object { $_.Name })
-  & pwsh -NoProfile -File $suitePath 2>&1 | Out-Null
-  $codigo = $LASTEXITCODE
-  $despues = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name.StartsWith("$prefijo-run-") } | ForEach-Object { $_.Name })
-  # Por NOMBRE y no por cantidad: hay corridas concurrentes de otras suites en la misma máquina, y
-  # una cuenta se mueve por lo que hace cualquiera. Sólo cuentan los nombres que aparecieron.
-  return @{ nuevos = @($despues | Where-Object { $_ -notin $antes }); exit = $codigo }
+  $log  = New-TestTempPath $script:runRoot "salida" ".txt"
+  # Start-Process para saber el PID del hijo. El run root lleva el PID adentro, así que filtrar por
+  # `<prefijo>-run-<pid-del-hijo>-` mide EXACTAMENTE lo que dejó esta corrida y nada más.
+  # Comparar antes/después por prefijo no alcanza: la ventana es toda la corrida de la suite (~7 s
+  # medidos) y otro proceso corriendo la MISMA suite en esa ventana aparecía como rastro nuevo —
+  # medido, un rojo espurio a la primera. En este repo las corridas concurrentes son la norma, que
+  # es la misma razón por la que el colector filtra por edad en vez de barrer por glob.
+  # Los paths van entrecomillados a mano: Start-Process une la lista con espacios y no quotea, así
+  # que con un repo bajo "Bootstrap Skills" pwsh recibía dos argumentos partidos y salía 64.
+  $p = Start-Process -FilePath "pwsh" -ArgumentList @("-NoProfile", "-File", "`"$suitePath`"") `
+    -NoNewWindow -PassThru -Wait -RedirectStandardOutput $log
+  $mios = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.StartsWith("$prefijo-run-$($p.Id)-") } | ForEach-Object { $_.Name })
+  # La salida del hijo se conserva: sin ella, una falla ajena en la suite de referencia pone en rojo
+  # esta suite sin decir por qué.
+  $salida = if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log } else { @() }
+  return @{ nuevos = $mios; exit = $p.ExitCode; salida = $salida }
 }
 
-# `gen-mcp-json` es la más rápida de las migradas y crea 8 workspaces, así que si algo se filtra,
-# se filtra acá.
+# `gen-mcp-json` es la más rápida de las migradas y crea 8 workspaces. Cubre UNA de las nueve
+# suites y sólo el camino feliz: es una muestra, no una garantía para todas.
 $suiteReal = Join-Path $PSScriptRoot "gen-mcp-json.tests.ps1"
-$r = Measure-RastrosDe $suiteReal "mcp"
+# El prefijo no se escribe a mano: un literal que no coincida con el que la suite usa haría pasar
+# el assert de abajo sin haber mirado nada.
+$prefijoReal = ([regex]::Match((Get-Content -LiteralPath $suiteReal -Raw), 'New-TestRunRoot\s+"([^"]+)"')).Groups[1].Value
+Assert ($prefijoReal -ne '') "E: se pudo leer el prefijo que usa la suite de referencia ('$prefijoReal')"
+$r = Measure-RastrosDe $suiteReal $prefijoReal
 Assert ($r.exit -eq 0) "E: la suite de referencia corre en verde (exit $($r.exit))"
+if ($r.exit -ne 0) { $r.salida | Select-String -Pattern '^FAIL:' | ForEach-Object { Write-Host "      | $_" } }
 Assert ($r.nuevos.Count -eq 0) "E: correr una suite migrada no deja rastros en la raíz de %TEMP% (nuevos: $($r.nuevos.Count))"
 
 # Control positivo: una suite de juguete con la limpieza puesta DESPUÉS del `exit` final — el
@@ -472,20 +503,36 @@ Assert ($r.nuevos.Count -eq 0) "E: correr una suite migrada no deja rastros en l
 # fuera de `tests/` resuelve mal su `$PSScriptRoot` y aborta antes de crear nada: mediría cero por
 # el motivo equivocado, que es justo la clase de falso verde que este archivo persigue.
 $fugada = New-TestTempPath $script:runRoot "suite-fugada" ".ps1"
-@"
-`$ErrorActionPreference = "Stop"
-. '$lib'
-`$script:runRoot = New-TestRunRoot 'ctrlfuga'
-trap { Remove-TestRunRoot `$script:runRoot; break }
-New-TestWorkspace `$script:runRoot "caso" | Out-Null
+# El path del helper va como ARGUMENTO, no interpolado en un literal: un usuario con apóstrofe en
+# el nombre rompía el probe con un error de sintaxis, que se lee como "la medición está rota". Es
+# el mismo arreglo que ya está noventa líneas más arriba, en Invoke-Probe.
+@'
+param([string]$Lib)
+$ErrorActionPreference = "Stop"
+. $Lib
+$script:runRoot = New-TestRunRoot 'ctrlfuga'
+trap { Remove-TestRunRoot $script:runRoot; break }
+New-TestWorkspace $script:runRoot "caso" | Out-Null
 exit 0
-Remove-TestRunRoot `$script:runRoot
-"@ | Set-Content -LiteralPath $fugada -Encoding UTF8
-$rc = Measure-RastrosDe $fugada "ctrlfuga"
+Remove-TestRunRoot $script:runRoot
+'@ | Set-Content -LiteralPath $fugada -Encoding UTF8
+
+function Measure-RastrosDelProbe([string]$probePath, [string]$prefijo) {
+  $raiz = Split-Path $script:runRoot -Parent
+  $p = Start-Process -FilePath "pwsh" -ArgumentList @("-NoProfile", "-File", "`"$probePath`"", "-Lib", "`"$lib`"") `
+    -NoNewWindow -PassThru -Wait
+  $mios = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.StartsWith("$prefijo-run-$($p.Id)-") })
+  return @{ nuevos = $mios; exit = $p.ExitCode }
+}
+$rc = Measure-RastrosDelProbe $fugada "ctrlfuga"
 Assert ($rc.exit -eq 0) "E (control): la suite de juguete sale en verde, como saldría la de verdad"
 Assert ($rc.nuevos.Count -ge 1) "E (control positivo): con la limpieza DESPUÉS del exit, la medición sí ve el rastro (nuevos: $($rc.nuevos.Count))"
-# El rastro del control es real y hay que barrerlo: el colector no lo junta hasta mañana.
-foreach ($n in $rc.nuevos) { Remove-TestRunRoot (Join-Path (Split-Path $script:runRoot -Parent) $n) }
+# El rastro del control hay que barrerlo, y SÓLO el propio: filtrado por el PID del hijo. La versión
+# anterior borraba todo `ctrlfuga-*` que encontrara, así que dos corridas concurrentes de esta suite
+# se robaban la evidencia entre sí — el mismo glob incondicional que este trabajo salió a eliminar,
+# reintroducido en la suite que lo vigila.
+foreach ($n in $rc.nuevos) { Remove-TestRunRoot $n.FullName }
 
 Remove-TestRunRoot $script:runRoot
 
