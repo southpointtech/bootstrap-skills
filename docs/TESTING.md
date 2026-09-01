@@ -56,9 +56,9 @@ Lo que el lint exige del trap no es su grafía sino tres propiedades, verificada
 sea **hijo directo del cuerpo del script** y el primero (uno dentro de una función sólo atrapa lo
 de esa función, uno metido en un `if`/`try`/loop no se dispara, y con dos traps sueltos corre el
 primero y su `break` relanza, así que uno vacío puesto antes deja al bueno muerto); que borre
-**`$script:runRoot`** como primer argumento posicional de una sentencia directa; y que **termine
-en `break`**, que es lo que relanza el error — con `continue` el trap se traga el aborto y la
-suite reporta `TODOS LOS TESTS PASARON` con exit 0. La limpieza final se verifica igual: por
+**`$script:runRoot`** desde una sentencia directa, como primer argumento posicional o como valor de
+`-Root`; y que **termine en `break`**, que es lo que relanza el error — con `continue` el trap se
+traga el aborto y la suite reporta `TODOS LOS TESTS PASARON` con exit 0. La limpieza final se verifica igual: por
 posición en el árbol, con `$script:runRoot` como argumento y fuera de todo `if`/`try`/`switch`/loop.
 
 El chequeo asume traps **sin tipo**, que es lo que usan las suites: con un `trap [TipoDeError]`

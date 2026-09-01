@@ -464,9 +464,34 @@ Assert (Test-Path -LiteralPath $wsCorchetes) "un workspace con corchetes en el n
 # ejecuta nunca. Ninguna lectura del árbol distingue "está escrito" de "se ejecuta".
 # Esto lo mide directo: corre una suite de verdad como subproceso y cuenta lo que quedó en la raíz
 # de %TEMP% bajo su prefijo. Es la propiedad que interesa, sin intermediarios.
-function Measure-RastrosDe([string]$suitePath, [string]$prefijo) {
+# El prefijo, por AST. Leerlo con [regex]::Match sobre el archivo crudo tomaba el PRIMER match,
+# comentarios incluidos: medido, una sola línea comentada que mencionara `New-TestRunRoot "zz"`
+# hacía que se midiera un prefijo inexistente y una fuga REAL pasara en verde. Es la misma trampa
+# que este archivo documenta treinta líneas más arriba —un grep cuenta las menciones en prosa— y
+# la forma de comentario que la dispara ya existe en el helper.
+function Get-PrefijoDe([string]$path) {
+  $ast = Get-AstDe $path
+  $cmds = @($ast.FindAll({
+    param($n)
+    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'New-TestRunRoot'
+  }, $true))
+  if ($cmds.Count -eq 0) { return '' }
+  $arg = $cmds[0].CommandElements[1]
+  if ($arg -is [System.Management.Automation.Language.StringConstantExpressionAst]) { return $arg.Value }
+  return ''
+}
+
+# UNA sola función de medición, usada por el assert que importa Y por su control positivo. El turno
+# anterior la había partido en dos casi idénticas, así que el control validaba una copia: cegar la
+# medición de verdad (filtrar por un PID que no existe) pasaba en verde. Un control positivo que no
+# ejercita el mismo código que el assert no controla nada.
+function Measure-RastrosDe([string]$suitePath, [string]$prefijo, [string[]]$Extra = @()) {
   $raiz = Split-Path $script:runRoot -Parent
   $log  = New-TestTempPath $script:runRoot "salida" ".txt"
+  # Foto previa además del filtro por PID: Windows recicla PIDs, así que una raíz vieja abandonada
+  # por una fuga anterior podría llevar el mismo número y contarse como nueva.
+  $antes = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.StartsWith("$prefijo-run-") } | ForEach-Object { $_.Name })
   # Start-Process para saber el PID del hijo. El run root lleva el PID adentro, así que filtrar por
   # `<prefijo>-run-<pid-del-hijo>-` mide EXACTAMENTE lo que dejó esta corrida y nada más.
   # Comparar antes/después por prefijo no alcanza: la ventana es toda la corrida de la suite (~7 s
@@ -475,10 +500,13 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo) {
   # es la misma razón por la que el colector filtra por edad en vez de barrer por glob.
   # Los paths van entrecomillados a mano: Start-Process une la lista con espacios y no quotea, así
   # que con un repo bajo "Bootstrap Skills" pwsh recibía dos argumentos partidos y salía 64.
-  $p = Start-Process -FilePath "pwsh" -ArgumentList @("-NoProfile", "-File", "`"$suitePath`"") `
+  $p = Start-Process -FilePath "pwsh" -ArgumentList (@("-NoProfile", "-File", "`"$suitePath`"") + $Extra) `
     -NoNewWindow -PassThru -Wait -RedirectStandardOutput $log
+  # Devuelve PATHS completos, no nombres ni objetos: el que consume esto los borra, y una mezcla de
+  # tipos hace que el borrado apunte a cualquier lado sin fallar. Costó un rastro filtrado.
   $mios = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name.StartsWith("$prefijo-run-$($p.Id)-") } | ForEach-Object { $_.Name })
+    Where-Object { $_.Name.StartsWith("$prefijo-run-$($p.Id)-") -and $_.Name -notin $antes } |
+    ForEach-Object { $_.FullName })
   # La salida del hijo se conserva: sin ella, una falla ajena en la suite de referencia pone en rojo
   # esta suite sin decir por qué.
   $salida = if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log } else { @() }
@@ -490,7 +518,7 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo) {
 $suiteReal = Join-Path $PSScriptRoot "gen-mcp-json.tests.ps1"
 # El prefijo no se escribe a mano: un literal que no coincida con el que la suite usa haría pasar
 # el assert de abajo sin haber mirado nada.
-$prefijoReal = ([regex]::Match((Get-Content -LiteralPath $suiteReal -Raw), 'New-TestRunRoot\s+"([^"]+)"')).Groups[1].Value
+$prefijoReal = Get-PrefijoDe $suiteReal
 Assert ($prefijoReal -ne '') "E: se pudo leer el prefijo que usa la suite de referencia ('$prefijoReal')"
 $r = Measure-RastrosDe $suiteReal $prefijoReal
 Assert ($r.exit -eq 0) "E: la suite de referencia corre en verde (exit $($r.exit))"
@@ -517,22 +545,18 @@ exit 0
 Remove-TestRunRoot $script:runRoot
 '@ | Set-Content -LiteralPath $fugada -Encoding UTF8
 
-function Measure-RastrosDelProbe([string]$probePath, [string]$prefijo) {
-  $raiz = Split-Path $script:runRoot -Parent
-  $p = Start-Process -FilePath "pwsh" -ArgumentList @("-NoProfile", "-File", "`"$probePath`"", "-Lib", "`"$lib`"") `
-    -NoNewWindow -PassThru -Wait
-  $mios = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name.StartsWith("$prefijo-run-$($p.Id)-") })
-  return @{ nuevos = $mios; exit = $p.ExitCode }
-}
-$rc = Measure-RastrosDelProbe $fugada "ctrlfuga"
+$rc = Measure-RastrosDe $fugada "ctrlfuga" @("-Lib", "`"$lib`"")
 Assert ($rc.exit -eq 0) "E (control): la suite de juguete sale en verde, como saldría la de verdad"
 Assert ($rc.nuevos.Count -ge 1) "E (control positivo): con la limpieza DESPUÉS del exit, la medición sí ve el rastro (nuevos: $($rc.nuevos.Count))"
 # El rastro del control hay que barrerlo, y SÓLO el propio: filtrado por el PID del hijo. La versión
 # anterior borraba todo `ctrlfuga-*` que encontrara, así que dos corridas concurrentes de esta suite
 # se robaban la evidencia entre sí — el mismo glob incondicional que este trabajo salió a eliminar,
 # reintroducido en la suite que lo vigila.
-foreach ($n in $rc.nuevos) { Remove-TestRunRoot $n.FullName }
+foreach ($n in $rc.nuevos) { Remove-TestRunRoot $n }
+# Y se verifica que se hayan ido: el control fabrica una fuga a propósito, así que si el barrido no
+# la levanta esta suite se convierte en la que más rastros deja de todas.
+$quedan = @($rc.nuevos | Where-Object { Test-Path -LiteralPath $_ })
+Assert ($quedan.Count -eq 0) "E (control): el rastro que fabricó el control quedó barrido (quedan: $($quedan.Count))"
 
 Remove-TestRunRoot $script:runRoot
 
