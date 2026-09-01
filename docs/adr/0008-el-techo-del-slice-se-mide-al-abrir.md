@@ -11,26 +11,34 @@ El `CLAUDE.md` pide que cada slice vertical sea *"a small, reviewable unit of �
 diff"*, y aclara que un slice **proyectado** muy por encima hay que partirlo antes de implementar. Lo
 que no decía es **contra qué diff se mide el techo**, y en la práctica se leía como el diff final.
 
-Medido sobre el slice 04c, commit por commit, contando altas **y** bajas y excluyendo `.md`:
+Medido sobre el slice 04c, **commit por commit** y no por acumulados, contando altas más bajas y
+excluyendo `.md`. Los commits están clasificados por lo que dice su propio cuerpo:
 
-| tramo | líneas |
-|---|---|
-| `3e175b0..cf925c0` — primer commit | **117** (111 + 6) |
-| `3e175b0..900ba7f` — hasta el commit que **declara** el cierre (trailer `Slice-Close`) | **494** (458 + 36) |
-| `900ba7f..2edb0a1` — los cuatro turnos del `/review-loop` | **296** (224 + 72) |
-| `3e175b0..2edb0a1` — al cerrar | **660** (604 + 39 en `tools/recover-skill-bases.py`, 13 + 4 en su test) |
+| tramo | líneas | qué es |
+|---|---|---|
+| `3e175b0..cf925c0` | 117 (111 + 6) | scope |
+| `cf925c0..64b5587` | 166 (139 + 27) | fixes del loop |
+| `64b5587..c8ec7ee` | 103 (63 + 40) | fixes del loop |
+| `c8ec7ee..900ba7f` | 232 (207 + 25) | scope (F2, F4, F5, F6, F21) — lleva el trailer `Slice-Close:` |
+| `900ba7f..2edb0a1` | 296 (224 + 72) | fixes del loop |
+| **acumulado `3e175b0..2edb0a1`** | **660** (604 + 39 en `tools/recover-skill-bases.py`, 13 + 4 en su test) | |
 
-**El loop aportó 296 de 660 — el 45 %, no el grueso.** Cuando 04c declaró su cierre ya estaba en 494
-líneas, 1,2× el techo, antes de que el review tocara nada. O sea que 04c **también** estaba mal
-dimensionado al planificarse: su scope declarado eran los nueve Medium que había dejado abiertos el
-review del issue 04, y esos nueve solos ya rompían el techo.
+Sumados por tipo: **349 de scope** (117 + 232) y **565 de fixes del loop** (166 + 103 + 296). Los dos
+sumandos no dan 660 y **no tienen por qué darlo**: hay churn — líneas que un commit agrega y otro
+posterior borra — así que el acumulado no es la suma de los tramos.
 
-Eso importa para no sobrevender el motivo: el loop **no** es la única causa del exceso, es una causa
-que se suma a un slice que ya estaba grande. Pero es la causa que **no se puede evitar planificando**,
-y es la que hace que la regla se incumpla sola. Las otras dos formulaciones —"el primer commit son 117
-líneas y el resto lo agregó el review", y "ninguno de los dos slices estaba mal planificado"—
-estuvieron escritas en la primera versión de este ADR y son **falsas**; el review-loop de este mismo
-slice las midió y las tiró abajo.
+De ahí sale la única conclusión que estos números sostienen: **el loop puso más líneas que el scope**,
+y los commits de scope solos (349) están **por debajo** del techo. No hay evidencia de que 04c
+estuviera mal dimensionado al planificarse.
+
+> **Tres versiones de este párrafo, tres afirmaciones falsas mías.** La primera decía *"el primer
+> commit son 117 líneas y el resto lo agregó el review"* — falso, había tres commits de scope más. La
+> segunda decía *"cuando 04c declaró su cierre ya estaba en 494 líneas, antes de que el review tocara
+> nada"* y concluía que 04c estaba mal planificado — también falso: el loop ya había corrido **dos
+> turnos** antes de `900ba7f` (`docs/SESSION_HANDOFF.md:190`, *"turno 2 de 5, NO cerrado"*), y 269 de
+> esas 494 líneas eran suyas. Las dos tenían la misma causa: **atribuir a partir de dos diffs
+> acumulados**. Un acumulado dice cuánto creció el slice; no dice quién lo hizo crecer. La atribución
+> solo sale commit por commit, que es como está medida la tabla de arriba.
 
 ### Tres formas de contar, y ninguna es "la" forma
 
@@ -74,6 +82,21 @@ marcador; mover la base a mitad de camino deja turnos revisando rangos que ya no
 - La red de seguridad del hook `review-loop-trigger` **no cambia**: sigue midiendo el delta sin
   revisar contra la misma guía de ~400 líneas para disparar un review en un commit sin trailer. Esa
   guía responde otra pregunta —"¿esto quedó sin revisar?"— y no es el techo de planificación.
+- La regla se propaga a cuatro lugares más que la **ejecutan**, y cambiarla en el `CLAUDE.md` sin
+  tocarlos deja instrucciones contradictorias vivas: el pre-flight de `/review-loop`, el paso "Close
+  the slice" de `tdd`, el pre-flight de `/slice-review` y los dos docs de `docs/ai-workflow/` que el
+  `CLAUDE.md` declara lectura obligatoria. `tests/techo-del-slice.tests.ps1` verifica las dos mitades
+  —cláusula nueva presente, instrucción vieja ausente— en las 4 copias de cada sitio, porque
+  `mirror.tests.ps1` tiene `assets/scaffold/CLAUDE.md` en su allowlist y ninguna suite lo miraba.
+
+### Evaluación de Forecasting App (regla del `CLAUDE.md`)
+
+El `CLAUDE.md` pide evaluar si un cambio al template aplica también al `CLAUDE.md` real de
+Forecasting App. **Evaluado el 2026-09-01: aplica.** `C:\Repos\SOUTHPOINTLABS\Forecasting App\CLAUDE.md:98`
+tiene el bullet viejo, medido al cerrar. **No se aplicó desde acá**, a propósito: ese repo se
+actualiza por el rollout del issue 18, que además necesita aprobación humana. Dato para ese rollout:
+el bullet del `/review-loop` de Forecasting (`:82`) está **más adelantado** que el de esta rama —ya
+trae el gate de docs de `main`—, así que el merge no es en una sola dirección.
 
 ## Alternativas descartadas
 

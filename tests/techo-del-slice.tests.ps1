@@ -14,8 +14,20 @@
 # TRAMPA a evitar al editarlo: la primera oracion del bullet
 #   "Keep each vertical slice a small, reviewable unit of <= ~400 lines of *logic* diff."
 # es IDENTICA en la version vieja y la nueva. Tambien lo son "400" y "split it before implementing".
-# Anclar ahi da un test que pasa verde contra el texto que la regla vino a reemplazar. Las clausulas
-# de abajo son las que SOLO existen despues del cambio; si las tocas, elegi otras con esa propiedad.
+# Anclar ahi da un test que pasa verde contra el texto que la regla vino a reemplazar.
+#
+# QUE ESTA PROBADO NO-VACUO Y QUE NO. El RED se corrio contra 919e567 (el commit que cambio el bullet
+# sin tocar sus ejecutores): 88 fallos, 17 ok. O sea que la mayoria de las aserciones muerden, pero
+# NO todas, y conviene saber cuales:
+#   - Rojas contra 919e567, o sea probadas: las 5 mitades negativas de los ejecutores, y las
+#     clausulas nuevas del bullet (artefacto nombrado, distincion con la red del hook, disparo no
+#     espurio).
+#   - Verdes contra 919e567, o sea NO probadas por ese RED: "el techo se mide al ABRIR" y "las lineas
+#     del loop no cuentan" (ya estaban en 919e567: son pins contra un revert, no contra este cambio),
+#     "el umbral del hook sigue siendo 400" (verde a proposito: el hook no cambia), y la mitad
+#     negativa del bullet en la linea marcada mas abajo, cuya redaccion vieja ya no estaba en
+#     919e567 — tambien es un pin contra un revert al texto original, no una verificacion de este
+#     cambio. Si agregas aserciones, decidi a proposito en cual de los dos grupos caen.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $skills = @(Get-ChildItem (Join-Path $repo "skills") -Directory | Where-Object Name -like "bootstrap-*-project")
@@ -66,8 +78,11 @@ VerificarSitio "CLAUDE.md" @(
   @{ patron = '(?i)a review it triggers is never spurious'
      msg    = 'cierra la lectura peligrosa: un disparo del hook no se saltea' }
 ) @(
+  # PIN CONTRA REVERT, no verificacion de este cambio: esta redaccion ya no existia en 919e567, asi
+  # que esta asercion salio VERDE en el RED. Guarda contra volver al bullet original, no contra el
+  # estado intermedio que el turno 1 encontro (bullet nuevo + ejecutores viejos).
   @{ patron = '(?i)Cohesion comes first, but a slice projected'
-     msg    = 'ya no queda la redaccion vieja del bullet' }
+     msg    = 'ya no queda la redaccion original del bullet (pin contra revert)' }
 )
 
 # --- 2. El pre-flight de /review-loop: corre DESPUES del cierre, no puede ordenar partir ---
@@ -77,6 +92,8 @@ foreach ($rel in @(".claude\commands\review-loop.md", ".agents\skills\review-loo
        msg    = 'el pre-flight no ordena partir' }
     @{ patron = '(?i)exempt from that ceiling'
        msg    = 'declara exentas las lineas del propio loop' }
+    @{ patron = '(?i)it says nothing about what the slice projected when it opened'
+       msg    = 'el pre-flight no concluye un veredicto de planificacion desde la delta' }
   ) @(
     @{ patron = '(?i)stop and split it into smaller slices'
        msg    = 'ya no ordena partir a mitad del loop' }
@@ -97,8 +114,11 @@ foreach ($rel in @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")) {
 # --- 4. El pre-flight de /slice-review: no puede fabricar el hallazgo que la regla exime ---
 foreach ($rel in @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")) {
   VerificarSitio $rel @(
-    @{ patron = '(?i)the ceiling is measured at slice open'
+    # `\s+` y no un espacio: el texto envuelve, y "The\nceiling" no matchea "the ceiling".
+    @{ patron = '(?i)the\s+ceiling is measured at slice open'
        msg    = 'el reviewer sabe que el techo se mide al abrir' }
+    @{ patron = '(?i)says nothing about what the slice projected'
+       msg    = 'el reviewer no convierte el tamano de la delta en un veredicto de planificacion' }
   ) @(
     @{ patron = '(?i)flag in the final report that the slice should have\s+been split'
        msg    = 'ya no reporta "should have been split" sobre la delta del loop' }
@@ -129,7 +149,10 @@ foreach ($c in Copias ".claude\hooks\review-loop-trigger.ps1") {
   if (-not (Test-Path -LiteralPath $c.path)) { Assert $false "${nombre}: existe"; continue }
   $txt = [IO.File]::ReadAllText($c.path)
   Assert ($txt -match '(?i)ADR-0008') "${nombre}: el comentario remite al ADR que separa los dos ~400"
-  Assert ($txt -match '\$lines\s+-le\s+400') "${nombre}: el umbral del hook sigue siendo 400"
+  # `\b` obligatorio: sin la frontera, `-le 400` matchea `-le 4000` y la asercion deja de morder.
+  # Es una trampa ya documentada en este repo (ver el comentario de review-loop-incremental.tests.ps1
+  # y el handoff del 2026-08-13), y se colo igual en la primera version de este archivo.
+  Assert ($txt -match '\$lines\s+-le\s+400\b') "${nombre}: el umbral del hook sigue siendo 400"
 }
 
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FALLARON"; exit 1 }
