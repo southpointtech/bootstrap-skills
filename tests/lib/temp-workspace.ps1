@@ -49,10 +49,12 @@ function New-TestRunRoot {
   [IO.Directory]::CreateDirectory($root) | Out-Null
   # Por edad: sin el filtro de fecha esto es el glob incondicional que mata corridas concurrentes.
   #
-  # LastWriteTime y no CreationTime. Medido: crear una entrada DIRECTA del run root actualiza su
-  # LastWriteTime; escribir más adentro, no. Así que LastWriteTime marca la última vez que la
-  # corrida creó un workspace, y CreationTime el momento en que arrancó — la primera es más nueva o
-  # igual, nunca más vieja, así que protege estrictamente mejor a una corrida larga. No es
+  # LastWriteTime y no CreationTime. Medido: crear o borrar una entrada DIRECTA del run root
+  # actualiza su LastWriteTime; escribir más adentro, no. Así que LastWriteTime marca la última vez
+  # que la corrida creó un workspace, y CreationTime el momento en que arrancó. Bajo las
+  # operaciones que un run root sufre de verdad —crearlo, crearle hijos, moverlo— la primera nunca
+  # queda más vieja que la segunda (sólo la atrasaría un seteo explícito hacia atrás, que acá no se
+  # hace fuera de los fixtures), así que protege igual o mejor a una corrida larga. No es
   # autorrefresco: una corrida que ya creó todos sus workspaces envejece igual.
   # `tests/temp-hygiene.tests.ps1` cubre la diferencia con un fixture de tres días que escribió
   # recién; sin él, revertir esta línea a CreationTime pasaba en verde.

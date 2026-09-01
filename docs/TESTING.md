@@ -52,10 +52,17 @@ trap { Remove-TestRunRoot $script:runRoot; break }
 Remove-TestRunRoot $script:runRoot
 ```
 
-El trap se escribe **en una línea y siempre igual**: el lint lo verifica exacto, porque un regex
-laxo sobre un bloque multilínea acepta un trap que atrapa y no borra. Y no puede vivir dentro del
-helper: un `trap` queda atado al frame que lo ejecuta, y el del helper termina cuando el
-dot-source vuelve.
+Lo que el lint exige del trap no es su grafía sino tres propiedades, verificadas por el AST: que
+sea el **primero** del archivo y cuelgue del **cuerpo del script** (uno dentro de una función sólo
+atrapa lo de esa función, y con dos traps corre el primero y su `break` relanza, así que uno vacío
+puesto antes deja al bueno muerto); que borre **`$script:runRoot`** como sentencia directa; y que
+**termine en `break`**, que es lo que relanza el error — con `continue` el trap se traga el aborto
+y la suite reporta `TODOS LOS TESTS PASARON` con exit 0. La limpieza final se verifica igual: por
+posición en el árbol, con `$script:runRoot` como argumento y fuera de todo `if`/`try`/`switch`/loop.
+
+El trap no puede vivir dentro del helper: un `trap` se aplica al bloque de script donde está
+escrito, así que uno declarado en el helper no cubre lo que pasa después en la suite que lo
+dot-sourcea.
 
 Por qué las tres partes hacen falta, y qué pasa si falta cada una:
 
@@ -101,13 +108,13 @@ Dos precisiones sobre esa medición, para quien la repita y crea que la rompió:
   fixture abierto, y el árbol desaparecía segundos después. `Remove-TestRunRoot` reintenta una vez y
   avisa con un `Write-Warning` si aun así queda; contado inmediatamente después de esa suite, el
   delta puede dar +1 sin que nada esté roto.
-- **Los rastros LEGACY no se recolectan solos.** El colector busca `<prefijo>-run-*` y sólo
-  directorios, así que **todos** los nombres previos quedan fuera de su alcance para siempre:
-  `mcp-test-*`, `export-test-<guid>`, `cs-test-*`, `ag-test-*`, `rlt-test-*`, `rlt-[test]-*`,
-  `rlt-ms-*`, `rlg-test-*`, `rm-test-*`, `rm-nogit-*`, `rm-clone-*`, `rm-push-*`, y los **archivos**
-  `wscfg-*.json`. Se barrieron a mano una vez en esta máquina (112 el 2026-09-01); en otro clon
-  siguen ahí. **No agregar un glob incondicional para "arreglarlo"** — es el bug que este trabajo
-  sacó. Barrelos a mano si molestan.
+- **Casi ningún rastro LEGACY se recolecta solo.** El colector busca `<prefijo>-run-*` y sólo
+  directorios, así que quedan fuera de su alcance: `mcp-test-*`, `export-test-<guid>`, `ag-test-*`,
+  `rlt-test-*`, `rlt-[test]-*`, `rlt-ms-*`, `rlg-test-*`, `rm-test-*`, `rm-nogit-*`, `rm-clone-*`,
+  `rm-push-*`, y los **archivos** `wscfg-*.json`. La excepción es `cs-run-*`, que `copy-scaffold`
+  ya usaba antes de este trabajo y el colector sí alcanza. Se barrieron a mano una vez en esta
+  máquina (112 el 2026-09-01); en otro clon siguen ahí. **No agregar un glob incondicional para
+  "arreglarlo"** — es el bug que este trabajo sacó. Barrelos a mano si molestan.
 - **Fuera del alcance del lint**, y preexistente: `.claude/hooks/alignment-gate.ps1` escribe su
   `alignment-gate-state.json` en la raíz de `%TEMP%` cuando no hay repo git. No es una suite, así
   que ni el lint lo mira ni el colector lo alcanza.

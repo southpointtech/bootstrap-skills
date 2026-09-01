@@ -57,8 +57,9 @@ function Set-EdadDeRaiz {
 #
 # Lo que NO ve, a sabiendas: `[Environment]::GetEnvironmentVariable('TEMP')`, `Get-Item Env:TEMP`,
 # un path armado desde `$env:LOCALAPPDATA`, y —la que más importa— cualquier cosa adentro de un
-# string NO interpolado, incluido el código que estas suites le pasan a un `pwsh` hijo. Un script
-# hijo es invisible para este lint.
+# string SIN interpolar, incluido el código que una suite le pase a un `pwsh` hijo en un
+# here-string literal, o un script hijo escrito a un archivo. (Si el hijo va en un string con
+# comillas dobles, el aplanado de NestedTokens sí lo alcanza; el hueco es el literal.)
 $script:ApisDeTemp = @('GetTempPath', 'GetTempFileName', 'New-TemporaryFile')
 
 function Get-UsosDeTempDirecto([string]$path) {
@@ -142,6 +143,18 @@ function Test-Anidado($nodo) {
 # invocaciones tras agregarle la limpieza del `exit`) y `temp-hygiene` (6) quedaban por encima del
 # piso aunque se les borrara la limpieza final, así que el arreglo de una fuga había desarmado la
 # red que la cubría.
+# ¿Este comando recibe ese argumento? Mirar `CommandElements[1]` a secas rechazaba la forma con
+# parámetro nombrado (`Remove-TestRunRoot -Root $script:runRoot`), que es legítima —el parámetro se
+# llama Root— y habría dado un rojo sobre código correcto, que es como se termina aflojando un
+# chequeo. Se recorren todos los elementos y se ignoran los que son nombres de parámetro.
+function Test-ArgumentoEs($cmd, [string]$argumento) {
+  foreach ($e in $cmd.CommandElements) {
+    if ($e -is [System.Management.Automation.Language.CommandParameterAst]) { continue }
+    if ($e.Extent.Text -eq $argumento) { return $true }
+  }
+  return $false
+}
+
 function Test-LimpiezaAlTerminar([string]$path, [string]$comando, [string]$argumento) {
   $ast = Get-AstDe $path
   $cmds = @($ast.FindAll({
@@ -152,13 +165,17 @@ function Test-LimpiezaAlTerminar([string]$path, [string]$comando, [string]$argum
     # Tiene que borrar LA RAÍZ DE LA CORRIDA, no cualquier cosa: medido, sin este filtro alcanzaba
     # con que la suite tuviera en algún lado un `Remove-TestRunRoot` de otro path —la parte C de
     # esta misma suite limpia la raíz de su probe— y borrarle la limpieza de verdad pasaba en verde.
-    if ($c.CommandElements.Count -lt 2 -or $c.CommandElements[1].Extent.Text -ne $argumento) { continue }
+    if (-not (Test-ArgumentoEs $c $argumento)) { continue }
     if (Test-Anidado $c) { continue }
     $p = $c.Parent; $condicional = $false
     while ($null -ne $p) {
+      # `switch` va explícito: no deriva de LoopStatementAst ni de IfStatementAst (sí de
+      # LabeledStatementAst, junto con los loops), así que sin nombrarlo una limpieza metida en una
+      # rama de switch contaba como incondicional. Los loops sí quedan cubiertos por su base común.
       if ($p -is [System.Management.Automation.Language.IfStatementAst] -or
           $p -is [System.Management.Automation.Language.TryStatementAst] -or
           $p -is [System.Management.Automation.Language.TrapStatementAst] -or
+          $p -is [System.Management.Automation.Language.SwitchStatementAst] -or
           $p -is [System.Management.Automation.Language.LoopStatementAst]) { $condicional = $true; break }
       $p = $p.Parent
     }
@@ -167,21 +184,41 @@ function Test-LimpiezaAlTerminar([string]$path, [string]$comando, [string]$argum
   return $false
 }
 
-# El trap tiene que colgar del cuerpo del ARCHIVO y borrar la raíz. Uno declarado dentro de una
-# función sólo atrapa lo de esa función: está muerto, y el regex de texto lo aceptaba igual porque
-# sólo miraba que la línea empezara con `trap`.
-function Test-TrapDeScript([string]$path, [string]$comando) {
+# El trap tiene que colgar del cuerpo del ARCHIVO, borrar LA RAÍZ como sentencia directa, y
+# terminar en `break`. Las tres condiciones son necesarias y cada una tapó un agujero distinto:
+#
+# - Del cuerpo del script: uno declarado dentro de una función sólo atrapa lo de esa función, está
+#   muerto, y el regex de texto lo aceptaba porque sólo miraba que la línea empezara con `trap`.
+# - Sentencia directa y con `$script:runRoot`: buscar el comando en cualquier profundidad aceptaba
+#   `trap { if ($false) { Remove-TestRunRoot ... } }` y un trap que borra OTRA raíz.
+# - `break` al final: es lo que RELANZA el error. Con `continue` el trap se lo traga y la ejecución
+#   sigue en la sentencia siguiente, así que —medido, mismo error inyectado, cambiando sólo esa
+#   palabra— la suite termina con exit 0 y "TODOS LOS TESTS PASARON" después de haber abortado.
+#   El regex del turno 1 exigía el `break` textualmente y esto lo había perdido: es la única
+#   condición acá que no es sobre la limpieza sino sobre no mentir el resultado.
+function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) {
   $ast = Get-AstDe $path
   $traps = @($ast.FindAll({
     param($n) $n -is [System.Management.Automation.Language.TrapStatementAst]
-  }, $true))
-  foreach ($t in $traps) {
-    if (Test-Anidado $t) { continue }
-    $borra = @($t.Body.FindAll({
-      param($n)
-      $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $comando
-    }, $true))
-    if ($borra.Count -gt 0) { return $true }
+  }, $true)) | Where-Object { -not (Test-Anidado $_) } | Sort-Object { $_.Extent.StartOffset }
+  # SÓLO el primero. Medido: con dos traps en el mismo scope corre el que está declarado primero y
+  # su `break` relanza, así que el segundo no llega a ejecutarse nunca. Iterando todos, alcanzaba
+  # con poner un `trap { break }` ANTES del bueno para dejarlo muerto y pasar igual.
+  foreach ($t in @($traps | Select-Object -First 1)) {
+    $sts = @($t.Body.Statements)
+    if ($sts.Count -eq 0) { continue }
+    if (-not ($sts[-1] -is [System.Management.Automation.Language.BreakStatementAst])) { continue }
+    $borra = $false
+    foreach ($s in $sts) {
+      # Sólo un nivel: la sentencia del trap, no algo escondido dentro de un if.
+      if ($s -isnot [System.Management.Automation.Language.PipelineAst]) { continue }
+      foreach ($e in $s.PipelineElements) {
+        if ($e -isnot [System.Management.Automation.Language.CommandAst]) { continue }
+        if ($e.GetCommandName() -ne $comando) { continue }
+        if (Test-ArgumentoEs $e $argumento) { $borra = $true }
+      }
+    }
+    if ($borra) { return $true }
   }
   return $false
 }
@@ -207,10 +244,14 @@ function Test-DotSourceaA([string]$path, [string]$fragmento) {
     if ($a.Right.Extent.Text -match $fragmento) { $varsConElPath[$a.Left.Extent.Text] = $true }
   }
   foreach ($c in $ds) {
-    if ($c.Extent.Text -match $fragmento) { return $true }
-    foreach ($e in $c.CommandElements) {
-      if ($varsConElPath.ContainsKey($e.Extent.Text)) { return $true }
-    }
+    # SÓLO el elemento 0 — lo que se dot-sourcea. Matchear el Extent del comando entero incluía sus
+    # ARGUMENTOS, así que el agujero del comentario se mudaba una grafía a la izquierda: medido,
+    # `. (Join-Path $PSScriptRoot "stub.ps1") -Nota 'lib\temp-workspace.ps1'` dot-sourcea un stub
+    # con el glob incondicional y pasaba en verde.
+    $obj = $c.CommandElements[0]
+    if ($null -eq $obj) { continue }
+    if ($obj.Extent.Text -match $fragmento) { return $true }
+    if ($varsConElPath.ContainsKey($obj.Extent.Text)) { return $true }
   }
   return $false
 }
@@ -224,11 +265,15 @@ Assert ($suites.Count -ge 15) "el lint ve las suites del repo (encontradas: $($s
 # `*.tests.ps1` y no recursivo, así que un stub puesto ahí podía crear temporales en la raíz de
 # %TEMP% —con el glob incondicional y todo— sin que nada lo mirara, y encima una suite podía
 # dot-sourcearlo. Medido: ese fue un mutante que sobrevivió.
-$auxiliares = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "lib") -Filter "*.ps1" -File -Recurse |
-  Where-Object { $_.Name -ne "temp-workspace.ps1" })
+# La exclusión es por PATH, no por nombre: con `-Recurse` y un `-ne "temp-workspace.ps1"` a secas,
+# un `lib/helpers/temp-workspace.ps1` con una fuga adentro quedaba sin mirar (medido).
+$libDir = Join-Path $PSScriptRoot "lib"
+$auxiliares = @(Get-ChildItem -LiteralPath $libDir -Filter "*.ps1" -File -Recurse |
+  Where-Object { $_.FullName -ne $lib })
 foreach ($a in $auxiliares) {
+  $rel = $a.FullName.Substring($libDir.Length + 1)
   $u = Get-UsosDeTempDirecto $a.FullName
-  Assert ($u.Count -eq 0) "lib/$($a.Name): no construye temporales en la raíz de %TEMP% (usos directos: $($u.Count))"
+  Assert ($u.Count -eq 0) "lib/$rel : no construye temporales en la raíz de %TEMP% (usos directos: $($u.Count))"
 }
 
 $conHelper = 0
@@ -244,8 +289,8 @@ foreach ($s in $suites) {
     $conHelper++
     Assert (Test-DotSourceaA $s.FullName 'lib[\\/]temp-workspace\.ps1') `
       "$($s.Name): dot-sourcea el helper en vez de redefinirlo"
-    Assert (Test-TrapDeScript $s.FullName 'Remove-TestRunRoot') `
-      "$($s.Name): el trap que borra la raíz cuelga del cuerpo del script (no de una función)"
+    Assert (Test-TrapDeScript $s.FullName 'Remove-TestRunRoot' '$script:runRoot') `
+      "$($s.Name): el trap borra la raíz desde el cuerpo del script y termina en break"
     Assert (Test-LimpiezaAlTerminar $s.FullName 'Remove-TestRunRoot' '$script:runRoot') `
       "$($s.Name): además del trap, borra la raíz al terminar, en el cuerpo del script"
   }
@@ -277,9 +322,11 @@ Assert ((Get-UsosDeTempDirecto $lib).Count -ge 1) "el helper sí resuelve la ra�
 #
 # El costo: dos corridas concurrentes de esta suite COMPARTEN el prefijo, y el colector globea
 # `<prefijo>-run-*` sin mirar el PID, así que una puede borrarle el `$viejo` a la otra antes de que
-# ésta llegue a su propio New-TestRunRoot. Eso daría un verde de más, no un rojo de más — el
-# `$fresco` y la `$larga` nunca caen por edad. Se midieron 28 corridas concurrentes sin un solo
-# fallo ni residuo; se acepta a cambio de que los fixtures sean reclamables.
+# ésta llegue a su propio New-TestRunRoot. La dirección del error es benigna y está verificada en
+# un log instrumentado del colector: sería un verde de más, nunca un rojo de más, porque el
+# `$fresco` y la `$larga` no caen por edad. Se acepta a cambio de que los fixtures sean
+# reclamables. (Corridas concurrentes de esta suite se probaron varias veces sin fallos, pero no
+# con un método anotado acá: tomalo como "no se observaron problemas", no como una medición.)
 #
 # El temp se deriva de la raíz que el helper ya creó, no de GetTempPath(): esta suite se lintea a
 # sí misma, y una excepción tallada para ella es justo el agujero por el que se cuela la próxima.
@@ -389,6 +436,56 @@ Assert (-not (Test-Path -LiteralPath $p)) "New-TestTempPath NO crea el archivo (
 # Con corchetes: el caso de review-loop-trigger. New-Item los interpretaría como wildcard.
 $wsCorchetes = New-TestWorkspace $script:runRoot "rlt-[test]"
 Assert (Test-Path -LiteralPath $wsCorchetes) "un workspace con corchetes en el nombre se crea igual"
+
+# ---------------------------------------------------------------------------
+# E. Ejecutar y mirar: ¿una suite deja rastros?
+# ---------------------------------------------------------------------------
+# Los chequeos de la parte A miran la FORMA del código, y tres turnos seguidos de review les
+# encontraron otra grafía que los evade — la última, una limpieza puesta debajo del `exit` final:
+# está en el cuerpo del script, sin anidar y sin condición, así que la parte A la acepta, y no se
+# ejecuta nunca. Ninguna lectura del árbol distingue "está escrito" de "se ejecuta".
+# Esto lo mide directo: corre una suite de verdad como subproceso y cuenta lo que quedó en la raíz
+# de %TEMP% bajo su prefijo. Es la propiedad que interesa, sin intermediarios.
+function Measure-RastrosDe([string]$suitePath, [string]$prefijo) {
+  $raiz = Split-Path $script:runRoot -Parent
+  $antes = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.StartsWith("$prefijo-run-") } | ForEach-Object { $_.Name })
+  & pwsh -NoProfile -File $suitePath 2>&1 | Out-Null
+  $codigo = $LASTEXITCODE
+  $despues = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.StartsWith("$prefijo-run-") } | ForEach-Object { $_.Name })
+  # Por NOMBRE y no por cantidad: hay corridas concurrentes de otras suites en la misma máquina, y
+  # una cuenta se mueve por lo que hace cualquiera. Sólo cuentan los nombres que aparecieron.
+  return @{ nuevos = @($despues | Where-Object { $_ -notin $antes }); exit = $codigo }
+}
+
+# `gen-mcp-json` es la más rápida de las migradas y crea 8 workspaces, así que si algo se filtra,
+# se filtra acá.
+$suiteReal = Join-Path $PSScriptRoot "gen-mcp-json.tests.ps1"
+$r = Measure-RastrosDe $suiteReal "mcp"
+Assert ($r.exit -eq 0) "E: la suite de referencia corre en verde (exit $($r.exit))"
+Assert ($r.nuevos.Count -eq 0) "E: correr una suite migrada no deja rastros en la raíz de %TEMP% (nuevos: $($r.nuevos.Count))"
+
+# Control positivo: una suite de juguete con la limpieza puesta DESPUÉS del `exit` final — el
+# defecto exacto que la parte A acepta y no puede ver. Sin este control, el assert de arriba pasaría
+# igual con una medición que no mide nada. Es sintética y no una copia de la real porque una copia
+# fuera de `tests/` resuelve mal su `$PSScriptRoot` y aborta antes de crear nada: mediría cero por
+# el motivo equivocado, que es justo la clase de falso verde que este archivo persigue.
+$fugada = New-TestTempPath $script:runRoot "suite-fugada" ".ps1"
+@"
+`$ErrorActionPreference = "Stop"
+. '$lib'
+`$script:runRoot = New-TestRunRoot 'ctrlfuga'
+trap { Remove-TestRunRoot `$script:runRoot; break }
+New-TestWorkspace `$script:runRoot "caso" | Out-Null
+exit 0
+Remove-TestRunRoot `$script:runRoot
+"@ | Set-Content -LiteralPath $fugada -Encoding UTF8
+$rc = Measure-RastrosDe $fugada "ctrlfuga"
+Assert ($rc.exit -eq 0) "E (control): la suite de juguete sale en verde, como saldría la de verdad"
+Assert ($rc.nuevos.Count -ge 1) "E (control positivo): con la limpieza DESPUÉS del exit, la medición sí ve el rastro (nuevos: $($rc.nuevos.Count))"
+# El rastro del control es real y hay que barrerlo: el colector no lo junta hasta mañana.
+foreach ($n in $rc.nuevos) { Remove-TestRunRoot (Join-Path (Split-Path $script:runRoot -Parent) $n) }
 
 Remove-TestRunRoot $script:runRoot
 
