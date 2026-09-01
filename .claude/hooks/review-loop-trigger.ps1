@@ -241,7 +241,10 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     $body = ((git log -1 --format=%B 2>$null) -join "`n")
     if ($body -notmatch '(?m)^\s*Slice-Close:') {
         # Red de seguridad: olvidarse del trailer no puede dejar un slice gigante sin revisar. Si
-        # el delta SIN REVISAR ya pasa el techo de ~400 líneas del CLAUDE.md, dispara igual.
+        # el delta SIN REVISAR ya pasa la guia de ~400 lineas, dispara igual. Ojo con el nombre: esta
+        # NO es el techo de planificacion del CLAUDE.md (que se mide al ABRIR el slice y exime lo
+        # que agrega el propio loop). Es otra pregunta —¿esto quedo sin revisar?— sobre otra base:
+        # altas+bajas con el $skipPat de abajo, que no excluye .md. Ver ADR-0008.
         $range = $null
         $rangeKnown = $false
         $root = (git rev-parse --show-toplevel 2>$null)

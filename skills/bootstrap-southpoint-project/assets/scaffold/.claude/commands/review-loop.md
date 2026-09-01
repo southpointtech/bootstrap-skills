@@ -39,7 +39,7 @@ so a bare `git diff --stat` prints nothing and the size rule silently never appl
 git --no-pager diff --stat <range>
 ```
 
-If the change approaches or exceeds ~400 lines of diff, stop and split it into smaller slices / stacked PRs first (matching the project's PR-size rule). The loop loses accuracy on large diffs — both the reviewer and the coding agent.
+If the change approaches or exceeds ~400 lines of diff, say so in the final report — do NOT split the slice here. The project's PR-size ceiling is measured when the slice OPENS, and by this point the slice is already closed; splitting mid-loop breaks the loop, whose every turn reviews a range anchored to the review marker. Lines this loop adds while fixing its own findings are exempt from that ceiling. The loop still loses accuracy on large diffs — both the reviewer and the coding agent — so a slice that arrives here oversized is a planning miss to declare, not to repair now.
 
 ## The range: review the unreviewed delta, not the whole branch
 

@@ -53,7 +53,7 @@ Avoid splitting work only into horizontal layers like:
 
 unless there is a strong reason.
 
-Each slice must fit in a small, reviewable PR (target ≤ ~400 lines of change). If a slice is larger, split it; when slices depend on each other, chain them as stacked PRs.
+Each slice must be PLANNED to fit in a small, reviewable PR (target ≤ ~400 lines of change) — the ceiling is measured when the slice opens, over what you set out to implement. A slice projected larger is split before implementing; when slices depend on each other, chain them as stacked PRs. A slice that ends up larger than planned is declared at close, not split retroactively.
 
 ## 4. Zoho Task Formatting
 

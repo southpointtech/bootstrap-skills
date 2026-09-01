@@ -112,8 +112,10 @@ git --no-pager diff <range> --stat
 ```
 
 If the change approaches or exceeds ~400 lines of logic diff, say so: reviewer accuracy drops
-sharply on large diffs. Review it anyway, but flag in the final report that the slice should have
-been split.
+sharply on large diffs. Review it anyway, and flag in the final report that the slice **opened**
+larger than the ceiling. Do not report that it "should have been split" when the range is the
+loop's own fix turns: the ceiling is measured at slice open, and lines the loop adds fixing its own
+findings are exempt from it.
 
 If the diff is only a deliberately failing test (TDD RED) with no implementation yet, close with no
 findings — there is nothing to review.

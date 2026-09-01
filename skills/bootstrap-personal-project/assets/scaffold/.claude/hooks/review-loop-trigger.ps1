@@ -242,7 +242,11 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     $body = ((git log -1 --format=%B 2>$null) -join "`n")
     if ($body -notmatch '(?m)^\s*Slice-Close:') {
         # Safety net: forgetting the trailer must not leave a huge slice unreviewed. If the
-        # UNREVIEWED delta is already over the ~400-line guide of CLAUDE.md, fire anyway.
+        # UNREVIEWED delta is already over the ~400-line guide, fire anyway. Mind the name: this
+        # is NOT the planning ceiling in CLAUDE.md (measured when the slice OPENS, and exempting
+        # what the loop itself adds). It asks a different question -- did this go unreviewed? --
+        # on a different basis: additions+deletions over the $skipPat below, which does not
+        # exclude .md. See ADR-0008.
         $range = $null
         $rangeKnown = $false
         $root = (git rev-parse --show-toplevel 2>$null)
