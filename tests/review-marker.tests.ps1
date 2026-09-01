@@ -33,6 +33,9 @@ function New-Repo {
 # El script tiene que existir: si no, `pwsh -File` imprime su usage a STDOUT y todo assert de
 # "salida vacía" pasaría en verde sin ejercitar nada.
 if (-not (Test-Path -LiteralPath $marker)) {
+  # La limpieza va explícita: el `trap` no corre en un `exit`, así que sin esta línea este camino
+  # filtra la raíz de la corrida y la deja para la recolección por edad del día siguiente.
+  Remove-TestRunRoot $script:runRoot
   Write-Host "FAIL: no existe el script del marcador en $marker"; exit 1
 }
 # Guarda el exit code en $script:lastExit: el contrato distingue vacío+0 ("no hay delta") de

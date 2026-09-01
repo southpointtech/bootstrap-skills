@@ -54,24 +54,47 @@ Remove-TestRunRoot $script:runRoot
 
 El trap se escribe **en una línea y siempre igual**: el lint lo verifica exacto, porque un regex
 laxo sobre un bloque multilínea acepta un trap que atrapa y no borra. Y no puede vivir dentro del
-helper: un `trap` declarado en una función solo atrapa lo de esa función.
+helper: un `trap` queda atado al frame que lo ejecuta, y el del helper termina cuando el
+dot-source vuelve.
 
 Por qué las tres partes hacen falta, y qué pasa si falta cada una:
 
 | parte | qué cubre | qué se filtra sin ella |
 |---|---|---|
 | raíz única por corrida | la salida normal | lo que un camino intermedio no alcanzó a borrar |
-| `trap` | el aborto | **todo** el árbol, cada vez que un error terminante saltea la limpieza final |
-| recolección **por edad** | los huérfanos viejos | nada — pero sin el filtro de fecha borra los fixtures **en uso** de las corridas concurrentes |
+| `trap` | el aborto por error terminante | **todo** el árbol, cada vez que un error saltea la limpieza final |
+| recolección **por edad** | lo que el trap no alcanza | lo que dejan un `exit` temprano, un Ctrl+C, un proceso matado y un borrado que falló |
 
-Esa última es la que más importa acá: el review-loop lanza reviewers en paralelo, así que las
-corridas concurrentes son la norma. `export-shareable.tests.ps1` barría por glob incondicional y les
-borraba los fixtures en pleno uso.
+La tercera **no es opcional**: el `trap` sólo corre en errores terminantes, así que un `exit`
+temprano (`review-marker.tests.ps1` tiene uno si falta el script del marcador), un Ctrl+C o un
+`pwsh` matado dejan la raíz en disco, y la recolección por edad es lo único que la junta después.
+Y su filtro de fecha es igual de obligatorio: sin él es un glob incondicional que borra los
+fixtures **en uso** de las corridas concurrentes, que en este repo son la norma porque el
+review-loop lanza reviewers en paralelo. `export-shareable.tests.ps1` lo hacía.
+
+Usa `LastWriteTime`, no `CreationTime`: crear un hijo actualiza el `LastWriteTime` del padre
+(medido), así que una corrida viva y larga se rejuvenece sola, mientras que un huérfano de verdad
+no se toca más y envejece igual. Con `CreationTime` una corrida de más de un día se borraba a sí
+misma los fixtures en pleno uso.
 
 **Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
 **archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.
 Contar solo directorios no sirve: `apply-env` deja archivos (`wscfg-*.json`, 34 medidos), y ese fue
 justamente el error que hizo fallar el primero de los tres intentos manuales de arreglar esto.
+
+Dos precisiones sobre esa medición, para quien la repita y crea que la rompió:
+
+- **Hay una ventana de borrado pendiente.** En Windows un `Remove-Item` sobre un árbol cuyo handle
+  todavía sostiene otro proceso queda pendiente: medido, `review-loop-docs-gate.tests.ps1` dejaba su
+  raíz en disco en 3 de 3 corridas verdes porque el proceso de fondo de git seguía con el `.git` del
+  fixture abierto, y el árbol desaparecía segundos después. `Remove-TestRunRoot` reintenta una vez y
+  avisa con un `Write-Warning` si aun así queda; contado inmediatamente después de esa suite, el
+  delta puede dar +1 sin que nada esté roto.
+- **Los rastros LEGACY no se recolectan solos.** El colector busca `<prefijo>-run-*` y sólo
+  directorios, así que los nombres viejos (`mcp-test-*`, `export-test-<guid>`, `cs-test-*`, y los
+  **archivos** `wscfg-*.json`) quedan fuera de su alcance para siempre. Se barrieron a mano una vez
+  en esta máquina (112 el 2026-09-01); en otro clon siguen ahí. **No agregar un glob incondicional
+  para "arreglarlo"** — es el bug que este trabajo sacó. Barrelos a mano si molestan.
 
 ## El golden del Step 0b
 

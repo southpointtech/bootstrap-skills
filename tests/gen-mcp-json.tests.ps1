@@ -12,7 +12,8 @@ trap { Remove-TestRunRoot $script:runRoot; break }
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
-# Esta suite era el caso medido más claro de la fuga: creaba 6 workspaces por corrida y borraba 2.
+# Esta suite era el caso medido más claro de la fuga: contados sobre la versión anterior, 8 llamadas
+# a NewTmp y 2 Remove-Item, o sea 6 workspaces filtrados por corrida.
 function NewTmp {
   return (New-TestWorkspace $script:runRoot "mcp-test")
 }
