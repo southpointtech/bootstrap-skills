@@ -56,6 +56,29 @@ map first`). El ciclo es:
 El paso 3 es donde un humano mira `git diff tests/fixtures/step0b.golden.md` y decide. Regrabar sin
 mirar el diff es la única forma de sellar un bug, y por eso el golden no se edita a mano nunca.
 
+## Los goldens de párrafo (`tools/reseal-goldens.ps1`)
+
+Mismo instrumento, grano más chico: párrafos sueltos que viven en varias copias y tienen que decir
+exactamente lo mismo en todas. Son tres fixtures, todos generados —nunca editados a mano— por
+`tools/reseal-goldens.ps1` (con `-Check`, que no escribe y sale 1 si alguno quedó desactualizado):
+
+| fixture | qué congela | copias | quién lo compara |
+|---|---|---|---|
+| `step2-parrafos.golden.md` | los dos párrafos del Step 2 del `SKILL.md`: la frase que manda verificar la copia y el del reporte JSON con la orden de reportar `overwritten` (ADR-0007) | las 3 skills | `mirror.tests.ps1` |
+| `techo-ai-development-workflow.golden.md` | el párrafo del techo de `AI_DEVELOPMENT_WORKFLOW.md` | repo + 3 scaffolds | `techo-del-slice.tests.ps1` |
+| `techo-deployment-rules.golden.md` | el párrafo del techo de `DEPLOYMENT_RULES.md` | repo + 3 scaffolds | `techo-del-slice.tests.ps1` |
+
+Los tres existen por lo mismo que el del Step 0b, y se midió en cada caso: como anclas de presencia,
+los párrafos del Step 2 pasaban en verde vaciados, comentados en HTML, negados (`Do NOT do this: …`)
+o mudados a un apéndice; el del techo pasaba en verde reescrito con otras palabras en las 4 copias a
+la vez. El del Step 2 se compara **acotado a la sección** `## Step 2`, que es lo que ataja la mudanza.
+
+Lo que un golden hace y lo que no: **no impide** la reescritura, la vuelve visible. Re-grabar en el
+mismo commit deja la suite verde, y es a propósito — el reseal es el paso donde un humano mira el
+diff. Y congela **ese párrafo**, no el documento: agregar en otra parte del archivo una frase que lo
+contradiga sigue pasando (medido). Para eso están las mitades negativas de `techo-del-slice.tests.ps1`,
+que a su vez solo cubren la redacción vieja concreta.
+
 ## Testeo de `upgrade-bootstrap`
 
 La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no con skill-creator), porque su lógica vive en los scripts `compare-scaffold.ps1` y `reseal-manifest.ps1`. Casos de regresión:

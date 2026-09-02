@@ -202,7 +202,9 @@ foreach ($s in $skills) {
 # Frases que tienen que estar en las TRES y que viven FUERA del tramo que cubre el golden. Los pasos
 # de afuera no se pueden comparar enteros —southpoint diverge en el Step 0 (chequeo de máquina) y en
 # el Step 4 (catálogo MCP)—, así que se anclan las oraciones concretas cuya pérdida es destructiva.
-# Las que están acá se ganaron el lugar: cada una se rompió de verdad y la suite quedó verde.
+# Las dos primeras familias se ganaron el lugar rompiéndose de verdad, con la suite en verde. La
+# tercera —la línea de invocación de `copy-scaffold.ps1`— es un pin contra un revert, no una
+# rotura medida: sin ella el Step 2 no tiene comando y el resto del procedimiento queda colgando.
 #  - El ruteo al Step 0b: borrarlo en las tres deja el modo adopción INALCANZABLE y el `CLAUDE.md` del
 #    proyecto se pisa sin que nadie parquee el original — la falla que todo el Step 0b existe para
 #    evitar.
@@ -211,25 +213,51 @@ foreach ($s in $skills) {
 #    `overwritten` que los recupere: es la única pérdida irrecuperable que el skill puede causar. Se
 #    arregló primero en una sola skill y las otras dos quedaron con el camino destructivo vivo, en
 #    verde, porque el golden solo cubre el Step 0b y nada más lee estos archivos.
-#  - La frase de verificación del Step 2 y la orden de reportar `overwritten`: medido al mergear
-#    `main`, borrar cualquiera de las dos entera de UNA sola skill dejaba la suite en verde. La
-#    primera es lo único que manda comprobar la copia antes de commitear —hasta este merge la
-#    ataba por regex el guard de conteos de más arriba, que perdió su ancla cuando `main` le sacó
-#    los números—; la segunda es la precondición del Step 0b/A (`Keep that report`), que el golden
-#    cubre como consumidor pero no como origen.
+# Los dos párrafos del Step 2 —la frase que manda verificar la copia y el del reporte JSON con la
+# orden de reportar `overwritten`— NO están acá: los cubre el golden del bloque siguiente. Se
+# midió por qué: como anclas de presencia pasaban en verde con la frase vaciada, comentada en
+# HTML, negada (`Do NOT do this: ...`) o mudada a un apéndice. Un `Contains` sobre prosa no
+# expresa semántica.
 $invariantes = @(
   'exist but there is **no** `.bootstrap-manifest.json`',
   'do **not** derive to `upgrade-bootstrap`',
   'Instead, enter **Step 0b — Adoption mode** below',
   'Create these **only where they do not already exist**',
   'In adoption mode an existing `README.md` or `CONTEXT.md` is the project''s own',
-  'pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -ProjectDir $proj',
-  'Before committing, verify the copy landed cleanly:',
-  '**Report the `overwritten` list to the user.**')
+  'pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -ProjectDir $proj')
 foreach ($s in $skills) {
   $txt = [IO.File]::ReadAllText((Join-Path $s.FullName "SKILL.md")) -replace "`r`n", "`n" -replace "`r", "`n"
   $faltan = @($invariantes | Where-Object { -not $txt.Contains($_) })
   Assert ($faltan.Count -eq 0) "$($s.Name): conserva las frases críticas de fuera del Step 0b (faltan: $($faltan -join ' | '))"
+}
+
+# GOLDEN de los dos párrafos del Step 2, acotado a la sección. El golden no IMPIDE reescribirlos:
+# los vuelve VISIBLES —la suite se pone roja y re-grabar con `tools/reseal-goldens.ps1` es el paso
+# donde un humano mira el diff—, que es lo que una ancla de presencia no da. Acotarlo a `## Step 2`
+# es parte del instrumento: con el archivo entero, mudar los párrafos a un apéndice titulado
+# "historical wording (DO NOT FOLLOW)" los dejaba idénticos y la suite verde (medido).
+$g2 = Join-Path $repo "tests/fixtures/step2-parrafos.golden.md"
+$golden2 = if (Test-Path -LiteralPath $g2) { ([IO.File]::ReadAllText($g2) -replace "`r`n", "`n").Trim("`n") } else { $null }
+Assert (-not [string]::IsNullOrWhiteSpace($golden2)) "existe el golden del Step 2 y no está vacío (tests/fixtures/step2-parrafos.golden.md)"
+$anclas2 = @('Before committing, verify the copy landed cleanly:', 'The script prints a JSON report on stdout:')
+foreach ($s in $skills) {
+  $t2 = [IO.File]::ReadAllText((Join-Path $s.FullName "SKILL.md")) -replace "`r`n", "`n" -replace "`r", "`n"
+  $i2 = $t2.IndexOf("`n## Step 2 ") + 1
+  Assert ($i2 -gt 0) "$($s.Name): el SKILL.md tiene la sección '## Step 2 '"
+  if ($i2 -le 0) { continue }
+  $j2 = $t2.IndexOf("`n## ", $i2) + 1
+  $sec2 = if ($j2 -le 0) { $t2.Substring($i2) } else { $t2.Substring($i2, $j2 - $i2) }
+  $lineas2 = @()
+  $faltan2 = @()
+  foreach ($a in $anclas2) {
+    $hits = @($sec2 -split "`n" | Where-Object { $_.Contains($a) })
+    if ($hits.Count -ne 1) { $faltan2 += "$a ($($hits.Count))"; continue }
+    $lineas2 += $hits[0]
+  }
+  Assert ($faltan2.Count -eq 0) "$($s.Name): cada párrafo anclado del Step 2 aparece exactamente una vez DENTRO del Step 2 (mal: $($faltan2 -join ', '))"
+  if ($faltan2.Count -eq 0) {
+    Assert ($null -ne $golden2 -and ($lineas2 -join "`n") -ceq $golden2) "$($s.Name): los párrafos del Step 2 son idénticos al golden — si el cambio es deliberado, re-grabalo con tools/reseal-goldens.ps1 en este mismo commit"
+  }
 }
 
 $refMec = $mecanicas[$ref.Name]

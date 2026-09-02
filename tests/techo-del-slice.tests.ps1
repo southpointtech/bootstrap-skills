@@ -155,11 +155,20 @@ VerificarSitio "docs\ai-workflow\DEPLOYMENT_RULES.md" @(
 # reescribir la ultima frase del parrafo a "A slice that ends up larger than planned must be broken
 # into smaller slices before the PR is opened" —la orden retroactiva que el ADR-0008 deroga, con
 # otras palabras— dejaba las dos mitades VERDES en las 4 copias a la vez, con la contradiccion
-# publicada. Lo que cierra esa familia no es otra ancla de prosa (parchar prosa no converge: van
-# tres episodios medidos) sino un golden: el parrafo entero, congelado, comparado byte a byte.
-# Cualquier reescritura se pone roja y el arreglo es re-grabar el golden A PROPOSITO, en el mismo
-# commit. Cubre los dos sitios de ai-workflow, que son de una sola linea e identicos en las 4
-# copias; los otros tres sitios siguen con anclas de redaccion y ese hueco esta declarado.
+# publicada. El golden congela ese parrafo y lo compara byte a byte en las 4 copias, asi que esa
+# reescritura ahora se pone roja.
+#
+# QUE HACE Y QUE NO, medido — no lo escribas mas fuerte de lo que es:
+#  - NO impide la reescritura: la vuelve VISIBLE. Re-grabar el golden con
+#    `tools/reseal-goldens.ps1` en el mismo commit deja la suite verde, y es a proposito: el
+#    reseal es el paso donde un humano mira el diff del fixture y decide. Editarlo a mano, en
+#    cambio, sella el bug sin que nadie lo mire (misma regla que el golden del Step 0b).
+#  - NO congela el documento, solo esa linea: AGREGAR una frase nueva en otra parte del archivo
+#    —"If the final diff ends up above the target, break it into smaller slices before opening
+#    the PR"— deja la suite verde con el doc diciendo las dos cosas a la vez. Medido. Congelar el
+#    documento entero haria que toda edicion de prosa exigiera un reseal, y no se eligio eso.
+#  - Cubre los dos sitios de ai-workflow, de una sola linea e identicos en las 4 copias. Los otros
+#    tres sitios siguen con anclas de redaccion, con el hueco declarado arriba.
 foreach ($g in @(
   @{ rel = "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md"; ancla = 'ceiling is measured when the slice opens'; fixture = "tests/fixtures/techo-ai-development-workflow.golden.md" }
   @{ rel = "docs\ai-workflow\DEPLOYMENT_RULES.md";        ancla = 'measured when the slice opens';          fixture = "tests/fixtures/techo-deployment-rules.golden.md" })) {
@@ -174,6 +183,29 @@ foreach ($g in @(
     if ($lineas.Count -eq 1) {
       Assert ($null -ne $golden -and $lineas[0] -ceq $golden) "${nombre}: el parrafo del techo es identico al golden - si el cambio es deliberado, re-grabalo en $($g.fixture) en este mismo commit"
     }
+  }
+}
+
+# --- 5c. Las citas del ADR al handoff tienen que resolver a UN solo lugar ---
+# El ADR citaba el handoff por numero de linea y las cinco citas quedaron obsoletas: `ed07ceb`
+# prepende 210 lineas y todo se corrio. Se cambiaron por anclas de texto, pero eso mueve el riesgo
+# en vez de sacarlo: la skill `session-handoff` PREPENDE un bloque por sesion, y estos titulos son
+# genericos y repetibles ("El techo de tamano, otra vez"). La cita se rompe en silencio el dia que
+# alguien repita uno. Se chequea de los dos lados —que el ADR siga citando el ancla y que el
+# handoff la resuelva una sola vez— para que ninguno de los dos se mueva sin el otro.
+$adrPath = Join-Path $repo "docs\adr\0008-el-techo-del-slice-se-mide-al-abrir.md"
+$txtAdrCitas = if (Test-Path -LiteralPath $adrPath) { [IO.File]::ReadAllText($adrPath) } else { "" }
+$handoffPath = Join-Path $repo "docs\SESSION_HANDOFF.md"
+$txtHandoff = if (Test-Path -LiteralPath $handoffPath) { [IO.File]::ReadAllText($handoffPath) } else { $null }
+Assert ($null -ne $txtHandoff) "existe docs/SESSION_HANDOFF.md, que es lo que el ADR-0008 cita"
+foreach ($a in @('El techo de tamaño, otra vez', 'Dos cosas ABIERTAS que el próximo debe saber',
+                 'turno 2 de 5, NO cerrado', '`1c52fe0`…`3e175b0`')) {
+  Assert ($txtAdrCitas.Contains($a)) "ADR-0008 sigue citando el ancla '$a' del handoff"
+  if ($null -ne $txtHandoff) {
+    # `Split` con un separador de string cuenta apariciones sin depender de regex: los titulos
+    # llevan acentos y comillas que habria que escapar.
+    $veces = $txtHandoff.Split(@($a), [StringSplitOptions]::None).Length - 1
+    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces)"
   }
 }
 
@@ -257,18 +289,39 @@ if (-not (Test-Path -LiteralPath $adr)) {
   # Se ancla en la PRIMERA celda, que es donde va el commit. Un rango nombrado en otra columna es
   # legitimo (la tabla de bases dice sobre que rango mide cada una); lo que no puede pasar es que un
   # rango ocupe el lugar de un commit.
-  # La celda se NORMALIZA antes de mirarla —fuera backticks, asteriscos y espacios— y el ancla de
-  # linea admite indentacion. Un guard atado al formateo se esquiva con el formateo, y se midio:
-  # con el patron anterior ('^\|\s*' mas backtick obligatorio) una segunda tabla con filas
-  # '| 900ba7f..2edb0a1 | 296 |' SIN backticks sobrevivia con la suite en verde, republicando la
-  # misma falsedad que el ADR retracta. Con backticks, en negrita o indentada: ahora las tres caen
-  # por el mismo camino.
+  # Un guard atado al formateo se esquiva con el formateo: el patron anterior ('^\|\s*' mas
+  # backtick obligatorio) lo esquivaban ocho formas medidas de la misma fila —sin backticks, en
+  # negrita, indentada, en blockquote, sin los pipes externos (GFM valido), con una palabra antes
+  # del sha, con la celda envuelta en un link markdown, y en una tabla HTML—. Por eso acá no se
+  # matchea la linea cruda: se NORMALIZA la primera celda y recien ahi se busca el rango.
+  # Lo que NO cubre, declarado: una fila dentro de un fence de codigo tambien cae (hoy el ADR no
+  # tiene ninguna, pero un ejemplo ilustrativo de la fila retractada pondria esto rojo), y un rango
+  # en la SEGUNDA celda con una columna indice adelante sigue pasando — ahi ya no ocupa el lugar
+  # del commit, que es lo unico que este guard mira.
+  function CeldaNormalizada([string]$linea) {
+    # Fuera el prefijo de blockquote y la indentacion, y el pipe de apertura si lo hay: una fila
+    # GFM valida puede no tenerlo.
+    $l = $linea -replace '^[\s>]+', ''
+    $l = $l -replace '^\|', ''
+    if (-not $l.Contains('|')) { return $null }
+    $celda = $l.Substring(0, $l.IndexOf('|'))
+    # `[label](url)` se queda con el label: envolver la celda en un link escondia el rango.
+    $celda = [regex]::Replace($celda, '\[([^\]]*)\]\([^)]*\)', '$1')
+    return ($celda -replace '[`*\s]', '')
+  }
   $filasRango = @()
   foreach ($linea in [regex]::Split($txtAdr, '\r?\n')) {
-    $celda = [regex]::Match($linea, '^\s*\|([^|]*)\|')
-    if (-not $celda.Success) { continue }
-    if (($celda.Groups[1].Value -replace '[`*\s]', '') -match '^[0-9a-f]{7,40}\.\.') { $filasRango += $linea }
+    # Las celdas HTML se miran aparte: `<td>` no lleva pipes y la tabla entera se le escapaba.
+    foreach ($td in [regex]::Matches($linea, '(?i)<td[^>]*>([^<]*)<')) {
+      if (($td.Groups[1].Value -replace '[`*\s]', '') -match '[0-9a-f]{7,40}\.\.') { $filasRango += $linea; break }
+    }
+    $celda = CeldaNormalizada $linea
+    if ($null -eq $celda) { continue }
+    # El rango se busca en CUALQUIER parte de la celda, no solo al principio: `commit 900ba7f..`
+    # ponia el rango en el lugar del commit y pasaba igual.
+    if ($celda -match '[0-9a-f]{7,40}\.\.') { $filasRango += $linea }
   }
+  $filasRango = @($filasRango | Select-Object -Unique)
   Assert ($filasRango.Count -eq 0) `
     "ninguna fila de tabla del ADR-0008 tiene un rango acumulado donde va el commit ($($filasRango.Count))"
 

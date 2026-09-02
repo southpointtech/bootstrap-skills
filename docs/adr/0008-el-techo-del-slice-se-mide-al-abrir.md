@@ -84,7 +84,7 @@ vueltas** sobre el mismo rango `3e175b0..2edb0a1`:
 
 | base | líneas | quién la usa |
 |---|---|---|
-| altas solas, excluyendo `.md` | **617** | el handoff, sobre `3e175b0..2edb0a1` (ver abajo) |
+| altas solas, excluyendo `.md` | **617** | el handoff (que lo declara sobre otro rango; ver abajo) |
 | altas + bajas, excluyendo `.md` | **660** | este ADR |
 | altas + bajas, con el `$skipPat` real del hook (que **no** excluye `.md`) | **874** | `.claude/hooks/review-loop-trigger.ps1` |
 
