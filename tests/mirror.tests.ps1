@@ -66,12 +66,13 @@ foreach ($other in ($skills | Select-Object -Skip 1)) {
 }
 
 # El párrafo `This delivers:` de cada SKILL.md declara a mano cuántas skills, comandos y docs
-# trae el scaffold. Ese conteo se desincronizó del scaffold: los tres decían 10 cuando ya eran
-# 11, así que una copia CORRECTA fallaba la verificación — y el peor desenlace es que el agente
-# "arregle" borrando la skill de más. El espejo no lo agarra porque los tres mienten idéntico.
-# Acá los números se atan a lo que el scaffold tiene de verdad. La verificación del Step 2 ya no
-# lleva números —manda contarlos contra el scaffold en el momento—, así que ahí no hay nada que
-# atar.
+# trae el scaffold, y nada más los verifica. La que se desincronizó fue la frase de verificación
+# del Step 2, un párrafo más arriba, que repetía los mismos números: decía 10 cuando ya eran 11
+# (`7cbb928`), así que una copia CORRECTA fallaba la verificación — y el peor desenlace es que el
+# agente "arregle" borrando la skill de más. El espejo no lo agarra porque los tres mienten
+# idéntico. Acá los números de `This delivers:` se atan a lo que el scaffold tiene de verdad. La
+# frase del Step 2 ya no lleva números —manda contarlos contra el scaffold en el momento—, así que
+# ahí no queda número que atar; lo que se ancla es que la frase siga existiendo, en `$invariantes`.
 foreach ($s in $skills) {
   $scaffold = Join-Path $s.FullName "assets/scaffold"
   $nSkills  = @(Get-ChildItem (Join-Path $scaffold ".agents/skills") -Directory).Count
@@ -201,7 +202,7 @@ foreach ($s in $skills) {
 # Frases que tienen que estar en las TRES y que viven FUERA del tramo que cubre el golden. Los pasos
 # de afuera no se pueden comparar enteros —southpoint diverge en el Step 0 (chequeo de máquina) y en
 # el Step 4 (catálogo MCP)—, así que se anclan las oraciones concretas cuya pérdida es destructiva.
-# Las dos que están acá se ganaron el lugar: cada una se rompió de verdad y la suite quedó verde.
+# Las que están acá se ganaron el lugar: cada una se rompió de verdad y la suite quedó verde.
 #  - El ruteo al Step 0b: borrarlo en las tres deja el modo adopción INALCANZABLE y el `CLAUDE.md` del
 #    proyecto se pisa sin que nadie parquee el original — la falla que todo el Step 0b existe para
 #    evitar.
@@ -210,17 +211,25 @@ foreach ($s in $skills) {
 #    `overwritten` que los recupere: es la única pérdida irrecuperable que el skill puede causar. Se
 #    arregló primero en una sola skill y las otras dos quedaron con el camino destructivo vivo, en
 #    verde, porque el golden solo cubre el Step 0b y nada más lee estos archivos.
+#  - La frase de verificación del Step 2 y la orden de reportar `overwritten`: medido al mergear
+#    `main`, borrar cualquiera de las dos entera de UNA sola skill dejaba la suite en verde. La
+#    primera es lo único que manda comprobar la copia antes de commitear —hasta este merge la
+#    ataba por regex el guard de conteos de más arriba, que perdió su ancla cuando `main` le sacó
+#    los números—; la segunda es la precondición del Step 0b/A (`Keep that report`), que el golden
+#    cubre como consumidor pero no como origen.
 $invariantes = @(
   'exist but there is **no** `.bootstrap-manifest.json`',
   'do **not** derive to `upgrade-bootstrap`',
   'Instead, enter **Step 0b — Adoption mode** below',
   'Create these **only where they do not already exist**',
   'In adoption mode an existing `README.md` or `CONTEXT.md` is the project''s own',
-  'pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -ProjectDir $proj')
+  'pwsh -NoProfile -File "$skill\scripts\copy-scaffold.ps1" -SkillDir $skill -ProjectDir $proj',
+  'Before committing, verify the copy landed cleanly:',
+  '**Report the `overwritten` list to the user.**')
 foreach ($s in $skills) {
   $txt = [IO.File]::ReadAllText((Join-Path $s.FullName "SKILL.md")) -replace "`r`n", "`n" -replace "`r", "`n"
   $faltan = @($invariantes | Where-Object { -not $txt.Contains($_) })
-  Assert ($faltan.Count -eq 0) "$($s.Name): conserva las frases críticas de fuera del Step 0b — ruteo a adopción y guard del Step 3 (faltan: $($faltan -join ' | '))"
+  Assert ($faltan.Count -eq 0) "$($s.Name): conserva las frases críticas de fuera del Step 0b (faltan: $($faltan -join ' | '))"
 }
 
 $refMec = $mecanicas[$ref.Name]

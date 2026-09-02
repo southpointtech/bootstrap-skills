@@ -430,7 +430,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         # el delta SIN REVISAR ya pasa la guia de ~400 lineas, dispara igual. Ojo con el nombre: esta
         # NO es el techo de planificacion del CLAUDE.md (que se mide al ABRIR el slice y exime lo
         # que agrega el propio loop). Es otra pregunta —¿esto quedo sin revisar?— sobre otra base:
-        # altas+bajas con el $skipPat de abajo, que no excluye .md. Ver ADR-0008.
+        # altas+bajas con el $skipPat del paso 5b, que no excluye .md. Ver ADR-0008.
         # `$range`, `$rangeKnown` y `$root` vienen del paso 5b, que los resuelve una sola vez para
         # esta red y para el gate de docs.
         # El contrato del marcador tiene tres salidas y colapsarlas es el bug que existe para

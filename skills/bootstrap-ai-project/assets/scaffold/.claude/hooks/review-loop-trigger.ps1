@@ -418,7 +418,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         # UNREVIEWED delta is already over the ~400-line guide, fire anyway. Mind the name: this
         # is NOT the planning ceiling in CLAUDE.md (measured when the slice OPENS, and exempting
         # what the loop itself adds). It asks a different question -- did this go unreviewed? --
-        # on a different basis: additions+deletions over the $skipPat below, which does not
+        # on a different basis: additions+deletions over the $skipPat from step 5b, which does not
         # exclude .md. See ADR-0008.
         # `$range`, `$rangeKnown` and `$root` come from step 5b, which resolves them once for both
         # this net and the docs gate.

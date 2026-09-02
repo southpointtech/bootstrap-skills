@@ -38,7 +38,7 @@ acumulado. La suma por commit **sobrecuenta**, siempre.
 ### Por qué acá no hay un reparto entre "scope" y "fixes del loop"
 
 Porque **no se puede hacer con estos commits**. `0eb467f` es mixto: su cuerpo dice *"F18 y F14, que el
-trailer del commit anterior daba por cerrados sin que el delta los tocara"*, y el handoff (`:22-23`)
+trailer del commit anterior daba por cerrados sin que el delta los tocara"*, y el handoff (tabla de cierre de 04c, filas F14 y F18)
 los registra cerrados ahí. F14 y F18 son **scope** —dos de los nueve Medium que el slice vino a
 cerrar— y viajan en el mismo commit que arreglos de hallazgos del loop. Cualquier número que reparta
 esas 248 líneas entre las dos categorías sería una estimación presentada como medición, que es
@@ -49,7 +49,7 @@ Lo que la tabla **sí** sostiene, y alcanza para la decisión:
 - Cuatro de los ocho commits son **posteriores al cierre declarado** (`900ba7f`), y suman **414
   líneas**. Existen porque el `/review-loop` corrió después de que el slice se dio por cerrado: no
   hay otra cosa que los explique, y son más que el techo entero.
-- El loop también había corrido **antes** de ese cierre —dos turnos, `docs/SESSION_HANDOFF.md:190`
+- El loop también había corrido **antes** de ese cierre —dos turnos, `docs/SESSION_HANDOFF.md`, encabezado
   (*"turno 2 de 5, NO cerrado"*)—, así que su contribución no está acotada a esos cuatro commits.
 
 Con eso basta: **el loop le agrega líneas al slice que revisa, después de que el slice cerró.** Si el
@@ -62,8 +62,8 @@ techo se mide sobre el diff final, esas líneas cuentan contra un slice que ya n
 > commits de scope más"* — la corrección que se publicó en su lugar (*"había uno"*) también era
 > falsa, y por la misma causa: se calculó con la clasificación que la falsedad (5) derogó cuatro
 > líneas más abajo. Lo verificable es la **membresía**, no el reparto de líneas: **tres** commits
-> cierran alguno de los nueve Medium — `cf925c0` (F3, F15), `900ba7f` (F2, F4, F5, F6, F21) y
-> `0eb467f` (F14, F18) —, y el último es mixto. (4) Una tabla anunciada "commit por commit" con una
+> cierran alguno de los nueve Medium — `cf925c0` (F3, F15), `900ba7f` (F2, F5, F21) y
+> `0eb467f` (F14, F18), con F4 y F6 cerrados entre los dos —, y el último es mixto. (4) Una tabla anunciada "commit por commit" con una
 > fila (`900ba7f..2edb0a1`, 296) que era un acumulado de cuatro commits; por commit son 414.
 > (5) Clasificar las 248 líneas de `0eb467f` como "fixes del loop" cuando el commit también cierra
 > F14 y F18, que eran scope — y de esa
@@ -84,13 +84,13 @@ vueltas** sobre el mismo rango `3e175b0..2edb0a1`:
 
 | base | líneas | quién la usa |
 |---|---|---|
-| altas solas, excluyendo `.md` | **617** | este ADR, sobre `3e175b0..2edb0a1` (ver abajo) |
+| altas solas, excluyendo `.md` | **617** | el handoff, sobre `3e175b0..2edb0a1` (ver abajo) |
 | altas + bajas, excluyendo `.md` | **660** | este ADR |
 | altas + bajas, con el `$skipPat` real del hook (que **no** excluye `.md`) | **874** | `.claude/hooks/review-loop-trigger.ps1` |
 
-El **617** viene del handoff (`docs/SESSION_HANDOFF.md:92`), pero **no sobre el rango que el handoff declara**: ahí dice `3e175b0..HEAD`, y ese rango hoy mide 919 altas. Reproduce sobre `3e175b0..2edb0a1`, que es el que usa este ADR — o sea que el número es correcto y la referencia del handoff quedó vieja al seguir avanzando `HEAD`.
+El **617** viene del handoff (`docs/SESSION_HANDOFF.md`, encabezado "El techo de tamaño, otra vez"), pero **no sobre el rango que el handoff declara**: ahí dice `3e175b0..HEAD`, y ese rango daba 919 altas medido en `4227fde` — al terminar en `HEAD` el número cambia con cada commit, que es exactamente el problema. Reproduce sobre `3e175b0..2edb0a1`, que es el que usa este ADR — o sea que el número es correcto y la referencia del handoff quedó vieja al seguir avanzando `HEAD`.
 
-Un cuarto número, el **716** que el handoff publica para 04b (`docs/SESSION_HANDOFF.md:398`), **no reproduce con ninguna de las tres** sobre el rango que el propio handoff declara (`:351`): esa base da 735, y 607 con la otra frontera. Queda anotado como no reproducido en vez de asignado a una base que no lo produce.
+Un cuarto número, el **716** que el handoff publica para 04b (`docs/SESSION_HANDOFF.md`, encabezado "Dos cosas ABIERTAS que el próximo debe saber", punto 1), **no reproduce con ninguna de las tres** sobre el rango que el propio handoff declara (su tabla de slices, fila 04b: `1c52fe0`…`3e175b0`): esa base da 735, y 607 con la otra frontera. Queda anotado como no reproducido en vez de asignado a una base que no lo produce.
 
 Ninguna de las tres está mal; no son comparables entre sí. Y la exclusión de `.md` que aplicaron el handoff y
 este ADR **no la concede ninguna regla escrita**: ni el bullet del `CLAUDE.md` ni el `$skipPat` del

@@ -2,7 +2,7 @@
 # Correr: pwsh -NoProfile -File tests/techo-del-slice.tests.ps1
 #
 # ADR-0008 — el techo de ~400 lineas se mide cuando el slice ABRE, no al cerrarlo. La regla vive en
-# los 4 CLAUDE.md (repo + 3 scaffolds) y la EJECUTAN otros cuatro lugares: el pre-flight de
+# los 4 CLAUDE.md (repo + 3 scaffolds) y la EJECUTAN otros cinco lugares: el pre-flight de
 # /review-loop, el paso "Close the slice" de tdd, el pre-flight de /slice-review y los dos docs de
 # ai-workflow que el CLAUDE.md declara lectura obligatoria.
 #
@@ -51,6 +51,10 @@ function Copias([string]$rel) {
 # vieja que la contradice NO tiene que estar. Solo la mitad positiva dejaria pasar un archivo que
 # dice las dos cosas a la vez — que es el estado exacto en el que quedo el repo tras cambiar el
 # bullet sin tocar sus ejecutores.
+# LO QUE ESTO NO CUBRE, medido: la mitad negativa esta anclada a la REDACCION vieja, no a la
+# semantica, asi que reescribir la misma orden con otras palabras la esquiva — y esquivarla en las
+# 4 copias a la vez tampoco lo ve el espejado. Para los dos sitios de ai-workflow eso lo cierra el
+# golden del paso 5b; para los otros tres el hueco sigue abierto y queda declarado aca.
 function VerificarSitio([string]$rel, [hashtable[]]$debeDecir, [hashtable[]]$noDebeDecir) {
   foreach ($c in Copias $rel) {
     $nombre = "$($c.label)/$rel"
@@ -146,6 +150,33 @@ VerificarSitio "docs\ai-workflow\DEPLOYMENT_RULES.md" @(
      msg    = 'ya no queda la redaccion vieja medida sobre el PR' }
 )
 
+# --- 5b. El GOLDEN de los dos parrafos de ai-workflow ---
+# Las mitades negativas de arriba estan ancladas a la REDACCION vieja, no a la semantica. Medido:
+# reescribir la ultima frase del parrafo a "A slice that ends up larger than planned must be broken
+# into smaller slices before the PR is opened" —la orden retroactiva que el ADR-0008 deroga, con
+# otras palabras— dejaba las dos mitades VERDES en las 4 copias a la vez, con la contradiccion
+# publicada. Lo que cierra esa familia no es otra ancla de prosa (parchar prosa no converge: van
+# tres episodios medidos) sino un golden: el parrafo entero, congelado, comparado byte a byte.
+# Cualquier reescritura se pone roja y el arreglo es re-grabar el golden A PROPOSITO, en el mismo
+# commit. Cubre los dos sitios de ai-workflow, que son de una sola linea e identicos en las 4
+# copias; los otros tres sitios siguen con anclas de redaccion y ese hueco esta declarado.
+foreach ($g in @(
+  @{ rel = "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md"; ancla = 'ceiling is measured when the slice opens'; fixture = "tests/fixtures/techo-ai-development-workflow.golden.md" }
+  @{ rel = "docs\ai-workflow\DEPLOYMENT_RULES.md";        ancla = 'measured when the slice opens';          fixture = "tests/fixtures/techo-deployment-rules.golden.md" })) {
+  $gp = Join-Path $repo $g.fixture
+  $golden = if (Test-Path -LiteralPath $gp) { ([IO.File]::ReadAllText($gp) -replace "`r`n", "`n").Trim("`n") } else { $null }
+  Assert (-not [string]::IsNullOrWhiteSpace($golden)) "existe el golden de $($g.rel) y no esta vacio ($($g.fixture))"
+  foreach ($c in Copias $g.rel) {
+    $nombre = "$($c.label)/$($g.rel)"
+    if (-not (Test-Path -LiteralPath $c.path)) { continue }   # el sitio 5 ya puso rojo su existencia
+    $lineas = @(([IO.File]::ReadAllText($c.path) -replace "`r`n", "`n") -split "`n" | Where-Object { $_.Contains($g.ancla) })
+    Assert ($lineas.Count -eq 1) "${nombre}: el parrafo del techo aparece exactamente una vez ($($lineas.Count))"
+    if ($lineas.Count -eq 1) {
+      Assert ($null -ne $golden -and $lineas[0] -ceq $golden) "${nombre}: el parrafo del techo es identico al golden - si el cambio es deliberado, re-grabalo en $($g.fixture) en este mismo commit"
+    }
+  }
+}
+
 # --- 6. El hook: su codigo NO cambia, pero su comentario no puede seguir llamandose "el techo del
 #     CLAUDE.md", porque el CLAUDE.md ahora dice otra cosa. El umbral literal sigue siendo 400. ---
 foreach ($c in Copias ".claude\hooks\review-loop-trigger.ps1") {
@@ -226,7 +257,18 @@ if (-not (Test-Path -LiteralPath $adr)) {
   # Se ancla en la PRIMERA celda, que es donde va el commit. Un rango nombrado en otra columna es
   # legitimo (la tabla de bases dice sobre que rango mide cada una); lo que no puede pasar es que un
   # rango ocupe el lugar de un commit.
-  $filasRango = @([regex]::Matches($txtAdr, '(?m)^\|\s*`[0-9a-f]{7,40}\.\.'))
+  # La celda se NORMALIZA antes de mirarla —fuera backticks, asteriscos y espacios— y el ancla de
+  # linea admite indentacion. Un guard atado al formateo se esquiva con el formateo, y se midio:
+  # con el patron anterior ('^\|\s*' mas backtick obligatorio) una segunda tabla con filas
+  # '| 900ba7f..2edb0a1 | 296 |' SIN backticks sobrevivia con la suite en verde, republicando la
+  # misma falsedad que el ADR retracta. Con backticks, en negrita o indentada: ahora las tres caen
+  # por el mismo camino.
+  $filasRango = @()
+  foreach ($linea in [regex]::Split($txtAdr, '\r?\n')) {
+    $celda = [regex]::Match($linea, '^\s*\|([^|]*)\|')
+    if (-not $celda.Success) { continue }
+    if (($celda.Groups[1].Value -replace '[`*\s]', '') -match '^[0-9a-f]{7,40}\.\.') { $filasRango += $linea }
+  }
   Assert ($filasRango.Count -eq 0) `
     "ninguna fila de tabla del ADR-0008 tiene un rango acumulado donde va el commit ($($filasRango.Count))"
 
