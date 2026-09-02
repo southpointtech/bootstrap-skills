@@ -173,12 +173,14 @@ foreach ($g in @(
   @{ rel = "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md"; ancla = 'ceiling is measured when the slice opens'; fixture = "tests/fixtures/techo-ai-development-workflow.golden.md" }
   @{ rel = "docs\ai-workflow\DEPLOYMENT_RULES.md";        ancla = 'measured when the slice opens';          fixture = "tests/fixtures/techo-deployment-rules.golden.md" })) {
   $gp = Join-Path $repo $g.fixture
-  $golden = if (Test-Path -LiteralPath $gp) { ([IO.File]::ReadAllText($gp) -replace "`r`n", "`n").Trim("`n") } else { $null }
+  # Se normaliza tambien el CR suelto, igual que `tools/reseal-goldens.ps1`: si un lado lo hace y
+  # el otro no, un fixture con un CR suelto deja la suite roja y el reseal diciendo "sin cambios".
+  $golden = if (Test-Path -LiteralPath $gp) { ([IO.File]::ReadAllText($gp) -replace "`r`n", "`n" -replace "`r", "`n").Trim("`n") } else { $null }
   Assert (-not [string]::IsNullOrWhiteSpace($golden)) "existe el golden de $($g.rel) y no esta vacio ($($g.fixture))"
   foreach ($c in Copias $g.rel) {
     $nombre = "$($c.label)/$($g.rel)"
     if (-not (Test-Path -LiteralPath $c.path)) { continue }   # el sitio 5 ya puso rojo su existencia
-    $lineas = @(([IO.File]::ReadAllText($c.path) -replace "`r`n", "`n") -split "`n" | Where-Object { $_.Contains($g.ancla) })
+    $lineas = @(([IO.File]::ReadAllText($c.path) -replace "`r`n", "`n" -replace "`r", "`n") -split "`n" | Where-Object { $_.Contains($g.ancla) })
     Assert ($lineas.Count -eq 1) "${nombre}: el parrafo del techo aparece exactamente una vez ($($lineas.Count))"
     if ($lineas.Count -eq 1) {
       Assert ($null -ne $golden -and $lineas[0] -ceq $golden) "${nombre}: el parrafo del techo es identico al golden - si el cambio es deliberado, re-grabalo en $($g.fixture) en este mismo commit"
@@ -193,19 +195,23 @@ foreach ($g in @(
 # genericos y repetibles ("El techo de tamano, otra vez"). La cita se rompe en silencio el dia que
 # alguien repita uno. Se chequea de los dos lados —que el ADR siga citando el ancla y que el
 # handoff la resuelva una sola vez— para que ninguno de los dos se mueva sin el otro.
+# Son las cinco citas: cuatro son titulos o filas, y la quinta —la que reemplazo a `:22-23`— se
+# ancla por el texto de la fila F14, porque la prosa que la nombra ("tabla de cierre de 04c") no
+# es texto del handoff y no resolvia a nada.
 $adrPath = Join-Path $repo "docs\adr\0008-el-techo-del-slice-se-mide-al-abrir.md"
 $txtAdrCitas = if (Test-Path -LiteralPath $adrPath) { [IO.File]::ReadAllText($adrPath) } else { "" }
 $handoffPath = Join-Path $repo "docs\SESSION_HANDOFF.md"
 $txtHandoff = if (Test-Path -LiteralPath $handoffPath) { [IO.File]::ReadAllText($handoffPath) } else { $null }
 Assert ($null -ne $txtHandoff) "existe docs/SESSION_HANDOFF.md, que es lo que el ADR-0008 cita"
 foreach ($a in @('El techo de tamaño, otra vez', 'Dos cosas ABIERTAS que el próximo debe saber',
-                 'turno 2 de 5, NO cerrado', '`1c52fe0`…`3e175b0`')) {
+                 'turno 2 de 5, NO cerrado', '`1c52fe0`…`3e175b0`',
+                 '| F14 | la invariante')) {
   Assert ($txtAdrCitas.Contains($a)) "ADR-0008 sigue citando el ancla '$a' del handoff"
   if ($null -ne $txtHandoff) {
     # `Split` con un separador de string cuenta apariciones sin depender de regex: los titulos
     # llevan acentos y comillas que habria que escapar.
     $veces = $txtHandoff.Split(@($a), [StringSplitOptions]::None).Length - 1
-    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces)"
+    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces) — si una sesión nueva repitió el título, cambiá la cita del ADR-0008 por una que siga siendo única, no el handoff"
   }
 }
 
@@ -289,39 +295,60 @@ if (-not (Test-Path -LiteralPath $adr)) {
   # Se ancla en la PRIMERA celda, que es donde va el commit. Un rango nombrado en otra columna es
   # legitimo (la tabla de bases dice sobre que rango mide cada una); lo que no puede pasar es que un
   # rango ocupe el lugar de un commit.
-  # Un guard atado al formateo se esquiva con el formateo: el patron anterior ('^\|\s*' mas
-  # backtick obligatorio) lo esquivaban ocho formas medidas de la misma fila —sin backticks, en
-  # negrita, indentada, en blockquote, sin los pipes externos (GFM valido), con una palabra antes
-  # del sha, con la celda envuelta en un link markdown, y en una tabla HTML—. Por eso acá no se
-  # matchea la linea cruda: se NORMALIZA la primera celda y recien ahi se busca el rango.
-  # Lo que NO cubre, declarado: una fila dentro de un fence de codigo tambien cae (hoy el ADR no
-  # tiene ninguna, pero un ejemplo ilustrativo de la fila retractada pondria esto rojo), y un rango
-  # en la SEGUNDA celda con una columna indice adelante sigue pasando — ahi ya no ocupa el lugar
-  # del commit, que es lo unico que este guard mira.
+  #
+  # ESTO ES UN ALAMBRE DE TROPIEZO, NO UNA PRUEBA. Declararlo es parte del guard, no una excusa:
+  # se lo ensancho cuatro veces y cada ronda de mutacion encontro formas nuevas de esquivarlo
+  # —sin backticks, negrita, indentacion, blockquote, sin pipes externos, una palabra antes del
+  # sha, link markdown, tabla HTML, elipsis unicode, <td> multilinea, <th>, entidades numericas,
+  # sha de 6 caracteres—. Es la cuarta vez que este repo mide lo mismo: parchar un guard de
+  # superficie no converge (ver ADR-0008 y la nota de `VerificarSitio`). Asi que se dejo de
+  # ensanchar a proposito. Caza la forma en que un autor escribiria la fila sin querer; a quien
+  # busque el hueco se lo dejamos declarado.
+  #
+  # QUE CAZA, medido: la fila con o sin backticks, en negrita, indentada, con el sha en
+  # mayusculas, con `...` en vez de `..`, con la celda envuelta en un link markdown, con etiquetas
+  # HTML inline en el medio, con elipsis unicode, y la fila HTML de una linea (primer `<td>`).
+  # QUE NO CAZA, declarado: una palabra antes del sha (`commit 900ba7f..2edb0a1`), la fila dentro
+  # de un blockquote —que en este archivo es CITA, y los otros guards tambien la excluyen—, un
+  # rango en la SEGUNDA celda con una columna indice adelante, un `<td>` partido en varias lineas,
+  # un `<th>`, las entidades numericas (`&#46;`) y un sha abreviado a menos de 7.
+  # El rango exige los DOS lados: `<sha>..<sha|HEAD>`. Sin el lado derecho, una elipsis de prosa
+  # detras de un sha (`| \`cf925c0\` ... |`) normalizaba a `cf925c0...` y ponia roja una fila
+  # legitima. `-match` es case-insensitive, asi que el sha en mayusculas entra igual.
+  $reRango = '^[0-9a-f]{7,40}\.\.\.?(?:[0-9a-f]|HEAD)'
   function CeldaNormalizada([string]$linea) {
-    # Fuera el prefijo de blockquote y la indentacion, y el pipe de apertura si lo hay: una fila
-    # GFM valida puede no tenerlo.
-    $l = $linea -replace '^[\s>]+', ''
+    # El blockquote NO se pela: en este archivo `>` es cita, y confundir la cita con la afirmacion
+    # es el error que los otros guards de aca evitan. Pelarlo hacia roja la retractacion, que cita
+    # la fila retractada a proposito.
+    if ($linea -match '^\s*>') { return $null }
+    $l = $linea -replace '^\s+', ''
     $l = $l -replace '^\|', ''
     if (-not $l.Contains('|')) { return $null }
     $celda = $l.Substring(0, $l.IndexOf('|'))
-    # `[label](url)` se queda con el label: envolver la celda en un link escondia el rango.
+    # `[label](url)` se queda con el label, y las etiquetas HTML inline se van: las dos escondian
+    # el rango dentro de la celda.
     $celda = [regex]::Replace($celda, '\[([^\]]*)\]\([^)]*\)', '$1')
-    return ($celda -replace '[`*\s]', '')
+    $celda = [regex]::Replace($celda, '<[^>]*>', '')
+    # La elipsis unicode se normaliza a `..` porque es como el propio ADR escribe rangos.
+    return (($celda -replace '\u2026', '..') -replace '[`*\s]', '')
   }
   $filasRango = @()
   foreach ($linea in [regex]::Split($txtAdr, '\r?\n')) {
-    # Las celdas HTML se miran aparte: `<td>` no lleva pipes y la tabla entera se le escapaba.
-    foreach ($td in [regex]::Matches($linea, '(?i)<td[^>]*>([^<]*)<')) {
-      if (($td.Groups[1].Value -replace '[`*\s]', '') -match '[0-9a-f]{7,40}\.\.') { $filasRango += $linea; break }
+    # La fila HTML de una linea: solo el PRIMER `<td>`, que es el que ocupa el lugar del commit.
+    # Mirar todos hacia roja una tabla con columna indice, que en GFM si es legitima.
+    $td = [regex]::Match($linea, '(?i)<td[^>]*>([^<]*)<')
+    if ($td.Success -and ((($td.Groups[1].Value -replace '\u2026', '..') -replace '[`*\s]', '') -match $reRango)) {
+      $filasRango += $linea
+      continue
     }
     $celda = CeldaNormalizada $linea
     if ($null -eq $celda) { continue }
-    # El rango se busca en CUALQUIER parte de la celda, no solo al principio: `commit 900ba7f..`
-    # ponia el rango en el lugar del commit y pasaba igual.
-    if ($celda -match '[0-9a-f]{7,40}\.\.') { $filasRango += $linea }
+    # El rango tiene que ARRANCAR la celda. Buscarlo en cualquier parte cazaba una palabra antes
+    # del sha, pero ponia roja la fila legitima que DESCRIBE una base nombrando su rango
+    # (`| altas + bajas sobre \`3e175b0..2edb0a1\` | 660 | ... |`) y cualquier prosa con un pipe
+    # adentro. Se eligio el falso negativo declarado por sobre el falso positivo que rompe el doc.
+    if ($celda -match $reRango) { $filasRango += $linea }
   }
-  $filasRango = @($filasRango | Select-Object -Unique)
   Assert ($filasRango.Count -eq 0) `
     "ninguna fila de tabla del ADR-0008 tiene un rango acumulado donde va el commit ($($filasRango.Count))"
 

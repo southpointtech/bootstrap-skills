@@ -215,8 +215,8 @@ foreach ($s in $skills) {
 #    verde, porque el golden solo cubre el Step 0b y nada más lee estos archivos.
 # Los dos párrafos del Step 2 —la frase que manda verificar la copia y el del reporte JSON con la
 # orden de reportar `overwritten`— NO están acá: los cubre el golden del bloque siguiente. Se
-# midió por qué: como anclas de presencia pasaban en verde con la frase vaciada, comentada en
-# HTML, negada (`Do NOT do this: ...`) o mudada a un apéndice. Un `Contains` sobre prosa no
+# midió por qué: como anclas de presencia pasaban en verde con el cuerpo de la frase vaciado
+# dejando el prefijo, y con los párrafos mudados a un apéndice. Un `Contains` sobre prosa no
 # expresa semántica.
 $invariantes = @(
   'exist but there is **no** `.bootstrap-manifest.json`',
@@ -236,8 +236,19 @@ foreach ($s in $skills) {
 # donde un humano mira el diff—, que es lo que una ancla de presencia no da. Acotarlo a `## Step 2`
 # es parte del instrumento: con el archivo entero, mudar los párrafos a un apéndice titulado
 # "historical wording (DO NOT FOLLOW)" los dejaba idénticos y la suite verde (medido).
+#
+# Se verifica MEMBRESÍA Y ORDEN. Sin el orden, intercambiar los dos párrafos dentro del Step 2
+# dejaba el `-join` byte-idéntico al golden —y a `reseal-goldens.ps1` diciendo "sin cambios"—,
+# porque los dos arman la lista iterando las anclas, no el documento (medido).
+#
+# QUE NO CUBRE, medido: envolver los dos párrafos en `<!-- -->` o en un fence con los
+# delimitadores en LÍNEAS PROPIAS, o poner una negación en la línea de arriba, no toca las líneas
+# ancladas y pasa. El `<!--` lo ataja el assert de abajo; el fence y la línea de arriba NO, y
+# quedan declarados: cerrar eso pide congelar la sección entera, que acá no se puede porque el
+# Step 2 diverge legítimamente entre variantes (`This delivers:` está en inglés en una y en
+# castellano en las otras dos).
 $g2 = Join-Path $repo "tests/fixtures/step2-parrafos.golden.md"
-$golden2 = if (Test-Path -LiteralPath $g2) { ([IO.File]::ReadAllText($g2) -replace "`r`n", "`n").Trim("`n") } else { $null }
+$golden2 = if (Test-Path -LiteralPath $g2) { ([IO.File]::ReadAllText($g2) -replace "`r`n", "`n" -replace "`r", "`n").Trim("`n") } else { $null }
 Assert (-not [string]::IsNullOrWhiteSpace($golden2)) "existe el golden del Step 2 y no está vacío (tests/fixtures/step2-parrafos.golden.md)"
 $anclas2 = @('Before committing, verify the copy landed cleanly:', 'The script prints a JSON report on stdout:')
 foreach ($s in $skills) {
@@ -247,16 +258,22 @@ foreach ($s in $skills) {
   if ($i2 -le 0) { continue }
   $j2 = $t2.IndexOf("`n## ", $i2) + 1
   $sec2 = if ($j2 -le 0) { $t2.Substring($i2) } else { $t2.Substring($i2, $j2 - $i2) }
+  Assert (-not $sec2.Contains("<!--")) "$($s.Name): el Step 2 no tiene comentarios HTML — envolver un párrafo en `<!-- -->` lo deja inerte sin tocar su texto"
   $lineas2 = @()
   $faltan2 = @()
+  $posic2 = @()
   foreach ($a in $anclas2) {
     $hits = @($sec2 -split "`n" | Where-Object { $_.Contains($a) })
     if ($hits.Count -ne 1) { $faltan2 += "$a ($($hits.Count))"; continue }
     $lineas2 += $hits[0]
+    $posic2 += $sec2.IndexOf($hits[0])
   }
   Assert ($faltan2.Count -eq 0) "$($s.Name): cada párrafo anclado del Step 2 aparece exactamente una vez DENTRO del Step 2 (mal: $($faltan2 -join ', '))"
   if ($faltan2.Count -eq 0) {
     Assert ($null -ne $golden2 -and ($lineas2 -join "`n") -ceq $golden2) "$($s.Name): los párrafos del Step 2 son idénticos al golden — si el cambio es deliberado, re-grabalo con tools/reseal-goldens.ps1 en este mismo commit"
+    $enOrden = $true
+    for ($k = 1; $k -lt $posic2.Count; $k++) { if ($posic2[$k] -le $posic2[$k - 1]) { $enOrden = $false } }
+    Assert $enOrden "$($s.Name): los párrafos del Step 2 están en el orden del golden (posiciones: $($posic2 -join ', '))"
   }
 }
 

@@ -75,15 +75,26 @@ function LineasAncladas([string]$path, $g) {
   return $out -join "`n"
 }
 
+# Cada golden se procesa aislado: un `throw` global cortaba el bucle y dejaba los que siguen sin
+# chequear, asi que una corrida podia reportar un problema y esconder otro. Se acumulan y se sale
+# distinto de cero al final.
 $fallo = 0
 foreach ($g in $goldens) {
   # Se graba desde la primera copia, pero solo si TODAS coinciden: sellar una divergencia dejaria el
   # golden certificando un espejado roto, que es justo lo que el test existe para ver. No se nombra
   # a la divergente: si la rota es la primera, el mensaje mandaria a propagar desde la equivocada.
-  $bloques = @($g.copias | ForEach-Object { LineasAncladas (Join-Path $repo $_) $g })
+  try {
+    $bloques = @($g.copias | ForEach-Object { LineasAncladas (Join-Path $repo $_) $g })
+  } catch {
+    Write-Host "ERROR en $($g.fixture): $($_.Exception.Message)"
+    $fallo = 1
+    continue
+  }
   $ref = $bloques[0]
   if (@($bloques | Where-Object { $_ -cne $ref }).Count -gt 0) {
-    throw "el parrafo no coincide entre las $($g.copias.Count) copias de $($g.fixture); compara y propaga antes de sellar"
+    Write-Host "ERROR en $($g.fixture): el parrafo no coincide entre las $($g.copias.Count) copias; compara y propaga antes de sellar"
+    $fallo = 1
+    continue
   }
 
   $destino = Join-Path $repo $g.fixture
@@ -110,3 +121,4 @@ foreach ($g in $goldens) {
 
 if ($fallo) { exit 1 }
 if (-not $Check) { "revisa 'git diff tests/fixtures/' antes de commitear" }
+exit 0
