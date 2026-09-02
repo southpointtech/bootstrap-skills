@@ -1,3 +1,162 @@
+# Session Handoff — 2026-09-01 — Línea anterior DEPLOYADA. Issue de `%TEMP%` cerrado en `fix/suites-que-no-limpian-temp` (6 commits, `a249d1c`). **SIN mergear, SIN pushear.** El review-loop cerró POR CAP.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+✅ **`main` = `origin/main` = `9c8faf5`.** Todo lo de la línea anterior está mergeado, pusheado y
+**deployado, con el sink verificado por SHA-256** (172 archivos: 0 faltantes, 0 distintos).
+
+🔴 **`fix/suites-que-no-limpian-temp` = `a249d1c`, 6 commits por delante de `main`. Falta decidir
+merge + push + deploy.** Working tree **limpio**. **15/15 suites en verde**, cero warnings de fuga,
+**cero rastros en `%TEMP%`** (medido dos veces con barrido previo).
+
+⚠️ **El merge NO es automático: leé "La decisión que te queda" abajo.** El slice son **849 líneas
+de lógica**, más del doble del techo de ~400 del `CLAUDE.md`, y el loop **cerró por cap**.
+
+## Qué se hizo
+
+### 1. Línea anterior: merge + push + deploy (CERRADO)
+
+`fix/copy-scaffold-respalda` → `main` ff-only, pusheado (cuenta **southpointtech**; MartinDele703 da
+403), deployado con `tools/sync-skills.ps1`, **verificado en el sink** comparando 172 archivos por
+SHA-256 repo vs `~/.claude/skills`. Manifests resellados y pusheados (`9d48b0e`) — sólo cambió el
+sello de fecha, los hashes de contenido no se movieron. Los 73 "huérfanos" del sink son otras skills
+que no viven en este repo (pptx, research, session-handoff…): esperado, `sync-skills.ps1` sólo borra
+lo que deploya.
+
+### 2. Issue de `%TEMP%`: `.scratch/issue-suites-que-no-limpian-temp.md` (CERRADO por cap)
+
+Las suites filtraban sus workspaces a la raíz de `%TEMP%` (62 rastros medidos el 31/8, 106 el 1/9).
+El patrón que ya estaba en `copy-scaffold.tests.ps1` pasó a **`tests/lib/temp-workspace.ps1`**
+(raíz única por corrida + `trap` + recolección **por edad**), lo comparten **8 suites migradas**, y
+**`tests/temp-hygiene.tests.ps1`** (564 líneas) es la red que impide que vuelva.
+
+**El inventario del issue estaba corto en tres puntos**, todos medidos: son **8 suites, no 6**;
+`install-clients` **no** crea temporales (los `wscfg-*` son de `apply-env`); y `export-shareable`
+tenía **el antipatrón exacto** que el issue advierte — `Remove-Item` por glob incondicional, que le
+borra los fixtures en uso a las corridas concurrentes.
+
+## 🔴 El review-loop: 5 turnos, CADA UNO encontró algo — y 4 de 5 eran regresiones del turno anterior
+
+| turno | qué encontró | commit |
+|---|---|---|
+| 1 | el lint veía **1 de 7** formas de llegar a `%TEMP%`; tres asserts medían texto o prosa | `68d2d78` |
+| 2 | dos fixes del turno 1 **desarmaron los chequeos que decían reforzar**; el cambio principal (`CreationTime`→`LastWriteTime`) shippeó **sin test**, porque el fixture fijaba ambas marcas | `7e41caf` |
+| 3 | los chequeos AST del turno 2 eran **MÁS DÉBILES** que el texto que reemplazaron: un `trap` con `continue` hacía que una suite abortada reportara `TODOS LOS TESTS PASARON` con exit 0 | `a726b92` |
+| 4 | el control de la parte E **reintrodujo el glob incondicional** que este trabajo existe para eliminar | `5c5dbc6` |
+| 5 | el control positivo validaba **una copia** del código bajo prueba, y volvió a entrar un **grep sobre texto crudo** (un comentario redirigía el prefijo y una fuga real pasaba verde) | `a249d1c` |
+
+🔑 **Lo que hizo avanzar cada vuelta fue CAMBIAR DE INSTRUMENTO**, no parchar: grep → tokens → AST →
+**ejecutar la suite y contar lo que deja** (la "parte E"). Esa última es la única que mide la
+propiedad sin intermediarios, y es la que atrapó el defecto que ninguna lectura del árbol podía ver:
+una limpieza **escrita pero inalcanzable** (debajo del `exit` final).
+
+## 🔴 Deuda declarada (está en el mensaje de `a249d1c` y en el issue)
+
+**Cerró POR CAP: los fixes del turno 5 no pasaron por un turno de review de delta.** El marcador
+quedó en **`5c5dbc6`** y el **ancla del slice sigue puesta** en `9c8faf5` — no se llamó
+`-Action close`, que es sólo para cierre limpio. El commit **no lleva trailer `Slice-Close:`** a
+propósito: el loop ya corrió sus cinco turnos y el trailer sólo pediría un sexto.
+
+1. El margen de **MAX_PATH** (241 de 260 con GUIDs largos; 193 con los 8 hex actuales), el
+   `-LiteralPath` del colector y la rama de reintento de `Remove-TestRunRoot` siguen **sin test**.
+2. `Test-DotSourceaA` es **insensible al flujo**: una suite puede dot-sourcear el helper de verdad y
+   redefinir las funciones después, o reasignar la variable a un stub, y pasa igual.
+3. El fragmento del dot-source es una **subcadena sin anclar**: un stub en
+   `tests/fake/lib/temp-workspace.ps1` pasaría, y ese directorio está fuera de los dos lints.
+4. **La parte E cubre 1 de las 9 suites y sólo el camino feliz.**
+5. `.claude/hooks/alignment-gate.ps1` escribe su estado en la raíz de `%TEMP%` sin repo git.
+   **Preexistente**; ni el lint lo ve ni el colector lo alcanza.
+6. Los rastros legacy (nombres viejos) **no se recolectan solos**; se barren a mano. **NO agregar un
+   glob incondicional para "arreglarlo"** — es el bug que este trabajo eliminó, y ya se reintrodujo
+   una vez durante el propio loop.
+
+## ⚖️ La decisión que te queda (es del usuario, no la tomes solo)
+
+El slice está verde y verificado, pero **849 líneas de lógica** contra un techo de ~400, y **cerró
+por cap**. Opciones:
+
+- **A — Mergear igual.** Está verde, la deuda está declarada, y partirlo ahora es reescribir historia
+  de 6 commits. Costo: normaliza un slice de 2× el techo.
+- **B — Mergear y abrir un slice chico** para los ítems 2-4 de la deuda (los del lint), que son los
+  que dejan agujeros reales en la red.
+- **C — No mergear todavía** y correr un 6º turno de review sobre el delta del turno 5, que es la
+  deuda concreta del cierre por cap.
+
+Si mergeás: es **ff-only** (historia lineal, 0 merge commits), push sólo con **southpointtech**, y
+después `tools/sync-skills.ps1` + **verificar en el sink** + resellar manifests.
+
+## Archivos cambiados (los 6 commits, `9c8faf5..a249d1c`)
+
+| archivo | qué |
+|---|---|
+| `tests/lib/temp-workspace.ps1` | **NUEVO** (138 líneas). `New-TestRunRoot` / `Remove-TestRunRoot` / `New-TestWorkspace` / `New-TestTempPath` |
+| `tests/temp-hygiene.tests.ps1` | **NUEVO** (564 líneas). Partes A (lint por AST), B (edad), C (trap, con control negativo), D (paths), **E (ejecuta y mide)** |
+| `tests/{alignment-gate,apply-env,copy-scaffold,export-shareable,gen-mcp-json,review-loop-docs-gate,review-loop-trigger,review-marker}.tests.ps1` | migradas al helper |
+| `docs/TESTING.md` | § "Workspaces temporales de las suites" |
+| `.scratch/issue-suites-que-no-limpian-temp.md` | cerrado, con la tabla de los 5 turnos y la deuda (no trackeado) |
+
+## Tests
+
+**15/15 suites en verde**, cero warnings de fuga, **cero rastros de suite en `%TEMP%`**. Correr por
+lotes de 5-8: la suite completa pasa los 10 min del timeout de la tool.
+
+```powershell
+foreach($n in @("mirror","copy-scaffold","alignment-gate","apply-env","export-shareable","gen-mcp-json","install-clients","regla-de-afirmaciones")){
+  $o = & pwsh -NoProfile -File "tests\$n.tests.ps1" 2>&1
+  "{0,-24} exit={1} FAILs={2}" -f $n,$LASTEXITCODE,($o|Select-String '^FAIL:').Count
+}
+```
+
+**Cada fix fue a RED antes que a verde**; ~25 mutantes muertos en total a lo largo del loop, con
+control de que la versión sana sigue verde. Los mutantes se aplican en un `git worktree add
+--detach` a `%TEMP%`, **nunca en el árbol real**.
+
+## Antes de tocar código
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`).
+  **No commitear ni stagear ahí.** Su árbol cambia entre dos comandos tuyos.
+- **Si agregás una suite de tests**: tres líneas (`. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")`,
+  `$script:runRoot = New-TestRunRoot "<pref>"`, `trap { Remove-TestRunRoot $script:runRoot; break }`)
+  y `Remove-TestRunRoot $script:runRoot` al final. El lint exige el `break` y que el trap sea **hijo
+  directo del cuerpo del script**. Ver `docs/TESTING.md`.
+- **NUNCA barras `%TEMP%` por glob incondicional.** Filtrá por edad o por PID. Es el bug de fondo de
+  todo este trabajo y se reintrodujo dos veces durante el loop.
+- **Los reviewers paralelos se contaminan**: corren las mismas suites en el mismo `%TEMP%`. Antes de
+  atribuir un `<prefijo>-run-*` a un defecto, **fijate si su PID está vivo y si es tuyo**. Dos turnos
+  casi reportan contaminación como bug.
+- El `alignment-gate` frena el primer edit de código de la sesión. Si el trabajo es operativo o ya
+  está alineado, decilo y **reintentá**; no grilles.
+- El guard del entorno bloquea comandos cuyo texto parece un path peligroso (p. ej. un `-split` con
+  `'\s+'`, o un regex con `'\d+'`). **Reescribir con variables.**
+- Para prosa en español usar Edit; commits largos con `git commit -F <archivo>` (**no** here-strings
+  de PowerShell con la Bash tool: filtran el `@` al subject).
+- `git status` puede marcar archivos como `M` por stat-cache: **`git diff --name-only` es la
+  autoridad**.
+
+## Próximos pasos
+
+1. **Decidir A/B/C sobre el slice de `%TEMP%`** (arriba). Si es merge: ff-only + push + deploy +
+   verificar sink + resellar manifests.
+2. **Self-upgrade de `SouthPoint-Hub`** (la v1 dejó el frontend sin revisar).
+3. **Benchmark Track B** — la línea base congelada **vence el 2026-09-10**.
+4. Pasada al `README.md` de la raíz: dice "four skills", "two bootstrap skills", "~43 template files"
+   (son 52). Slice solo-docs, no dispara el loop.
+5. Bugs abiertos de antes, sin cambios: deuda de `bc973c2` (techo ciego a trackeados sin commitear;
+   `^-\s` no corta en `---`; sin test de la copia ES del hook); `autocrlf`/hashes mixtos en los
+   manifests; el párrafo del hook redactado distinto en `bootstrap-ai-project`; las 2 carpetas sin
+   git con el hook inerte (**sin decidir, es tuya**).
+
+## 🔑 La lección de esta sesión
+
+**Cuatro de los cinco hallazgos del loop fueron regresiones que había introducido el turno anterior**,
+y dos de ellas reintrodujeron el bug exacto que el slice existía para eliminar. Parchar no converge:
+lo que cerró cada vuelta fue cambiar de instrumento, y el salto que más rindió fue el último —
+**dejar de leer el código y ejecutarlo para medir el efecto**. Corolario operativo: cuando un
+chequeo estático lleva tres iteraciones sin cerrar, el problema no es el chequeo, es que la
+propiedad no es estática.
+
+---
+
 # Session Handoff — 2026-08-31 (noche) — Review-loop de 5 turnos sobre la deuda del cap anterior: COMMITEADO (`2046664`). **Mergeado, pusheado y deployado el 2026-09-01** (ver el bloque de abajo). Cerró POR CAP.
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
