@@ -78,10 +78,13 @@ function LineasAncladas([string]$path, $g) {
     $pos += $t.IndexOf($hits[0])
   }
   # El ORDEN tambien: la lista se arma iterando las anclas, no el documento, asi que intercambiar
-  # dos parrafos daba un `-join` identico y el reseal decia "sin cambios" mientras la suite estaba
-  # roja pidiendo justamente re-grabar. Sin esto, el mensaje del test manda a un callejon.
+  # dos parrafos daba un `-join` identico y el reseal decia "sin cambios" mientras la suite ya
+  # estaba roja por su propio assert de orden. Sin esto, el reseal certificaba un documento que la
+  # suite rechazaba. Si el reorden es DELIBERADO, esto tampoco lo sella: hay que reordenar las dos
+  # listas de anclas (la de aca y `$anclas2` en `tests/mirror.tests.ps1`) y despues re-grabar.
   for ($k = 1; $k -lt $pos.Count; $k++) {
-    if ($pos[$k] -le $pos[$k - 1]) { throw "$path : los parrafos anclados no estan en el orden declarado (posiciones: $($pos -join ', '))" }
+    if ($pos[$k] -eq $pos[$k - 1]) { throw "$path : dos anclas caen en la MISMA linea (posicion $($pos[$k])): el parrafo se fusiono con el de al lado" }
+    if ($pos[$k] -lt $pos[$k - 1]) { throw "$path : los parrafos anclados no estan en el orden declarado (posiciones: $($pos -join ', '))" }
   }
   return $out -join "`n"
 }

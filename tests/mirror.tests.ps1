@@ -238,12 +238,14 @@ foreach ($s in $skills) {
 # "historical wording (DO NOT FOLLOW)" los dejaba idénticos y la suite verde (medido).
 #
 # Se verifica MEMBRESÍA Y ORDEN. Sin el orden, intercambiar los dos párrafos dentro del Step 2
-# dejaba el `-join` byte-idéntico al golden —y a `reseal-goldens.ps1` diciendo "sin cambios"—,
-# porque los dos arman la lista iterando las anclas, no el documento (medido).
+# dejaba el `-join` byte-idéntico al golden y a `reseal-goldens.ps1` diciendo "sin cambios", porque
+# los dos arman la lista iterando las anclas, no el documento (medido).
+# Si el reorden es DELIBERADO, el reseal no alcanza: hay que reordenar `$anclas2` acá y `anclas` en
+# `tools/reseal-goldens.ps1` —las dos listas, que están duplicadas— y recién ahí re-grabar.
 #
 # QUE NO CUBRE, medido: todo lo que neutraliza los párrafos SIN tocar sus líneas — envolverlos en
-# un fence, o en un `<div style="display:none">`, o poner una negación en la línea de arriba o en
-# la de abajo. Los comentarios HTML son la excepción: los ataja el assert de abajo, que mira el
+# un fence o en un `<div style="display:none">` **con los delimitadores en líneas propias**, o
+# poner una negación en la línea de arriba o en la de abajo. Los comentarios HTML son la excepción: los ataja el assert de abajo, que mira el
 # archivo entero. El resto queda declarado, porque cerrarlo pide congelar la sección entera y el
 # Step 2 diverge legítimamente entre variantes: la línea de `This delivers:` describe el hook en
 # inglés en `bootstrap-ai-project` y en castellano en las otras dos.
@@ -260,9 +262,10 @@ foreach ($s in $skills) {
   $sec2 = if ($j2 -le 0) { $t2.Substring($i2) } else { $t2.Substring($i2, $j2 - $i2) }
   # Los comentarios HTML se miran en el ARCHIVO ENTERO, no en la sección: abrir el `<!--` una
   # línea ARRIBA del encabezado deja el delimitador afuera del tramo y el Step 2 entero inerte,
-  # con la suite en verde (medido). Ninguna de las tres skills tiene hoy un comentario HTML, así
-  # que el guard es exacto, no aproximado.
-  Assert (-not $t2.Contains("<!--") -and -not $t2.Contains("-->")) "$($s.Name): el SKILL.md no tiene comentarios HTML — envolver un párrafo en uno lo deja inerte sin tocar su texto"
+  # con la suite en verde (medido). Se mira sólo el `<!--`, que es lo que abre el comentario: un
+  # `-->` suelto es una flecha de prosa, y prohibirlo ponía roja una línea legítima con un mensaje
+  # que además mentía sobre la causa. Ninguna de las tres skills tiene hoy un `<!--`.
+  Assert (-not $t2.Contains("<!--")) "$($s.Name): el SKILL.md no tiene comentarios HTML — envolver un párrafo en uno lo deja inerte sin tocar su texto; si necesitás uno de verdad (un pragma de linter), ponelo y ajustá este assert a propósito"
   # El encabezado tiene que ser ÚNICO. `IndexOf` toma la primera aparición, así que un
   # `## Step 2 — Copy the scaffold (reference)` señuelo puesto ANTES del real congelaba la copia
   # decorativa y dejaba el procedimiento verdadero libre de reescribirse (medido). Es peor que el

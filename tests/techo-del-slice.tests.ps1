@@ -297,31 +297,41 @@ if (-not (Test-Path -LiteralPath $adr)) {
   # rango ocupe el lugar de un commit.
   #
   # ESTO ES UN ALAMBRE DE TROPIEZO, NO UNA PRUEBA. Declararlo es parte del guard, no una excusa:
-  # se lo ensancho cuatro veces y cada ronda de mutacion encontro formas nuevas de esquivarlo
-  # —sin backticks, negrita, indentacion, blockquote, sin pipes externos, una palabra antes del
-  # sha, link markdown, tabla HTML, elipsis unicode, <td> multilinea, <th>, entidades numericas,
-  # sha de 6 caracteres—. Es la cuarta vez que este repo mide lo mismo: parchar un guard de
-  # superficie no converge (ver ADR-0008 y la nota de `VerificarSitio`). Asi que se dejo de
-  # ensanchar a proposito. Caza la forma en que un autor escribiria la fila sin querer; a quien
-  # busque el hueco se lo dejamos declarado.
+  # cada ronda de mutacion encontro formas nuevas de esquivarlo —sin backticks, negrita,
+  # indentacion, blockquote, sin pipes externos, una palabra antes del sha, link markdown, tabla
+  # HTML, elipsis unicode, <td> multilinea, <th>, entidades numericas, sha de 6, raya tipografica—,
+  # y este repo ya midio tres veces que parchar un guard de superficie no converge (ver ADR-0008 y
+  # la nota de `VerificarSitio`). Asi que el MATCH se dejo de ensanchar a proposito: lo unico que
+  # se sigue tocando es la tolerancia al formato (`$reRuido`), y solo para reponer lo que un
+  # cambio del propio guard perdio. Caza la forma en que un autor escribiria la fila sin querer; a
+  # quien busque el hueco se lo dejamos declarado abajo.
   #
   # QUE CAZA, medido: la fila con o sin backticks, con o sin los pipes externos (GFM valido), en
   # negrita, en italica, tachada, entre comillas o parentesis, indentada, con el sha en mayusculas
   # o de 40 caracteres, con `...` en vez de `..`, con la celda envuelta en un link markdown, con
   # etiquetas HTML inline en el medio, con elipsis unicode, y la fila HTML de una linea (primer
   # `<td>`, en cualquier capitalizacion y con atributos).
-  # QUE NO CAZA, declarado: una palabra antes del sha (`commit 900ba7f..2edb0a1`), la fila dentro
-  # de un blockquote —que en este archivo es CITA, y los otros guards tambien la excluyen—, un
-  # rango en la SEGUNDA celda con una columna indice adelante, un `<td>` partido en varias lineas,
-  # un `<th>`, las entidades numericas (`&#46;`) y un sha abreviado a menos de 7.
+  # QUE NO CAZA, declarado: una palabra antes del sha (`commit 900ba7f..2edb0a1`); la fila dentro
+  # de un blockquote —que en este archivo es CITA, y el guard de reparto tambien la excluye—; un
+  # rango en la SEGUNDA celda con una columna indice adelante; un `<td>` partido en varias lineas;
+  # un `<th>`; las entidades numericas (`&#46;`); un sha abreviado a menos de 7; y toda la
+  # puntuacion que no esta en `$reRuido` delante del rango — la raya tipografica (`—`, que es LA
+  # raya de este documento), `+`, `#`, `&nbsp;` y un item de lista numerada. Se midieron y se
+  # dejan afuera a proposito, no por olvido.
+  # FALSO NEGATIVO ACEPTADO, medido: un guion delante (`| - 900ba7f..2edb0a1 |`) tampoco se caza,
+  # porque meter `-` en el ruido convertia los rangos de fechas legitimos en falsos positivos.
   # El rango exige los DOS lados: `<sha>..<sha|HEAD>`. Sin el lado derecho, una elipsis de prosa
   # detras de un sha (`| \`cf925c0\` ... |`) normalizaba a `cf925c0...` y ponia roja una fila
   # legitima. `-match` es case-insensitive, asi que el sha en mayusculas entra igual.
   # El ruido de formato que se borra antes de mirar la celda. Empezo siendo backtick, asterisco y
-  # espacio, y con el ancla `^` cualquier OTRA puntuacion delante del rango lo esquivaba: medido,
-  # `_italica_`, `~~tachado~~`, comillas, parentesis, corchetes y un guion de lista pasaban todos,
-  # y `~~` es justamente como se tacharia una fila retractada en este documento.
-  $reRuido = '[`*_~"''()\[\]\-\s]'
+  # espacio; con el ancla `^`, cualquier OTRA puntuacion delante del rango lo esquivaba (medido:
+  # `_italica_`, `~~tachado~~`, comillas, parentesis y corchetes pasaban todos, y `~~` es como se
+  # tacharia una fila retractada aca). Esto NO es ensanchar el match: el rango que se busca es el
+  # mismo, lo que se repone es la tolerancia al formato que el ancla `^` del turno anterior perdio.
+  # El guion NO entra, a proposito: con `-` adentro, `| 2026-09-01..2026-09-05 |` normaliza a
+  # `20260901..20260905` y una fila legitima de fechas se pone roja (medido). El bloque prefiere el
+  # falso negativo declarado por sobre el falso positivo que rompe el documento.
+  $reRuido = '[`*_~"''()\[\]\s]'
   $reRango = '^[0-9a-f]{7,40}\.\.\.?(?:[0-9a-f]|HEAD)'
   function CeldaNormalizada([string]$linea) {
     # El blockquote NO se pela: en este archivo `>` es cita, y confundir la cita con la afirmacion
@@ -354,9 +364,12 @@ if (-not (Test-Path -LiteralPath $adr)) {
     if ($null -eq $celda) { continue }
     # El rango tiene que ARRANCAR la celda. Buscarlo en cualquier parte cazaba una palabra antes
     # del sha, pero pondria roja una fila legitima que DESCRIBA una base nombrando su rango, o
-    # cualquier prosa con un pipe adentro. Son riesgos PROYECTADOS, no rojos observados: ninguna
-    # de esas dos formas existe hoy en el ADR ni existio en sus revisiones. Se eligio el falso
-    # negativo declarado por sobre el falso positivo que romperia el doc si aparecieran.
+    # cualquier prosa con un pipe adentro. Las dos formas EXISTEN en este documento —una fila vieja
+    # nombraba el rango en su tercera celda, y hay prosa con pipes—, pero ninguna en la PRIMERA
+    # celda, que es la unica que este guard lee: verificado replicando el guard sin el ancla sobre
+    # las diez revisiones del ADR, donde la unica linea que se pondria roja es la fila mala a
+    # proposito de `ebfc19b`. O sea: el falso positivo es proyectado, no observado. Se eligio ese
+    # falso negativo declarado por sobre el falso positivo que romperia el doc si apareciera.
     if ($celda -match $reRango) { $filasRango += $linea }
   }
   Assert ($filasRango.Count -eq 0) `
