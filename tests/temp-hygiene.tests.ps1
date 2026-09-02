@@ -138,6 +138,43 @@ function Test-Anidado($nodo) {
   return $false
 }
 
+# ¿Cuelga este nodo de una FUNCIÓN, y sólo de una función? Es más estrecho que `Test-Anidado` a
+# propósito, y la diferencia es la que importa: `Test-Anidado` también cuenta los
+# `ScriptBlockExpressionAst`, pero un scriptblock no abre scope por sí solo — `ForEach-Object` y
+# `Where-Object` ejecutan el suyo en el scope del llamador (medido), así que lo que se asigne ahí
+# adentro sí afecta al script. Una función sí abre scope. Usar el predicado ancho para decidir
+# "esta asignación no cuenta" abría la reasignación a un stub metida en un pipe.
+function Test-DentroDeUnaFuncion($nodo) {
+  $p = $nodo.Parent
+  while ($null -ne $p) {
+    if ($p -is [System.Management.Automation.Language.FunctionDefinitionAst]) { return $true }
+    $p = $p.Parent
+  }
+  return $false
+}
+
+# ¿Cuelga este nodo de algo que pueda no ejecutarse? Es la otra mitad de "está en el cuerpo del
+# script": `Test-Anidado` descarta funciones y scriptblocks, esto descarta las ramas.
+# Vive en su propia función porque la usan TRES chequeos (la limpieza final, el dot-source del helper
+# y la asignación de su variable). Estaba escrita inline en uno solo; duplicar la lista de cinco
+# tipos en tres lugares es garantía de que uno se quede corto sin que nadie lo note.
+# `switch` va explícito: no deriva de LoopStatementAst ni de IfStatementAst (sí de
+# LabeledStatementAst, junto con los loops), así que sin nombrarlo algo metido en una rama de switch
+# contaba como incondicional. Los loops sí quedan cubiertos por su base común.
+function Test-BajoCondicion($nodo) {
+  $p = $nodo.Parent
+  while ($null -ne $p) {
+    if ($p -is [System.Management.Automation.Language.IfStatementAst] -or
+        $p -is [System.Management.Automation.Language.TryStatementAst] -or
+        $p -is [System.Management.Automation.Language.TrapStatementAst] -or
+        $p -is [System.Management.Automation.Language.SwitchStatementAst] -or
+        $p -is [System.Management.Automation.Language.PipelineChainAst] -or
+        $p -is [System.Management.Automation.Language.LoopStatementAst]) { return $true }
+    $p = $p.Parent
+  }
+  return $false
+}
+
 # La limpieza del final tiene que estar en el CUERPO del script, no adentro de un `if`, un `try`,
 # una función ni el propio trap: "borra la raíz al terminar" es una afirmación sobre la POSICIÓN,
 # y un piso de apariciones no la puede expresar. Medido dos veces: contando, `review-marker` (3
@@ -178,19 +215,7 @@ function Test-LimpiezaAlTerminar([string]$path, [string]$comando, [string]$argum
     # esta misma suite limpia la raíz de su probe— y borrarle la limpieza de verdad pasaba en verde.
     if (-not (Test-ArgumentoEs $c $argumento)) { continue }
     if (Test-Anidado $c) { continue }
-    $p = $c.Parent; $condicional = $false
-    while ($null -ne $p) {
-      # `switch` va explícito: no deriva de LoopStatementAst ni de IfStatementAst (sí de
-      # LabeledStatementAst, junto con los loops), así que sin nombrarlo una limpieza metida en una
-      # rama de switch contaba como incondicional. Los loops sí quedan cubiertos por su base común.
-      if ($p -is [System.Management.Automation.Language.IfStatementAst] -or
-          $p -is [System.Management.Automation.Language.TryStatementAst] -or
-          $p -is [System.Management.Automation.Language.TrapStatementAst] -or
-          $p -is [System.Management.Automation.Language.SwitchStatementAst] -or
-          $p -is [System.Management.Automation.Language.LoopStatementAst]) { $condicional = $true; break }
-      $p = $p.Parent
-    }
-    if (-not $condicional) { return $true }
+    if (-not (Test-BajoCondicion $c)) { return $true }
   }
   return $false
 }
@@ -241,72 +266,450 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
   return $false
 }
 
-# ¿El archivo dot-sourcea ese path, o solo lo menciona? Con el AST el operador de dot-source es un
-# atributo del comando (`InvocationOperator`), y el Extent del comando TERMINA donde termina el
-# comando: un comentario al final de la línea queda afuera. La versión por tokens escaneaba hasta
-# el fin de línea y por eso aceptaba `. .\otro.ps1  # ex lib\temp-workspace.ps1` — con lo cual se
-# podía dot-sourcear un stub que reintroducía el glob incondicional y el assert seguía verde.
-function Test-DotSourceaA([string]$path, [string]$fragmento) {
+# ¿El archivo importa el helper, y SÓLO de una de las dos formas que el repo usa?
+#
+# Esto es un conjunto CERRADO a propósito, y es el cambio de instrumento del 2026-09-02. La versión
+# anterior era un detector ABIERTO —"¿hay algún dot-source cuyo objeto se PAREZCA a
+# `lib/temp-workspace.ps1`?"— y todo detector abierto de este archivo fue evadido dentro de un
+# turno: grep → tokens → AST, cada escalón documentado arriba en sus propios comentarios. El patrón
+# no era casualidad: mientras el criterio sea "algo que se le parezca", siempre queda una grafía más.
+#
+# Las CINCO que seguían vivas, MEDIDAS contra el detector anterior antes de escribir esto: un stub
+# en `tests/fake/lib/temp-workspace.ps1` (la subcadena no estaba anclada, y ese directorio además
+# quedaba fuera del lint); un dot-source canónico seguido de otro a un stub; el dot-source metido
+# dentro de un `if`; la variable de la forma 2 reasignada a un stub después de asignarla bien; y la
+# variable asignada directamente a un literal ajeno. Las cinco pasaban en verde y las cinco están
+# abajo como fixture.
+#
+# ⚠️ LO QUE ESTO **NO** LOGRA, y hay que decirlo porque la primera versión de este comentario
+# afirmaba lo contrario: el conjunto cerrado **no elimina** el espacio de evasión, lo achica. Un
+# review encontró SEIS grafías nuevas en un solo turno, todas verificadas ejecutando el predicado
+# (ver la lista del borde declarado, más abajo). La razón es de fondo: acá se sigue aproximando
+# ESTÁTICAMENTE una pregunta de identidad —"¿lo que quedó en scope es el helper de verdad?"— y esa
+# pregunta sólo se responde exacto en runtime. La respuesta exacta va en un slice aparte.
+#
+# Las dos formas, verificadas por AST sobre el árbol el 2026-09-02:
+#   1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")`            — las 8 suites migradas
+#   2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo esta suite, que
+#      necesita el path después para el probe de la parte C.
+#
+# Costo aceptado: una forma nueva legítima da rojo y hay que agregarla acá a mano. Es exactamente el
+# rojo que se quiere cuando alguien cambia cómo se importa el helper. Contra conocido: mover `lib/`
+# de lugar rompe las nueve suites a la vez.
+
+# `Join-Path $PSScriptRoot "<relativo>"`, exacto: tres elementos, la raíz es $PSScriptRoot y el
+# relativo es un literal que iguala. Nada de matchear el texto del Extent — matchear es justo lo que
+# dejaba pasar `Join-Path $PSScriptRoot "fake\lib\temp-workspace.ps1"`.
+function Test-JoinPathCanonico($nodo, [string]$relativo) {
+  if ($nodo -isnot [System.Management.Automation.Language.CommandAst]) { return $false }
+  if ($nodo.GetCommandName() -ne 'Join-Path') { return $false }
+  $els = @($nodo.CommandElements)
+  if ($els.Count -ne 3) { return $false }
+  $raiz = $els[1]
+  if ($raiz -isnot [System.Management.Automation.Language.VariableExpressionAst]) { return $false }
+  if ($raiz.VariablePath.UserPath -ne 'PSScriptRoot') { return $false }
+  $rel = $els[2]
+  if ($rel -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { return $false }
+  # Se normaliza SÓLO el separador: `lib/temp-workspace.ps1` es el mismo archivo y darle rojo sería
+  # ruido. El resto del path no se normaliza ni se recorta, así que `fake\lib\...` no iguala.
+  return ($rel.Value.Replace('/', '\') -eq $relativo)
+}
+
+# `(expr)` → la expresión de adentro, o $null si el paréntesis no envuelve exactamente una.
+function Get-DentroDelParen($nodo) {
+  if ($nodo -isnot [System.Management.Automation.Language.ParenExpressionAst]) { return $null }
+  $p = $nodo.Pipeline
+  if ($p -isnot [System.Management.Automation.Language.PipelineAst]) { return $null }
+  $els = @($p.PipelineElements)
+  if ($els.Count -ne 1) { return $null }
+  return $els[0]
+}
+
+# La forma 2: la variable se asigna UNA sola vez, en el cuerpo del script, sin condición, con la
+# forma canónica, y ANTES del dot-source. "Una sola vez" es lo que cierra la reasignación a un stub:
+# con dos asignaciones la que vale es la última, y el predicado anterior se conformaba con que
+# alguna nombrara el helper.
+function Test-VariableCanonica($ast, [string]$nombre, [string]$relativo, [int]$offsetDelDotSource) {
+  $asigs = @($ast.FindAll({
+    param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst]
+  }, $true) | Where-Object {
+    $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+    $_.Left.VariablePath.UserPath -eq $nombre -and
+    # El filtro posicional va ANTES de contar, no después. Contando primero, una función auxiliar
+    # con una variable local homónima —`function f { $lib = 1 }`, inofensiva porque vive en otro
+    # scope— subía el conteo a dos y ponía la suite en ROJO sin que hubiera nada mal. Medido.
+    #
+    # SÓLO funciones, y no `Test-Anidado`. `Test-Anidado` también descarta los
+    # `ScriptBlockExpressionAst`, y un scriptblock NO es un scope nuevo: `ForEach-Object` y
+    # `Where-Object` ejecutan el suyo en el scope del llamador, así que una asignación ahí adentro
+    # PISA la variable del script. Medido: usar `Test-Anidado` acá cerraba el falso rojo y abría a
+    # cambio la reasignación a un stub envuelta en un pipe — un falso negativo, que es peor.
+    # `& { $lib = ... }` sí es scope hijo y no pisa, pero acá cuenta igual: sobre-aproximar hacia el
+    # rojo sobre código que nadie escribe es el lado correcto del error.
+    -not (Test-DentroDeUnaFuncion $_)
+  })
+  if ($asigs.Count -ne 1) { return $false }
+  $a = $asigs[0]
+  # Comparación por texto y no contra [TokenKind]::Equals: `Equals` es además un método estático
+  # heredado de System.Object, así que `::Equals` es ambiguo y resuelve al método.
+  if ("$($a.Operator)" -ne 'Equals') { return $false }
+  # No se re-chequea `Test-Anidado` acá: el filtro de arriba ya descartó las anidadas, así que
+  # sería una línea que no puede ejecutarse. `Test-BajoCondicion` sí hace falta — una asignación
+  # dentro de un `if` de nivel de script no está anidada y sí puede no ejecutarse.
+  if (Test-BajoCondicion $a) { return $false }
+  # Asignar DESPUÉS del dot-source no importa para lo que se importó, pero sí delata un archivo que
+  # juega con la variable; y sin este orden, `. $lib` seguido de la única asignación pasaría.
+  if ($a.Extent.StartOffset -ge $offsetDelDotSource) { return $false }
+  if ($a.Right -isnot [System.Management.Automation.Language.PipelineAst]) { return $false }
+  $els = @($a.Right.PipelineElements)
+  if ($els.Count -ne 1) { return $false }
+  return (Test-JoinPathCanonico $els[0] $relativo)
+}
+
+function Test-ImportaElHelper([string]$path, [string]$relativo) {
   $ast = Get-AstDe $path
   $ds = @($ast.FindAll({
     param($n)
     $n -is [System.Management.Automation.Language.CommandAst] -and $n.InvocationOperator -eq 'Dot'
   }, $true))
   if ($ds.Count -eq 0) { return $false }
-  # Variables asignadas a algo que nombra el helper, para la forma `$lib = ...` + `. $lib` que usa
-  # esta misma suite (necesita el path después, para el probe de la parte C).
-  $varsConElPath = @{}
-  foreach ($a in @($ast.FindAll({
-    param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst]
-  }, $true))) {
-    if ($a.Right.Extent.Text -match $fragmento) { $varsConElPath[$a.Left.Extent.Text] = $true }
-  }
+  # TODOS los dot-sources del archivo, no "al menos uno". Con "al menos uno" la evasión es poner el
+  # canónico y un stub abajo: medido contra el predicado anterior, pasaba en verde.
   foreach ($c in $ds) {
-    # SÓLO el elemento 0 — lo que se dot-sourcea. Matchear el Extent del comando entero incluía sus
-    # ARGUMENTOS, así que el agujero del comentario se mudaba una grafía a la izquierda: medido,
-    # `. (Join-Path $PSScriptRoot "stub.ps1") -Nota 'lib\temp-workspace.ps1'` dot-sourcea un stub
-    # con el glob incondicional y pasaba en verde.
+    # Mismas dos condiciones de posición que ya se les exigen al trap y a la limpieza final. Un
+    # dot-source dentro de un `if` pasaba: el helper podía no llegar a importarse nunca.
+    if (Test-Anidado $c) { return $false }
+    if (Test-BajoCondicion $c) { return $false }
     $obj = $c.CommandElements[0]
-    if ($null -eq $obj) { continue }
-    if ($obj.Extent.Text -match $fragmento) { return $true }
-    if ($varsConElPath.ContainsKey($obj.Extent.Text)) { return $true }
+    if ($null -eq $obj) { return $false }
+    $interno = Get-DentroDelParen $obj
+    if ($null -ne $interno -and (Test-JoinPathCanonico $interno $relativo)) { continue }
+    if ($obj -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        (Test-VariableCanonica $ast $obj.VariablePath.UserPath $relativo $c.Extent.StartOffset)) { continue }
+    return $false
   }
-  return $false
+  return $true
 }
+
+# Los cuatro nombres del helper. Redefinir cualquiera después de importarlo es LA evasión que le
+# queda al conjunto cerrado: el lint de arriba prohíbe tocar la raíz de %TEMP% directamente, así que
+# para filtrar hay que pasar por el helper — y reemplazarlo localmente es la única forma de hacerlo
+# sin escribir ninguna de las APIs que se vigilan.
+#
+# ---------------------------------------------------------------------------
+# EL BORDE DECLARADO: lo que estos lints NO ven, verificado grafía por grafía
+# ---------------------------------------------------------------------------
+# Esta lista está MEDIDA, no imaginada: cada línea se ejecutó contra los predicados de este archivo
+# el 2026-09-02. La versión anterior de este párrafo nombraba `& { function ... }` como evasión y
+# NO lo es —el scriptblock corre en un scope hijo y la redefinición muere con él, verificado—,
+# mientras omitía las seis que sí lo son. Un borde mal declarado es peor que no declararlo: manda a
+# buscar donde no hay y deja de mirar donde sí.
+#
+# Reemplazan la VARIABLE que se dot-sourcea (los tres pasan en verde):
+#   - `foreach ($lib in @('C:\stub.ps1')) { }` — el `foreach` deja la variable con el último valor
+#     iterado y no es un `AssignmentStatementAst`, así que no lo cuenta nada.
+#   - `Set-Variable -Name lib -Value 'C:\stub.ps1'` — tampoco es una asignación en el AST.
+#   - `$script:lib = 'C:\stub.ps1'` — en el cuerpo del script `$script:lib` ES `$lib`, pero su
+#     `UserPath` es `script:lib`, así que el conteo de asignaciones no lo ve.
+#
+# Reemplazan la RAÍZ del path (pasa en verde):
+#   - `$PSScriptRoot = 'C:\fake'` antes del dot-source. `$PSScriptRoot` no es de sólo lectura, y el
+#     predicado sólo mira que el nodo se LLAME así. Rompe la forma 1, que es la que usan las ocho.
+#
+# Reemplazan las FUNCIONES después de importarlas:
+#   - `function global:New-TestRunRoot { }` / `script:` / `local:` — el `Name` del AST se guarda con
+#     el prefijo de scope, así que no iguala ningún nombre de la lista.
+#   - `Set-Item function:\New-TestRunRoot {...}` y `New-Item -Path function:` — no son
+#     `FunctionDefinitionAst`.
+#   - `Import-Module <stub.psm1>` desde FUERA de `tests/`. Dentro de `tests/` el barrido recursivo
+#     ya mira los `.psm1`, pero `Import-Module` no es un dot-source y el conjunto cerrado no lo ve.
+#
+# No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
+# cinco veces. Se cierran todas juntas con un chequeo de IDENTIDAD en runtime —comparar el archivo
+# de origen de las funciones que quedaron en scope contra el del helper—, que va en un slice aparte.
+# Hasta entonces esto queda declarado y no disimulado: la regla del repo es que una afirmación
+# checkeable se escribe sólo si se verificó, y "ninguna suite puede reemplazar el helper" es falsa.
+$script:FuncionesDelHelper = @('New-TestRunRoot', 'Remove-TestRunRoot', 'New-TestWorkspace', 'New-TestTempPath')
+
+function Get-RedefinicionesDelHelper([string]$path) {
+  $ast = Get-AstDe $path
+  return @($ast.FindAll({
+    param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
+  }, $true) | Where-Object { $_.Name -in $script:FuncionesDelHelper })
+}
+
+# A0b. Los predicados nuevos, contra fixtures que tienen que RECHAZAR. Sin estos controles, un
+# `Test-ImportaElHelper` que devuelva siempre $true pasa el lint entero en verde — que es justo el
+# modo de falla que este archivo persigue.
+#
+# El criterio de cada caso negativo es MECÁNICO, no histórico: **existe porque sin él se puede
+# borrar una línea del predicado y la suite queda verde**. Eso es verificable corriendo el mutante
+# correspondiente, y es lo único que se afirma acá.
+#
+# Deliberadamente NO se clasifica cada caso por su historia ("éste era un agujero del predicado
+# viejo", "éste es sólo cobertura"). Dos versiones de este párrafo intentaron esa clasificación y
+# las dos salieron con la atribución cambiada — la segunda decía que ocho de estos casos no eran
+# agujeros del predicado anterior, y el predicado anterior los aceptaba a todos menos uno. En este
+# repo los errores de atribución en prosa de procedimiento son el modo de falla recurrente, y lo
+# que los cierra no es redactar mejor: es no afirmar lo que no se mide. La historia de cada caso
+# está en `git log`, que no se desactualiza.
+$casosDeImport = @(
+  @{ ok = $true;  n = 'la forma 1 canónica';                          codigo = '. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")' }
+  @{ ok = $true;  n = 'la forma 2 canónica (asignar y dot-sourcear)'; codigo = "`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"`n. `$lib" }
+  @{ ok = $true;  n = 'la forma 1 con separador /';                   codigo = '. (Join-Path $PSScriptRoot "lib/temp-workspace.ps1")' }
+  @{ ok = $false; n = 'un stub en fake/lib (la subcadena sin anclar)'; codigo = '. (Join-Path $PSScriptRoot "fake\lib\temp-workspace.ps1")' }
+  @{ ok = $false; n = 'el canónico MÁS un stub abajo';                codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"stub.ps1`")" }
+  @{ ok = $false; n = 'el dot-source metido dentro de un if';         codigo = "if (`$true) { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") }" }
+  # Una rama por cada tipo que `Test-BajoCondicion` enumera. Sin una por tipo, borrarle ese tipo a
+  # la lista deja la suite verde: medido, el mutante que borraba `SwitchStatementAst` sobrevivía.
+  # Cada fixture dispara exactamente un tipo (medido), pero la correspondencia NO es uno a uno: son
+  # siete fixtures para seis tipos, porque `&&` y `||` disparan los dos `PipelineChainAst`.
+  @{ ok = $false; n = 'el dot-source dentro de un switch';            codigo = "switch (1) { 1 { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") } }" }
+  @{ ok = $false; n = 'el dot-source dentro de un try';               codigo = "try { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") } catch { }" }
+  @{ ok = $false; n = 'el dot-source dentro de un foreach';           codigo = "foreach (`$i in 1..1) { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") }" }
+  @{ ok = $false; n = 'el dot-source dentro de un trap';              codigo = "trap { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"); break }`n`$x = 1" }
+  # `&&` y `||` son ejecución condicional igual que un `if`, y viven en su propio nodo
+  # (`PipelineChainAst`) que la lista no tenía. Medido: el dot-source de la derecha de un `&&` no
+  # se ejecuta si la izquierda falla, y pasaba como incondicional. El agujero era peor en
+  # `Test-LimpiezaAlTerminar`, donde `<algo> && Remove-TestRunRoot $script:runRoot` contaba como
+  # limpieza final garantizada.
+  # Sobre-aproxima: `Test-BajoCondicion` sube por `Parent` y no distingue el lado de la cadena, así
+  # que el operando IZQUIERDO —que sí se ejecuta siempre— también cuenta como condicional. Da rojo
+  # sobre `Remove-TestRunRoot $script:runRoot && <algo>`, que sería correcto. Hoy no molesta a
+  # nadie (ninguna suite usa `&&`/`||` en código, sólo dentro de strings) y el error va hacia el
+  # rojo, que es el lado seguro. Los dos fixtures de abajo cubren el lado derecho.
+  @{ ok = $false; n = 'el dot-source a la derecha de un &&';          codigo = "`$true && . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")" }
+  @{ ok = $false; n = 'el dot-source a la derecha de un ||';          codigo = "`$false || . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")" }
+  # Un dot-source dentro de una función importa el helper al scope de ESA función, así que las
+  # cuatro funciones no existen para el resto de la suite (y si nadie la llama, no se importa
+  # nada). `Test-Anidado` es lo único que lo ataja: sin este caso, borrar esa guarda pasaba en
+  # verde. El fixture llama a la función a propósito — el motivo del rojo es el scope, no la falta
+  # de llamada.
+  @{ ok = $false; n = 'el dot-source dentro de una función';          codigo = "function Setup { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") }`nSetup" }
+  # `Join-Path` de PS7 acepta `-AdditionalChildPath`: con cuatro elementos, `$els[2]` sigue siendo
+  # el relativo canónico pero el path resuelto es otro archivo. Sin este caso, aflojar el
+  # `$els.Count -ne 3` a `-lt 3` pasaba en verde.
+  @{ ok = $false; n = 'Join-Path con un segmento de más';             codigo = '. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1" "..\stub.ps1")' }
+  # El caso legítimo que NO puede dar rojo: una función auxiliar con una variable local que se llama
+  # igual. Medido: el conteo de asignaciones las contaba y ponía la suite en rojo sin nada malo.
+  @{ ok = $true;  n = 'una variable local homónima en una función';   codigo = "`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"`nfunction f { `$lib = 1 }`n. `$lib" }
+  # Un scriptblock NO es un scope nuevo: `ForEach-Object` y `Where-Object` ejecutan el suyo en el
+  # scope del llamador, así que una asignación ahí adentro PISA la variable del script. Medido.
+  # Estos dos casos existen porque un fix anterior los abrió: al descartar las asignaciones
+  # "anidadas" para cerrar el falso rojo de la función, se descartaron también las de scriptblock,
+  # y la reasignación a un stub envuelta en un pipe pasó a verde. Cambiar un falso positivo por un
+  # falso negativo es peor que el bug original.
+  @{ ok = $false; n = 'la variable reasignada dentro de ForEach-Object'; codigo = "`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"`n1..1 | ForEach-Object { `$lib = 'C:\stub.ps1' }`n. `$lib" }
+  @{ ok = $false; n = 'la variable reasignada dentro de Where-Object';   codigo = "`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"`n@(1) | Where-Object { `$lib = 'C:\stub.ps1'; `$true } | Out-Null`n. `$lib" }
+  # La guarda de orden: dot-sourcear ANTES de la única asignación. Sin este caso, borrarla pasaba
+  # en verde. Que además reviente en runtime (la variable está vacía) no es excusa para que el
+  # lint lo acepte: el lint es lo que se lee para saber qué está permitido.
+  @{ ok = $false; n = 'el dot-source ANTES de la asignación';         codigo = ". `$lib`n`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"" }
+  @{ ok = $false; n = 'la variable reasignada a un stub';             codigo = "`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`"`n`$lib = Join-Path `$PSScriptRoot `"stub.ps1`"`n. `$lib" }
+  @{ ok = $false; n = 'la variable asignada a un literal ajeno';      codigo = "`$lib = `"C:\otro\lib\temp-workspace.ps1`"`n. `$lib" }
+  # La forma 2 apuntando a un stub, hermana exacta del caso de la forma 1. El caso de arriba NO la
+  # cubre: corta antes, en el chequeo de que el lado derecho sea un pipeline, así que la llamada a
+  # `Test-JoinPathCanonico` desde `Test-VariableCanonica` quedaba sin ningún test — medido,
+  # devolver `$true` ahí sobrevivía la suite entera.
+  @{ ok = $false; n = 'la forma 2 apuntando a un stub en fake/lib';   codigo = "`$lib = Join-Path `$PSScriptRoot `"fake\lib\temp-workspace.ps1`"`n. `$lib" }
+  # La mitad "scriptblock" de `Test-Anidado`, del lado del dot-source. Sin estos dos, cambiarlo por
+  # `Test-DentroDeUnaFuncion` acá pasaba en verde — y `& { . (Join-Path …) }` importa el helper a un
+  # scope hijo, o sea que las cuatro funciones no quedan disponibles para la suite.
+  @{ ok = $false; n = 'el dot-source dentro de un ForEach-Object'; codigo = "1..1 | ForEach-Object { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") }" }
+  @{ ok = $false; n = 'el dot-source dentro de un & { }';         codigo = "& { . (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`") }" }
+  # El `Join-Path` canónico a la vista, pero el pipeline devuelve OTRA cosa. Sin estos dos, aflojar
+  # el "un solo elemento de pipeline" a `-lt 1` aceptaba dot-sourcear un stub con el path bueno
+  # escrito al lado. Uno por cada forma de import.
+  @{ ok = $false; n = 'forma 1 con un pipeline que devuelve otra cosa'; codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`" | ForEach-Object { 'C:\stub.ps1' })" }
+  @{ ok = $false; n = 'forma 2 con un pipeline que devuelve otra cosa'; codigo = "`$lib = Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`" | ForEach-Object { 'C:\stub.ps1' }`n. `$lib" }
+  @{ ok = $false; n = 'un archivo sin ningún dot-source';             codigo = '$x = 1' }
+)
+# Piso, y por CLASE: la lista es el único control de que `Test-ImportaElHelper` no devuelve siempre
+# lo mismo. Sin negativos, un predicado que acepta todo pasa; sin positivos, uno que rechaza todo
+# también. Contar el total no distingue ninguno de los dos casos.
+$acepta = @($casosDeImport | Where-Object { $_.ok })
+$rechaza = @($casosDeImport | Where-Object { -not $_.ok })
+Assert ($acepta.Count -ge 3) "hay casos que el conjunto cerrado debe ACEPTAR (hay: $($acepta.Count))"
+Assert ($rechaza.Count -ge 10) "hay casos que debe RECHAZAR (hay: $($rechaza.Count))"
+# Y por MEMBRESÍA, no sólo por cantidad: con el piso solo, borrar los siete fixtures de rama dejaba
+# `$rechaza.Count` en 11 — todavía por encima del piso de 10, así que todo verde— y revivía los
+# mutantes que esos fixtures matan.
+# Cada nombre de esta lista clava una rama concreta del predicado; si borrás un fixture, esto dice
+# CUÁL falta en vez de dejar pasar un conteo que sigue alcanzando.
+$ramasExigidas = @(
+  'el dot-source metido dentro de un if'
+  'el dot-source dentro de un switch'
+  'el dot-source dentro de un try'
+  'el dot-source dentro de un foreach'
+  'el dot-source dentro de un trap'
+  'el dot-source a la derecha de un &&'
+  'el dot-source a la derecha de un ||'
+  'el dot-source dentro de una función'
+  'Join-Path con un segmento de más'
+  'el dot-source ANTES de la asignación'
+  'la variable reasignada dentro de ForEach-Object'
+  'la variable reasignada dentro de Where-Object'
+  'la variable reasignada a un stub'
+  'la variable asignada a un literal ajeno'
+  'la forma 2 apuntando a un stub en fake/lib'
+  'un stub en fake/lib (la subcadena sin anclar)'
+  'un archivo sin ningún dot-source'
+  # Éste es estructuralmente único: es el ÚNICO fixture del conjunto con dos dot-sources, así que
+  # es el único que puede matar el mutante "alcanza con que ALGÚN dot-source sea canónico" — que
+  # es la diferencia entre el conjunto cerrado y un detector abierto. Sin pinnearlo, borrarlo
+  # dejaba el conteo por encima del piso y el mutante revivía en verde. Medido.
+  'el canónico MÁS un stub abajo'
+)
+$nombresDeCaso = @($casosDeImport | ForEach-Object { $_.n })
+$ramasFaltantes = @($ramasExigidas | Where-Object { $_ -notin $nombresDeCaso })
+Assert ($ramasFaltantes.Count -eq 0) "están todos los fixtures de rama (faltan: $($ramasFaltantes -join ' | '))"
+# Y que el fixture nombrado siga SIENDO un intento de importar el helper. Atar sólo el nombre deja
+# vaciar el `codigo`: medido, poniendo `'$x = 1'` en el caso del `foreach` el assert seguía verde
+# (un archivo sin dot-source también se rechaza), y con eso `LoopStatementAst` quedaba sin cobertura
+# — es el único de los seis tipos que un solo fixture cubre, así que nada más lo tapaba.
+# La única excepción es el caso cuyo contenido ES la ausencia del dot-source: exigirle que nombre
+# el helper lo convertiría en otro caso.
+$ramasVacias = @($ramasExigidas | Where-Object { $_ -ne 'un archivo sin ningún dot-source' } | ForEach-Object {
+  $n = $_
+  $caso = @($casosDeImport | Where-Object { $_.n -eq $n })[0]
+  if ($null -eq $caso -or $caso.codigo -notlike "*temp-workspace.ps1*") { $n }
+})
+Assert ($ramasVacias.Count -eq 0) `
+  "y cada fixture de rama sigue nombrando el helper (vaciados: $($ramasVacias -join ' | '))"
+foreach ($ci in $casosDeImport) {
+  # Un archivo por caso: juntos, un solo rechazo taparía a los demás.
+  $fx = New-TestTempPath $script:runRoot "import" ".ps1"
+  $ci.codigo | Set-Content -LiteralPath $fx -Encoding UTF8
+  $r = Test-ImportaElHelper $fx 'lib\temp-workspace.ps1'
+  $verbo = if ($ci.ok) { 'acepta' } else { 'RECHAZA' }
+  Assert ($r -eq $ci.ok) "el conjunto cerrado $verbo : $($ci.n)"
+}
+
+# El detector de redefiniciones, con su control negativo: sin el negativo, uno que devuelva siempre
+# vacío pasa el lint de abajo en verde sobre un repo lleno de stubs.
+#
+# UN FIXTURE POR NOMBRE, no uno solo. Con un único fixture sobre `New-TestRunRoot`, recortar la
+# lista a ese nombre pasaba en verde (medido: fue un mutante que sobrevivió), y el nombre que más
+# importa es otro: redefinir `Remove-TestRunRoot` deja filtrar TODO sin tocar ninguna de las APIs
+# de %TEMP% que el otro lint vigila.
+foreach ($fn in $script:FuncionesDelHelper) {
+  $fxRedef = New-TestTempPath $script:runRoot "redef" ".ps1"
+  ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`nfunction $fn { }" |
+    Set-Content -LiteralPath $fxRedef -Encoding UTF8
+  $enc = @(Get-RedefinicionesDelHelper $fxRedef)
+  Assert ($enc.Count -eq 1) "se ve una suite que redefine $fn después de importarlo (vistas: $($enc.Count))"
+  # Membresía, no sólo cantidad: un detector que devolviera cualquier función daría 1 igual.
+  Assert ($enc.Count -eq 1 -and $enc[0].Name -eq $fn) "y la que ve es $fn, no otra"
+}
+# Piso de la lista: si alguien la vacía o la recorta, el foreach de arriba mide menos y todo pasa.
+Assert ($script:FuncionesDelHelper.Count -eq 4) `
+  "la lista de funciones del helper tiene las cuatro (tiene: $($script:FuncionesDelHelper.Count))"
+# Y que la lista siga siendo LA del helper: si el helper gana una quinta función, queda sin
+# protección contra redefinición y en silencio. La lista se compara contra el archivo, no se cree.
+$delHelper = @((Get-AstDe $lib).FindAll({
+  param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
+}, $true) | ForEach-Object { $_.Name })
+$faltan = @($delHelper | Where-Object { $_ -notin $script:FuncionesDelHelper })
+Assert ($faltan.Count -eq 0) `
+  "la lista cubre todas las funciones del helper (sin cubrir: $($faltan -join ', '))"
+
+$fxSinRedef = New-TestTempPath $script:runRoot "sinredef" ".ps1"
+@'
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+function Assert-Algo { param($x) return $x }
+'@ | Set-Content -LiteralPath $fxSinRedef -Encoding UTF8
+Assert ((Get-RedefinicionesDelHelper $fxSinRedef).Count -eq 0) `
+  "no confunde una función cualquiera con una redefinición del helper"
 
 $suites = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter "*.tests.ps1" -File)
 # Contra el piso conocido: sin esto, un glob que no matchea nada deja el foreach vacío y las
 # aserciones de abajo "pasan" sin haber leído un solo archivo.
 Assert ($suites.Count -ge 15) "el lint ve las suites del repo (encontradas: $($suites.Count))"
 
-# Todo lo que hay bajo tests/lib/ además del helper. Era un punto ciego: el glob de arriba es sólo
-# `*.tests.ps1` y no recursivo, así que un stub puesto ahí podía crear temporales en la raíz de
-# %TEMP% —con el glob incondicional y todo— sin que nada lo mirara, y encima una suite podía
-# dot-sourcearlo. Medido: ese fue un mutante que sobrevivió.
-# La exclusión es por PATH, no por nombre: con `-Recurse` y un `-ne "temp-workspace.ps1"` a secas,
-# un `lib/helpers/temp-workspace.ps1` con una fuga adentro quedaba sin mirar (medido).
-$libDir = Join-Path $PSScriptRoot "lib"
-$auxiliares = @(Get-ChildItem -LiteralPath $libDir -Filter "*.ps1" -File -Recurse |
-  Where-Object { $_.FullName -ne $lib })
-foreach ($a in $auxiliares) {
-  $rel = $a.FullName.Substring($libDir.Length + 1)
-  $u = Get-UsosDeTempDirecto $a.FullName
-  Assert ($u.Count -eq 0) "lib/$rel : no construye temporales en la raíz de %TEMP% (usos directos: $($u.Count))"
+# TODOS los .ps1 bajo tests/, recursivo — no sólo `tests/*.tests.ps1` más `tests/lib/**`. El recorte
+# anterior dejaba afuera cualquier directorio que no fuera `lib/`, y ya existe uno: `tests/fixtures/`.
+# Un .ps1 ahí adentro podía crear temporales en la raíz de %TEMP%, con el glob incondicional y todo,
+# sin que ninguno de los dos lints lo mirara. La exclusión del helper es por PATH y no por nombre:
+# con un `-ne "temp-workspace.ps1"` a secas, un `lib/helpers/temp-workspace.ps1` con una fuga adentro
+# quedaba sin mirar (medido).
+#
+# La enumeración va en su propia función para poder probarla contra un árbol SINTÉTICO, y no es
+# ceremonia: hoy el único .ps1 en un subdirectorio de tests/ es el helper, y el helper se excluye,
+# así que sobre el árbol real el conjunto recursivo y el no recursivo son IDÉNTICOS (15 y 15,
+# medido). Ningún piso por cantidad puede distinguirlos — borrarle el `-Recurse` pasaría en verde y
+# el agujero de `tests/fixtures/` volvería sin que nada se ponga rojo. El árbol sintético sí lo ve.
+function Get-Ps1DeArbol([string]$raiz, [string]$excluido) {
+  # `-Include` y no `-Filter`: hay que mirar los TRES tipos de archivo de PowerShell, no sólo
+  # `.ps1`. Un `.psm1` bajo `tests/` era invisible para los dos lints (medido), y una suite puede
+  # traérselo con `Import-Module`, que no es un dot-source y por lo tanto tampoco lo ve el conjunto
+  # cerrado — la evasión quedaba completa.
+  #
+  # `-Force` porque `-Recurse` sin él NO baja a directorios ocultos ni lista archivos ocultos
+  # (medido): un `tests\.oculto\fuga.ps1` no se miraba. Es el mismo recorte silencioso que este
+  # trabajo vino a eliminar.
+  return @(Get-ChildItem -LiteralPath $raiz -Include "*.ps1", "*.psm1", "*.psd1" -File -Recurse -Force |
+    Where-Object { $_.FullName -ne $excluido })
+}
+
+$arbol = New-TestWorkspace $script:runRoot "arbol"
+$subFixtures = Join-Path $arbol "fixtures"
+$subFake = Join-Path (Join-Path $arbol "fake") "lib"
+$subOculto = Join-Path $arbol ".oculto"
+[IO.Directory]::CreateDirectory($subFixtures) | Out-Null
+[IO.Directory]::CreateDirectory($subFake) | Out-Null
+[IO.Directory]::CreateDirectory($subOculto) | Out-Null
+(Get-Item -LiteralPath $subOculto -Force).Attributes = 'Directory,Hidden'
+$exclSintetico = Join-Path $arbol "raiz.tests.ps1"
+'$x = 1' | Set-Content -LiteralPath $exclSintetico -Encoding UTF8
+'$x = 1' | Set-Content -LiteralPath (Join-Path $subFixtures "en-fixtures.ps1") -Encoding UTF8
+'$x = 1' | Set-Content -LiteralPath (Join-Path $subFake "temp-workspace.ps1") -Encoding UTF8
+'$x = 1' | Set-Content -LiteralPath (Join-Path $subFixtures "modulo.psm1") -Encoding UTF8
+'$x = 1' | Set-Content -LiteralPath (Join-Path $subOculto "escondido.ps1") -Encoding UTF8
+$vistos = Get-Ps1DeArbol $arbol $exclSintetico
+# Cantidad Y membresía. Contar solo la cantidad deja pasar una lista que ve cuatro archivos
+# equivocados; es la misma trampa que este repo ya documenta como "contar hallazgos en vez de
+# atribuirlos". Cada uno de los cuatro cubre un recorte distinto del enumerador, y por eso van
+# nombrados de a uno: un assert que sólo contara cuatro no diría CUÁL falta.
+$nombresVistos = @($vistos | ForEach-Object { $_.Name })
+Assert ($vistos.Count -eq 4) "la enumeración baja a los subdirectorios (vio: $($vistos.Count) de 4)"
+Assert ('en-fixtures.ps1' -in $nombresVistos) "la enumeración ve un .ps1 en un subdirectorio nuevo (fixtures/)"
+Assert ('temp-workspace.ps1' -in $nombresVistos) "la enumeración ve un stub anidado (fake/lib/)"
+Assert ('modulo.psm1' -in $nombresVistos) "la enumeración ve un .psm1 (se puede traer con Import-Module)"
+Assert ('escondido.ps1' -in $nombresVistos) "la enumeración baja a un directorio OCULTO"
+Assert ($exclSintetico -notin @($vistos | ForEach-Object { $_.FullName })) `
+  "la enumeración excluye el archivo excluido"
+
+$todosLosPs1 = Get-Ps1DeArbol $PSScriptRoot $lib
+# Membresía, no cantidad. Un `-ge $suites.Count` es tautológico acá: `$todosLosPs1` es por
+# construcción un superconjunto de `$suites` (misma raíz, recursivo, y lo único excluido es el
+# helper, que no es `*.tests.ps1`), así que no puede fallar nunca. Esto sí puede: si el enumerador
+# deja de ver la raíz, o el filtro de extensiones se rompe, alguna suite falta y se dice cuál.
+$rutasVistas = @($todosLosPs1 | ForEach-Object { $_.FullName })
+$suitesSinMirar = @($suites | Where-Object { $_.FullName -notin $rutasVistas } | ForEach-Object { $_.Name })
+Assert ($suitesSinMirar.Count -eq 0) `
+  "el lint recursivo mira todas las suites (sin mirar: $($suitesSinMirar -join ', '))"
+Assert ($lib -notin @($todosLosPs1 | ForEach-Object { $_.FullName })) `
+  "el helper queda excluido del conjunto (es el único que puede tocar la raíz de %TEMP%)"
+foreach ($f in $todosLosPs1) {
+  $rel = $f.FullName.Substring($PSScriptRoot.Length + 1)
+  $u = Get-UsosDeTempDirecto $f.FullName
+  Assert ($u.Count -eq 0) "$rel : no construye temporales en la raíz de %TEMP% (usos directos: $($u.Count))"
+  # Ningún archivo fuera del helper puede definir sus funciones. El helper está excluido del
+  # conjunto, así que sus cuatro definiciones legítimas no se cuentan acá.
+  $rd = Get-RedefinicionesDelHelper $f.FullName
+  Assert ($rd.Count -eq 0) "$rel : no redefine ninguna función del helper (redefiniciones: $($rd.Count))"
 }
 
 $conHelper = 0
 foreach ($s in $suites) {
-  $sueltos = Get-UsosDeTempDirecto $s.FullName
-  Assert ($sueltos.Count -eq 0) "$($s.Name): no construye temporales en la raíz de %TEMP% (usos directos: $($sueltos.Count))"
-
   $usa = @((Get-AstDe $s.FullName).FindAll({
     param($n)
     $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'New-TestRunRoot'
   }, $true))
   if ($usa.Count -gt 0) {
     $conHelper++
-    Assert (Test-DotSourceaA $s.FullName 'lib[\\/]temp-workspace\.ps1') `
-      "$($s.Name): dot-sourcea el helper en vez de redefinirlo"
+    Assert (Test-ImportaElHelper $s.FullName 'lib\temp-workspace.ps1') `
+      "$($s.Name): importa el helper con una de las dos formas admitidas"
     Assert (Test-TrapDeScript $s.FullName 'Remove-TestRunRoot' '$script:runRoot') `
       "$($s.Name): el trap borra la raíz desde el cuerpo del script y termina en break"
     Assert (Test-LimpiezaAlTerminar $s.FullName 'Remove-TestRunRoot' '$script:runRoot') `

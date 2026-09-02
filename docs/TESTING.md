@@ -102,9 +102,79 @@ por tokens aceptaba un `trap` metido en una función (o sea muerto), un dot-sour
 en el comentario del final de la línea, y el borrado de la limpieza final en las suites que tenían
 una tercera invocación. Es el mismo salto que ya se había hecho de grep a tokens, un escalón arriba.
 
-Lo que el lint **no** ve, a sabiendas: `[Environment]::GetEnvironmentVariable('TEMP')`,
+### La importación del helper es un conjunto CERRADO
+
+El chequeo del dot-source **no busca algo que se parezca** a `lib/temp-workspace.ps1`: admite un
+conjunto cerrado de formas y rechaza todo lo demás.
+
+1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las ocho suites migradas.
+   El separador `/` también se acepta: es el mismo archivo.
+2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo `temp-hygiene`, que
+   necesita el path después. La variable tiene que asignarse **una sola vez fuera de toda función**,
+   sin condición y antes del dot-source. "Fuera de toda función" y no "en el cuerpo del script":
+   una asignación dentro de un `ForEach-Object {}` o un `Where-Object {}` **también cuenta**, porque
+   esos scriptblocks corren en el scope del llamador y pisan la variable del script (medido). Sólo
+   se ignoran las asignaciones dentro de una `function`. Un `& { $lib = … }` **sí** abre scope
+   propio y no pisa nada, pero acá cuenta igual, a propósito: sobre-aproximar hacia el rojo sobre
+   una grafía que nadie escribe es el lado correcto del error.
+
+**Todos** los dot-sources del archivo tienen que ser canónicos, no "al menos uno", y ninguno puede
+estar dentro de un `if`, `switch`, `try`, `trap`, loop, una función, **un scriptblock cualquiera**
+(`& { … }`, `ForEach-Object { … }`) ni a la derecha de un `&&`/`||`. El dot-source va en el cuerpo
+del script, suelto.
+
+El motivo es histórico: todo detector *abierto* de este archivo fue evadido dentro de un turno
+(grep → tokens → AST). Medidas contra el detector abierto el 2026-09-02, estas **cinco** pasaban en
+verde: un stub en `tests/fake/lib/temp-workspace.ps1` (la subcadena no estaba anclada), un
+dot-source canónico seguido de otro a un stub, el dot-source metido en un `if`, la variable
+reasignada a un stub, y la variable asignada a un literal ajeno.
+
+⚠️ **El conjunto cerrado NO elimina la evasión: la achica.** Una versión anterior de esta sección
+afirmaba que "no hay grafía nueva que enumerar" y es falso — un review encontró **seis grafías
+nuevas en un solo turno**, todas verificadas ejecutando el predicado. Están en la lista de abajo.
+La razón es de fondo: acá se aproxima **estáticamente** una pregunta de identidad ("¿lo que quedó en
+scope es el helper de verdad?"), y esa pregunta sólo se responde exacto en runtime.
+
+**Costo:** si cambiás cómo se importa el helper, el lint da rojo y hay que agregar la forma nueva a
+mano en `Test-ImportaElHelper`. Es el rojo que se quiere. Y ojo con el alcance: la regla es "**ningún**
+dot-source que no sea el canónico", así que si sumás un segundo helper bajo `tests/lib/`, cada suite
+que lo dot-sourcee da rojo — el chequeo es por archivo, así que sólo caen las que lo usen, no todas.
+Mover `lib/` de lugar sí rompe las nueve a la vez, porque cambia el path canónico para todas.
+
+El lint recorre **todos** los `.ps1`, `.psm1` y `.psd1` bajo `tests/`, recursivo y **con `-Force`**.
+Antes miraba la raíz más `tests/lib/**`, y ya existía un directorio afuera de eso
+(`tests/fixtures/`) donde un `.ps1` con una fuga era invisible; sin `-Force` tampoco bajaba a
+directorios ocultos, y sin `.psm1` un módulo con la fuga adentro no se miraba. Ningún archivo fuera
+del helper puede **definir** `New-TestRunRoot`, `Remove-TestRunRoot`, `New-TestWorkspace` ni
+`New-TestTempPath`: redefinirlas después de importar es la forma de filtrar sin escribir ninguna de
+las APIs vigiladas.
+
+### El borde declarado (medido, no imaginado)
+
+Lo que el lint **no** ve por el lado de `%TEMP%`: `[Environment]::GetEnvironmentVariable('TEMP')`,
 `Get-Item Env:TEMP`, un path armado desde `$env:LOCALAPPDATA`, y cualquier cosa dentro de un string
-sin interpolar — incluido el código que una suite le pasa a un `pwsh` hijo, que es invisible.
+sin interpolar — incluido el código que una suite le pasa a un `pwsh` hijo.
+
+Lo que **no** ve por el lado de la identidad del helper. Cada línea se ejecutó contra los predicados
+el 2026-09-02. Una versión anterior de esta lista nombraba `& { function ... }` como evasión y **no
+lo es** (el scriptblock corre en un scope hijo y la redefinición muere con él, verificado), mientras
+omitía las seis que sí lo son — un borde mal declarado manda a buscar donde no hay:
+
+| grafía | por qué pasa |
+|---|---|
+| `foreach ($lib in @('C:\stub.ps1')) { }` | deja la variable con el último valor y no es un `AssignmentStatementAst` |
+| `Set-Variable -Name lib -Value ...` | tampoco es una asignación en el AST |
+| `$script:lib = ...` | en el cuerpo del script **es** `$lib`, pero su `UserPath` es `script:lib` |
+| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las ocho |
+| `function global:New-TestRunRoot { }` | el `Name` del AST guarda el prefijo de scope |
+| `Import-Module <stub.psm1>` desde fuera de `tests/` | no es un dot-source |
+
+Más `Set-Item function:` y `New-Item -Path function:`, que no son `FunctionDefinitionAst`.
+
+No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
+cinco veces. Se cierran todas juntas con un **chequeo de identidad en runtime** — comparar el
+archivo de origen de las funciones que quedaron en scope contra el del helper —, que va en un slice
+aparte. Hasta entonces esto queda declarado y no disimulado.
 
 **Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
 **archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.
