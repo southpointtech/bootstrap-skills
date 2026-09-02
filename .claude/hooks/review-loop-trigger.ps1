@@ -2,8 +2,10 @@
 # sin revisar cuando se cierra un slice en un branch que NO es la base. Dispara en `gh pr create`,
 # en `git push`, y en un `git commit` que DECLARA el cierre con un trailer `Slice-Close:` — un
 # commit sin el trailer dispara sólo como red de seguridad, cuando el delta sin revisar pasa el
-# techo de ~400 líneas. A los commits se les verifica además la frescura, porque el evento trae el
-# cwd de la sesión y un commit hecho en otro repo se le atribuiría a éste.
+# techo de ~400 líneas. Antes que todo eso, el paso 5c descarta cualquier slice que sea enteramente
+# documentación, en TODOS los disparadores, `git push` incluido. A los commits se les verifica además
+# la frescura, porque el evento trae el cwd de la sesión y un commit hecho en otro repo se le
+# atribuiría a éste.
 # Comparte .git/review-loop-state.json con el marcador de revisión: deduplica por SHA ahí y nunca
 # destruye las claves del marcador. Cualquier camino que no aplique termina en exit 0 silencioso.
 #
@@ -93,10 +95,17 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # de la línea, PERDIENDO disparadores reales — `git commit -m "$(sed 's/"/x/' f)" && git push` salía
 # con $isPush FALSE, el push perdido. En vez de modelar `$()` (el pozo del parseo de bash que produjo
 # ocho altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el
-# comando CRUDO y se combinan con OR: todo falso negativo se vuelve falso positivo, la dirección que
-# el proyecto ya declaró segura (un review-loop de más, nunca un cierre perdido). Los usos naturales
-# (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas, se re-alinean solos y no
-# llegan a esta rama.
+# comando CRUDO y se combinan con OR. El costo es una superficie más ancha de falsos POSITIVOS: un
+# commit cuyo MENSAJE mencione "git push" / "gh pr create" adentro de un `$(...)` ahora levanta
+# $isPush/$isPr desde ese texto, y como la puerta del paso 6 es `-not ($isPush -or $isPr)`, ese
+# commit saltea la puerta del trailer, la ventana de frescura Y el techo, y dispara con sólo el gate
+# de docs del paso 5c en el camino (y aun así deduplicado por SHA a un único disparo). Eso no es
+# gratis —anula el guard de frescura que evita atribuirle a este repo el commit viejo de otro— pero
+# el peor resultado es un `/review-loop` de más, que le pide al marcador el rango de ESTE repo y
+# cierra en vacío: la dirección "revisar de más" que el proyecto ya declaró segura, nunca un cierre
+# perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas,
+# se re-alinean solos y no llegan a esta rama. El falso positivo aceptado está fijado por un fixture,
+# así que no puede degradarse a un cambio de conducta silencioso.
 if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
     $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
@@ -217,12 +226,189 @@ if (-not $base) { exit 0 }
 # 5. No revisar la base contra sí misma (la base puede ser un ref remoto)
 if (($branch -eq $base) -or ($base -eq "origin/$branch")) { exit 0 }
 
+# 5b. Resolver UNA vez el rango sin revisar, para el gate de docs de abajo y para la red de
+# seguridad del paso 6. Antes se resolvía dentro del paso 6, donde sólo llegaba un commit sin
+# trailer. El gate de docs necesita el mismo rango en TODOS los disparadores, y resolverlo dos
+# veces dejaría que las dos mitades discrepen sobre qué es el slice.
+$range = $null
+$rangeKnown = $false
+$root = (git rev-parse --show-toplevel 2>$null)
+if ($root) {
+    $marker = Join-Path $root ".claude/scripts/review-marker.ps1"
+    if (Test-Path -LiteralPath $marker) {
+        # Centinela: si `pwsh` no está en el PATH el error se traga y $LASTEXITCODE seguiría con el
+        # 0 de la llamada a git de arriba, leyéndose como una salida exitosa.
+        $global:LASTEXITCODE = 99
+        $r = (& pwsh -NoProfile -File $marker -Action range -RepoDir $root 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $rangeKnown = $true
+            if ($r) { $range = ([string]$r).Trim() }
+        }
+    }
+}
+
+# DOS listas, porque los dos llamadores de abajo les hacen preguntas distintas, y contestar las dos
+# con una sola lista es un bug: silencia la revisión de un bump de lockfile que viaja al lado de un
+# README.
+#
+# `$skipPat` — lo que el CLAUDE.md excluye de las LÍNEAS DE LÓGICA. El archivo sigue existiendo y
+# sigue mereciendo revisión; sólo aporta 0 al techo de ~400 líneas del paso 6.
+# `*` pelado y no `**`: los comodines de pathspec ya cruzan `/`, mientras que `**/nombre` no matchea
+# ese nombre en la raíz del repo — verificado, el manifest se seguía contando.
+$skipPat = @('*.bootstrap-manifest.json', 'docs/vendor/*', '*.lock', '*lock.json',
+             '*lock.yaml', '*.lockb', 'go.sum', '*.snap')
+# `$genPat` — lo que no ESCRIBIÓ nadie, así que no puede ser lo que haga valioso revisar un slice.
+# Sólo lo usa el gate, y es a propósito un subconjunto estricto: un manifest generado que se resella
+# al lado de una edición de docs no tiene que seguir disparando el loop, pero un lockfile es justo
+# donde se verifica la regla de supply-chain del CLAUDE.md, y el código vendorado es lo que se
+# fijó de una librería crítica. Darle al gate el `$skipPat` entero volvía la decisión NO MONOTÓNICA
+# — `package-lock.json` solo disparaba, el mismo lockfile con un README al lado se callaba — o sea
+# que agregar prosa apagaba la revisión. La monotonicidad se le debe a lo AUTORADO: un manifest
+# resellado solo sigue disparando y se calla al lado de un README, y está bien, porque no hay nada
+# autorado adentro para leer.
+# Una consecuencia que vale nombrar: un `.md` bajo `docs/vendor/` es prosa para este gate, así que
+# un slice hecho sólo de documentación vendorada no se revisa.
+$genPat = @('*.bootstrap-manifest.json', '*.snap')
+
+# Los archivos sin trackear que son NUEVOS desde la última revisión. El filtrado queda en manos de
+# los llamadores, porque filtran con listas DISTINTAS (`$genPat` vs `$skipPat`) — meter cualquiera
+# de las dos acá contestaría las dos preguntas con una sola respuesta, que es justo el bug que las
+# dos listas existen para evitar. `git diff` nunca muestra untracked, y el paso 5 del loop MANDA
+# escribir un test nuevo, que queda sin trackear hasta que alguien lo commitea.
+# Lo que cuenta es untracked DESDE EL MARCADOR: el marcador registra su propia huella `path|sha256`
+# en `untracked:<branch>` justamente para esto. Contarlos en absoluto hacía que un archivo nuevo ya
+# revisado volviera a disparar la red para siempre y — hasta que este descuento se compartió — que un
+# único archivo suelto dejara el gate de docs apagado permanentemente en ese repo.
+# La huella se llavea por la entrada `path|sha256` ENTERA, igual que la compara el propio
+# Test-NewUntracked del marcador. Llavear solo por path hacía que un archivo fichado con una línea y
+# desde entonces crecido a 600 quedara salteado para siempre. Y solo significa algo mientras su
+# marcador viva: cuando `git gc` poda el objeto, el rango se ensancha de vuelta a la base del slice,
+# así que descontar contra una huella muerta subcontaría justo cuando el rango acaba de crecer.
+# Hashear es la mitad cara, así que corre a lo sumo UNA vez por evento: el resultado exitoso se
+# cachea. (La falla no se cachea: retorna antes de hashear, así que reintentarla cuesta otro
+# `git ls-files` y nada más.)
+# Devuelve $null cuando no se le pudo preguntar a git; los dos llamadores lo leen como "no puedo
+# saber" y fallan abierto. `,$out` a la salida porque PowerShell colapsa un array vacío pelado a
+# $null, y eso haría indistinguible "no hay nada nuevo" de esa falla.
+$script:untrackedNewCache = $null
+function Get-UntrackedNew {
+    if ($null -ne $script:untrackedNewCache) { return ,$script:untrackedNewCache }
+    if (-not $root) { return $null }
+    $seen = @{}
+    $markerSha = [string]$state["marker:$branch"]
+    if ($markerSha) {
+        git -C $root cat-file -e "$markerSha^{commit}" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($e in @($state["untracked:$branch"])) { if ($e) { $seen[[string]$e] = $true } }
+        }
+    }
+    # core.quotepath apagado para que git no C-quotee un nombre no-ASCII ("\303\261andu.txt"), que
+    # fallaría el Test-Path y se perdería. La mitad de decodificación se maneja al tope del archivo.
+    $others = @(git -C $root -c core.quotepath=false ls-files --others --exclude-standard 2>$null)
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $out = @()
+    foreach ($f in @($others | Where-Object { $_ })) {
+        $p = Join-Path $root $f
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        # Sin huella registrada no hay contra qué comparar, así que el hash se calcularía sólo para
+        # tirarlo. Saltearlo deja el camino común — todavía sin marcador, o un marcador cortado con
+        # el árbol limpio — sin tener que leer entero cada archivo sin trackear.
+        if ($seen.Count -eq 0) { $out += $f; continue }
+        # Hasheado igual que lo hace el marcador, así las entradas comparan byte a byte.
+        $h = ""
+        try { $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } catch { }
+        if ($seen[("{0}|{1}" -f $f, $h)]) { continue }
+        $out += $f
+    }
+    $script:untrackedNewCache = $out
+    return ,$out
+}
+
+# 5c. Un slice que es ENTERAMENTE documentación no se gana un turno de review. Este bloque tiene
+# esta forma por dos bugs encontrados a los golpes en un proyecto que corrió una versión anterior, y
+# los dos eran falsos NEGATIVOS — el gate apagando revisiones, que es la única forma en que hace
+# daño.
+#
+# DOC = termina en `.md` Y NADA MÁS. La primera versión trataba todo `docs/` como documentación. En
+# un repo que guarda archivos no-`.md` ahí adentro — diseño congelado, fuentes de un portal, lo que
+# su CLAUDE.md declare fuente de verdad del frontend — un slice de sólo frontend salía sin ninguna
+# revisión y sin ningún síntoma por el cual notarlo.
+#
+# NO cuentan como doc aunque sean `.md` los archivos que gobiernan al agente: `.claude/**` y
+# `.agents/**` (hooks, comandos y los SKILL.md — la skill tdd es donde se define el trailer
+# `Slice-Close:` que este mismo hook lee), cualquier `CLAUDE.md` (las reglas duras), y
+# `docs/ai-workflow/**` + `docs/agents/**`, que el CLAUDE.md declara lectura obligatoria. Romper una
+# regla de ahí tiene el mismo efecto que romper código. Los anclajes son `(^|/)` y no `^`: Claude
+# Code auto-carga el `CLAUDE.md` del directorio en que se trabaja, así que un `^` pelado cubría sólo
+# el de la raíz y dejaba pasar todos los anidados.
+#
+# Se decide sobre el mismo rango que revisaría el loop, nunca sobre el último commit solo: un slice
+# que ya trae código sigue disparando aunque el commit que acaba de entrar sea sólo-docs. Los
+# untracked se suman por la misma razón (ver Get-UntrackedNew arriba), así que un slice cuyo único
+# código es un test nuevo todavía sin commitear no se confunde con prosa.
+#
+# Conservador a propósito: basta UN archivo no-doc en el slice para dejar el gate abierto, y todo lo
+# que git no pueda contestar también lo deja abierto (fail-open). Un gate abierto NO es lo mismo que
+# disparar: en un commit todavía opinan la puerta del trailer y el techo de ~400 líneas del paso 6,
+# y en TODOS los disparadores opina el dedupe por SHA del paso 7 — un segundo `git push` sobre el
+# mismo commit se calla con el gate bien abierto, que es la forma normal de volver a pushear después
+# de que el loop cerró.
+# `core.quotepath=false` es necesario: git C-quotea los paths no-ASCII y los envuelve en comillas
+# literales, y esas comillas rompen el anclaje `$` de abajo, así que un `.md` con acento se leía
+# como no-doc y cualquier slice de prosa que tuviera uno disparaba igual.
+if ($root) {
+    # Todas las alternativas van ancladas `(^|/)` y ninguna con `^`: un proyecto bootstrapeado puede
+    # vivir en un subdirectorio de un monorepo, o vendorar un segundo scaffold adentro de uno, y un
+    # `^` pelado cubría solo la copia de la raíz mientras cada copia anidada, que gobierna al agente
+    # igual, se colaba como prosa.
+    $govern = '(^|/)\.claude/|(^|/)\.agents/|(^|/)CLAUDE\.md$|(^|/)docs/ai-workflow/|(^|/)docs/agents/'
+    $docRange = if ($range) { $range } else { "$base...HEAD" }
+    # `--no-renames` porque con la detección de renames prendida `--name-only` reporta solo el
+    # DESTINO: mover código a un nombre `.md` aparecía como un único archivo de doc y silenciaba la
+    # revisión de lo que se sacó. Apagada, el mismo movimiento lista también el path viejo, y con
+    # una sola entrada no-doc alcanza.
+    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange -- . 2>$null)
+    $touchedOk = ($LASTEXITCODE -eq 0)
+    # Sin marcador el rango es `<base>...HEAD`, un rango de COMMITS: el árbol de trabajo no está
+    # adentro, así que un archivo TRACKEADO modificado y todavía sin commitear no aparecía en ninguna
+    # de las dos mitades y un slice cuyo único código estaba sin commitear salía silenciado. Con
+    # marcador no hay nada que sumar: su ref se emite pelado justamente para que `git diff <ref>` ya
+    # cubra el árbol.
+    if ($touchedOk -and -not $range) {
+        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD -- . 2>$null)
+        $touchedOk = ($LASTEXITCODE -eq 0)
+    }
+    if ($touchedOk) {
+        # `$genPat`, NO `$skipPat`: ver paso 5b. Acá sólo desaparece lo que no escribió nadie.
+        $touched = @($touched | Where-Object { $_ } |
+                     Where-Object { $f = $_; -not (@($genPat | Where-Object { $f -like $_ }).Count) })
+        $nonDoc = @($touched | Where-Object { $_ -notmatch '\.md$' -or $_ -match $govern })
+        # La mitad untracked puede costar un SHA256 por archivo (sólo cuando hay una huella contra
+        # la cual comparar), así que sólo se paga cuando la mitad trackeada volvió toda prosa: un
+        # solo archivo no-doc de ahí ya contesta la pregunta.
+        if ($nonDoc.Count -eq 0) {
+            $untracked = Get-UntrackedNew
+            if ($null -ne $untracked) {
+                $untracked = @($untracked | Where-Object { $f = $_; -not (@($genPat | Where-Object { $f -like $_ }).Count) })
+                $all = @($touched) + @($untracked)
+                $nonDoc = @($all | Where-Object { $_ -notmatch '\.md$' -or $_ -match $govern })
+                # Un slice vacío no es un slice sólo-docs: sin nada adentro no hay nada que juzgar,
+                # así que sigue de largo y dispara en vez de callarse. Un slice que agrega y saca el
+                # mismo código netea vacío acá y igual tiene que revisarse.
+                if ($all.Count -gt 0 -and $nonDoc.Count -eq 0) { exit 0 }
+            }
+        }
+    }
+}
+
 # 6. Un commit dispara solo cuando el cierre de slice está DECLARADO con un trailer `Slice-Close:`.
 # El trailer se lee del commit recién creado, no se parsea del comando, así que funciona igual con
 # `-m`, `-F archivo`, un heredoc o `--amend`.
 # `git commit && git push` es UN solo comando de Bash y prende las dos banderas, así que la puerta
-# del trailer sólo gobierna al commit cuando es el único disparador: el push dispara
-# incondicionalmente, como lo hacía antes de A2.
+# del trailer sólo gobierna al commit cuando es el único disparador: el push SALTEA esa puerta,
+# como lo hacía antes de A2. El gate de docs del paso 5c puede callar un push, pero no es lo único
+# que le queda: el dedupe por SHA del paso 7 corre en TODOS los disparadores y calla un segundo push
+# del mismo commit.
 if ($isCommit -and -not ($isPush -or $isPr)) {
     # El evento trae el cwd de la SESIÓN, no el directorio donde corrió el comando: sin esto, un
     # `git commit` dentro de otro repo se le atribuye a éste. Si el HEAD de este repo no es
@@ -245,22 +431,8 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         # NO es el techo de planificacion del CLAUDE.md (que se mide al ABRIR el slice y exime lo
         # que agrega el propio loop). Es otra pregunta —¿esto quedo sin revisar?— sobre otra base:
         # altas+bajas con el $skipPat de abajo, que no excluye .md. Ver ADR-0008.
-        $range = $null
-        $rangeKnown = $false
-        $root = (git rev-parse --show-toplevel 2>$null)
-        if ($root) {
-            $marker = Join-Path $root ".claude/scripts/review-marker.ps1"
-            if (Test-Path -LiteralPath $marker) {
-                # Centinela: si `pwsh` no está en el PATH el error se traga y $LASTEXITCODE
-                # conservaría el 0 de la llamada a git de arriba, que se leería como exit 0 exitoso.
-                $global:LASTEXITCODE = 99
-                $r = (& pwsh -NoProfile -File $marker -Action range -RepoDir $root 2>$null)
-                if ($LASTEXITCODE -eq 0) {
-                    $rangeKnown = $true
-                    if ($r) { $range = ([string]$r).Trim() }
-                }
-            }
-        }
+        # `$range`, `$rangeKnown` y `$root` vienen del paso 5b, que los resuelve una sola vez para
+        # esta red y para el gate de docs.
         # El contrato del marcador tiene tres salidas y colapsarlas es el bug que existe para
         # evitar. Exit 0 + vacío significa que no hay NADA sin revisar: no hay nada que la red deba
         # atrapar, así que no se dispara — si no, cada commit apenas el loop cierra limpio volvería
@@ -271,10 +443,9 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         if (-not $range) { $range = "$base...HEAD" }
         # El techo cuenta líneas de LÓGICA: el CLAUDE.md excluye por nombre los generados, el código
         # vendored, los lockfiles y los snapshots. Contarlos hace disparar slices que sí cumplen.
-        # `*` pelado y no `**`: los comodines de pathspec ya cruzan `/`, mientras que `**/nombre` no
-        # matchea ese nombre en la raíz del repo — verificado, el manifest se seguía contando.
-        $skipPat = @('*.bootstrap-manifest.json', 'docs/vendor/*', '*.lock', '*lock.json',
-                     '*lock.yaml', '*.lockb', 'go.sum', '*.snap')
+        # `$skipPat` se define en el paso 5b y es de ESTE llamador: el gate de docs hace otra
+        # pregunta y filtra con `$genPat`. Darle esta lista al gate es lo que volvió su decisión no
+        # monotónica, así que no las "unifiques" de vuelta.
         $skip = $skipPat | ForEach-Object { ":(exclude)$_" }
         $lines = 0
         # `git -C $root` en los dos conteos: los pathspec y `ls-files` se resuelven contra el cwd del
@@ -292,41 +463,23 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
                 foreach ($n in $cols[0..1]) { if ($n -match '^\d+$') { $lines += [int]$n } }
             }
         }
-        # `git diff` nunca muestra los untracked, y el paso 5 del loop ORDENA escribir un test
-        # nuevo, que nace sin trackear: un slice hecho de archivos nuevos medía 0. Pero lo que
-        # cuenta es untracked DESDE EL MARCADOR: el marcador guarda su propia huella en
-        # `untracked:<rama>` justo para eso. Contarlos en absoluto hacía que un archivo nuevo ya
-        # revisado volviera a disparar la red en cada commit posterior, para siempre.
-        # La huella se indexa por la entrada ENTERA `path|sha256`, igual que la compara el propio
-        # Test-NewUntracked del marcador. Indexar sólo por el path hacía que un archivo fichado con
-        # una línea y crecido después a 600 se salteara para siempre: la red perdiéndose justo el
-        # caso para el que existe. Un archivo sin cambios hashea igual y sigue matcheando, así que el
-        # bug de "el test nuevo ya revisado vuelve a disparar para siempre" sigue muerto.
-        # Y la huella sólo significa algo mientras su marcador viva: si `git gc` podó el objeto del
-        # marcador, el rango vuelve a la base del slice, así que descontar contra una huella muerta
-        # sería contar de menos justo cuando el rango se agrandó.
-        $seen = @{}
-        $mk = [string]$state["marker:$branch"]
-        if ($mk) {
-            git -C $root cat-file -e "$mk^{commit}" 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) {
-                foreach ($e in @($state["untracked:$branch"])) { if ($e) { $seen[[string]$e] = $true } }
-            }
-        }
-        # core.quotepath apagado para que git no C-quotee un nombre no-ASCII ("\303\261andu.txt"),
-        # que fallaría el Test-Path y sumaría CERO al techo. La otra mitad del mismo problema — la
-        # decodificación — se resuelve una sola vez al tope de este archivo.
-        $others = @(git -C $root -c core.quotepath=false ls-files --others --exclude-standard 2>$null |
-                    Where-Object { $_ })
-        foreach ($f in $others) {
-            # Las mismas exclusiones de arriba: se aplicaban sólo a la mitad trackeada, así que un
-            # `package-lock.json` sin trackear disparaba sobre un slice que sí cumple la regla.
+        # La mitad untracked sale de Get-UntrackedNew (paso 5b), que descuenta la huella
+        # `untracked:<rama>` del marcador; el `$skipPat` se aplica ACÁ, porque éste es el llamador
+        # que pregunta por líneas de lógica. Así las dos mitades del techo — trackeada y untracked —
+        # excluyen los mismos nombres. El gate de docs NO: hace otra pregunta y filtra con `$genPat`.
+        # $null significa que no se le pudo preguntar a git, y eso vuelve todo el conteo poco
+        # confiable: fallar abierto, igual que un rango que no resuelve.
+        $untracked = Get-UntrackedNew
+        if ($null -eq $untracked) { $measurable = $false; $untracked = @() }
+        foreach ($f in $untracked) {
             if (@($skipPat | Where-Object { $f -like $_ }).Count) { continue }
             $p = Join-Path $root $f
-            if (-not (Test-Path -LiteralPath $p)) { continue }
             # Los binarios no son líneas de lógica, y `git diff --numstat` ya reporta `-` para ellos
             # del lado trackeado, así que saltearlos acá deja las dos mitades consistentes. Además
-            # evita que una captura de 12 MB cueste segundos en CADA git commit (medido: 4,9 s).
+            # evita que una captura de 12 MB cueste segundos en CADA git commit (4,9 s cuando se
+            # escribió este guard; nadie remidió ese costo end-to-end desde entonces —los intentos
+            # cronometraron sólo el `Get-Content`, 16-172 ms—, así que tomá la cifra como no
+            # atribuida y al guard como seguro barato).
             # La ventana es de 8000 bytes porque es lo que escanea el propio git buscando un NUL; con
             # 4096, un archivo cuyo primer NUL cae más allá contaba como texto e inflaba el techo,
             # mientras el comentario de arriba afirmaba que las dos mitades coincidían.
@@ -337,10 +490,6 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
                 $n  = $fs.Read($buf, 0, 8000)
             } catch { continue } finally { if ($fs) { $fs.Close() } }
             if ([Array]::IndexOf($buf, [byte]0, 0, $n) -ge 0) { continue }
-            # Hasheado igual que lo hace el marcador, para que las entradas comparen byte a byte.
-            $h = ""
-            try { $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } catch { }
-            if ($seen[("{0}|{1}" -f $f, $h)]) { continue }
             $lines += @(Get-Content -LiteralPath $p -TotalCount 401 2>$null).Count
         }
         if ($measurable -and $lines -le 400) { exit 0 }

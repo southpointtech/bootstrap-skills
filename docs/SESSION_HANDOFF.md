@@ -1059,6 +1059,1248 @@ corrió** (no hubo código). Nada falló.
 
 ---
 
+# Session Handoff — 2026-08-31 (noche) — Review-loop de 5 turnos sobre la deuda del cap anterior: COMMITEADO (`2046664`). **Mergeado, pusheado y deployado el 2026-09-01** (ver el bloque de abajo). Cerró POR CAP.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+> **Actualizado 2026-09-01**: lo que este bloque daba por pendiente YA ESTÁ HECHO.
+> `fix/copy-scaffold-respalda` (`7efbca7`, dos commits — el handoff quedó afuera de la cuenta
+> original) se mergeó ff-only a `main`, se pusheó, se deployó con `tools/sync-skills.ps1` y se
+> verificó en el sink por SHA-256 (172 archivos, 0 faltantes, 0 distintos). Los manifests
+> resellados están en `9d48b0e`, pusheado. Las 14 suites en verde antes del deploy.
+> **La deuda declarada de `2046664` sigue abierta**, y el marcador quedó en `4569d51` con el
+> ancla del slice en `4ff2c9f` a propósito: el loop cerró por cap, no limpio.
+
+✅ **`fix/copy-scaffold-respalda` = `2046664`**, un commit por delante de `main` (`4569d51`).
+Working tree **limpio**. Las **14 suites en verde**. El golden en sync (`reseal -Check` → exit 0).
+
+🔴 **Falta: merge ff-only a `main` + push + deploy.** El merge es ff-only (la rama es descendiente
+directa de main, historia lineal, 0 merge commits). Push: solo funciona la cuenta **southpointtech**
+(MartinDele703 da 403). Deploy = `tools/sync-skills.ps1`, y **verificar en el sink**, no confiar en
+el exit code: el bug de "el repo y la máquina difieren" ya pasó una vez.
+
+⚠️ **Al deployar, `sync-skills.ps1` regenera los `.bootstrap-manifest.json`** — hay que resellar y
+commitear eso después, como en `94b63b3`.
+
+## Qué se hizo
+
+Un `/review-loop` completo sobre la deuda que `f1191ec` había declarado (los fixes de su turno 5 y su
+pase de coherencia nunca habían pasado por review). **Cinco turnos + pase de coherencia**, 7 reviewers
+en el turno 1 (6 focos paralelos + `/code-review` como reviewer independiente), fan-outs de 2 a 5 en
+los turnos siguientes. La pasada de confianza del turno 1 descartó 5 de 16 hallazgos.
+
+**Los turnos 2, 3, 4 y 5 encontraron defectos de severidad alta en la prosa que el turno anterior
+acababa de escribir.** Tres veces seguidas. Es el patrón que el repo ya tiene documentado
+(`parchar-prosa-de-procedimiento-no-converge`), reproducido de punta a punta.
+
+### El defecto de fondo, y la decisión que el usuario firmó
+
+Los tests del Step 0b medían **largo**, no procedimiento. Medido: recortar los seis sub-pasos a ~310
+chars amputaba el 71 % del bloque —dejando el step B cortado a mitad de frase, con la condición
+enunciada y sin la acción— **en verde**. Y borrar el párrafo que abre el step B, donde vive el "frena
+y preguntá" entero, también pasaba. Ningún otro test lee el contenido de estos `SKILL.md`.
+
+Se midió después que un chequeo de presencia sobre prosa tampoco alcanza: el ancla
+`apply the map first` la satisface igual el texto que dice `do NOT apply the map first`, y revertir
+cualquiera de los fixes de procedimiento pasaba las cuatro redes — **siete mutaciones, todas verdes**.
+
+🔑 **Decisión del usuario, con la evidencia sobre la mesa: GOLDEN.** `tests/fixtures/step0b.golden.md`
+(generado) + `tools/reseal-step0b.ps1`. Cualquier edición del Step 0b pone la suite roja hasta
+re-grabarlo a propósito mirando el diff. **El costo lo aceptó explícitamente**: fricción en cada
+edición de prosa del Step 0b. El ciclo está documentado en `docs/TESTING.md` § "El golden del Step 0b".
+
+Los dos pisos y las anclas quedaron como defensa en profundidad para el día que alguien re-grabe sin
+mirar; se verificó que siguen mordiendo **después** de un resellado.
+
+### Lo destructivo que apareció en el camino
+
+- **El Step 3 pisaba el `CONTEXT.md` y el `README.md` del proyecto.** Ninguno está en el scaffold →
+  `copy-scaffold.ps1` no los respalda → no hay `overwritten` que los recupere. Era la **única pérdida
+  irrecuperable** que el skill podía causar. Lo introdujo un fix de un turno anterior de este mismo
+  loop.
+- Ese arreglo se aplicó primero a **1 de las 3 skills**, porque el script de propagación cubre solo el
+  tramo `## Step 0b` → `## Step 1` y el Step 3 cae afuera. Las otras dos quedaron con el camino
+  destructivo vivo **y la suite en verde**.
+- **Trampa de truncación en los dos extremos del tramo**: los delimitadores se buscaban como substring
+  suelto, así que una cita del heading adentro del Step 0b recortaba el tramo, el reseal sellaba un
+  golden más corto **sin avisar** (usa el mismo corte, coincidían), y después se podía reescribir lo
+  perdido con la suite en verde y `-Check` diciendo "sin cambios".
+
+### Procedimiento del Step 0b (los fixes que shippean)
+
+- Los dos caminos que salteaban "steps C and E" descartaban filas `overwritten` **ya aprobadas por el
+  usuario**; el skip ahora es solo del block merge.
+- El step E aplica el mapa **antes** del block merge (al revés, un "restore" pisaba las reglas recién
+  mergeadas y el step F reportaba bloques que ya no estaban).
+- La exención del step D se keyea por **la entrada que el step B registra**; la versión anterior
+  comparaba paths y **no era computable en ningún estado** (B mueve el que parquea y copia el que
+  preserva, así que lo que C lee nunca está en el path del backup).
+- El step B resuelve el original en dos movimientos, keyeados por el archivo que se termina **leyendo**
+  y no por el que el usuario nombra.
+
+## Archivos cambiados (todos en `2046664`)
+
+| archivo | qué |
+|---|---|
+| `skills/*/SKILL.md` ×3 | Step 0b (steps B/C/D/E/F) + guard del Step 3. **Byte-idénticos en el tramo** |
+| `tests/mirror.tests.ps1` | extracción anclada, golden, piso global restaurado, anclas, invariantes de fuera del tramo |
+| `tests/fixtures/step0b.golden.md` | **NUEVO, generado** (13532 chars) |
+| `tools/reseal-step0b.ps1` | **NUEVO** |
+| `docs/TESTING.md` | caso canónico 7 + criterios del 6 + § del golden |
+| `tests/copy-scaffold.tests.ps1` | atribución de SHAs corregida |
+| `CLAUDE.md`, `public/README.md`, `docs/SESSION_HANDOFF.md` | |
+
+## Tests
+
+**14 suites en verde**, por lotes de 4-6 (con reviewers en paralelo la máquina se satura).
+**Cada fix fue a RED antes que a verde**: 4 mutantes en el turno 1, 6 reversiones en el turno 2, 2
+estructurales en el turno 3, 4 en el turno 5. Todo en copias en TEMP, ya borradas; **el árbol nunca se
+mutó**. El turno 5 reconstruyó los mutantes que mataba cada assert de la base: **cero regresiones**, y
+dos asserts muerden más fuerte.
+
+## 🔴 Deuda declarada (está en el mensaje de `2046664`)
+
+**Cerró POR CAP: los fixes del turno 5 no pasaron por un turno de review de delta.** El marcador quedó
+en **`4569d51`** a propósito (la próxima corrida revisa de más, no de menos) y **el ancla del slice
+sigue puesta** en `4ff2c9f` — no se llamó `-Action close`, que es solo para cierre limpio.
+
+El commit **no lleva trailer `Slice-Close:`**: el loop ya corrió sus cinco turnos sobre este slice y el
+trailer solo pediría un sexto.
+
+Medido y fuera de scope de este slice:
+
+1. Borrar el guard de re-bootstrap (`SKILL.md:18`) **pasa verde**.
+2. Dos de los invariantes de fuera del tramo son frases de prosa; el arreglo durable es **extender el
+   golden al Step 3** (segundo fixture).
+3. El mensaje del guard de `reseal` imprime la terna de largos: en un reword del mismo largo se lee
+   como prueba de que coinciden.
+4. `reseal-step0b.ps1` hardcodea las tres skills; el test enumera `bootstrap-*-project`.
+5. Una afirmación del step E es falsa en dos estados (dirección benigna).
+6. `gen-mcp-json` aborta la adopción en una re-corrida **después** de que el scaffold ya aterrizó.
+7. `docs/agents/legacy-claude.original.md` se copia sin guard de existencia.
+
+## Bugs abiertos de antes (sin cambios)
+
+1. `.scratch/issue-suites-que-no-limpian-temp.md` — 6 suites filtran workspaces a TEMP. Patrón ya
+   validado en `copy-scaffold.tests.ps1`.
+2. Deuda de `bc973c2`: techo ciego a trackeados sin commitear; `^-\s` no corta en `---`; sin test de
+   la copia ES del hook.
+3. `autocrlf` / hashes mixtos en los manifests.
+4. El párrafo del hook redactado distinto en `bootstrap-ai-project`.
+5. Las 2 carpetas sin git con el hook inerte. **Sin decidir, es tuya.**
+6. `README.md` de la raíz: "four skills", "two bootstrap skills", "~43 template files" (son 52).
+
+## Próximos pasos
+
+1. **Merge ff-only a `main` + push + deploy + resellar manifests.** Es lo único que falta de esta línea.
+2. **El issue de las suites que no limpian TEMP** — slice chico, patrón ya probado.
+3. **Self-upgrade de `SouthPoint-Hub`** (la v1 dejó el frontend sin revisar).
+4. **Benchmark Track B** — la línea base congelada vence el **2026-09-10**.
+5. Pasada al `README.md` de la raíz (slice solo-docs, no dispara el loop).
+
+## Antes de tocar código
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`).
+  **No commitear ni stagear ahí.** Su árbol cambia entre dos comandos tuyos.
+- **Si editás el Step 0b: editá `bootstrap-ai-project`, propagá el bloque entero a las otras dos,
+  corré `tools/reseal-step0b.ps1`, mirá `git diff` del golden y commiteá todo junto.** El golden se
+  pone rojo con cualquier edición; ese es el punto, no un bug.
+- **El Step 3 y el Step 0 quedan FUERA del golden.** Si tocás algo ahí, revisá `$invariantes` en
+  `tests/mirror.tests.ps1`: es la única red, y por eso mismo es una lista de frases que hay que
+  mantener a mano.
+- El `alignment-gate` frena el primer edit de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- El guard del entorno bloquea comandos cuyo texto parece un path peligroso. Reescribir con variables.
+- Para prosa en español usar Edit; commits largos con `git commit -F <archivo>` (**no** here-strings de
+  PowerShell con la Bash tool: filtran el `@` al subject).
+- **Al verificar un fix sin commitear, copiá el WORKING TREE, no `git archive HEAD`.**
+- `git status` puede marcar archivos como `M` por stat-cache: **`git diff --name-only` es la
+  autoridad**.
+
+## 🔑 La lección de esta sesión
+
+**Cuatro turnos seguidos encontraron defectos altos en la prosa que el turno anterior acababa de
+escribir, y dos de esos defectos eran destructivos.** Parchar prosa de procedimiento no converge: cada
+cláusula nueva trae estados sin cubrir. Lo que cerró de verdad fue **quitar ramas** (invertir la regla
+del step D, unificar dos excepciones en una, reemplazar una cláusula circular por una resolución en dos
+movimientos) y, sobre todo, **cambiar de instrumento**: ningún chequeo de presencia sobre prosa
+distingue una orden de su negación. El golden es la primera red que sí.
+
+Corolario nuevo, y caro: **un fix que cae fuera del tramo que el script propaga queda en una sola
+skill, y la suite no lo ve.** Pasó con el guard del Step 3, que era el único camino de pérdida
+irrecuperable del skill.
+
+---
+
+# Session Handoff — 2026-08-31 (tarde) — Review-loop de la deuda CERRADO, mergeado, **pusheado** (`94b63b3`) y **DEPLOYADO**. No queda nada pendiente de esta línea.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+✅ **`main` = `origin/main` = `94b63b3`**, verificado contra el remoto real con
+`git ls-remote origin refs/heads/main` (no contra la ref local de tracking). Working tree **limpio**.
+La historia sigue **lineal: 0 merge commits** (el merge fue `--ff-only`).
+
+✅ **DEPLOYADO.** `tools/sync-skills.ps1` corrió y se verificó en el sink: el `copy-scaffold.ps1` de
+las 3 skills instaladas en `~/.claude/skills` es byte-idéntico al del repo (`sha256 ECD4A14AA5F6`).
+**El bug de "la copia pisa en silencio" está cerrado en esta máquina**: cualquier bootstrap nuevo ya
+respalda y declara. Antes del deploy, repo y máquina diferían (`0CE8E82EDB53` vs `8BCA1F6D7601`).
+
+Dos commits nuevos en `main`:
+
+```
+94b63b3 chore(bootstrap): resellar los manifests tras el deploy
+f1191ec fix(bootstrap): review-loop sobre la deuda del cierre por cap anterior
+```
+
+La rama `fix/copy-scaffold-respalda` quedó en `f1191ec`, **no se borró**.
+
+## Qué se hizo: el review-loop sobre la deuda de `e5e20d2` + `b683110`
+
+El handoff anterior declaraba que esos dos commits no habían pasado por review. Tenían **cuatro
+defectos reales**. El loop corrió sus **5 turnos completos y cerró por cap**, más el pase de
+coherencia.
+
+### El defecto de fondo y cómo se cerró
+
+La rama del Step 0b donde `docs/agents/legacy-claude.md` **existe pero está vacío o es ajeno** no
+tenía salida: el step C mandaba a leer ese mismo archivo sin condición. El turno 1 le dio un
+procedimiento propio ("clasificá desde `.bootstrap-backup/CLAUDE.md`") y el turno 2 **midió que ese
+respaldo no siempre existe** — con el Step 0 entrando en adopción por un `docs/ai-workflow/` pelado,
+la copia no pisa ningún `CLAUDE.md`. La orden era inejecutable.
+
+**Ahora esa rama frena y le pregunta al usuario cuál es su original.** Si señala el respaldo, se
+preserva como `docs/agents/legacy-claude.original.md` (`.bootstrap-backup/` queda fuera del commit
+del Step 5, así que un archivo que solo viva ahí NO está preservado).
+
+### Otros arreglos
+
+- **El step E no aplicaba lo que el step D hace aprobar** — un "restore"/"merge" votado en el mapa de
+  cobertura no lo ejecutaba nadie. Preexistente; es la misma reversión silenciosa que el mapa existe
+  para evitar.
+- **El step D exime a `CLAUDE.md` del mapa por el criterio equivocado**: pasó de "¿el step B
+  parqueó?" a "¿parqueó **el mismo respaldo que esta corrida reportó**?".
+- **Red de espejado nueva en `tests/mirror.tests.ps1`**: `SKILL.md` está en la allowlist como archivo
+  ENTERO y ninguna otra suite lee su contenido, así que la mecánica del Step 0b —que el `CLAUDE.md`
+  obliga a mantener idéntica en las tres— **no tenía ninguna red**. Ahora se compara el Step 0b
+  completo, con los sub-pasos anclados a principio de línea y un piso de cuerpo **por sub-paso**.
+- **El guard del BOM del turno 1 era tautológico** (el fixture se arma sumándole 3 bytes al canónico,
+  así que comparar contra `canónico + 3` no podía fallar). Con `-gt 3` muerde.
+- `docs/TESTING.md` suma los **casos canónicos 5 (re-corrida) y 6 (colisión de nombre)**: la rama que
+  el loop reescribió entera era la única sin eval.
+
+### 🔑 Afirmaciones que resultaron falsas y se corrigieron (medidas, no supuestas)
+
+- `.bootstrap-backup/CLAUDE.md.2` **no se crea nunca** por el camino del caso 5: el `Move-Item` del
+  step B vacía el slot sin numerar, así que la re-corrida vuelve a escribir el sin numerar. Estaba
+  afirmado en `docs/TESTING.md` y en el step D.
+- El comentario del `trap` decía "nueve huérfanos, turno 4": la medición fue de `4ff2c9f` (**turno
+  3**), que además escribió **ocho** en el código y nueve en su mensaje, y parte de esos huérfanos los
+  crearon las propias corridas de medición. Ahora no se anota número, con la razón explicada.
+- El observable del caso 6 ("que el archivo sembrado siga byte-idéntico") **no discriminaba**: el
+  scaffold no trae ese path, así que se cumple igual por el camino correcto y por el equivocado.
+
+## Tests
+
+**Las 14 suites en verde.** Correr por lotes de 4-6, no las 14 de una: con reviewers en paralelo la
+máquina se satura y el runner se pasa de los 10 min.
+
+**7 mutantes matados**, uno por cada assert nuevo o modificado:
+
+| mutante | antes |
+|---|---|
+| divergencia en el step A (`Keep that report` → `DISCARD`) solo en southpoint | pasaba VERDE |
+| Step 0b reducido a 6 encabezados sin cuerpo, en las tres | pasaba VERDE |
+| Step 0b como una línea que enumera los 6 pasos + relleno | pasaba VERDE |
+| vaciar el cuerpo del step B en las tres | pasaba VERDE |
+| vaciar D + E + F en las tres | pasaba VERDE |
+| canónico vacío (guard del BOM) | daba `ok:` falso |
+| prefijo del BOM alterado | — |
+
+Los destructivos corrieron en **copias en TEMP**, ya borradas. Nunca se mutó el árbol del usuario
+salvo con Edit reversible.
+
+## 🔴 Deuda declarada
+
+Igual que el loop anterior, **cerró por cap**: los fixes del turno 5 y los del pase de coherencia no
+pasaron por un turno de review de delta. El marcador quedó en `969330d` y **el ancla del slice sigue
+puesta** (corresponde a un cierre por cap; `-Action close` es solo para cierre limpio).
+
+⚠️ `969330d` es un objeto de `git stash create`, no un commit: si `git gc` lo poda, `-Action range`
+cae al slice base y el próximo turno revisaría de más, no de menos.
+
+## Bugs abiertos (sin cambios respecto del handoff anterior, salvo donde se indica)
+
+1. **`.scratch/issue-suites-que-no-limpian-temp.md`** — al menos **seis suites** filtran workspaces a
+   TEMP; `gen-mcp-json` unos 4 por corrida. El patrón que funciona ya está probado en
+   `copy-scaffold.tests.ps1`: raíz única por corrida + `trap` + barrido por edad.
+2. Deuda declarada en `bc973c2`: el techo del paso 6 es ciego a los trackeados sin commitear; `^-\s`
+   no corta en `---`; ningún test compara la copia ES del hook.
+3. Bug de `autocrlf` con hashes mixtos en los manifests (viejo).
+4. Preexistente: el párrafo del hook está redactado distinto en `bootstrap-ai-project` que en las
+   otras dos skills.
+5. Las 2 carpetas sin git (`Outsourcing Development`, `SOUTHPOINTLABS\PROJECT MANAGEMENT`) siguen con
+   el hook **inerte**. Sin decidir.
+6. **NUEVO, no arreglado**: `README.md` de la raíz sigue diciendo "**four** skills" y "the **two**
+   bootstrap skills must stay mirrored" (con `bootstrap-ai-project` ausente) y "~43 template files"
+   contra los 52 reales. Preexistente, fuera del scope del slice.
+
+## Próximos pasos
+
+1. **El issue de las suites que no limpian TEMP** — slice chico, aislado, con el patrón ya validado.
+2. **Self-upgrade de `SouthPoint-Hub`** (la v1 dejó el frontend sin revisar; la probe se probaba a sí
+   misma).
+3. **Benchmark Track B** — re-freeze en septiembre; la línea base congelada vence el 2026-09-10.
+4. Decidir qué hacer con las 2 carpetas sin git.
+
+## Antes de tocar código
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`).
+  **No commitear ni stagear ahí.** Su árbol cambia entre dos comandos tuyos.
+- **El Step 0b se propaga copiando el bloque entero**, no editando las tres a mano: extraer de
+  `bootstrap-ai-project` el tramo `## Step 0b` → `## Step 1` y escribirlo en las otras dos. El test
+  de espejado verifica el resultado al instante.
+- El `alignment-gate` frena el primer edit de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- **El guard del entorno bloquea comandos cuyo texto parece un path peligroso** — pasó dos veces esta
+  sesión: `robocopy ... /E` (leyó `/E` como path) y un `Remove-Item` que compartía línea con el
+  literal `"\SKILL.md"`. Reescribir con variables.
+- Para prosa en español usar Edit; commits largos con `git commit -F <archivo>`.
+- **Al verificar un fix sin commitear, copiá el WORKING TREE, no `git archive HEAD`.**
+- Push: solo funciona la cuenta **southpointtech** (MartinDele703 da 403).
+- `git status` puede marcar archivos como `M` por stat-cache aunque el contenido sea idéntico:
+  **`git diff --name-only` es la autoridad**, no `status`.
+
+## 🔑 La lección de esta sesión (vale más que los bugs)
+
+**Tres turnos seguidos encontraron huecos en la prosa que el turno anterior acababa de escribir.**
+Cada arreglo agregaba una rama al Step 0b y la rama nueva traía estados sin cubrir. Lo que cerró el
+asunto fue **quitar ramas, no agregarlas**: que el paso frene y pregunte. Una oración reemplazó un
+árbol de cinco casos y cerró 8 hallazgos abiertos de un saque.
+
+Corolario para los tests: cuando reemplaces un assert por otro "mejor", verificá que el nuevo **mate
+los mutantes del viejo**. Acá el piso de largo se cambió por un chequeo de sub-pasos y resultó
+**ortogonal**, no más fuerte — cada uno dejaba viva la familia del otro, y hicieron falta los dos.
+(El turno siguiente midió que el reemplazo igual se había shippeado, y que ninguno de los dos pisos
+veía borrar un párrafo concreto: hoy son **tres** redes — piso global, piso por sub-paso y anclas de
+contenido.)
+
+Guardado en memoria como `parchar-prosa-de-procedimiento-no-converge`.
+
+---
+
+# Session Handoff — 2026-08-31 — Profitability App BOOTSTRAPEADA (`1da2711`) + fix de `copy-scaffold` en rama SIN MERGEAR (`fix/copy-scaffold-respalda`, 7 commits). Falta decidir merge + deploy.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+**`main` NO se movió**: sigue en `6422828` = `origin/main` (verificado con `git ls-remote`). Todo el
+trabajo de código está en la rama **`fix/copy-scaffold-respalda`**, que es donde está parado el
+working tree, **limpio**. Nada pusheado, nada mergeado, nada deployado.
+
+⚠️ **Este repo tiene historia lineal, sin un solo merge commit.** Si se mergea, `--ff-only`.
+
+### Lo que se cerró
+
+1. **Aviso a la línea B** — entregado a la sesión par (pasó por aprobación del receptor). Contenido:
+   medí el merge con `git merge-tree` y **los 4 `CLAUDE.md` auto-mergean limpio** (el handoff anterior
+   se equivocaba al anunciar choque ahí). Los únicos 3 conflictos son los
+   `skills/*/assets/scaffold/.bootstrap-manifest.json`, que son **generados** → resolver con
+   `tools/gen-manifest.ps1`, no a mano. El riesgo real que se les señaló no es de git: `bc973c2`
+   agrandó el bullet del `/review-loop` de ~1.100 a ~2.000 caracteres con la especificación del gate
+   solo-docs, así que si aplican su decisión 19 (recortarlo a 3 oraciones) desde la base vieja
+   `feb3f23`, **borran el gate recién portado sin notarlo**.
+2. **`Profitability App` bootstrapeada** — `1da2711`, modo adopción, en su rama
+   `docs/reunion-05-08-corte-en-gross-profit`. 48 archivos. Ver detalle abajo.
+3. **Fix de `copy-scaffold.ps1`** — 7 commits en la rama, review-loop de 5 turnos + pase de
+   coherencia. Ver detalle abajo.
+
+## 1. `Profitability App` — bootstrapeada en modo adopción (`1da2711`)
+
+`C:\Repos\SOUTHPOINTLABS\Profitability App`. Antes tenía la prosa del workflow pero **ningún
+mecanismo**: su `.claude/` contenía un solo archivo. Ahora tiene 11 skills, 11 comandos, los hooks
+`review-loop-trigger` + `alignment-gate`, `review-marker.ps1` y manifest `2026-08-28+0cf064e`.
+
+**Verificado, no supuesto**: hook byte-idéntico al canónico (`sha256 639E5D1D65B2`), `alignment-gate`
+idéntico, hooks registrados en `PreToolUse`/`PostToolUse`, gate solo-docs presente (`genPat`).
+⇒ **son 14 repos al día, no 13.**
+
+- Reglas propias mergeadas **verbatim** en `## Hard rules`: la regla ⛔ de PF-01, las fronteras entre
+  apps, Salesforce-por-API-no-dataset, y los workbooks de HSS de solo lectura.
+- `packages/gp-engine` → `docs/agents/domain.md`. Original íntegro en `docs/agents/legacy-claude.md`.
+- **NO se regeneró el `.mcp.json`** (curado a mano; el generador lo reemplazaría por el catálogo).
+  `CONTEXT.md`, `README.md` y los 8 ADRs, intactos.
+- Queda ahí sin commitear un archivo **ajeno**: `docs/meetings/2026-08-28-open-items-sin-respuesta-hss.md`.
+  No tocarlo.
+
+🔑 **Lo que hubo que hacer a mano y motivó el fix del punto 2**: `copy-scaffold.ps1` pisaba 6 archivos
+del proyecto. Se salvaron porque se hashearon los 52 archivos del scaffold **antes** de copiar. El
+`.gitignore` perdía `~$*` (temporales de Excel de los workbooks) y `SESSION_HANDOFF.md`.
+
+## 2. Rama `fix/copy-scaffold-respalda` — 7 commits, SIN MERGEAR
+
+```
+b683110 pase de coherencia — el glosario definia mal el modo adopcion
+e5e20d2 turno 5 — completar la excepción de CLAUDE.md donde faltaba
+67f9585 turno 4 — la regla del Step B destruía el original en un escenario
+4ff2c9f turno 3 — el commit anterior afirmaba un arreglo que no había hecho
+1bf3318 turno 2 — el fix del turno 1 no arreglaba lo que decía
+95fd340 turno 1 — hallazgos del review-loop sobre el respaldo
+9adfb69 la copia del scaffold respalda lo que pisa y lo declara
+```
+
+**Qué hace ahora `copy-scaffold.ps1`** (espejado byte-idéntico en las 3 skills):
+- Sigue **pisando** (el modo adopción necesita que el `CLAUDE.md` canónico aterrice), pero respalda
+  antes en `.bootstrap-backup/<mismo path>` y emite por stdout
+  `{ created[], overwritten[{file, backup}] }`.
+- Compara normalizando CRLF→LF **sobre los BYTES, sin decodificar**: decodificar hacía que un BOM
+  desapareciera y que dos bytes inválidos colapsaran en `U+FFFD` — ambos cambios reales que se
+  pisaban en silencio.
+- El respaldo más viejo se conserva; lo que se pisa después va al lado (`.2`, `.3`), y el campo
+  `backup` **siempre nombra la copia que contiene lo recién pisado**.
+- Con destino vacío no crea el directorio ni declara nada.
+
+**Cambios en las 3 `SKILL.md`**: el Step 0b/B ya no stashea a mano; el mapa de cobertura del Step D
+es obligatorio para cada `overwritten`; el Step 5 excluye `.bootstrap-backup/` del commit
+(`git add -A -- . ':!.bootstrap-backup'`); el Step 0 dejó de prometer "never overwrite".
+
+🔑 **`CLAUDE.md` es la EXCEPCIÓN y va al revés que todos los demás archivos**: el Step 0b busca el
+**original del proyecto**, no lo último pisado. Orden: primero `docs/agents/legacy-claude.md` (si
+existe, ése ES el original y no se toca nunca), después el respaldo **sin numerar**. Los numerados
+contienen el template canónico con lo que se le haya mergeado encima. Saltarse el primer paso
+**destruye el original** con un `Move-Item -Force`; saltarse el segundo lo deja huérfano. Anotado en
+`CLAUDE.md:82`, en el ADR-0007 y en las 3 skills — **si tocás una, tocá las cuatro**.
+
+**ADR-0007** (`docs/adr/0007-la-copia-del-scaffold-respalda-en-vez-de-no-pisar.md`): numerado 0007 y
+no 0004 porque **0004-0006 existen en el worktree de la línea B** y todavía no están en `main`.
+
+## 🔴 El loop cerró POR CAP, no limpio — y el patrón importa más que los bugs
+
+De los 5 turnos, **tres encontraron que mi commit de arreglo anterior afirmaba algo que no había
+hecho**. El código nuevo aguantó la revisión (la lógica de bytes, el bucle `.2`, `GetRelativePath`,
+MAX_PATH: sin hallazgos). Lo que falló fue declarar terminado lo no verificado. Dos ejemplos
+concretos, ambos cazados por el loop y no por mí:
+- Dije que `Get-IfAny` convertía el crash en FAIL. No lo hacía: `$null.Trim()` es terminante igual.
+- Dije que la limpieza ya no se perdía en el aborto. Había agregado un barrido que corre en la
+  corrida **siguiente**.
+
+**Deuda declarada del cierre por cap**: los cambios de `e5e20d2` y `b683110` **no pasaron por un turno
+de review de delta**. El marcador quedó en `4ff2c9f`.
+
+⚠️ **Error de proceso a no repetir**: avancé el marcador *después* de aplicar fixes en vez de antes,
+lo que dejaba los fixes del turno 3 sin revisar por nadie y devolvía rango vacío. Se recuperó usando
+rangos explícitos (`git diff <sha>`). No hay verbo para retroceder el marcador.
+
+## Tests
+
+**Las 14 suites en verde** (`pwsh -NoProfile -File tests/<n>.tests.ps1`). Ninguna falla conocida.
+
+`tests/copy-scaffold.tests.ps1` pasó de 6 a 13 bloques. **Verificación de mutación hecha**: los dos
+mutantes que sobrevivían (aplanar el campo `backup`, cegar la comparación byte a byte) ahora matan 3
+y 2 asserts. Se **eliminaron** tres asserts que no podían fallar y un caso imposible de cubrir (dos
+binarios que colapsan al mismo `U+FFFD` exige que ambos tengan bytes inválidos, y los 52 del scaffold
+son texto válido).
+
+**E2E real**: replicando Profitability App con su `.gitignore` verdadero → 49 creados, 3 pisados, los
+3 `backup` declarados existen en disco y el `.gitignore` vuelve **byte-idéntico** (hash comparado).
+
+## Bugs abiertos
+
+1. **`.scratch/issue-suites-que-no-limpian-temp.md`** (nuevo, gitignoreado) — al menos **seis suites
+   filtran workspaces a TEMP**; `gen-mcp-json` unos 4 por corrida. Se midieron 62 rastros. Barrerlo a
+   mano falló 3 veces (una vez por contar con `-Directory`, otra por un nombre exacto). El patrón que
+   funciona ya está probado en `copy-scaffold.tests.ps1`: raíz única por corrida + `trap` + barrido
+   por edad.
+2. Deuda declarada en `bc973c2`: el techo del paso 6 es ciego a los trackeados sin commitear; `^-\s`
+   no corta en `---`; ningún test compara la copia ES del hook.
+3. Bug de `autocrlf` con hashes mixtos en los manifests (viejo).
+4. Preexistente: el párrafo del hook está redactado distinto en `bootstrap-ai-project` que en las
+   otras dos skills.
+5. Las 2 carpetas sin git (`Outsourcing Development`, `SOUTHPOINTLABS\PROJECT MANAGEMENT`) siguen con
+   el hook **inerte**. Sin decidir.
+
+## Próximos pasos
+
+1. **Decidir el merge de `fix/copy-scaffold-respalda` a `main`** (`--ff-only`) y si se pushea. **El
+   usuario no lo autorizó**: no mergear ni pushear sin pedirlo.
+2. **Deploy con `tools/sync-skills.ps1`** para que las 3 skills instaladas en `~/.claude/skills`
+   tomen el cambio — hasta que eso pase, `Profitability App` y cualquier bootstrap nuevo corren con
+   la copia vieja, que pisa en silencio. `sync-skills` regenera los manifests: commitear después.
+3. El issue de las suites que no limpian (punto 1 de bugs abiertos).
+4. Sigue pendiente de antes: benchmark Track B (re-freeze en septiembre) y el self-upgrade de
+   `SouthPoint-Hub`.
+
+## Antes de tocar código
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`,
+  avanzó a `3bb0286` durante esta sesión). **No commitear ni stagear ahí.** Su árbol cambia entre dos
+  comandos tuyos.
+- **Al verificar un fix sin commitear, copiá el WORKING TREE, no `git archive HEAD`** — eso exporta el
+  commit y da falsos negativos. Costó una conclusión equivocada acá.
+- El `alignment-gate` frena el primer edit de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- Para prosa en español usar Edit, y commits largos con `git commit -F <archivo>`.
+- Un script de reemplazos con here-strings de PowerShell falló por encoding en textos con em-dash y
+  apóstrofes; el Edit tool aterrizó igual. Si un reemplazo masivo no matchea, no insistas: usá Edit.
+- El guard del entorno bloquea comandos cuyo texto **parece** un path peligroso (p. ej. un literal
+  `'/','\'` o `\s+` dentro de un `-replace`). Reescribir con variables.
+
+---
+
+# Session Handoff — 2026-08-28 (noche) — LÍNEA A CERRADA: 13 repos commiteados + `main` MERGEADO Y PUSHEADO (`126d80d`). Relevamiento completo de quién tiene el bootstrap nuevo. Próximo: bootstrapear Profitability App.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+**Sesión operativa**: cerró los dos pasos que quedaban de la línea A. **Este repo no recibió código
+nuevo**; solo `docs/SESSION_HANDOFF.md`.
+
+✅ **`main` = `origin/main` = `126d80d`**, verificado contra el remoto real con
+`git ls-remote origin refs/heads/main` (no contra la ref local de tracking). Fast-forward
+`feb3f23..126d80d`, respetando la historia lineal del repo (**no tiene un solo merge commit** —
+si vas a mergear algo, usá `--ff-only`). El working tree está en `main`, limpio salvo `CONTEXT.md`.
+La rama `feat/marcador-de-revision` quedó en el mismo SHA que `main`; **no se borró**.
+
+**Nada quedó pendiente de esta línea.** El port del gate solo-docs está en `main` y deployado.
+
+### ✅ 13 repos commiteados, verificados en el destino
+
+| Repo | commit | rama | queda sucio |
+|---|---|---|---|
+| claude-analytics | `73d38bb` | master | 4 ajenos |
+| Finanzas | `10cda58` | slice/03-adapter-itau | 6 ajenos |
+| Mate OS | `1693672` | main | 11 ajenos |
+| MyTube | `1ef317a` | main | limpio |
+| Personal Catalog | `d2807d6` | main | `.mcp.json` |
+| Santi demo | `332a279` | main | limpio |
+| Call Center Stage One | `c301dfd` | fix/optimizacion-2026-07-04 | 7 ajenos |
+| Forecasting App | `20e96f0` | master | 34 ajenos |
+| showcase claudio | `a11413c` | main | limpio |
+| Showcase Garra | `8742d5c` | main | `.mcp.json` |
+| Southpoint App Migration | `87c90bc` | chore/showroom-prerelease-hardening | 2 ajenos |
+| Survey Clients | `02dd36a` | feat/survey-actions-viz-metrics | `.mcp.json` |
+| **SouthPoint-Hub** | `220bc49` | feat/zoho-project-migration | `.mcp.json` |
+
+Se commiteó **en la rama en que estaba cada repo** (4 en feature branches ajenas): el delta del
+scaffold es ortogonal a esas features y crear una rama por repo complicaba el merge del usuario.
+
+**Verificado antes de tocar**: el hook en los 12 es byte-idéntico al canónico
+(`sha256 639E5D1D65B2`, el mismo en las 3 skills bootstrap) y la línea agregada al `CLAUDE.md` es
+**una sola variante en los 12** (2.001 caracteres — el bullet que la decisión 19 de la línea B quiere
+bajar a 3 oraciones + pointer). Ningún índice tenía nada staged, así que no se pisó trabajo de nadie.
+**Verificado después**: cada commit tiene exactamente los 3 archivos, cero residuo del rollout en el
+árbol, y el manifest del Hub sigue en `2026-06-16+fb4fec0` como declara su propio mensaje.
+
+### 🔑 Los `.mcp.json` NO eran del rollout — quedaron afuera a propósito
+
+Aparecían modificados en 6 repos y **son curados a mano por el usuario**: `gmail-personal` en los
+personales, `m365-southpoint` + `fellow` en los de Southpoint. Confirmado contra este mismo handoff
+más abajo, que dice explícito que en claude-analytics no se corrió `gen-mcp-json.ps1` para no pisar
+el `.mcp.json` curado. **El generador los reemplazaría por el catálogo. No los "sincronices".**
+
+### 🔴 Outsourcing Development no tiene red de git — el único caso realmente abierto
+
+Su raíz **no es un repo git** y el scaffold vive ahí (`CLAUDE.md`, `.bootstrap-manifest.json`,
+`.claude/` con el hook al hash canónico). `hssapp/`, que sí es el repo, está **limpio y sin
+scaffold**. O sea: esos archivos **no están bajo control de versiones en absoluto** y no hay nada que
+commitear. Única copia de respaldo:
+`…\Temp\claude\C--Repos-PERSONAL-Bootstrap-Skills\fb8d4686-…\scratchpad\backup-2da-pasada`
+(verificado que existe; es temp y se puede borrar solo). El hook además está **inerte** ahí.
+
+### Dos 🔴 del handoff anterior que eran falsas alarmas
+
+1. **Los ADRs 0004/0005/0006 y la nota de research no se perdieron** — están en el worktree
+   `Bootstrap-Skills-bootstrap-v2`. Corregido in situ más abajo.
+2. **El bug de `tests/export-shareable.tests.ps1:41` ya está arreglado y commiteado** en la línea B
+   (`2d045ba`). Corregido in situ más abajo.
+
+### Tests, comandos y bugs
+
+**No se corrió ningún test**: esta sesión no tocó código en ningún repo, solo commiteó trabajo ya
+aplicado y escribió prosa. Comandos usados: `git status/diff/add/commit/merge --ff-only/push/
+ls-remote/rev-list`, `Get-FileHash` contra el hook canónico y `Select-String` sobre `genPat`.
+
+**Deliberadamente NO se corrieron** las probes del Hub
+(`.claude/hooks/tests/review-loop-trigger.probes.ps1`): su brazo de `git commit` crea commits de
+prueba, y correrlas sobre una feature branch con WIP agregaba riesgo sin agregar información — ya
+había una corrida verde documentada bajo `pwsh`. **El mensaje de `220bc49` lo declara explícitamente**
+en vez de afirmar un verde propio.
+
+**Bugs**: ninguno nuevo encontrado ni arreglado. Sigue abierta la deuda declarada en `bc973c2` (techo
+del paso 6 ciego a los trackeados sin commitear; `^-\s` no corta en `---`; ningún test compara la
+copia ES del hook). **Ya NO está abierto** el de `tests/export-shareable.tests.ps1:41` — la línea B lo
+arregló en `2d045ba`.
+
+**Dogfooding del gate**: el commit `126d80d` es enteramente `.md` fuera de las rutas de gobierno y
+**no disparó el review-loop**, que es el comportamiento que `bc973c2` acaba de portar. Los commits de
+los 13 repos tampoco lo dispararon: el evento trae el cwd de la sesión, que era este repo.
+
+## 📋 Relevamiento: quién tiene el bootstrap nuevo (25 proyectos, medido 2026-08-28)
+
+Método: `version` del `.bootstrap-manifest.json` **cruzada con el hash del hook y la presencia de
+`genPat`** (el gate). 🔑 **El manifest solo no alcanza y miente en las dos direcciones**: el Hub tiene
+el ciclo de review al día con manifest viejo, y los worktrees tienen manifest nuevo sin el gate.
+
+**✅ Al día y funcionando (13)** — hook canónico `sha256 639E5D1D65B2` + gate:
+`claude-analytics`, `Finanzas`, `Mate OS`, `MyTube`, `Personal Catalog`, `Santi demo`
+(`2026-08-28+5ca106c`, skill personal); `Call Center Stage One`, `Forecasting App`,
+`showcase claudio`, `Showcase Garra`, `Southpoint App Migration`, `Survey Clients`
+(`2026-08-28+0cf064e`, skill southpoint); y este repo (hook propio en español, con gate).
+
+**⚠️ Al día pero con el hook INERTE (2)** — la carpeta con el scaffold **no es repo git**, y el hook
+necesita git: `Outsourcing Development` (el repo real es `hssapp/`, que no tiene scaffold) y
+🔴 **`SOUTHPOINTLABS\PROJECT MANAGEMENT`**, que **no figuraba en ningún inventario previo**.
+Ninguna corrida de `upgrade-bootstrap` lo arregla: o se versiona la raíz, o el scaffold se muda al
+repo que está adentro.
+
+**🟡 Parcial o atrasado por diseño (3)**: `SouthPoint-Hub` (`2026-06-16+fb4fec0` sellado a propósito
+con fecha vieja; tiene el gate); `Bootstrap-Skills-bootstrap-v2` y `wt-forecasting-upgrade`
+(worktrees sin gate — lo reciben al integrar `main`).
+
+**⬜ Sin bootstrap (13)**: `Administracion May` (tampoco es git), `Flash Audit`, `Planify AI`,
+`Call Center Stage Two`, `Customer Portal`, `KBS Orders Development`, **`Profitability App`**; y sin
+ningún rastro: `hssapp`, `claude-multiaccount-setup`, `domo-mcp-server`, `HSS-Client.Survey`,
+`hub-ingest-mcp`, `Task Manager` (varios son de infraestructura y probablemente no correspondan).
+
+## 🔴 Profitability App — el hallazgo de esta sesión, y el próximo paso recomendado
+
+**Cero menciones en las 3.500 líneas de este handoff.** No se la excluyó del rollout: nunca entró al
+inventario, porque el relevamiento se armó sobre los repos que tenían `.bootstrap-manifest.json`.
+
+Nunca pasó por la skill. Su `CLAUDE.md:3` lo dice: *"Este repo hereda el workflow asistido por IA de
+`southpointtech/forecasting-app`"*. **Copiaron la prosa, no los mecanismos:**
+
+| Tiene | No tiene |
+|---|---|
+| `docs/ai-workflow/` con los 5 docs | `.claude/hooks/` — **ninguno** |
+| `docs/agents/` con los 3 | `.claude/commands/` — **ninguno** |
+| `CONTEXT.md`, `.scratch/`, `.mcp.json` | `.claude/skills/` — **ninguno** |
+| `CLAUDE.md` propio, bien escrito | `.bootstrap-manifest.json` |
+
+Su `.claude/` contiene **un solo archivo**: `settings.local.json` con `enabledMcpjsonServers`.
+⇒ `/grill-me`, `/tdd`, `/review-loop`, `/slice-review`, `/to-prd` y `/to-issues` **no existen ahí**;
+quien los tipee no obtiene nada. Sin `review-loop-trigger` ni `alignment-gate`, ninguna de las dos
+reglas se refuerza sola.
+
+Importa porque `CLAUDE.md:10` tiene una regla ⛔ crítica: *"No escribir código del motor de cálculo
+hasta que PF-01 (grill de matemática unificada) se haya corrido"*, justificada en que hay decisiones
+materiales sin tomar que cambian el motor entero. **Es exactamente lo que el `alignment-gate` existe
+para blindar**, y hoy depende de que el agente lea la prosa y se acuerde.
+
+No está dormido: **37 commits, el último del 27/08**, rama `docs/reunion-05-08-corte-en-gross-profit`,
+2 archivos sin trackear del 28/08.
+
+**Acción propuesta y NO ejecutada** (el usuario cortó la sesión antes de decidir):
+`bootstrap-southpoint-project` en **modo adopción** (Step 0b), que **mergea** el `CLAUDE.md` existente
+en vez de pisarlo. Su contenido propio —la matemática en `packages/gp-engine`, las fronteras de
+directorio entre apps, los workbooks de HSS que se leen y no se editan— es bueno y hay que
+conservarlo **entero**.
+
+## Pendientes / próximos pasos
+
+1. **Bootstrapear `Profitability App`** en modo adopción (arriba). Es el candidato más claro de los
+   13 sin scaffold: proyecto de cliente, activo, con reglas críticas que hoy son solo prosa.
+2. **Decidir qué hacer con las 2 carpetas sin git** (`Outsourcing Development`,
+   `PROJECT MANAGEMENT`): versionar la raíz, mover el scaffold al repo de adentro, o aceptar que el
+   hook viva inerte.
+3. **Benchmark Track B**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes
+   del rot → Slice 2 → issue-06. (Outsourcing y Forecasting **congelados** hasta el re-freeze, por la
+   decisión 3 de la línea B.)
+4. Opcional en el Hub: las 19 outdated fuera de alcance, cuando la línea de Pocock esté decidida.
+
+## ⚠️ La línea B está VIVA — y `main` se le movió abajo
+
+Sesión **activa** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (rama `feat/bootstrap-v2`).
+Durante esta sesión commiteó dos veces (HEAD llegó a `1ec2f08`) y siguió escribiendo hasta las 18:49.
+**No commitear ahí, no stagear nada.**
+
+🔴 **Conflicto anunciado, no teórico**: `feat/bootstrap-v2` salió de `feb3f23`, y `main` ahora tiene
+6 commits más. `bc973c2` **reescribió el bullet del `/review-loop` en
+`skills/*/assets/scaffold/CLAUDE.md`** y el hook canónico — y la línea B tiene modificados esos mismos
+`CLAUDE.md` en las tres skills, desde la base vieja, con la **decisión 19** apuntando justo a recortar
+ese bullet a 3 oraciones + pointer. **Van a chocar ahí.** Conviene avisarles antes de que sigan
+acumulando cambios sobre `feb3f23`. *(El usuario pidió no escribir en su árbol, así que el aviso no se
+dejó allá.)*
+
+## Antes de tocar código
+
+- **Los dos árboles están separados**: este repo (`Bootstrap Skills`, ahora en `main`) y el worktree
+  de la v2 (`Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2`). No cruzarlos.
+- ⚠️ **El árbol de un worktree ajeno cambia entre dos comandos tuyos**: su `git status` dio 6 entradas
+  y tres minutos después 11. **Comparar el mtime de lo sucio contra la hora actual antes de stagear.**
+  Si ya stageaste, revertí con `git reset -- <paths propios>`; un `git reset` pelado también deshace
+  lo que la otra sesión tenía staged.
+- 🔑 **Antes de dar un archivo por perdido, buscalo en `git worktree list`.** Un `git status` del árbol
+  principal no ve los worktrees hermanos y eso se lee igual que un borrado.
+- 🔑 **Verificá el delta contra git antes de actuar sobre una lista de `customized`** — y antes de
+  commitear un rollout, confirmá contra el repo de las skills qué archivos son realmente del delta.
+  Así quedaron afuera los `.mcp.json` de 6 repos, que son curados a mano.
+- **`CONTEXT.md` figura `M` en este repo con diff vacío**, incluso tras `git update-index --refresh`.
+  Verificado: no es un cambio, es el residuo de `autocrlf` ya anotado como bug abierto. **No lo toques.**
+- **alignment-gate** frena el primer edit de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- **Para prosa en español, usar Edit**; commits largos con archivo + `git commit -F` (los acentos y
+  emoji sobreviven bien así — verificado en `126d80d`).
+
+---
+
+# Session Handoff — 2026-08-28 (tarde) — LOS 3 PASOS DEL HANDOFF ANTERIOR ESTÁN CERRADOS: deploy + 14 repos + SouthPoint-Hub. **NADA COMMITEADO EN NINGÚN REPO**
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+**Objetivo del proyecto**: mantener las 3 skills bootstrap espejadas y repartir el scaffold del ciclo
+de review a todos los repos de `C:\Repos`.
+
+**Esta sesión fue OPERATIVA (rollout), no de desarrollo.** No se escribió lógica nueva en este repo:
+todo el trabajo fue deployar lo ya commiteado y aplicarlo a 15 repos ajenos.
+
+Rama **`feat/marcador-de-revision`**, HEAD **`a6db7b5`**, 5 commits adelante de `main` (`feb3f23`),
+**sin pushear y sin mergear** — el usuario lo dejó para él. **Este repo no recibió ningún commit
+nuevo esta sesión.** `git status` al cerrar: solo `CONTEXT.md` (de la otra sesión, **no tocar** — es
+la línea de las skills de Pocock) y `docs/SESSION_HANDOFF.md` (este archivo).
+
+### ~~⚠️ Archivos de la otra sesión que DESAPARECIERON durante esta sesión~~ → ✅ FALSA ALARMA (resuelto 17:35 del 2026-08-28)
+
+> **Corrección de la sesión siguiente.** No se perdió nada. Los cuatro archivos
+> (`docs/adr/0004`, `0005`, `0006` y `docs/superpowers/notes/2026-08-28-research-dieta-de-contexto.md`)
+> **están en el worktree hermano** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, con su **mtime
+> original intacto** (13:09–13:31, contra las 15:11:59 que tiene todo lo que el worktree checkouteó al
+> crearse — por eso el mtime distingue "vino con el worktree" de "lo mudaron acá"). La otra sesión los
+> movió ella misma al separar los árboles. Leídos y verificados: son reales y completos.
+> 🔑 **Lección: antes de dar un archivo por perdido, buscalo en `git worktree list`.** Un `git status`
+> del árbol principal no ve los worktrees hermanos, y eso se lee igual que un borrado.
+
+Texto original, conservado: al abrir esa sesión, `git status` mostraba sin trackear los cuatro
+archivos; al cerrarla ya no estaban en el árbol principal ni commiteados. La inferencia
+("probablemente la otra sesión los movió o descartó") era correcta en la primera mitad y alarmista en
+la segunda.
+
+### 🔴 LO PRIMERO QUE HAY QUE DECIDIR: 15 repos tienen cambios SIN COMMITEAR
+
+El rollout dejó los cambios en el working tree de cada repo, sin commitear (la skill
+`upgrade-bootstrap` no commitea en nombre del usuario). Son 14 repos + SouthPoint-Hub. En varios,
+esos cambios conviven con WIP ajeno que **no se tocó** (Forecasting App tenía ~34 archivos propios).
+**Decisión del usuario**: commitear repo por repo, dejarlos así, o revertir.
+Backups de todo lo sobrescrito en el scratchpad de la sesión (`backup-2da-pasada/`, `backup-hub/`).
+
+## Lo que se hizo (todo verificado en el destino)
+
+### 1. DEPLOY — `tools/sync-skills.ps1` corrido ✅
+
+Las 5 skills quedaron en `~/.claude/skills`. Verificado **en el destino**, no por exit code: las 3
+bootstrap pasaron de `2026-08-26+…` a `2026-08-28+…` (`5ca106c` personal / `0cf064e` southpoint /
+`e01a56d` ai-project), el hook instalado es byte-idéntico al del repo (SHA `639e5d1d…`) y trae el
+gate solo-docs. Los manifests regenerados dieron **los mismos hashes** que los commiteados ⇒ el
+árbol de este repo no se ensució.
+
+### 2. SEGUNDA PASADA — los 14 repos en `2026-08-28` ✅
+
+**El delta de esta versión son 2 archivos**: el hook entero y **UNA línea** del `CLAUDE.md`.
+Verificado con `git diff --stat feb3f23 HEAD -- skills/` **antes** de tocar nada. Eso probó que los
+`.gitignore`, `domain.md` y `settings.json` que el compare marca *customized* estaban **fuera del
+delta**, y evitó 14 merges innecesarios. 🔑 **Verificar el delta contra git antes de creerle a la
+lista de `customized`.**
+
+Reparto **por naturaleza, no por repo**: 10 con ambos archivos `outdated` (actual==base) → script
+mecánico con verificación de hash; 4 con `CLAUDE.md` *customized* → un agente por repo en paralelo,
+con injerto acotado por anclas literales. Los 3 que injertaron dieron diff de 1 línea.
+
+Verificación final de los 14: `missing=0`, `outdated=0`, hook byte-idéntico, gate presente, bullet
+presente en los 14 `CLAUDE.md`.
+
+🔴 **`reseal-manifest.ps1` NO degrada una customización** (lo verifiqué porque parecía un bug real):
+temía que sellara `base = actual` y que la próxima pasada clasificara el archivo como *outdated*
+(= sobrescribible sin preguntar, `compare-scaffold.ps1:31`). No pasa: **la línea 28 conserva la base
+previa** cuando el archivo difiere del canónico. Resellar es seguro.
+
+**Outsourcing Development — un agente se negó a editar y TENÍA RAZÓN.** Su bullet está deliberadamente
+abreviado porque el hook está **inerte** ahí (la raíz no es repo git; el repo vive en `hssapp/` —
+verificado). El bloque canónico describe lo que hace el hook (dedupe por SHA, red de ~400, gate), o
+sea **afirmaciones falsas para ese proyecto**, en contradicción con su propio `CLAUDE.md:66`. Decisión
+del usuario: **versión adaptada**, mismo criterio de qué cuenta como documentación pero redactado como
+regla **manual** ("este juicio es TUYO, no del hook"). Backup previo (no hay red de git ahí); diff
+final = 1 línea, 357 líneas antes y después.
+Su `.claude/settings.json` figura `outdated` **para siempre**: difiere solo en
+`enabledPlugins.skill-creator`, que ahí se usa. **Es esperado, no lo copies.**
+
+### 3. SOUTHPOINT-HUB — upgrade PARCIAL y deliberado ✅ (probe verde, exit 0)
+
+Venía de `2026-06-16+fb4fec0` (2 meses de scaffold): 4 missing, 23 outdated, 5 customized.
+Alcance elegido por el usuario: **mínimo coherente del review**, 10 archivos.
+
+Entraron: hook canónico, `review-marker.ps1`, `alignment-gate.ps1`, `slice-review` (SKILL + command),
+`review-loop` (SKILL + command) y **`tdd`** (SKILL + command). Los dos últimos **por coherencia, no
+por lista**: el hook nuevo **lee** el trailer `Slice-Close:` y el `tdd` viejo del Hub no lo definía
+(0 menciones) ⇒ nadie lo habría puesto nunca; y su `review-loop` corría `/code-review` (human-only,
+cierra sin revisar).
+**Quedaron afuera a propósito**: `skills-lock.json` y las 9 `.agents/skills/*` de Pocock — territorio
+de la otra sesión (ADR 0005). Post: `missing=0`, `uptodate` 19→27, **19 outdated fuera de alcance**.
+
+🔴 **NO se reselló el manifest** (sigue en `2026-06-16`): pondría `version 2026-08-28`, falso con 19
+archivos viejos. Los que entraron figuran *uptodate* igual, sin manifest. Mismo criterio que Outsourcing.
+
+**Tres cosas que el plan del handoff anterior no anticipaba:**
+
+1. **El canónico no sobrevive a PowerShell 5.1**: viene **sin BOM** y con **46 caracteres no-ASCII**;
+   en 5.1 un UTF-8 sin BOM se decodifica como ANSI ⇒ mojibake. Migrar `settings.json` a `pwsh` era el
+   requisito, no una opción. `session-start-handoff.ps1` **queda en 5.1** (es ASCII con BOM propio).
+2. **La probe caía por FORMA, no por fondo** — falso positivo del canario. Leía `^\$govern` pegado al
+   margen y el canónico lo tiene **indentado** dentro del `if ($root)`; y fijaba literal
+   `$nonDoc = $files | ...`, que ahora es `@($touched | ...)`.
+3. 🔑 **El brazo `git commit` de la probe es incompatible con el hook nuevo salvo HEAD fresco.** El
+   paso 6 tiene una **ventana de 30 min** sobre HEAD (el evento trae el cwd de la SESIÓN, así que un
+   HEAD viejo se atribuye a otro repo → `exit 0`). HEAD tenía 22,7 h ⇒ silencio **siempre**. Se
+   arregló derivando la expectativa de 3 hechos (frescura + trailer + líneas de lógica) y **moviendo
+   el dedupe a `git push`**, que no pasa por ventana ni trailer.
+
+**`$govern` del Hub diverge a propósito**: se le reinjertó `docs/ONBOARDING-AGENT.md`, que el canónico
+sacó y que su `CLAUDE.md` declara lectura obligatoria. Va a figurar *customized* siempre; está
+comentado en el hook y en el `CLAUDE.md`. **No lo "sincronices".**
+
+Marcador sembrado a mano: `marker:feat/zoho-project-migration` = SHA de HEAD (árbol sucio ⇒ **nunca**
+`-Action advance`). `review-marker.ps1` responde `get`/`range`/`base` con exit 0.
+
+## Corrección propia, para que no se repita
+
+Calculé "226 líneas de lógica" filtrando `.md` por mi cuenta. **`$skipPat` NO excluye `.md`** (son
+generados, lockfiles, vendored y snapshots, nada más). El número real en esa rama es **1673**. El
+techo de ~400 **sí cuenta la prosa**.
+
+## Archivos modificados (ninguno commiteado)
+
+- **Este repo**: ninguno. (Los 3 manifests del scaffold se regeneraron idénticos.)
+- **10 repos**: `.claude/hooks/review-loop-trigger.ps1` + `CLAUDE.md` + `.bootstrap-manifest.json`.
+- **claude-analytics, Forecasting App, Survey Clients**: hook + 1 línea de `CLAUDE.md` + manifest.
+- **Outsourcing Development**: hook + 1 línea de `CLAUDE.md` (adaptada) + manifest.
+- **SouthPoint-Hub**: 10 archivos del scaffold + `settings.json` (a `pwsh` + alignment-gate) +
+  `.claude/hooks/tests/review-loop-trigger.probes.ps1` + `CLAUDE.md` (3 ediciones) + marcador.
+  **Sin reseal.**
+
+## Tests corridos
+
+```
+.claude\hooks\tests\review-loop-trigger.probes.ps1 (Hub, con pwsh)   TODAS OK   exit 0
+```
+Corrida dos veces (la segunda tras editar el `CLAUDE.md` del Hub). Sin `index.lock` colgado; el state
+file quedó restaurado con el marcador y el dedupe conviviendo.
+**No se corrió la suite de este repo**: no se tocó código acá. ~~Sigue vigente que
+`tests/export-shareable.tests.ps1` tiene el bug de la línea 41 (escribe `LEAK-TEST.md` dentro del repo real).~~
+→ **Corrección de la sesión siguiente: ese bug ya está arreglado y commiteado** en la rama de la línea B
+(`2d045ba`, *"fix(tests): el gate anti-fuga se prueba sobre una fuente hermética"*). No es un pendiente.
+
+## Bugs
+
+- **Encontrados**: los 3 del Hub (5.1/BOM, probe por forma, ventana de 30 min). **Los 3 arreglados.**
+- **Abiertos**: la deuda declarada en `bc973c2` sigue igual (techo del paso 6 ciego a los trackeados
+  sin commitear; `^-\s` no corta en `---`/encabezados; ningún test compara la copia ES del hook).
+
+## Pendientes / próximos pasos
+
+1. **Decidir qué se hace con los 15 working trees sucios** (commitear / dejar / revertir). Bloquea a
+   los demás si se quiere historia limpia.
+2. **Merge + push** de `feat/marcador-de-revision` a `main` — el usuario lo dejó para él.
+3. **Benchmark Track B**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes
+   del rot → Slice 2 → issue-06.
+4. ~~**Pregunta abierta desde el 27/8, sigue sin responder**: por dónde arrancar la próxima versión
+   (suite paralela + bug de `tests/export-shareable.tests.ps1:41` / reconstruir la base del lockfile
+   de las skills de Pocock / grill del scope).~~ → **Corrección de la sesión siguiente: ya está
+   respondida y en ejecución.** El grill cerró con 22 decisiones firmadas, el bug de
+   `export-shareable` está arreglado (`2d045ba`) y la línea B avanza en su propio worktree.
+   🔴 **La otra sesión está trabajando justo en la línea de Pocock** — chequear con el usuario antes
+   de abrirla por duplicado. Sigue vigente.
+5. Opcional en el Hub: las 19 outdated fuera de alcance, cuando la línea de Pocock esté decidida.
+
+## Antes de tocar código (crítico)
+
+- **`git status` sucio es lo esperado en este repo** (otra sesión). Stagear **archivo por archivo**,
+  nunca `git add -A`.
+- **Nunca `-Action advance` con el árbol sucio** — sella el WIP ajeno como revisado. SHA de HEAD a
+  mano, con backup del state.
+- **Los manifests son generados.** `tools/gen-manifest.ps1` para los 3 del scaffold,
+  `skills/upgrade-bootstrap/scripts/reseal-manifest.ps1` para el de la raíz.
+- **Para prosa en español, usar Edit** — los acentos se corrompen en un heredoc. Commits largos:
+  archivo + `git commit -F`.
+- **alignment-gate** frena el primer edit de código de la sesión. Si el trabajo es operativo, decilo
+  y reintentá; **no grilles**.
+- **Verificá el delta contra git antes de actuar sobre una lista de `customized`.**
+
+## Preferencias del usuario (vigentes)
+
+- **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.**
+  **Prefiere Opus 4.8.** **Paraleliza todo lo posible** (techo medido: 4-6 agentes por ola; para
+  trabajo puramente mecánico un script gana). **Cortar y seguir en terminal nueva.** **Nada a Zoho.**
+
+---
+
+# Session Handoff — 2026-08-28 (TURNO 5 CORRIDO + SLICE CERRADO Y COMMITEADO `bc973c2` — el loop terminó por CAP, no limpio; próximo: DEPLOY `tools/sync-skills.ps1`)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Rama **`feat/marcador-de-revision`**, HEAD **`bc973c2`** (commit de cierre, **con** trailer
+`Slice-Close:`). `main` = `origin/main` = `feb3f23`; la rama está **4 commits adelante**, **sin
+pushear** y **sin mergear**. El usuario eligió commit sin push: el merge/push queda para él.
+
+**El slice del port de solo-docs está CERRADO.** Marcador en `ab2feb1`, anchor `slice-open` limpio
+(`-Action close` corrido). Nada pendiente de este slice.
+
+### 🔴 EL ÁRBOL NO ESTÁ LIMPIO, Y NO ES DE ESTA LÍNEA DE TRABAJO
+
+Hay **otra sesión de Claude Code del usuario escribiendo sobre este mismo working tree**, confirmado
+por él ("otra sesión mía, dejala"). Apareció durante esta sesión (12:55 en adelante):
+
+- `CONTEXT.md` modificado — 4 entradas de vocabulario de **skills externas** (base de merge, drift,
+  fork propio, skill puntero).
+- `docs/adr/0004-el-refactor-sale-del-ciclo-tdd.md`, `0005-el-lockfile-de-skills-se-verifica-o-no-existe.md`,
+  `0006-conservamos-nuestros-nombres-de-skills.md` — **sin trackear**.
+
+**NO TOCAR NADA DE ESO.** Es la línea de las skills de Pocock, uno de los candidatos de "próxima
+versión". Quedaron fuera del commit a propósito (staging explícito archivo por archivo).
+Consecuencia operativa: `git status` sucio es lo ESPERADO acá; verificar antes de asumir que algo
+lo ensució esta sesión.
+
+### 🔴 Dos cosas que hay que saber sobre el marcador
+
+1. **`-Action advance` NO se puede usar con el árbol sucio.** Corre `git stash create`, que captura
+   el trabajo sin commitear de la otra sesión y lo sella como "ya revisado". Esta sesión avanzó el
+   marcador **escribiendo el SHA de HEAD a mano** en `.git/review-loop-state.json` (clave
+   `marker:<branch>`). Backup del state previo en el scratchpad de la sesión
+   (`review-loop-state.BACKUP-t5.json`), con el valor viejo `7c3262b`.
+2. **El marcador quedó DELIBERADAMENTE atrás, en `ab2feb1`, no en `bc973c2`.** Los fixes del turno 5
+   nunca pasaron por un turno de review (el cap se agotó), así que quedan como **delta no revisado**
+   a propósito. El próximo `/review-loop` los va a mirar — junto con el trabajo de la otra sesión.
+   Si eso molesta, la decisión es del usuario, no la tome el agente solo.
+
+## Lo que se hizo (todo verificado)
+
+### 1. Turno 5 del review-loop — el tope del cap
+
+Rango: `git diff 7c3262b` (11 archivos, ~50 líneas de lógica, sin untracked). 5 focos en paralelo
+(bugs/contratos/tests en el modelo capaz; reglas e histórico en el liviano), **sin** `--mutation` ni
+`--code-review` (prohibidos de turno 2 en adelante). 13 hallazgos dedupeados → pase de confianza con
+6 puntuadores → **3 medium + 7 low**, 3 descartados por debajo de 60.
+
+**NO cerró limpio.** Los turnos 3 y 4 habían dado cero bugs de conducta; el turno 5 encontró 3 medium
+porque miró **comentarios y prosa**, que es de donde salió también lo más valioso de los turnos 1 y 2.
+
+### 2. Los 3 hallazgos descartados valen tanto como los aceptados
+
+- **8/100 — dos reviewers midieron la misma mutación y se contradijeron.** El foco de tests declaró
+  que el cambio `^\s*-\s` → `^-\s` era **inerte** y que su comentario era una afirmación falsa; el
+  foco de bugs midió lo contrario. El dirimidor midió **las dos posiciones** y resolvió: el cambio
+  arregla algo real (una sub-lista **en el medio** del bullet truncaba el recorte a 740 chars); el
+  que lo llamó inerte la había inyectado **al final**, donde efectivamente no cambia nada.
+  🔴 **Si le hubiera creído al primero, habría "arreglado" un comentario correcto y roto un fix real.**
+- **55/100** — que el comentario reescrito sobre-afirmara en `commit && push`: la cláusula es
+  verbatim preexistente y la aclaración vive en el propio paso 6.
+- **20/100** — que el hook español no tuviera cobertura: `tests/review-loop-incremental.tests.ps1`
+  (líneas 44-49, 173, ~264) **sí** lo cubre, comparando la lógica strippeada de las 4 copias.
+
+### 3. Fixes aplicados (9 del turno 5 + 1 de coherencia)
+
+Todos afirmaciones no verificadas, salvo dos de código:
+
+- `docs/TESTING.md` — el mutante citado no aislaba la derivación de rutas. **Remedido acá**: agregar
+  una alternativa cae en rojo **con y sin** derivación (lo caza el assert de las 5 alternativas);
+  el que la aísla es **reemplazar** una (`docs/agents/` → `docs/`), que queda **verde** sin ella.
+- `tests/…:365` **(código)** — early-out `if ($leidas)`. Sin él, `Read-Pat` devolvía `@()`, que se
+  desenrolla a `$null`, y `$null.Count` es 0 ⇒ imprimía **`ok:` en verde** sobre una lectura que
+  nunca ocurrió. Pase falso en un guard cuyo trabajo entero es ser ruidoso.
+- `tests/…:420` **(código)** — el assert de dirección ancla ahora la **cláusula entera**. Anclando
+  sólo la primera punta, el mutante `is code` → `is documentation too` corría la suite **completa en
+  verde** (medido), o sea el bug de la v1 podía volver a declararse sin que nadie lo viera.
+- `tests/…:353` — "veinte líneas más abajo" son **11** (`$skipPat`) y **18** (`$genPat`); y el
+  escenario pasa a futuro, que es lo que es (ninguna lista tiene hoy comentario detrás del `)`).
+- `tests/…:407` — "3 rojos más" son **4**.
+- hook ×4 — la afirmación *"el gate es lo único que todavía puede callar un push"* sobrevivía 55
+  líneas más abajo de donde este mismo slice ya la había corregido. El dedupe por SHA del paso 7
+  corre en **todos** los disparadores.
+- hook ×4 — los `4,9 s` **no se remidieron end-to-end**; lo cronometrado fue el `Get-Content`
+  (16-172 ms). Ahora el comentario y `docs/TESTING.md:284` dicen lo mismo.
+- `docs/TESTING.md` — los dos fixtures untracked fijan mutaciones **disjuntas** (probado por
+  mutación: sacar `$genPat` lo caza sólo el del manifest; poner `$skipPat` sólo el del lockfile).
+  **Ninguno de los dos es podable por redundante.**
+- `docs/TESTING.md` — "Ningún assert la fija" abarcaba de más: sin assert queda sólo la mitad del
+  generado **solo**.
+- `.claude/hooks/review-loop-trigger.ps1:92+` **(del pase de coherencia)** — la copia en español
+  tenía la versión CORTA del comentario del `$(...)`: las 3 del scaffold lo habían actualizado para
+  nombrar el paso 5c y el costo del falso positivo. Alineada a mano.
+
+### 4. Pase de coherencia — cierra, con un hallazgo
+
+Los **4 ajustes acordados verificados EN CÓDIGO** (rango del marcador, `git -C $root`, `$govern`
+generalizado, batería de pruebas). `docs/TESTING.md` describe la suite que existe, caso por caso.
+Los 4 `CLAUDE.md` byte-idénticos en la regla y coherentes con el clasificador. Sin andamiaje muerto.
+
+## 🔴 DEUDA DECLARADA (está en el mensaje de `bc973c2`, no escondida)
+
+1. **El techo del paso 6 no mira los trackeados modificados sin commitear que el paso 5c sí mira.**
+   En el camino **sin marcador**, 600 líneas sin commitear al lado de un commit solo-prosa mantienen
+   el gate abierto pero son **invisibles para el conteo**, así que un commit sin trailer puede medir
+   `≤400` y no disparar — justo lo que la red de ~400 existe para atrapar. Preexistente (esa línea
+   de `numstat` no la tocó el slice) y de alcance estrecho (un repo bootstrapeado siempre trae el
+   marcador). **No se arregló por cap agotado**: es lógica nueva que ya nadie podía revisar.
+2. **El corte del bullet `^-\s` no cierra en `---` ni en encabezados.** Preexistente, el regex viejo
+   tenía la misma debilidad. Cierre barato si se quiere: `(?=^-\s|^#|^---|\z)`.
+3. **Ningún test compara la copia en español del hook contra las del scaffold.** Es el punto ciego
+   que dejó pasar el comentario desactualizado del punto anterior. `mirror.tests.ps1` sólo espeja las
+   3 del scaffold entre sí; `review-loop-incremental.tests.ps1` compara la **lógica** de las 4 pero
+   no los comentarios (correctamente: la ES está en español a propósito).
+
+## Tests corridos (todos verdes, esta sesión)
+
+```
+pwsh -NoProfile -File tests/review-loop-docs-gate.tests.ps1        62 ok  exit 0
+pwsh -NoProfile -File tests/mirror.tests.ps1                       93 ok  exit 0
+pwsh -NoProfile -File tests/review-loop-incremental.tests.ps1     325 ok  exit 0
+pwsh -NoProfile -File tests/shareable-leaks.tests.ps1               6 ok  exit 0
+```
+
+**No se corrió `tests/export-shareable.tests.ps1`** a propósito: tiene el bug conocido de la línea 41
+(escribe `LEAK-TEST.md` **dentro del repo real**) y el árbol tiene trabajo vivo de otra sesión.
+
+Manifests: los 3 del scaffold regenerados con `tools/gen-manifest.ps1 -SkillDir skills/<skill>`; el
+de la RAÍZ resellado con `skills/upgrade-bootstrap/scripts/reseal-manifest.ps1 -ProjectDir . -CanonicalScaffold skills/bootstrap-personal-project/assets/scaffold`. Versión final `2026-08-28+5ca106c`.
+Las 3 copias del scaffold byte-idénticas (`639E5D1D…`).
+
+## Decisiones que el usuario firmó esta sesión
+
+1. **El slice se cierra CON el exceso de tamaño declarado**, no se parte. ~1270 líneas insertadas
+   contra el techo de ~400 (o ~550 contando el hook una sola vez en lugar de sus 4 copias). Razón:
+   partirlo después de implementado exige rehacer la historia y deja cada mitad sin sentido (el hook
+   sin sus tests viola test-first), y buena parte del exceso es el espejado ×4 que exige otra regla
+   del mismo archivo. **Esto cierra la decisión que venía abierta desde el 27/8.**
+2. **Con el cap agotado se arreglan las 3 medium + las low de prosa**, sin turno 6. El endurecimiento
+   de código preexistente queda como deuda.
+3. **El trabajo de la otra sesión no se toca ni se commitea.**
+
+## Próximos pasos
+
+1. **DEPLOY** — `tools/sync-skills.ps1` → `~/.claude/skills`. Hasta que no corra, el scaffold nuevo
+   **no existe** para ningún proyecto. Es el paso 1 y bloquea a los otros dos.
+2. **Segunda pasada de `upgrade-bootstrap`** por los 14 repos (costo ya aceptado en la decisión de
+   "release ya, separado de la próxima versión").
+3. **SouthPoint-Hub** — el repo que motivó el port, todavía en `2026-06-16+fb4fec0`. Corre
+   `powershell` 5.1 con `-ExecutionPolicy Bypass` (no `pwsh`) y su hook tiene **BOM** a propósito.
+   Si entra el hook canónico, `settings.json` debe pasar a `pwsh` **y** `review-marker.ps1` debe
+   estar presente: **las tres cosas juntas o ninguna**. Su probe propia
+   (`hooks/tests/review-loop-trigger.probes.ps1`) es el canario: si post-upgrade dice *"no se pudo
+   leer $govern del hook"*, el gate se borró.
+4. **Merge + push** de la rama a `main` — lo dejó el usuario para él.
+5. **Benchmark Track B**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes
+   del rot → Slice 2 → issue-06 (Outsourcing viejo vs nuevo).
+6. **Pregunta abierta del usuario desde el 27/8, sigue sin responder**: por dónde arrancar la próxima
+   versión (suite paralela + el bug de `tests/export-shareable.tests.ps1:41` / reconstruir la base
+   del lockfile de las skills de Pocock / grill del scope). 🔴 **Ojo: la otra sesión parece estar
+   trabajando justo en la rama de las skills de Pocock** — chequear con el usuario antes de abrirla
+   por duplicado.
+
+## Antes de tocar código (crítico)
+
+- **`git status` sucio es lo esperado**: `CONTEXT.md` + 3 ADRs son de la otra sesión. Stagear siempre
+  **archivo por archivo**, nunca `git add -A` ni `git add .`.
+- **Nunca `-Action advance` con el árbol sucio** — sella el WIP ajeno como revisado. Escribir el SHA
+  de HEAD a mano en `.git/review-loop-state.json`, con backup previo.
+- **Las 4 copias del hook idénticas en LÓGICA**: las 3 del scaffold byte-idénticas
+  (`mirror.tests.ps1`); la del repo en español, sólo difiere en comentarios
+  (`review-loop-incremental.tests.ps1`).
+- **Los manifests son generados.** `tools/gen-manifest.ps1` para los 3 del scaffold,
+  `reseal-manifest.ps1` para el de la raíz. `compare-scaffold.ps1`, `reseal-manifest.ps1` y
+  `merge-settings.ps1` viven en `skills/upgrade-bootstrap/scripts/`, **no** en `tools/`.
+- **Para prosa en español, usar Edit** — los acentos se corrompen al pasar texto por un heredoc.
+  Para mensajes de commit largos: escribir a archivo y `git commit -F <archivo>`.
+- **La suite del gate tarda varios minutos**: no correrla con timeout de 2 min.
+- **alignment-gate** frena el primer edit de código de la sesión. Si el trabajo es operativo, decilo
+  y reintentá; **no grilles**.
+
+## Preferencias del usuario (vigentes)
+
+- **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.**
+  **Prefiere Opus 4.8.** **Paraleliza todo lo posible** (techo medido: 4-6 agentes por ola).
+  **Cortar y seguir en terminal nueva.** **Nada a Zoho.**
+
+---
+
+# Session Handoff — 2026-08-27/28 (ROLLOUT de los 10 repos restantes COMPLETO + port del filtro solo-docs con 4 turnos de review-loop aplicados — próximo: TURNO 5 del loop, que es el tope, y después el deploy)
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Rama **`feat/marcador-de-revision`**, HEAD **`bf2ff41`** (checkpoint WIP, **sin** trailer `Slice-Close:`
+a propósito). **Árbol limpio.** `main` = `origin/main` = `feb3f23`; la rama está **2 commits adelante**
+(`ace7016` + `bf2ff41`), **sin pushear**.
+
+**El marcador está cortado en `7c3262b`**, así que `range` devuelve exactamente el delta del turno 4
+(los arreglos que todavía nadie revisó). Eso es lo que tiene que leer el turno 5.
+
+### 🔴 LO PRIMERO: correr el TURNO 5 del review-loop (es el tope)
+
+El loop lleva **4 turnos** sobre el slice del port. Turnos 3 y 4 dieron **cero bugs de conducta**, así
+que va a cerrar limpio o al tope. Procedimiento exacto:
+
+1. `pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range` → pasar ESE ref pelado.
+2. `/slice-review <ref>` — **sin** `--mutation` ni `--code-review` (prohibidos de turno 2 en adelante).
+3. `-Action advance` **después** del review y **antes** de cualquier fix.
+4. Al cerrar: `/slice-review --coherence`, y si cerró limpio, `-Action close`.
+5. Recién ahí, el commit de cierre con el trailer `Slice-Close:`.
+
+**No re-revisar el slice entero**: el marcador ya acota el delta.
+
+## Lo que se hizo (todo verificado, nada a medias)
+
+### 1. ROLLOUT — los 10 repos que faltaban, CERRADO
+
+🔴 **El inventario de "18 repos" del handoff anterior era falso.** Los 7 `fc-*` / `forecasting-app-fix*`
+**no existen en disco** (verificado con `find` sobre todo `C:\Repos`). La fuente de verdad para
+inventariar es **enumerar los `.bootstrap-manifest.json`**, no una lista de nombres.
+
+El cluster `ec13727` son **3 worktrees del mismo `.git` de Forecasting App**
+(`_worktrees/forecasting/{br08,master-qa,stage2}`), 79 / 141 / 394 commits detrás de `master`. El
+scaffold **está trackeado en git** y `b6d4e67` ya lo actualizó en `master` ⇒ **el upgrade les llega
+por merge**. Tocarlos a mano = 3 conflictos garantizados. **NO SE TOCAN.**
+
+| Repo | Commit | Merge a mano |
+|---|---|---|
+| `PERSONAL\Mate OS` | `77b400c` | — |
+| `PERSONAL\Personal Catalog` | `af4454a` | — |
+| `PERSONAL\Santi demo` | `9840468` | — |
+| `PERSONAL\MyTube` | `fd6fcfb` | — |
+| `PERSONAL\Finanzas` | `3366b58` | `.gitignore` propio (bloque Python) intacto; marcador migrado |
+| `showcase claudio` | `7fbb9b3` | — |
+| `Showcase Garra` | `ab188bb` | — |
+| `Southpoint App Migration` | `2d72c33` | su `review-loop/SKILL.md` "customized" era la doctrina VIEJA → canónico |
+| `Call Center Stage One` | `be621fd` | 3 archivos, ver abajo |
+| `PROJECT MANAGEMENT` | *sin commit* | **no es repo git en ningún nivel** ⇒ hook inerte, como Outsourcing |
+
+Verificado en los 10: `missing=0`, `outdated=0`, hook byte-idéntico al canónico, `review-marker.ps1`
+respondiendo. Ninguno tenía interino. **El WIP sin commitear de cada repo quedó intacto y fuera del
+commit** (adapter Itaú en Finanzas, ADRs de Mate OS, `.mcp.json`, assets de Call Center).
+
+🔴 **Call Center Stage One es el caso a recordar**: su `.claude/settings.json` **no tiene hooks pero sí
+un token de DOMO real**, y **está gitignoreado** (junto con la service-account de Firebase y el
+`.mcp.json`) ⇒ pisarlo con el canónico borraba la config MCP **sin red de git**. Se resolvió con
+`merge-settings.ps1`. Su `.gitignore` no se toca (protege esos secretos) y su `docs/agents/domain.md`
+se rearmó como canónico + la sección propia reinjertada.
+
+**Dos aprendizajes operativos**: (1) en un repo con árbol sucio, migrar el marcador **con el SHA de
+HEAD, nunca con `-Action advance`** — `advance` corre `git stash create` y sella el WIP sin commitear
+como "ya revisado". (2) `range → exit 2` en un repo parado en `main` **no es falla**: sin rama de
+feature no hay base de slice.
+
+**Estado de `C:\Repos`**: 14 repos en el scaffold nuevo. Afuera quedan sólo los 3 worktrees (por
+diseño) y **SouthPoint-Hub**, que espera este port.
+
+### 2. PORT del filtro solo-docs — implementado, 4 turnos de review-loop aplicados
+
+Qué hace: el hook `review-loop-trigger.ps1` **no dispara** si el slice es enteramente documentación.
+Paso **5b** (resuelve el rango del marcador una sola vez, para el gate y para el techo del paso 6, +
+las dos listas de exclusión + `Get-UntrackedNew`) y paso **5c** (el gate).
+
+**Los 4 ajustes acordados están los 4**: (1) decide sobre el rango del marcador; (2) `git -C $root`;
+(3) `$govern` generalizado (se sacó `ONBOARDING-AGENT.md`, se agregó `.agents/`); (4) sube con su
+batería de pruebas.
+
+🔴 **La decisión de diseño que hay que entender antes de tocar el hook: DOS listas, no una.**
+- `$skipPat` (8 patrones) = lo que el `CLAUDE.md` excluye de **líneas de lógica**. Lo usa el techo del
+  paso 6. El archivo existe y merece revisión; sólo aporta 0 al conteo.
+- `$genPat` (2: `*.bootstrap-manifest.json`, `*.snap`) = lo que **no escribió nadie**. Lo usa el gate.
+  Es subconjunto **estricto**, y hay un assert que lo fija leyendo las dos listas del hook.
+
+Fusionarlas (que es lo que hice en el turno 1) crea un falso negativo **no monotónico**:
+`package-lock.json` solo dispara, el mismo lockfile **+ un README** se calla — agregar prosa apaga la
+revisión, justo donde se verifica la regla de supply-chain. **No las "unifiques" de vuelta.**
+
+**Archivos tocados** (las 4 copias del hook + prosa + tests):
+- `.claude/hooks/review-loop-trigger.ps1` (español, la del repo)
+- `skills/bootstrap-{personal,southpoint,ai}-project/assets/scaffold/.claude/hooks/review-loop-trigger.ps1` (inglés, byte-idénticas)
+- los 4 `CLAUDE.md` (bullet del review-loop, byte-idéntico entre sí)
+- `tests/review-loop-docs-gate.tests.ps1` **(nuevo, 62 asserts)**
+- `docs/TESTING.md` (sección nueva + bloque de lo que **no** cubre)
+- los 3 manifests del scaffold regenerados + el manifest RAÍZ resellado
+
+### 3. Qué encontró el review-loop (4 turnos, 20 reviewers)
+
+| Turno | Reviewers | Conducta | Lo más grave |
+|---|---|---|---|
+| 1 | 7 (5 focos + mutación + `/code-review`) | 1 HIGH + 5 medium | `^docs/ai-workflow/` y `^docs/agents/` anclados a la raíz mientras sus hermanos usaban `(^\|/)`: en este mismo repo los workflow docs que se reparten a todos los proyectos viven en `skills/*/assets/scaffold/docs/`, así que editarlos **escapaba al review** |
+| 2 | 5 | 1 real | el falso negativo no monotónico de las listas fusionadas; y mi test lo **fijaba como correcto** |
+| 3 | 5 | **0** | 43 fixtures lado a lado contra el hook viejo ⇒ el refactor es neutro para el techo del paso 6 |
+| 4 | 3 | **0** | robustez del test (recorte del bullet, `Read-Pat` desbordado) + un comentario duplicado en la copia en español |
+
+**Doce afirmaciones falsas escritas por mí** fueron cazadas en comentarios y prosa a lo largo de los 4
+turnos (la regla dura de afirmaciones del `CLAUDE.md` es el filtro que más rindió). Ejemplos: *"un
+gate abierto SÍ dispara en push"* (falso: queda el dedupe por SHA del paso 7), *"las dos mitades
+cuentan lo mismo"*, la atribución de los `4,9 s` históricos al `Get-Content` (no se reproduce: medido
+16-172 ms).
+
+**Dos guards míos no mordían** y se arreglaron: `@('a','b') -eq 'a'` **filtra**, no compara (devuelve
+array truthy), así que el control positivo del rename pasaba en verde justo cuando fallaba; y el
+assert de prosa anclaba una sola punta, con 3 mutantes de prosa sobreviviendo — uno de ellos volvía a
+declarar en el `CLAUDE.md` **el bug exacto de la v1** que originó la feature.
+
+### 4. Costo medido (para el benchmark de Track B)
+
+- El paso 5b resuelve el rango en **todos** los disparadores (antes sólo en un commit sin trailer): el
+  hook pasó de **~1,3 s a ~2,6 s** por disparo. La mitad cara está adentro del marcador
+  (`Get-UntrackedList` hashea todo untracked sin saltear binarios), no en el gate. **No hay fixture
+  que fije este costo**; bajarlo es trabajo del marcador.
+- `Get-FileHash` de 12 MB = **~35 ms** (medido). El guard de binarios protege al `Get-Content`, no al hash.
+
+## 🔴 DECISIÓN PENDIENTE DEL USUARIO — el tamaño del slice
+
+El slice acumulado da **~1450 líneas** excluyendo manifests (o ~550 contando el hook una sola vez en
+lugar de sus 4 copias espejadas), contra el techo de **~400** del `CLAUDE.md`. La regla dice partir
+**antes** de implementar, y ya está implementado. Partirlo ahora significa rehacer la historia y dejar
+cada mitad sin sentido por separado (el hook sin sus tests viola test-first). Buena parte del exceso es
+el espejado ×4 que exige otra regla del mismo archivo. **Sin decidir.**
+
+## Después del turno 5
+
+1. **Cerrar el slice** con el trailer `Slice-Close:`, `-Action close`, y el pase de coherencia.
+2. **Deploy**: `tools/sync-skills.ps1` → `~/.claude/skills`. Recién ahí el scaffold nuevo existe para
+   los proyectos.
+3. **Segunda pasada de `upgrade-bootstrap`** por los 14 repos (costo ya aceptado en la decisión de
+   "release ya, separado de la próxima versión").
+4. **SouthPoint-Hub**: es el repo que motivó el port y **sigue en `2026-06-16+fb4fec0`**. Ojo con su
+   runtime: corre `powershell` 5.1 con `-ExecutionPolicy Bypass` (no `pwsh`) y su hook tiene **BOM**
+   a propósito. Si entra el hook canónico, `settings.json` debe pasar a `pwsh` **y** `review-marker.ps1`
+   debe estar presente: **las tres cosas juntas o ninguna**. Su probe propia
+   (`hooks/tests/review-loop-trigger.probes.ps1`) es el canario: si post-upgrade dice *"no se pudo leer
+   $govern del hook"*, el gate se borró.
+5. **Regla del `CLAUDE.md` ya evaluada**: el cambio **sí aplica** a Forecasting App y le llega por
+   `upgrade-bootstrap`; su `CLAUDE.md` está customizado, así que va a salir como merge a mano.
+6. **Benchmark**: que los repos pesados corran el loop nuevo en septiembre → re-freeze antes del rot →
+   Track B Slice 2 → issue-06 (Outsourcing viejo vs nuevo).
+7. **Pregunta abierta del usuario desde el 27/8, sin responder**: por dónde arrancar la próxima versión
+   (suite paralela + el bug de `tests/export-shareable.tests.ps1:41` / reconstruir la base del lockfile
+   de las skills de Pocock / grill del scope).
+
+## Antes de tocar código (crítico)
+
+- **Las 4 copias del hook tienen que quedar idénticas en LÓGICA.** Las 3 del scaffold, byte-idénticas
+  (lo verifica `mirror.tests.ps1`); la del repo está en **español** a propósito y sólo puede diferir en
+  comentarios y en el `$msg` inyectado (lo verifica `review-loop-incremental.tests.ps1`).
+  🔴 **Punto ciego real**: ningún test compara la copia del repo contra las del scaffold, y por eso un
+  comentario duplicado/roto en la copia en español sobrevivió hasta que lo cazó un reviewer.
+- **Los manifests son generados**: `tools/gen-manifest.ps1 -SkillDir skills/<skill>` para los 3 del
+  scaffold, y `skills/upgrade-bootstrap/scripts/reseal-manifest.ps1` para el de la RAÍZ (que el
+  turno 2 se olvidó de resellar).
+- **El gate anti-fuga muerde**: `export-shareable`/`shareable-leaks` frenaron un comentario que nombraba
+  al repo de cliente dentro del scaffold publicable. La atribución va al commit, no al código.
+- **`compare-scaffold.ps1`, `reseal-manifest.ps1` y `merge-settings.ps1` viven en
+  `skills/upgrade-bootstrap/scripts/`**, no en `tools/`.
+- **Bash tool = Git Bash**: commits con `-m "..."` repetidos, **nunca** here-strings `@'...'@`. Y los
+  acentos se corrompen al pasar texto por un heredoc a PowerShell: para prosa en español usar Edit,
+  no un script generado con `cat > ... <<'EOF'`.
+- **Tests**: `pwsh -NoProfile -File tests/<x>.tests.ps1`, grepear `TODOS LOS TESTS PASARON` / `^FAIL:`.
+  La suite de `review-loop-trigger` tarda varios minutos: no la corras con timeout de 2 min.
+- **alignment-gate** frena el primer edit de código de la sesión. Si el trabajo es operativo, decilo y
+  reintentá; **no grilles**.
+- **El clasificador** frenó el rollout de Survey en la sesión anterior; esta sesión no bloqueó nada.
+
+## Preferencias del usuario (vigentes)
+
+- **Impacto medido antes de cambiar el proceso.** **Decidir lo técnico, preguntar lo de diseño.**
+  **Prefiere Opus 4.8.** **Paraleliza todo lo posible** (techo medido: 4-6 agentes por ola).
+  **Cortar y seguir en terminal nueva** — por eso este handoff. **Nada a Zoho.**
+
+---
+
 # Session Handoff — 2026-08-27 parte 3 (RELEASE PUSHEADO + ROLLOUT COMPLETO a los 4 repos — pedido B CERRADO + las 3 decisiones pendientes FIRMADAS; próximo: ROLLOUT de los 18 repos restantes, lista completa relevada abajo)
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR — no queda nada del release ni del rollout

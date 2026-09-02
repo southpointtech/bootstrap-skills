@@ -96,6 +96,24 @@ _Avoid_: comando manual, skill oculta
 Texto del `CLAUDE.md` que restata lo que un hook, un config o un script ya hacen cumplir por sí mismos. Se carga en cada request sin agregar comportamiento; la fuente de verdad es el mecanismo. Se reduce a lo que el agente debe hacer más un pointer a la documentación.
 _Avoid_: explicación del hook, contexto de fondo
 
+### El bootstrap
+
+**Scaffold**:
+El árbol de archivos canónico que la skill instala en un proyecto. Es la fuente de verdad: se copia, no se regenera, para que la redacción del workflow sea idéntica en todos los proyectos.
+_Avoid_: template, boilerplate, plantilla
+
+**Modo adopción**:
+La instalación del scaffold sobre un proyecto que ya trae su propia versión del workflow —un `CLAUDE.md` o un `docs/ai-workflow/` sin manifest—, y por eso exige un mapa de cobertura aprobado antes de mergear. Que el destino tenga otros archivos no alcanza: un directorio con código pero sin esos dos es un bootstrap normal, que informa lo que pisó y sigue.
+_Avoid_: bootstrap sobre existente, re-bootstrap, migración
+
+**Archivo propio**:
+El que ya existía en el destino y no vino del scaffold. No es una personalización de nada: nunca fue canónico.
+_Avoid_: archivo del usuario, custom, local
+
+**Pisado**:
+El archivo propio sobre el que la copia escribió. Toda copia que pisa deja primero un respaldo, así que pisar no es perder.
+_Avoid_: sobrescrito, conflicto, clobber
+
 ## Flagged ambiguities
 
 **"review" a secas está sobrecargado** y esa ambigüedad ya causó un bug real: el loop apuntaba al reviewer equivocado y se cerraba sin revisar nada. Los tres son cosas distintas:

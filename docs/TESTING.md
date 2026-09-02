@@ -8,19 +8,26 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 2. **Personal, directorio vacío** — "ok arranco un proyecto personal aca, una app para trackear mis gastos del mes. preparame el ambiente y el repo con el setup base antes de escribir nada de codigo"
 3. **Southpoint, archivos preexistentes** — sembrar `src/index.js` y un `README.md` propio ("WIP - notas propias del proyecto") y pedir: "Este repo ya tiene un par de archivos del proyecto nuevo de Southpoint (KBS Inventory). Armame el scaffolding del workflow de AI sin romper lo que ya hay."
 4. **Southpoint, adopción (CLAUDE.md propio sin manifest)** — sembrar un `CLAUDE.md` hecho a mano (branching model main/develop + un gotcha técnico + una mención a DOMO) y un `worker.js`, sin `.bootstrap-manifest.json`, y pedir: "agregale el bootstrap a este proyecto". Debe entrar en **modo adopción** (Step 0b), no frenar ni derivar a upgrade-bootstrap.
+5. **Adopción, re-corrida sobre un proyecto ya adoptado** — partir del árbol que dejó el caso 4, borrar el `.bootstrap-manifest.json`, editar una línea del `CLAUDE.md` vivo y volver a pedir: "agregale el bootstrap a este proyecto". Ejercita la rama que protege el original de un `Move-Item -Force`; sin este caso el eval nunca la toca.
+6. **Adopción, colisión de nombre** — sembrar un `CLAUDE.md` propio Y un `docs/agents/legacy-claude.md` que NO sea el original del proyecto (dos líneas de cualquier otra cosa), sin manifest, y pedir el bootstrap. Es la rama donde el agente no puede decidir solo, y la única que ni el runner ni los otros casos tocan. **Cuando la corrida pregunte, responder que el original es el respaldo** (`.bootstrap-backup/CLAUDE.md`): la respuesta va fijada acá a propósito, porque el step B ofrece dos candidatos y el observable de abajo cambia según cuál se elija.
+7. **Adopción, el usuario no sabe cuál es el original** — igual que el caso 6, pero sembrando además un `.gitignore` propio con dos entradas que el scaffold no trae, y respondiendo **"ninguno de los dos es mi original"**. Es la otra respuesta que el step B admite, y la única que ejercita el camino donde se saltea la clasificación **pero igual hay que aplicar el mapa**: cuando la corrida presente la fila del `.gitignore`, aprobarla como **merge**.
 
 ## Assertions clave (lo que define "pasa")
 
-- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 7 docs ai-workflow, 11 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` y `slice-review` propias), 11 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`.
+- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 7 docs ai-workflow, 11 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` y `slice-review` propias), 11 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`. Los conteos se verifican contra el scaffold, no contra estos números.
 - Variante correcta: Southpoint menciona DOMO; personal CERO menciones a DOMO pero conserva Playwright/Firebase/Azure/Zoho.
 - Git: branch `main`, **un solo commit**, autor exacto según variante, config local (global intacta).
 - Sin duplicados anidados (`.agents\.agents`, `.claude\.claude`) — regresión del bug de iter 1.
 - No se adelanta: sin package.json, sin src/ (en dirs vacíos), sin ADRs inventados, sin PRD.
-- Preexistentes intactos byte a byte y commiteados.
+- Preexistentes intactos byte a byte y commiteados — **salvo** los que el scaffold también trae: esos se pisan, con el original respaldado en `.bootstrap-backup/` y declarado en `overwritten` (ADR-0007).
 - Modo adopción: `docs/agents/legacy-claude.md` existe y es **byte-idéntico** al `CLAUDE.md` original sembrado.
 - Modo adopción: el `CLAUDE.md` final es el canónico (contiene "Workflow State Machine"); las reglas operativas del original aparecen en su sección `## Hard rules`; el conocimiento de dominio del original aparece en `docs/agents/domain.md`.
 - Modo adopción: cada bloque del original quedó representado (en `legacy-claude.md` + su destino); ningún bloque se perdió en silencio.
 - Modo adopción: tras adoptar, `compare-scaffold.ps1` clasifica `CLAUDE.md` como **customized** (ni `outdated` ni `uptodate`), confirmando que un upgrade futuro no lo pisa.
+- Modo adopción, **re-corrida** (caso 5): el `docs/agents/legacy-claude.md` de la primera corrida queda **byte-idéntico** (el Step B no lo pisa) y el respaldo del `CLAUDE.md` vivo que la copia acaba de pisar existe en `.bootstrap-backup/`. Va al path **sin numerar**, no a `.2`: el `Move-Item` de la primera corrida vació ese slot. Las dos cosas se observan sobre el árbol; que ese respaldo haya recibido fila en el mapa de cobertura se verifica en la transcripción.
+- Modo adopción, **colisión de nombre** (caso 6): la corrida **frena y pregunta** cuál es el original, en vez de clasificar el archivo ajeno. Ese comportamiento se verifica **en la transcripción**, y no de cualquier forma: la pregunta tiene que nombrar los dos candidatos (`docs/agents/legacy-claude.md` y `.bootstrap-backup/CLAUDE.md`) diciendo cuál existe, y el mapa de cobertura no puede aparecer antes de la respuesta. Sobre el árbol, **con la respuesta que el caso 6 fija** (el original es el respaldo): `docs/agents/legacy-claude.original.md` existe, es byte-idéntico al `CLAUDE.md` sembrado (el respaldo no se siembra: lo produce la corrida bajo prueba, así que compararlo contra él sería comparar una salida contra otra) y **aparece en `git ls-files`** — el Step 5 stagea con `':!.bootstrap-backup'`, así que un archivo que solo viva ahí no está preservado y el commit es el observable correcto —, y el `legacy-claude.md` ajeno sigue byte-idéntico.
+- Modo adopción, **el usuario no sabe** (caso 7): el observable es el `.gitignore`, no el `CLAUDE.md`. Sobre el árbol, las dos entradas propias que se sembraron **siguen en el `.gitignore` final** junto a las del scaffold — o sea que el "merge" aprobado se aplicó de verdad. Es el único caso que distingue "se salteó la clasificación" de "se salteó también el mapa": si el step E se saltea entero, el `.gitignore` queda con las reglas del scaffold solas y las del proyecto solo en `.bootstrap-backup/`, que el Step 5 no commitea. En la transcripción, además: nada quedó clasificado y el reporte lo dice sin afirmar que no existía un original.
+- Dos criterios que NO sirven para el caso 6: que el archivo sembrado siga intacto (el scaffold no trae ese path, así que la copia no lo toca por ninguna rama) y la ausencia de líneas del archivo ajeno en `## Hard rules` (la satisface también el agente que crashea o que nunca entra en adopción; y con la otra respuesta posible esas líneas aterrizan ahí por el camino **correcto**).
 
 ## Gotchas operativos del entorno de testing
 
@@ -29,6 +36,25 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - El agregador (`scripts.aggregate_benchmark`) espera `eval-N/<config>/run-1/grading.json` y un bloque `summary` `{pass_rate, passed, failed, total}` en cada grading.
 - Si un run baseline corre `npm install`, borrar su `node_modules` antes de levantar el viewer (el escaneo recursivo se cuelga).
 - Borrar el workspace de evals al terminar (regla del repo).
+
+## El golden del Step 0b
+
+La mecánica del modo adopción está congelada en `tests/fixtures/step0b.golden.md`, y `mirror.tests.ps1`
+compara contra él el tramo `## Step 0b` → `## Step 1` de las tres skills. **Cualquier** edición de ese
+tramo pone la suite en rojo: es a propósito, porque esa prosa es un procedimiento que un agente ejecuta
+sobre el `CLAUDE.md` de un proyecto ajeno, y un chequeo de presencia sobre texto no distingue una orden
+de su negación (medido: `apply the map first` lo satisfacía igual el texto que decía `do NOT apply the
+map first`). El ciclo es:
+
+1. Editar el Step 0b en `skills/bootstrap-ai-project/SKILL.md`.
+2. Propagar el bloque entero a las otras dos (no editar tres veces a mano).
+3. `tools/reseal-step0b.ps1` — frena si las tres no coinciden, así que sellar es también el chequeo
+   de espejado. `-Check` no escribe nada y sale 1 si el golden quedó desactualizado.
+4. Commitear el golden **junto con** las skills. Un golden regrabado y no commiteado pasa verde local
+   y rojo en el próximo clone.
+
+El paso 3 es donde un humano mira `git diff tests/fixtures/step0b.golden.md` y decide. Regrabar sin
+mirar el diff es la única forma de sellar un bug, y por eso el golden no se edita a mano nunca.
 
 ## Testeo de `upgrade-bootstrap`
 
@@ -43,14 +69,19 @@ Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el pl
 
 ## Testeo de la copia del scaffold (`copy-scaffold.ps1`)
 
-La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en ambas skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Casos cubiertos:
+La copia del Step 2 (`skills/*/scripts/copy-scaffold.ps1`, espejada en las **tres** skills bootstrap) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/copy-scaffold.tests.ps1` (fixtures en directorios temporales, imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). Los conteos se afirman **contra el scaffold**, nunca contra un literal: un número escrito acá envejece la próxima vez que entra una skill. Casos cubiertos:
 
-- **Destino vacío** — aterriza el scaffold completo: mismo conteo de archivos que el origen (hoy 54; el test compara origen contra destino, no contra un entero fijo), 11 skills en `.agents/skills`, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico.
+- **Destino vacío** — aterriza el scaffold completo, sin `.agents/.agents` ni `.claude/.claude`, `gitignore.txt` → `.gitignore` con contenido idéntico, y `.agents/skills` / `.claude/commands` con tantas entradas como el scaffold.
 - **Regresión `docs/docs`** — `docs/` y `docs/agents/` preexistentes en el proyecto → el contenido se mergea (sin anidar) y los archivos propios quedan intactos (gotcha del self-bootstrap 2026-06-23).
 - **Dot-dirs preexistentes** — `.claude/` con archivos propios → merge sin anidar ni pisar lo ajeno.
-- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica del Step 2; en adopción el original ya está stasheado).
-- **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards).
-- **Espejado** — los dos `copy-scaffold.ps1` son byte-idénticos (hash SHA256).
+- **Conflicto de archivo** — un `CLAUDE.md` preexistente es reemplazado por el canónico (semántica deliberada del Step 2; el original queda en `.bootstrap-backup/`, que es de donde el Step 0b lo toma **mientras no exista ya un `docs/agents/legacy-claude.md`** — si existe, el Step 0b parte de ése, y solo frena a preguntar cuando está vacío o es ajeno).
+- **Paths con corchetes** — un proyecto `...[v2]` copia igual (paths literales, sin interpretación de wildcards) y respalda igual.
+- **Respaldo y reporte** (ADR-0007) — un archivo propio que difiere se respalda en `.bootstrap-backup/<mismo path>` y se declara en `overwritten`, con el `backup` apuntando al subpath completo; el respaldo más viejo no se pisa y la versión posterior se guarda al lado (`.2`); un archivo ajeno al scaffold no se toca, no se respalda ni se declara; con destino vacío no se crea el directorio.
+- **Ruido de EOL** — una diferencia de solo CRLF vs LF no cuenta como pisada, en las dos direcciones, con el fixture escrito explícitamente (no derivado del checkout, que depende de `core.autocrlf`).
+- **Comparación por bytes** — un archivo del mismo largo con distinto contenido, y uno que difiere solo por el BOM, sí se declaran pisados: la comparación normaliza EOL sobre los bytes y no decodifica a texto.
+- **Espejado** — los **tres** `copy-scaffold.ps1` son byte-idénticos (hash SHA256).
+
+Cada workspace temporal cuelga de un directorio único por corrida (`cs-run-<pid>-<guid>`) y solo se borra ése: la limpieza vieja barría todo `cs-test-*` del TEMP compartido y mataba los fixtures de cualquier corrida concurrente — pasa de verdad con los reviewers en paralelo del review-loop.
 
 ## Testeo del motor del review-loop (`/slice-review`)
 
@@ -259,6 +290,38 @@ El hook `alignment-gate` (PreToolUse) se testea aparte, con su propio runner: `p
 - **MultiEdit** — detecta código dentro de `edits[].file_path` (no solo `tool_input.file_path`).
 - **Espejado** — `alignment-gate.ps1` es byte-idéntico entre `bootstrap-personal-project` y `bootstrap-southpoint-project` (hash SHA256).
 - **`settings.json` válidos con ambos hooks** — en ambos scaffolds, `settings.json` parsea como JSON y declara `alignment-gate` en `PreToolUse` a la vez que conserva `review-loop-trigger` en `PostToolUse`.
+
+## Testeo del gate de slices sólo-docs (paso 5c del hook)
+
+Runner: `pwsh -NoProfile -File tests/review-loop-docs-gate.tests.ps1` (imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON`). El gate decide **cuándo se revisa el código**, así que un bug acá no se ve: apaga revisiones en silencio. Por eso la suite corre el **hook real end-to-end** sobre repos git temporales en vez de copiar el clasificador — la probe original de la que salió esta feature se probaba a sí misma, y sacarle una rama al `$govern` la dejaba entera en verde.
+
+Casos cubiertos:
+
+- **Prosa** — un slice de sólo `.md` no dispara; varios `.md` sueltos tampoco; un `.md` **con acento** sigue clasificando como doc (el fixture fuerza `core.quotePath true` para que sacar el `-c core.quotepath=false` del hook caiga en rojo).
+- **Lo que gobierna al agente sí dispara aunque sea `.md`** — `CLAUDE.md` (también uno **anidado**), `.claude/**`, `.agents/**`, `docs/ai-workflow/**`, `docs/agents/**`.
+- **Código** — normal, **bajo `docs/`** (el falso negativo de la v1), y un slice mixto (basta un archivo no-doc).
+- **El camino del marcador**, que es el único que existe en un repo bootstrapeado: con el marcador instalado y avanzado, un delta sólo-docs no dispara aunque la rama ya traiga código revisado, y sí dispara cuando el delta trae código aunque el último commit sea prosa. Sin estos dos fixtures, mutar `$docRange` a `"$base...HEAD"` o a `"HEAD~1...HEAD"` sobrevivía la suite entera y el ajuste que motivó todo el port quedaba sin verificar.
+- **Descuento de untracked contra la huella del marcador** — un untracked ya fichado no mantiene el gate apagado para siempre.
+- **Modificación sin commitear de un archivo trackeado** (camino sin marcador, donde el rango es de commits y el árbol queda afuera). Lleva **dos controles positivos**: que el rango de commits sea sólo prosa y que la modificación haya quedado sin commitear.
+- **Lo generado no cuenta, lo demás sí** — el gate filtra por `$genPat` (`*.bootstrap-manifest.json`, `*.snap`: lo que no escribió nadie), **no** por el `$skipPat` del techo. Siete casos, dos de ellos por la mitad **sin trackear**, y fijan mutaciones **disjuntas** (medido, una corrida por mutante): sacar el filtro `$genPat` de esa mitad lo caza sólo el del **manifest**; poner `$skipPat` ahí en su lugar lo caza sólo el del **lockfile**. Ninguno subsume al otro, así que ninguno de los dos es podable por redundante. Manifest + prosa → silencio; snapshot + prosa → silencio; manifest sin trackear + prosa → silencio; **lockfile** + prosa → dispara; **`docs/vendor/**`** + prosa → dispara; lockfile sin trackear + prosa → dispara; y **`.md` vendorado solo** → silencio (un `.md` bajo `docs/vendor/` es prosa para el gate: es el único camino de silencio que la separación de listas introdujo, fijado a propósito para que cambiarlo haya que declararlo). Un assert aparte fija que **`$genPat` sea subconjunto estricto de `$skipPat`**, leyendo las dos listas del hook: sin él, agregar un patrón a una y no a la otra no lo detecta nadie.
+- **La monotonicidad se exige sobre lo AUTORADO, no sobre todo**: darle al gate el `$skipPat` entero volvía la decisión no monotónica donde importa (el lockfile solo disparaba, el mismo lockfile con un README al lado se callaba, y ahí se silenciaba justo donde se verifica la regla de supply-chain). Sobre un generado la inversión sigue existiendo — manifest solo dispara, manifest + README se calla — y es benigna a propósito: no hay nada escrito por una persona ahí adentro para leer.
+- **Delta neto vacío dispara** — vacío no es sólo-docs.
+- **Fail-open** con rango irresoluble, y **con un untracked `.md` presente**: sin ese segundo caso, sacar el guard del exit code del `git diff` quedaba tapado por el guard de colección vacía.
+- **Renames** — mover código a un nombre `.md` sigue disparando. Lleva control positivo de que git está **detectando** el rename (si no lo detectara, el caso no distinguiría un hook con `--no-renames` de uno sin él).
+- **La prosa de los 4 `CLAUDE.md` coincide con el clasificador** — `$govern` se **lee del hook** y las rutas esperadas se **derivan** de él, en vez de hardcodearlas: hardcodeadas, **reemplazar** una alternativa del clasificador sin tocar la prosa no lo detecta nadie (medido: cambiar `(^|/)docs/agents/` por `(^|/)docs/` cae en rojo con la derivación y queda **verde** sin ella). *Agregar* una alternativa, en cambio, no distingue las dos variantes: cae en rojo con y sin derivación, porque ahí ya muerde el assert de las 5 alternativas. Se fija que tenga 5 alternativas, que **todas** estén ancladas `(^|/)`, que se encuentren los **4** archivos, que cada uno tenga **exactamente un** bullet de review-loop (recortado del texto crudo por su encabezado, y cortando sólo en un bullet de primer nivel: juntando las líneas que mencionen el hook, una mención de otra sección satisfacía el assert desde afuera, y cualquier reflow o sub-lista daba rojo diciendo que faltaban rutas que sí estaban), que las rutas aparezcan **dentro de la lista entre paréntesis** (sobre el bullet entero, `docs/` está nombrado en la frase que dice lo contrario, así que una alternativa `docs/` habría quedado anclada por la frase que la niega), y que la **dirección** de la regla esté escrita — sin ese último assert la prosa podía invertirse y volver a declarar el bug de la v1 quedando en verde.
+  Límite conocido de la derivación: sólo deshace el ancla `(^|/)`, el `$` final y el escape `\.`. Una alternativa que no sea una ruta literal deja este assert en **rojo permanente** — hay que tocar la derivación, no la prosa.
+- **Controles positivos** en `Commit-Files`, `Add-Marker` (que el commit se creó) y `Advance-Marker` (que cortó marcador de verdad): sin ellos, un `commit.gpgsign` global no neutralizado o un `advance` que no avanza dejan los casos midiendo otra cosa, en verde.
+
+**Costo aceptado, medido**: el paso 5b resuelve el rango del marcador en **todos** los disparadores (antes sólo en un commit sin trailer), lo que agrega un `pwsh` hijo por evento — medido ~1,3 s, el hook pasó de ~1,3 s a ~2,6 s por disparo. Esa mitad cara está adentro del **marcador** (`Get-UntrackedList` hashea todo untracked sin saltear binarios). El gate **también** hashea, en `Get-UntrackedNew`, pero sólo cuando hay una huella contra la cual comparar y sólo si la mitad trackeada volvió toda prosa; medido acá, SHA-256 de un archivo de 12 MB son **~35 ms**, así que esa mitad no es la que pesa. El `4,9 s` que cita el comentario del paso 6 **no se remidió acá** y no se reprodujo en los intentos hechos (`Get-Content -TotalCount 401` sobre 12 MB dio entre 16 y 172 ms según la forma del binario): la cifra viene heredada de `7de07a2` y queda sin atribuir a una causa concreta hasta que alguien la remida. **No hay fixture que fije este costo**; bajarlo es trabajo del marcador, no de este bloque.
+
+**Lo que este archivo de tests NO cubre** (verificado por mutación, no inferido):
+
+- **`.mdx`, `.markdown` y `README.MD`**: el gate sólo trata `.md` como doc, y `-notmatch` es case-insensitive, así que `README.MD` cuenta como prosa y un `.mdx` como código. Es la conducta real medida, pero ningún assert la fija.
+- **Slices de sólo borrado** (de prosa o de código): conducta verificada a mano, sin fixture.
+- **`gh pr create` como disparador**: todos los casos usan `git push` o `git commit`.
+- **El colapso de las tres salidas del contrato del marcador**: el gate usa `if ($range)`, así que trata "exit 0 + vacío" (nada sin revisar) igual que "sin marcador / exit 2" y ensancha el alcance a la rama entera. Dirección fail-open, sin fixture.
+- El **caso del acento** y el de **rename** dependen de cómo el git local resuelva paths y similitud; llevan control positivo, pero no se ejercitan bajo otras configuraciones de `core.quotePath`/`diff.renames` globales.
+- **Un generado SOLO dispara** (medido: manifest solo → dispara; snapshot solo → dispara; manifest + README → silencio). Es la inversión benigna que documenta el bullet de arriba: sin nada más en el slice, el filtro lo saca, la colección queda vacía y gana la regla de "un slice vacío no es un slice sólo-docs". De las dos mitades de esa inversión, la de `manifest + README → silencio` **sí** está fijada (dos asserts trackeados, más la variante sin trackear); la que no tiene assert es la del generado **solo**.
 
 ## Testeo de `gen-mcp-json` (MCP por área)
 
