@@ -93,6 +93,36 @@ queda declarado en el comentario del bloque: cerrarlo pediría congelar la secci
 Step 2 diverge legítimamente entre variantes. Para el techo están además las mitades negativas de
 `techo-del-slice.tests.ps1`, que a su vez solo cubren la redacción vieja concreta.
 
+## Testeo de la regla del techo del slice (`techo-del-slice.tests.ps1`)
+
+Corre con `pwsh -NoProfile -File tests/techo-del-slice.tests.ps1`. Existe porque `mirror.tests.ps1`
+tiene `assets/scaffold/CLAUDE.md` en su allowlist —los cuatro divergen legítimamente entre
+variantes—, así que **ninguna suite miraba el bullet del techo**: los 4 `CLAUDE.md` podían
+separarse entre sí, y la regla podía cambiar sin que sus ejecutores la siguieran. Que es
+exactamente lo que pasó (ADR-0008). Cubre:
+
+- **La regla en los 4 `CLAUDE.md`** y en los **5 sitios que la ejecutan** (el pre-flight de
+  `/review-loop`, el paso "Close the slice" de `tdd`, el pre-flight de `/slice-review`, y los dos
+  docs de `docs/ai-workflow/`), cada uno en sus 4 copias. Cada sitio se verifica con las **dos**
+  mitades: la cláusula nueva tiene que estar y la instrucción vieja que la contradice no. Ojo: las
+  mitades negativas están ancladas a la **redacción vieja concreta**, no a la semántica — una
+  reescritura equivalente las esquiva, y por eso los dos sitios de `ai-workflow` tienen además su
+  golden (arriba).
+- **La tabla de medición del ADR-0008 contra `git`**: los 8 números, que las filas sean exactamente
+  los 8 commits del rango **y en orden**, y que ninguna fila sea un rango. Sacar el número de la
+  prosa fue lo que cortó un ciclo de seis versiones del mismo párrafo con seis atribuciones falsas.
+- **Las citas del ADR al handoff**, de los dos lados: que el ADR siga citando cada ancla y que el
+  handoff la resuelva **una sola vez**. La skill `session-handoff` prepende un bloque por sesión, así
+  que un título repetido rompe la cita en silencio; con este chequeo se rompe en rojo.
+
+**El guard de rangos acumulados es un ALAMBRE DE TROPIEZO declarado, no una prueba.** Se lo ensanchó
+turno tras turno y cada ronda de mutación encontró formas nuevas de esquivarlo, que es el mismo
+patrón que este repo ya midió antes: parchar un guard de superficie no converge. Así que el match
+congelado y el bloque **declara** qué caza y qué no —incluido un falso negativo aceptado a
+propósito—. Leé esa lista antes de "arreglarlo": ensancharlo otra vez es reintroducir falsos
+positivos que ya se midieron (un rango de fechas en la primera celda, una fila legítima que describe
+una base, la blockquote de retractación que cita la fila mala a propósito).
+
 ## Testeo de `upgrade-bootstrap`
 
 La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no con skill-creator), porque su lógica vive en los scripts `compare-scaffold.ps1` y `reseal-manifest.ps1`. Casos de regresión:
