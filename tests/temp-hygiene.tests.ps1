@@ -621,6 +621,103 @@ function Assert-Algo { param($x) return $x }
 Assert ((Get-RedefinicionesDelHelper $fxSinRedef).Count -eq 0) `
   "no confunde una función cualquiera con una redefinición del helper"
 
+# A0c. `Test-TrapDeScript` y `Test-LimpiezaAlTerminar` contra fixtures sintéticos.
+#
+# Hasta acá estos dos predicados sólo se invocaban contra las nueve suites reales, que son
+# correctas, así que **sólo podían dar verde**: medido, nueve mutaciones distintas sobre ellos
+# sobrevivían la suite entera. Un chequeo cuya única forma de fallar es que alguien escriba una
+# suite mala no es una red, es una nota.
+#
+# El caso del `break` es el que más importa y el que más tiempo estuvo sin test: con `continue` el
+# trap se traga el aborto y la suite sigue, así que termina con exit 0 y "TODOS LOS TESTS PASARON"
+# después de haber abortado. Es la única condición de este bloque que no es sobre la limpieza sino
+# sobre no mentir el resultado.
+$casosDeTrap = @(
+  @{ ok = $true;  n = 'el trap canónico';                    codigo = "trap { Remove-TestRunRoot `$script:runRoot; break }`n`$x = 1" }
+  @{ ok = $false; n = 'el trap termina en continue';         codigo = "trap { Remove-TestRunRoot `$script:runRoot; continue }`n`$x = 1" }
+  @{ ok = $false; n = 'el trap sin la limpieza';             codigo = "trap { break }`n`$x = 1" }
+  @{ ok = $false; n = 'el trap borra OTRA raíz';             codigo = "trap { Remove-TestRunRoot `$otra; break }`n`$x = 1" }
+  @{ ok = $false; n = 'el trap metido en una función';       codigo = "function f { trap { Remove-TestRunRoot `$script:runRoot; break } }`n`$x = 1" }
+  @{ ok = $false; n = 'un trap vacío ANTES del bueno';       codigo = "trap { break }`ntrap { Remove-TestRunRoot `$script:runRoot; break }`n`$x = 1" }
+  @{ ok = $false; n = 'la limpieza escondida en un if del trap'; codigo = "trap { if (`$true) { Remove-TestRunRoot `$script:runRoot }; break }`n`$x = 1" }
+  # Un elemento de pipeline que NO es un comando, dentro del trap. Sin este caso, borrar la guarda
+  # `$e -isnot [CommandAst]` no es equivalente: revienta con "does not contain a method named
+  # 'GetCommandName'" sobre un `CommandExpressionAst`. El caso sigue siendo de RECHAZO (no hay
+  # limpieza de la raíz), pero ahora el predicado tiene que llegar a decirlo sin explotar.
+  @{ ok = $false; n = 'un elemento no-comando dentro del trap'; codigo = "trap { `$x; break }`n`$y = 1" }
+  # Y el mismo, pero CON la limpieza al lado: acá el veredicto correcto es aceptar, así que si el
+  # predicado explota antes de llegar al comando, el caso se pone rojo.
+  @{ ok = $true;  n = 'un no-comando y la limpieza en el mismo trap'; codigo = "trap { `$x; Remove-TestRunRoot `$script:runRoot; break }`n`$y = 1" }
+  # El filtro posicional del trap exige ser hijo DIRECTO del cuerpo del archivo, y su comentario
+  # dice que existe porque un trap metido en un `if`/`try`/loop de nivel de script no se dispara.
+  # Ese caso no tenía fixture: sólo estaba el de la función, que `Test-Anidado` también rechaza, así
+  # que aflojar el filtro a `-not (Test-Anidado $_)` pasaba en verde y reintroducía la regresión.
+  @{ ok = $false; n = 'el trap dentro de un if de nivel de script'; codigo = "if (`$true) { trap { Remove-TestRunRoot `$script:runRoot; break } }`n`$x = 1" }
+  @{ ok = $false; n = 'el trap dentro de un try de nivel de script'; codigo = "try { trap { Remove-TestRunRoot `$script:runRoot; break } } catch { }`n`$x = 1" }
+  @{ ok = $false; n = 'el trap dentro de un foreach de nivel de script'; codigo = "foreach (`$i in 1..1) { trap { Remove-TestRunRoot `$script:runRoot; break } }`n`$x = 1" }
+)
+# Piso y membresía, igual que las otras cinco listas del archivo. Sin esto, vaciar `$casosDeTrap`
+# deja el `foreach` sin iteraciones, cero asserts y la suite verde — con lo cual un
+# `Test-TrapDeScript` que devuelva siempre `$true` pasaría A0c Y las nueve suites reales. Sería la
+# misma propiedad que este bloque existe para eliminar, reintroducida en el bloque mismo.
+Assert ($casosDeTrap.Count -ge 7) "A0c: están los casos de trap (hay: $($casosDeTrap.Count))"
+Assert (@($casosDeTrap | Where-Object { -not $_.ok }).Count -ge 6) "A0c: y la mayoría son de RECHAZO"
+# El del `continue` va pinneado por nombre: es la única condición del bloque que no es sobre la
+# limpieza sino sobre no mentir el resultado, y es la que más tiempo estuvo sin test.
+Assert ('el trap termina en continue' -in @($casosDeTrap | ForEach-Object { $_.n })) `
+  "A0c: está el caso del trap que termina en continue (el que deja reportar verde tras abortar)"
+foreach ($ct in $casosDeTrap) {
+  $fx = New-TestTempPath $script:runRoot "trapfx" ".ps1"
+  $ct.codigo | Set-Content -LiteralPath $fx -Encoding UTF8
+  $r = Test-TrapDeScript $fx 'Remove-TestRunRoot' '$script:runRoot'
+  Assert ($r -eq $ct.ok) "el chequeo del trap $(if ($ct.ok) { 'acepta' } else { 'RECHAZA' }) : $($ct.n)"
+}
+
+$casosDeLimpieza = @(
+  @{ ok = $true;  n = 'la limpieza suelta al final';         codigo = "`$x = 1`nRemove-TestRunRoot `$script:runRoot" }
+  @{ ok = $true;  n = 'la limpieza con -Root nombrado';      codigo = "`$x = 1`nRemove-TestRunRoot -Root `$script:runRoot" }
+  @{ ok = $false; n = 'sin ninguna limpieza';                codigo = '$x = 1' }
+  @{ ok = $false; n = 'la limpieza sólo dentro de un if';    codigo = "if (`$true) { Remove-TestRunRoot `$script:runRoot }" }
+  @{ ok = $false; n = 'la limpieza sólo dentro de un switch'; codigo = "switch (1) { 1 { Remove-TestRunRoot `$script:runRoot } }" }
+  @{ ok = $false; n = 'la limpieza sólo dentro de un try';   codigo = "try { Remove-TestRunRoot `$script:runRoot } catch { }" }
+  @{ ok = $false; n = 'la limpieza sólo dentro del trap';    codigo = "trap { Remove-TestRunRoot `$script:runRoot; break }`n`$x = 1" }
+  @{ ok = $false; n = 'la limpieza sólo dentro de una función'; codigo = "function f { Remove-TestRunRoot `$script:runRoot }" }
+  # El lado de la limpieza del agujero de `&&`: sin `PipelineChainAst` en `Test-BajoCondicion`,
+  # esto contaba como limpieza final garantizada y no lo es.
+  @{ ok = $false; n = 'la limpieza a la derecha de un &&';   codigo = "`$true && Remove-TestRunRoot `$script:runRoot" }
+  @{ ok = $false; n = 'la limpieza de OTRA raíz';            codigo = "Remove-TestRunRoot `$otraCosa" }
+  # `Remove-TestRunRoot $otra $script:runRoot` borra `$otra` y manda la raíz a `$args` sin decir
+  # nada: la función no tiene CmdletBinding, así que el extra no da error.
+  @{ ok = $false; n = 'la raíz en segunda posición';         codigo = "Remove-TestRunRoot `$otra `$script:runRoot" }
+  # `Test-ArgumentoEs` tiene dos ramas que ningún caso de arriba distingue: la que saltea los
+  # parámetros nombrados que NO son `-Root`, y la forma con dos puntos (`-Param:$valor`), donde el
+  # valor viaja en `.Argument` en vez de en el elemento siguiente. Sin estos dos casos, borrar
+  # cualquiera de las dos ramas pasaba en verde.
+  @{ ok = $true;  n = 'otro parámetro nombrado antes de la raíz'; codigo = "Remove-TestRunRoot -Verbose `$script:runRoot" }
+  @{ ok = $true;  n = 'un parámetro con dos puntos antes de la raíz'; codigo = "Remove-TestRunRoot -Verbose:`$true `$script:runRoot" }
+  @{ ok = $true;  n = '-Root con dos puntos';                codigo = "Remove-TestRunRoot -Root:`$script:runRoot" }
+  # El gemelo nombrado de 'la limpieza de OTRA raíz'. Sin él, hacer que la rama de `-Root` devuelva
+  # `$true` sin comparar nada pasaba en verde, y `Remove-TestRunRoot -Root $otraCosa` contaba como
+  # limpieza válida — borrando otra cosa y dejando la raíz en disco.
+  @{ ok = $false; n = 'la limpieza con -Root de OTRA raíz';  codigo = "Remove-TestRunRoot -Root `$otraCosa" }
+  # La mitad "scriptblock" de `Test-Anidado`, del lado de la limpieza. Un pipeline vacío no ejecuta
+  # su bloque NUNCA, así que esto no limpia nada; sin este caso, cambiar `Test-Anidado` por
+  # `Test-DentroDeUnaFuncion` acá pasaba en verde y lo aceptaba como limpieza garantizada.
+  @{ ok = $false; n = 'la limpieza dentro de un ForEach-Object'; codigo = "@() | ForEach-Object { Remove-TestRunRoot `$script:runRoot }" }
+  @{ ok = $false; n = 'la limpieza dentro de un & { }';      codigo = "& { Remove-TestRunRoot `$script:runRoot }" }
+)
+Assert ($casosDeLimpieza.Count -ge 11) "A0c: están los casos de limpieza final (hay: $($casosDeLimpieza.Count))"
+Assert (@($casosDeLimpieza | Where-Object { -not $_.ok }).Count -ge 9) "A0c: y la mayoría son de RECHAZO"
+# El del `&&` va pinneado: es el lado de la limpieza del agujero que este slice abrió y cerró.
+Assert ('la limpieza a la derecha de un &&' -in @($casosDeLimpieza | ForEach-Object { $_.n })) `
+  "A0c: está el caso de la limpieza a la derecha de un && (el lado de la limpieza del agujero de PipelineChainAst)"
+foreach ($cl in $casosDeLimpieza) {
+  $fx = New-TestTempPath $script:runRoot "limpfx" ".ps1"
+  $cl.codigo | Set-Content -LiteralPath $fx -Encoding UTF8
+  $r = Test-LimpiezaAlTerminar $fx 'Remove-TestRunRoot' '$script:runRoot'
+  Assert ($r -eq $cl.ok) "el chequeo de la limpieza final $(if ($cl.ok) { 'acepta' } else { 'RECHAZA' }) : $($cl.n)"
+}
+
 $suites = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter "*.tests.ps1" -File)
 # Contra el piso conocido: sin esto, un glob que no matchea nada deja el foreach vacío y las
 # aserciones de abajo "pasan" sin haber leído un solo archivo.
@@ -903,8 +1000,12 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo, [string[]]$Extr
   # es la misma razón por la que el colector filtra por edad en vez de barrer por glob.
   # Los paths van entrecomillados a mano: Start-Process une la lista con espacios y no quotea, así
   # que con un repo bajo "Bootstrap Skills" pwsh recibía dos argumentos partidos y salía 64.
+  # stderr también se redirige: los tres casos de "E (no feliz)" abortan a propósito, y sin esto
+  # sus bloques de error rojo salen por la consola del padre y hacen que una corrida verde se lea
+  # como rota. No cambia ningún assert; cambia si el resultado es legible.
+  $logErr = New-TestTempPath $script:runRoot "salida-err" ".txt"
   $p = Start-Process -FilePath "pwsh" -ArgumentList (@("-NoProfile", "-File", "`"$suitePath`"") + $Extra) `
-    -NoNewWindow -PassThru -Wait -RedirectStandardOutput $log
+    -NoNewWindow -PassThru -Wait -RedirectStandardOutput $log -RedirectStandardError $logErr
   # Devuelve PATHS completos, no nombres ni objetos: el que consume esto los borra, y una mezcla de
   # tipos hace que el borrado apunte a cualquier lado sin fallar. Costó un rastro filtrado.
   $mios = @(Get-ChildItem -LiteralPath $raiz -Force -ErrorAction SilentlyContinue |
@@ -913,20 +1014,103 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo, [string[]]$Extr
   # La salida del hijo se conserva: sin ella, una falla ajena en la suite de referencia pone en rojo
   # esta suite sin decir por qué.
   $salida = if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log } else { @() }
-  return @{ nuevos = $mios; exit = $p.ExitCode; salida = $salida }
+  # stderr se DEVUELVE, no sólo se redirige. Redirigirlo y no devolverlo mejoraba el verde a costa
+  # del rojo: antes, una suite que reventaba con un error terminante lo mostraba en consola; con la
+  # redirección sola, el operador veía `exit 1` y nada más.
+  $salidaErr = if (Test-Path -LiteralPath $logErr) { Get-Content -LiteralPath $logErr } else { @() }
+  return @{ nuevos = $mios; exit = $p.ExitCode; salida = $salida; salidaErr = $salidaErr }
 }
 
-# `gen-mcp-json` es la más rápida de las migradas y crea 8 workspaces. Cubre UNA de las nueve
-# suites y sólo el camino feliz: es una muestra, no una garantía para todas.
-$suiteReal = Join-Path $PSScriptRoot "gen-mcp-json.tests.ps1"
-# El prefijo no se escribe a mano: un literal que no coincida con el que la suite usa haría pasar
-# el assert de abajo sin haber mirado nada.
-$prefijoReal = Get-PrefijoDe $suiteReal
-Assert ($prefijoReal -ne '') "E: se pudo leer el prefijo que usa la suite de referencia ('$prefijoReal')"
-$r = Measure-RastrosDe $suiteReal $prefijoReal
-Assert ($r.exit -eq 0) "E: la suite de referencia corre en verde (exit $($r.exit))"
-if ($r.exit -ne 0) { $r.salida | Select-String -Pattern '^FAIL:' | ForEach-Object { Write-Host "      | $_" } }
-Assert ($r.nuevos.Count -eq 0) "E: correr una suite migrada no deja rastros en la raíz de %TEMP% (nuevos: $($r.nuevos.Count))"
+# CINCO de las OCHO suites ejecutables, no una.
+#
+# El denominador es ocho, no nueve. Nueve suites usan el helper, pero la novena es ESTA, y la parte
+# E no puede ejecutarla a ningún precio: se llamaría a sí misma en recursión. Su exclusión es
+# estructural, no económica — la primera versión de este comentario decía "las nueve" y atribuía su
+# exclusión al costo, que es falso.
+#
+# De las ocho ejecutables, la lista es la mitad barata de una medición de duración hecha el
+# 2026-09-02, UNA corrida por suite:
+#
+#   apply-env 4,5 s | export-shareable 9,3 | gen-mcp-json 9,5 | copy-scaffold 19,9 | alignment-gate 21,1
+#   review-loop-docs-gate 142,9 | review-loop-trigger 258,2 | review-marker 258,8
+#
+# Son n=1 y dependen de la carga de la máquina: remedidas bajo carga (con otra sesión corriendo las
+# mismas suites) dieron hasta 1,5× y `copy-scaffold`/`alignment-gate` intercambian el orden. Los
+# números absolutos no se pueden tomar al pie de la letra; lo que sí es robusto bajo las dos
+# mediciones es la DECISIÓN, porque la diferencia entre los dos grupos es de un orden de magnitud.
+#
+# Las ocho suman 724 s y TRES son el 91 % del costo. Correr las ocho llevaría esta suite por encima
+# de los 10 minutos — que es el techo de la tool con la que se la corre, no un timeout configurado
+# en el repo: acá no hay CI ni runner con timeout — y dejaría de poder correrse de una. Una suite
+# que no se corre no es una red. Las cinco baratas suman ~64 s y llevan la cobertura de 1/8 a 5/8.
+# Entra `export-shareable`, que es justamente la que tenía el glob incondicional.
+#
+# Las tres caras quedan afuera a sabiendas: su higiene la cubren los chequeos estáticos de la parte
+# A, que es estrictamente menos que ejecutarlas.
+#
+# ⚠️ `export-shareable` MUTA EL ÁRBOL DEL REPO mientras corre: escribe un
+# `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo borra en un `finally`. Correr esta
+# suite ahora arrastra esa escritura, y si el hijo muere entre el `Set-Content` y el `finally` el
+# archivo queda. Se declara acá porque contradice de frente el argumento que este mismo archivo usa
+# en la parte "E (no feliz)" para justificar las suites de juguete ("mutar el árbol contamina a los
+# reviewers en paralelo, ya pasó"), y porque el residuo se verifica explícitamente después del
+# foreach en vez de confiar en el `finally`.
+$suitesBaratas = @('apply-env', 'export-shareable', 'gen-mcp-json', 'copy-scaffold', 'alignment-gate')
+# Cantidad Y unicidad: con sólo la cantidad, duplicar un nombre mantiene el 5 y baja la cobertura
+# real a cuatro suites en silencio. Contar no atribuye.
+Assert ($suitesBaratas.Count -eq 5) "E: la lista de suites a ejecutar tiene las cinco (tiene: $($suitesBaratas.Count))"
+Assert (@($suitesBaratas | Sort-Object -Unique).Count -eq 5) "E: y las cinco son distintas entre sí"
+# Unicidad cierra el duplicado, no la SUSTITUCIÓN: cambiar 'export-shareable' por otra suite real
+# mantiene el 5 y la unicidad, y pierde justamente la que motiva la lista (es la que tenía el glob
+# incondicional, y la única de las cinco que toca el árbol). Membresía por nombre.
+$baratasFaltantes = @(@('export-shareable', 'apply-env') | Where-Object { $_ -notin $suitesBaratas })
+Assert ($baratasFaltantes.Count -eq 0) `
+  "E: están las dos que motivan la lista — export-shareable (tenía el glob) y apply-env (fugaba archivos sueltos). Faltan: $($baratasFaltantes -join ', ')"
+foreach ($nombreSuite in $suitesBaratas) {
+  $suiteReal = Join-Path $PSScriptRoot "$nombreSuite.tests.ps1"
+  Assert (Test-Path -LiteralPath $suiteReal) "E: existe la suite $nombreSuite"
+  if (-not (Test-Path -LiteralPath $suiteReal)) { continue }
+  # El prefijo no se escribe a mano: un literal que no coincida con el que la suite usa haría pasar
+  # el assert de abajo sin haber mirado nada.
+  $prefijoReal = Get-PrefijoDe $suiteReal
+  Assert ($prefijoReal -ne '') "E: se pudo leer el prefijo de $nombreSuite ('$prefijoReal')"
+  if ($prefijoReal -eq '') { continue }
+  $r = Measure-RastrosDe $suiteReal $prefijoReal
+  Assert ($r.exit -eq 0) "E: $nombreSuite corre en verde (exit $($r.exit))"
+  if ($r.exit -ne 0) {
+    $r.salida | Select-String -Pattern '^FAIL:' | ForEach-Object { Write-Host "      | $_" }
+    # stderr también, y acotado: una suite que revienta antes del primer Assert no imprime ningún
+    # `FAIL:`, así que sin esto el rojo no dice nada.
+    $r.salidaErr | Select-Object -First 5 | ForEach-Object { Write-Host "      ! $_" }
+  }
+  # "su raíz de corrida", no "rastros" a secas: `Measure-RastrosDe` sólo ve entradas que empiezan
+  # con `<prefijo>-run-<pid>-`. Un archivo suelto con otro nombre es invisible para este filtro —y
+  # esa es justamente la forma de la fuga histórica de `apply-env` (34 `wscfg-*.json` sueltos, la
+  # mitad del problema que este trabajo arregló). El filtro por PID es correcto y deliberado
+  # (evita falsos rojos por concurrencia); lo que no se puede es afirmar más de lo que mide.
+  Assert ($r.nuevos.Count -eq 0) "E: $nombreSuite no deja su raíz de corrida en %TEMP% (nuevas: $($r.nuevos.Count))"
+}
+# El residuo del fixture de fuga de `export-shareable`, verificado y no asumido: su `finally` no
+# corre si el proceso muere antes.
+#
+# Dos límites de este assert, declarados porque no se pueden cerrar desde acá:
+# 1. DETECTA, no remedia. Borrarlo sería peor: el path del fixture es FIJO (sin PID ni GUID), así
+#    que una corrida concurrente podría estar usándolo en ese momento.
+# 2. Por lo mismo, puede dar un rojo espurio: dos corridas simultáneas de esta suite —o una de
+#    `export-shareable` sola— comparten ese path, y el muestreo puede caer en la ventana entre el
+#    `Set-Content` de una y el `finally` de la otra. Es la única medición de este archivo que NO
+#    puede filtrarse por PID, justamente porque el path es compartido. La solución de fondo es que
+#    `export-shareable` arme su fixture de fuga en un clon temporal; queda fuera de este slice.
+# El path va en el mensaje: si aparece, hay que borrarlo a mano, y además pone en rojo a
+# `shareable-leaks` porque el contenido del fixture es un marcador de fuga dentro del payload
+# exportable.
+# El mensaje NO atribuye el residuo a esta corrida: sin una foto previa no se puede distinguir el
+# que dejó una corrida anterior abortada —que es justamente el escenario que este assert dice
+# vigilar— del que dejó ésta. `Measure-RastrosDe` resuelve eso con `$antes`; acá no se puede,
+# porque el path es fijo y compartido. Así que se reporta el hecho, no la causa.
+$residuoFuga = Join-Path $PSScriptRoot "..\skills\bootstrap-ai-project\LEAK-TEST.md"
+Assert (-not (Test-Path -LiteralPath $residuoFuga)) `
+  "E: no hay residuo del fixture de fuga de export-shareable en el árbol ($residuoFuga)"
 
 # Control positivo: una suite de juguete con la limpieza puesta DESPUÉS del `exit` final — el
 # defecto exacto que la parte A acepta y no puede ver. Sin este control, el assert de arriba pasaría
@@ -950,6 +1134,9 @@ Remove-TestRunRoot $script:runRoot
 
 $rc = Measure-RastrosDe $fugada "ctrlfuga" @("-Lib", "`"$lib`"")
 Assert ($rc.exit -eq 0) "E (control): la suite de juguete sale en verde, como saldría la de verdad"
+# Este control espera verde, así que si se pone rojo hay que poder ver por qué. Los tres casos de
+# "E (no feliz)" abortan a propósito y ahí el stderr sería ruido; acá no.
+if ($rc.exit -ne 0) { $rc.salidaErr | Select-Object -First 5 | ForEach-Object { Write-Host "      ! $_" } }
 Assert ($rc.nuevos.Count -ge 1) "E (control positivo): con la limpieza DESPUÉS del exit, la medición sí ve el rastro (nuevos: $($rc.nuevos.Count))"
 # El rastro del control hay que barrerlo, y SÓLO el propio: filtrado por el PID del hijo. La versión
 # anterior borraba todo `ctrlfuga-*` que encontrara, así que dos corridas concurrentes de esta suite
@@ -960,6 +1147,102 @@ foreach ($n in $rc.nuevos) { Remove-TestRunRoot $n }
 # la levanta esta suite se convierte en la que más rastros deja de todas.
 $quedan = @($rc.nuevos | Where-Object { Test-Path -LiteralPath $_ })
 Assert ($quedan.Count -eq 0) "E (control): el rastro que fabricó el control quedó barrido (quedan: $($quedan.Count))"
+
+# ---------------------------------------------------------------------------
+# E (no feliz). Las suites que NO terminan bien
+# ---------------------------------------------------------------------------
+# Todo lo de arriba mide suites que terminan en verde, y el camino que de verdad filtraba workspaces
+# en este repo era el otro: la limpieza del final es una sentencia suelta y, con
+# $ErrorActionPreference=Stop, cualquier error terminante fuera de un Assert la saltea. Para eso
+# existe el `trap`. La parte C ya lo prueba con un probe EN PROCESO — pero un probe no puede medir
+# qué queda en la raíz de %TEMP% después de que el proceso se muere, que es la propiedad que importa.
+#
+# Van sobre suites de juguete y no sobre las reales por costo y por seguridad: forzar a
+# `copy-scaffold` a abortar pide mutarla, y mutar el árbol contamina a los reviewers en paralelo (ya
+# pasó en este repo). En sintéticas cuesta milisegundos y el camino ejercitado es el mismo: mismo
+# helper, mismo patrón de tres líneas, mismo trap.
+# La suite de juguete escribe una MARCA en cuanto creó su workspace. Sin esa marca, este bloque
+# tenía un agujero grande: el control positivo difiere del caso sólo en la línea del trap, y un
+# control que difiere del caso sólo en X no puede detectar un defecto en X. Medido: con una llave
+# sin cerrar en `$lineaTrap`, los dos casos con trap mueren en el PARSE —salen con 1, que es el
+# exit esperado, y dejan cero rastros, que es el conteo esperado— así que los dos asserts pasaban
+# en verde sin que el trap se hubiera ejecutado una sola vez. El `ParserError` va a stderr, que
+# nadie lee. La parte C ya tenía este guard ("el probe con trap llegó a crear su raíz"); acá
+# faltaba.
+function New-SuiteDeJuguete([string]$prefijo, [bool]$conTrap, [string]$cuerpo, [string]$marca) {
+  $p = New-TestTempPath $script:runRoot $prefijo ".ps1"
+  # Salvo la marca, el trap es lo único que varía entre el caso y su control positivo (el prefijo
+  # también cambia, pero sólo nombra el run root). Si variara algo más, el control estaría
+  # validando otro programa.
+  $lineaTrap = if ($conTrap) { 'trap { Remove-TestRunRoot $script:runRoot; break }' } else { '' }
+  # Los dos paths entran por parámetro, no interpolados en el texto: un usuario con apóstrofe en el
+  # nombre rompía el probe con un error de sintaxis, que se lee como "la medición está rota".
+  @"
+param([string]`$Lib, [string]`$Marca)
+`$ErrorActionPreference = "Stop"
+. `$Lib
+`$script:runRoot = New-TestRunRoot '$prefijo'
+$lineaTrap
+New-TestWorkspace `$script:runRoot "caso" | Out-Null
+Set-Content -LiteralPath `$Marca -Value "vivo" -Encoding UTF8
+$cuerpo
+"@ | Set-Content -LiteralPath $p -Encoding UTF8
+  return $p
+}
+
+$casosNoFelices = @(
+  # Así terminan las suites de verdad cuando hay fallas: limpian y recién después salen con 1.
+  @{ n = 'una suite que FALLA limpia igual';        prefijo = 'ctrlfalla';   conTrap = $true;  deja = $false
+     cuerpo = "Remove-TestRunRoot `$script:runRoot`nexit 1" }
+  # El `throw` saltea la limpieza del final; si el trap no la levanta, el workspace queda.
+  @{ n = 'una suite que ABORTA limpia por el trap'; prefijo = 'ctrlabort';   conTrap = $true;  deja = $false
+     cuerpo = "throw 'aborto simulado'`nRemove-TestRunRoot `$script:runRoot" }
+  # Control positivo, y no es opcional: es lo único que distingue "el trap limpió" de "la suite de
+  # juguete nunca llegó a crear nada". Un error de sintaxis en el here-string de arriba daría cero
+  # rastros en los dos casos anteriores y los dos pasarían en verde por el motivo equivocado. Sin el
+  # trap, la MISMA suite tiene que filtrar.
+  @{ n = 'control positivo: la misma, SIN el trap'; prefijo = 'ctrlsintrap'; conTrap = $false; deja = $true
+     cuerpo = "throw 'aborto simulado'`nRemove-TestRunRoot `$script:runRoot" }
+)
+# Atribución, no cantidad: lo que importa no es "hay tres casos", es que EXISTA el control positivo.
+# Reemplazar el tercero por otro `deja = $false` deja el count en 3, todo verde, y desaparece el
+# único control del bloque. Es la trampa que este repo documenta como contar en vez de atribuir.
+Assert (@($casosNoFelices | Where-Object { $_.deja }).Count -eq 1) `
+  "E (no feliz): hay exactamente un control positivo"
+Assert (@($casosNoFelices | Where-Object { -not $_.deja }).Count -eq 2) `
+  "E (no feliz): y dos casos que NO deben dejar rastros"
+# Atribuir sobre `deja` no alcanza: lo que hace control al control es `conTrap`. Medido, con sólo
+# los dos asserts de arriba se podía poner `conTrap = $true` en el tercero y los cinco asserts del
+# bloque seguían verdes — con las tres suites de juguete llevando trap, o sea sin demostrar nada
+# sobre el trap. Estas dos condiciones son las que atan el par:
+$elControl = @($casosNoFelices | Where-Object { $_.deja -and -not $_.conTrap })
+Assert ($elControl.Count -eq 1) `
+  "E (no feliz): el control positivo es el que NO lleva trap (con trap y sin trap no son intercambiables)"
+# Y el control tiene que correr el MISMO cuerpo que el caso que controla; si no, compara dos
+# programas distintos y su rastro no dice nada sobre el trap.
+$elAbortado = @($casosNoFelices | Where-Object { -not $_.deja -and $_.conTrap -and $_.cuerpo -like "throw*" })
+Assert ($elAbortado.Count -eq 1 -and $elControl.Count -eq 1 -and $elControl[0].cuerpo -eq $elAbortado[0].cuerpo) `
+  "E (no feliz): el control corre el mismo cuerpo que el caso que aborta (sólo cambia el trap)"
+foreach ($cnf in $casosNoFelices) {
+  $marca = New-TestTempPath $script:runRoot "marca" ".txt"
+  $tp = New-SuiteDeJuguete $cnf.prefijo $cnf.conTrap $cnf.cuerpo $marca
+  $rnf = Measure-RastrosDe $tp $cnf.prefijo @("-Lib", "`"$lib`"", "-Marca", "`"$marca`"")
+  # Prueba de vida ANTES que nada: si la suite de juguete no llegó a crear su workspace, los dos
+  # asserts de abajo se satisfacen por el motivo equivocado.
+  Assert (Test-Path -LiteralPath $marca) `
+    "E (no feliz): $($cnf.n) — la suite de juguete llegó a crear su workspace (el escenario es real)"
+  Assert ($rnf.exit -ne 0) "E (no feliz): $($cnf.n) — no sale con 0 (exit $($rnf.exit))"
+  if ($cnf.deja) {
+    Assert ($rnf.nuevos.Count -ge 1) "E (no feliz, control positivo): $($cnf.n) — SÍ deja rastro (nuevos: $($rnf.nuevos.Count))"
+  } else {
+    Assert ($rnf.nuevos.Count -eq 0) "E (no feliz): $($cnf.n) — no deja rastros (nuevos: $($rnf.nuevos.Count))"
+  }
+  # Barrido filtrado por el PID del hijo, igual que arriba: un glob por prefijo les robaría la
+  # evidencia a las corridas concurrentes de esta misma suite.
+  foreach ($nx in $rnf.nuevos) { Remove-TestRunRoot $nx }
+  $quedanNf = @($rnf.nuevos | Where-Object { Test-Path -LiteralPath $_ })
+  Assert ($quedanNf.Count -eq 0) "E (no feliz): $($cnf.n) — lo que haya dejado quedó barrido (quedan: $($quedanNf.Count))"
+}
 
 Remove-TestRunRoot $script:runRoot
 

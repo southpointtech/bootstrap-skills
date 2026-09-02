@@ -64,10 +64,42 @@ posición en el árbol, con `$script:runRoot` como argumento y fuera de todo `if
 El chequeo asume traps **sin tipo**, que es lo que usan las suites: con un `trap [TipoDeError]`
 primero, el que corre puede ser otro, y el lint lo reportaría en rojo.
 
-Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del lint **corre una suite
-migrada de verdad** y cuenta lo que dejó en la raíz de `%TEMP%`, filtrando por el PID del proceso
-hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios; cubre una de las
-nueve suites y sólo el camino feliz.
+Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del lint **corre suites
+migradas de verdad** y cuenta lo que dejaron en la raíz de `%TEMP%`, filtrando por el PID del
+proceso hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios.
+
+Cubre **cinco de las ocho suites ejecutables**. El denominador es ocho y no nueve: nueve usan el
+helper, pero la novena es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio**
+—se llamaría a sí misma en recursión—, así que su exclusión es estructural, no económica.
+
+La elección de las cinco es por costo medido (2026-09-02, **una** corrida por suite): `apply-env`
+4,5 s, `export-shareable` 9,3, `gen-mcp-json` 9,5, `copy-scaffold` 19,9, `alignment-gate` 21,1 —
+contra `review-loop-docs-gate` 142,9, `review-loop-trigger` 258,2 y `review-marker` 258,8. Son
+**n=1 y dependen de la carga**: remedidas con otra sesión corriendo las mismas suites dieron hasta
+1,5×, y `copy-scaffold`/`alignment-gate` intercambian el orden. Los absolutos no se toman al pie de
+la letra; la decisión sí es robusta bajo las dos mediciones, porque entre los dos grupos hay un
+orden de magnitud. Las ocho suman 724 s y **tres son el 91 % del costo**: correr las ocho llevaría
+`temp-hygiene` por encima de los 10 minutos — que son el techo de la **tool** con la que se la
+corre, no un timeout configurado en el repo (acá no hay CI ni runner) — y una suite que no se corre
+no es una red. Las tres caras quedan cubiertas sólo por los chequeos estáticos, que es
+estrictamente menos.
+
+⚠️ Meter `export-shareable` en la parte E hace que correr `temp-hygiene` **escriba transitoriamente
+en el árbol del repo**: esa suite crea un `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo
+borra en un `finally` que no corre si el proceso muere antes. Queda declarado, y el residuo se
+verifica con un assert explícito después del foreach en vez de confiar en el `finally`.
+
+La parte E también mide el **camino no feliz**, sobre suites de juguete: una que falla (limpia y
+sale con `exit 1`) y una que aborta (`throw`, con el trap puesto). Las dos tienen que dejar cero
+rastros. Van con dos controles, y los dos hacen falta:
+
+- **Un control positivo**: la misma suite **sin** el trap, que tiene que filtrar.
+- **Una prueba de vida**: cada suite de juguete escribe una marca en cuanto creó su workspace, y se
+  verifica que exista. Sin ella el bloque tenía un agujero grande, medido: un control que difiere
+  del caso **sólo** en la línea del trap no puede detectar un defecto **en** esa línea. Con una
+  llave sin cerrar ahí, los dos casos con trap mueren en el *parse* — salen con 1, que es el exit
+  esperado, y dejan cero rastros, que es el conteo esperado — y los dos asserts pasaban en verde
+  sin que el trap se ejecutara nunca. El `ParserError` va a stderr, que ningún assert lee.
 
 El trap no puede vivir dentro del helper: un `trap` se aplica al bloque de script donde está
 escrito, así que uno declarado en el helper no cubre lo que pasa después en la suite que lo
