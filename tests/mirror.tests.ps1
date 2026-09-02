@@ -241,12 +241,12 @@ foreach ($s in $skills) {
 # dejaba el `-join` byte-idéntico al golden —y a `reseal-goldens.ps1` diciendo "sin cambios"—,
 # porque los dos arman la lista iterando las anclas, no el documento (medido).
 #
-# QUE NO CUBRE, medido: envolver los dos párrafos en `<!-- -->` o en un fence con los
-# delimitadores en LÍNEAS PROPIAS, o poner una negación en la línea de arriba, no toca las líneas
-# ancladas y pasa. El `<!--` lo ataja el assert de abajo; el fence y la línea de arriba NO, y
-# quedan declarados: cerrar eso pide congelar la sección entera, que acá no se puede porque el
-# Step 2 diverge legítimamente entre variantes (`This delivers:` está en inglés en una y en
-# castellano en las otras dos).
+# QUE NO CUBRE, medido: todo lo que neutraliza los párrafos SIN tocar sus líneas — envolverlos en
+# un fence, o en un `<div style="display:none">`, o poner una negación en la línea de arriba o en
+# la de abajo. Los comentarios HTML son la excepción: los ataja el assert de abajo, que mira el
+# archivo entero. El resto queda declarado, porque cerrarlo pide congelar la sección entera y el
+# Step 2 diverge legítimamente entre variantes: la línea de `This delivers:` describe el hook en
+# inglés en `bootstrap-ai-project` y en castellano en las otras dos.
 $g2 = Join-Path $repo "tests/fixtures/step2-parrafos.golden.md"
 $golden2 = if (Test-Path -LiteralPath $g2) { ([IO.File]::ReadAllText($g2) -replace "`r`n", "`n" -replace "`r", "`n").Trim("`n") } else { $null }
 Assert (-not [string]::IsNullOrWhiteSpace($golden2)) "existe el golden del Step 2 y no está vacío (tests/fixtures/step2-parrafos.golden.md)"
@@ -258,7 +258,17 @@ foreach ($s in $skills) {
   if ($i2 -le 0) { continue }
   $j2 = $t2.IndexOf("`n## ", $i2) + 1
   $sec2 = if ($j2 -le 0) { $t2.Substring($i2) } else { $t2.Substring($i2, $j2 - $i2) }
-  Assert (-not $sec2.Contains("<!--")) "$($s.Name): el Step 2 no tiene comentarios HTML — envolver un párrafo en `<!-- -->` lo deja inerte sin tocar su texto"
+  # Los comentarios HTML se miran en el ARCHIVO ENTERO, no en la sección: abrir el `<!--` una
+  # línea ARRIBA del encabezado deja el delimitador afuera del tramo y el Step 2 entero inerte,
+  # con la suite en verde (medido). Ninguna de las tres skills tiene hoy un comentario HTML, así
+  # que el guard es exacto, no aproximado.
+  Assert (-not $t2.Contains("<!--") -and -not $t2.Contains("-->")) "$($s.Name): el SKILL.md no tiene comentarios HTML — envolver un párrafo en uno lo deja inerte sin tocar su texto"
+  # El encabezado tiene que ser ÚNICO. `IndexOf` toma la primera aparición, así que un
+  # `## Step 2 — Copy the scaffold (reference)` señuelo puesto ANTES del real congelaba la copia
+  # decorativa y dejaba el procedimiento verdadero libre de reescribirse (medido). Es peor que el
+  # caso del apéndice que el acotado vino a cerrar.
+  $veces2 = $t2.Split(@("`n## Step 2 "), [StringSplitOptions]::None).Length - 1
+  Assert ($veces2 -eq 1) "$($s.Name): el encabezado ## Step 2  aparece una sola vez ($veces2)"
   $lineas2 = @()
   $faltan2 = @()
   $posic2 = @()

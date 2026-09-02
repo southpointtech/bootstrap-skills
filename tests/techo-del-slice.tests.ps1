@@ -205,13 +205,13 @@ $txtHandoff = if (Test-Path -LiteralPath $handoffPath) { [IO.File]::ReadAllText(
 Assert ($null -ne $txtHandoff) "existe docs/SESSION_HANDOFF.md, que es lo que el ADR-0008 cita"
 foreach ($a in @('El techo de tamaño, otra vez', 'Dos cosas ABIERTAS que el próximo debe saber',
                  'turno 2 de 5, NO cerrado', '`1c52fe0`…`3e175b0`',
-                 '| F14 | la invariante')) {
+                 '| F14 | la invariante', '| F18 | ')) {
   Assert ($txtAdrCitas.Contains($a)) "ADR-0008 sigue citando el ancla '$a' del handoff"
   if ($null -ne $txtHandoff) {
     # `Split` con un separador de string cuenta apariciones sin depender de regex: los titulos
     # llevan acentos y comillas que habria que escapar.
     $veces = $txtHandoff.Split(@($a), [StringSplitOptions]::None).Length - 1
-    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces) — si una sesión nueva repitió el título, cambiá la cita del ADR-0008 por una que siga siendo única, no el handoff"
+    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces) — con 2 o más, una sesión nueva repitió el texto: cambiá la cita del ADR-0008 por una que siga siendo única. Con 0, la evidencia que el ADR cita ya no está en el handoff: recuperala del historial antes de reescribir la cita"
   }
 }
 
@@ -305,9 +305,11 @@ if (-not (Test-Path -LiteralPath $adr)) {
   # ensanchar a proposito. Caza la forma en que un autor escribiria la fila sin querer; a quien
   # busque el hueco se lo dejamos declarado.
   #
-  # QUE CAZA, medido: la fila con o sin backticks, en negrita, indentada, con el sha en
-  # mayusculas, con `...` en vez de `..`, con la celda envuelta en un link markdown, con etiquetas
-  # HTML inline en el medio, con elipsis unicode, y la fila HTML de una linea (primer `<td>`).
+  # QUE CAZA, medido: la fila con o sin backticks, con o sin los pipes externos (GFM valido), en
+  # negrita, en italica, tachada, entre comillas o parentesis, indentada, con el sha en mayusculas
+  # o de 40 caracteres, con `...` en vez de `..`, con la celda envuelta en un link markdown, con
+  # etiquetas HTML inline en el medio, con elipsis unicode, y la fila HTML de una linea (primer
+  # `<td>`, en cualquier capitalizacion y con atributos).
   # QUE NO CAZA, declarado: una palabra antes del sha (`commit 900ba7f..2edb0a1`), la fila dentro
   # de un blockquote —que en este archivo es CITA, y los otros guards tambien la excluyen—, un
   # rango en la SEGUNDA celda con una columna indice adelante, un `<td>` partido en varias lineas,
@@ -315,11 +317,18 @@ if (-not (Test-Path -LiteralPath $adr)) {
   # El rango exige los DOS lados: `<sha>..<sha|HEAD>`. Sin el lado derecho, una elipsis de prosa
   # detras de un sha (`| \`cf925c0\` ... |`) normalizaba a `cf925c0...` y ponia roja una fila
   # legitima. `-match` es case-insensitive, asi que el sha en mayusculas entra igual.
+  # El ruido de formato que se borra antes de mirar la celda. Empezo siendo backtick, asterisco y
+  # espacio, y con el ancla `^` cualquier OTRA puntuacion delante del rango lo esquivaba: medido,
+  # `_italica_`, `~~tachado~~`, comillas, parentesis, corchetes y un guion de lista pasaban todos,
+  # y `~~` es justamente como se tacharia una fila retractada en este documento.
+  $reRuido = '[`*_~"''()\[\]\-\s]'
   $reRango = '^[0-9a-f]{7,40}\.\.\.?(?:[0-9a-f]|HEAD)'
   function CeldaNormalizada([string]$linea) {
     # El blockquote NO se pela: en este archivo `>` es cita, y confundir la cita con la afirmacion
-    # es el error que los otros guards de aca evitan. Pelarlo hacia roja la retractacion, que cita
-    # la fila retractada a proposito.
+    # es el error que el guard de reparto de mas abajo tambien evita (su `$sinCitas`). Es una
+    # decision de convencion, NO una medicion: hoy la retractacion cita la fila mala en prosa, sin
+    # pipes, asi que pelar el `>` tampoco la pondria roja — verificado. Vale para el dia que
+    # alguien cite la fila COMO fila.
     if ($linea -match '^\s*>') { return $null }
     $l = $linea -replace '^\s+', ''
     $l = $l -replace '^\|', ''
@@ -330,23 +339,24 @@ if (-not (Test-Path -LiteralPath $adr)) {
     $celda = [regex]::Replace($celda, '\[([^\]]*)\]\([^)]*\)', '$1')
     $celda = [regex]::Replace($celda, '<[^>]*>', '')
     # La elipsis unicode se normaliza a `..` porque es como el propio ADR escribe rangos.
-    return (($celda -replace '\u2026', '..') -replace '[`*\s]', '')
+    return (($celda -replace '\u2026', '..') -replace $reRuido, '')
   }
   $filasRango = @()
   foreach ($linea in [regex]::Split($txtAdr, '\r?\n')) {
     # La fila HTML de una linea: solo el PRIMER `<td>`, que es el que ocupa el lugar del commit.
     # Mirar todos hacia roja una tabla con columna indice, que en GFM si es legitima.
     $td = [regex]::Match($linea, '(?i)<td[^>]*>([^<]*)<')
-    if ($td.Success -and ((($td.Groups[1].Value -replace '\u2026', '..') -replace '[`*\s]', '') -match $reRango)) {
+    if ($td.Success -and ((($td.Groups[1].Value -replace '\u2026', '..') -replace $reRuido, '') -match $reRango)) {
       $filasRango += $linea
       continue
     }
     $celda = CeldaNormalizada $linea
     if ($null -eq $celda) { continue }
     # El rango tiene que ARRANCAR la celda. Buscarlo en cualquier parte cazaba una palabra antes
-    # del sha, pero ponia roja la fila legitima que DESCRIBE una base nombrando su rango
-    # (`| altas + bajas sobre \`3e175b0..2edb0a1\` | 660 | ... |`) y cualquier prosa con un pipe
-    # adentro. Se eligio el falso negativo declarado por sobre el falso positivo que rompe el doc.
+    # del sha, pero pondria roja una fila legitima que DESCRIBA una base nombrando su rango, o
+    # cualquier prosa con un pipe adentro. Son riesgos PROYECTADOS, no rojos observados: ninguna
+    # de esas dos formas existe hoy en el ADR ni existio en sus revisiones. Se eligio el falso
+    # negativo declarado por sobre el falso positivo que romperia el doc si aparecieran.
     if ($celda -match $reRango) { $filasRango += $linea }
   }
   Assert ($filasRango.Count -eq 0) `

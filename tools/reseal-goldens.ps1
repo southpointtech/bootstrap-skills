@@ -61,16 +61,27 @@ function LineasAncladas([string]$path, $g) {
   if (-not (Test-Path -LiteralPath $path)) { throw "no existe $path" }
   $t = [IO.File]::ReadAllText($path) -replace "`r`n", "`n" -replace "`r", "`n"
   if ($g.seccion) {
+    # El encabezado tiene que ser UNICO: `IndexOf` toma el primero, asi que un encabezado señuelo
+    # puesto antes del real sellaria una copia decorativa dejando el procedimiento verdadero libre.
+    $veces = $t.Split(@("`n" + $g.seccion), [StringSplitOptions]::None).Length - 1
+    if ($veces -ne 1) { throw "$path : la seccion '$($g.seccion)' aparece $veces veces donde tiene que aparecer una" }
     $i = $t.IndexOf("`n" + $g.seccion) + 1
-    if ($i -le 0) { throw "$path : no se encontro la seccion '$($g.seccion)'" }
     $j = $t.IndexOf("`n## ", $i) + 1
     $t = if ($j -le 0) { $t.Substring($i) } else { $t.Substring($i, $j - $i) }
   }
   $out = @()
+  $pos = @()
   foreach ($a in $g.anclas) {
     $hits = @($t -split "`n" | Where-Object { $_.Contains($a) })
     if ($hits.Count -ne 1) { throw "$path : el ancla '$a' aparece $($hits.Count) veces donde tiene que aparecer una" }
     $out += $hits[0]
+    $pos += $t.IndexOf($hits[0])
+  }
+  # El ORDEN tambien: la lista se arma iterando las anclas, no el documento, asi que intercambiar
+  # dos parrafos daba un `-join` identico y el reseal decia "sin cambios" mientras la suite estaba
+  # roja pidiendo justamente re-grabar. Sin esto, el mensaje del test manda a un callejon.
+  for ($k = 1; $k -lt $pos.Count; $k++) {
+    if ($pos[$k] -le $pos[$k - 1]) { throw "$path : los parrafos anclados no estan en el orden declarado (posiciones: $($pos -join ', '))" }
   }
   return $out -join "`n"
 }

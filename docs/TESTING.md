@@ -71,18 +71,22 @@ exactamente lo mismo en todas. Son tres fixtures, todos generados —nunca edita
 Los tres existen por lo mismo que el del Step 0b, y se midió en cada caso: como anclas de presencia,
 los párrafos del Step 2 pasaban en verde con el cuerpo vaciado dejando el prefijo anclado, y mudados
 a un apéndice; el del techo pasaba en verde reescrito con otras palabras en las 4 copias a la vez.
-El del Step 2 se compara **acotado a la sección** `## Step 2` —que es lo que ataja la mudanza— y
-verifica **membresía y orden**: sin el orden, intercambiar los dos párrafos dejaba el golden y el
-reseal diciendo "sin cambios", porque los dos arman la lista iterando las anclas, no el documento.
+El del Step 2 se compara **acotado a la sección** `## Step 2` —que es lo que ataja la mudanza, y
+por eso el encabezado tiene que aparecer una sola vez: uno señuelo puesto antes del real sellaba
+una copia decorativa y dejaba el procedimiento verdadero libre— y verifica **membresía y orden**.
+El orden va en los dos lados: la suite y el reseal arman la lista iterando las anclas, no el
+documento, así que sin él intercambiar los dos párrafos dejaba la suite roja pidiendo re-grabar y
+al reseal diciendo "sin cambios" — un callejón, porque editar el fixture a mano está prohibido.
 
 Lo que un golden hace y lo que no: **no impide** la reescritura, la vuelve visible. Re-grabar en el
 mismo commit deja la suite verde, y es a propósito — el reseal es el paso donde un humano mira el
 diff. Y congela **ese párrafo**, no el documento: agregar en otra parte del archivo una frase que lo
-contradiga sigue pasando (medido), y envolver los párrafos en `<!-- -->` o en un fence con los
-delimitadores en líneas propias, o negarlos desde la línea de arriba, tampoco toca las líneas
-congeladas. El `<!--` lo ataja un assert aparte; el fence y la línea de arriba quedan declarados en
-el comentario del bloque. Cerrarlos pediría congelar la sección entera, y el Step 2 diverge
-legítimamente entre variantes. Para el techo están además las mitades negativas de
+contradiga sigue pasando (medido), y lo mismo cualquier cosa que neutralice los párrafos sin tocar
+sus líneas: un fence, un `<div style="display:none">`, o una negación en la línea de arriba o de
+abajo. La excepción son los comentarios HTML, que ataja un assert aparte sobre el **archivo
+entero** —acotarlo a la sección lo esquivaba abriendo el `<!--` una línea más arriba—. El resto
+queda declarado en el comentario del bloque: cerrarlo pediría congelar la sección entera, y el
+Step 2 diverge legítimamente entre variantes. Para el techo están además las mitades negativas de
 `techo-del-slice.tests.ps1`, que a su vez solo cubren la redacción vieja concreta.
 
 ## Testeo de `upgrade-bootstrap`

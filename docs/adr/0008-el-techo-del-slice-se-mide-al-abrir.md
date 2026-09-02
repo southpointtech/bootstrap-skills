@@ -38,7 +38,7 @@ acumulado. La suma por commit **sobrecuenta**, siempre.
 ### Por qué acá no hay un reparto entre "scope" y "fixes del loop"
 
 Porque **no se puede hacer con estos commits**. `0eb467f` es mixto: su cuerpo dice *"F18 y F14, que el
-trailer del commit anterior daba por cerrados sin que el delta los tocara"*, y el handoff (la fila `| F14 | la invariante` de la tabla de cierre de 04c, y la de F18)
+trailer del commit anterior daba por cerrados sin que el delta los tocara"*, y el handoff (la fila `| F14 | la invariante` y la `| F18 | ` de la tabla de cierre de 04c)
 los registra cerrados ahí. F14 y F18 son **scope** —dos de los nueve Medium que el slice vino a
 cerrar— y viajan en el mismo commit que arreglos de hallazgos del loop. Cualquier número que reparta
 esas 248 líneas entre las dos categorías sería una estimación presentada como medición, que es
