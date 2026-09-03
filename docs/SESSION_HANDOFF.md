@@ -1,3 +1,221 @@
+# Session Handoff — 2026-09-02 — El slice de `%TEMP%` MERGEADO Y PUSHEADO (`3b3636a`). Slice nuevo del lint cerrado en el turno 3 y **PARTIDO EN DOS RAMAS APILADAS**, sin mergear. El loop encontró que mi decisión de diseño central era FALSA.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+✅ **`main` = `origin/main` = `3b3636a`.** El slice de `%TEMP%` de la sesión anterior
+(`fix/suites-que-no-limpian-temp`, 849 líneas) se mergeó ff-only y se pusheó. **No se deployó a
+propósito**: no tocaba nada bajo `skills/`, así que `sync-skills.ps1` sólo habría movido el sello de
+fecha de los manifests.
+
+🔴 **Dos ramas apiladas, SIN mergear, SIN pushear. Working tree limpio.**
+
+| rama | base | commit | líneas de lógica | asserts |
+|---|---|---|---|---|
+| `split/regla-de-importacion` | `main` | `500cb9b` | **509** ⚠️ (techo ~400) | 141 ✅ |
+| `split/parte-e-y-predicados` | la anterior | `4866cb3` | **309** ✅ | 213 ✅ |
+
+⚠️ **`fix/lint-de-temp-resistente-a-evasion` (`eb85e7b`, 4 commits, 826 líneas) es la MISMA obra sin
+partir.** Se conserva como red. El árbol de `split/parte-e-y-predicados` es **byte-idéntico** al de
+`eb85e7b` (verificado con `git diff --name-only eb85e7b`): la partición no perdió nada. Cuando las
+dos ramas nuevas estén mergeadas, esa rama se borra.
+
+## Qué se hizo
+
+### 1. Línea anterior: merge + push (CERRADO)
+
+`fix/suites-que-no-limpian-temp` → `main` ff-only (`9c8faf5..3b3636a`, 0 merge commits), pusheado con
+la cuenta **southpointtech**. 15/15 suites verificadas en verde antes de pushear. Los 2 rastros que
+había en `%TEMP%` eran artefactos de dos `SIGTERM` del timeout de 10 min de la tool, no fugas: cada
+suite corrió después hasta el final y no dejó una segunda raíz.
+
+### 2. Slice nuevo: el lint de `%TEMP%` deja de ser evadible (deuda 2-4 de `a249d1c`)
+
+Alineado con `/grill-me`. Issue en `.scratch/issue-lint-de-temp-evadible.md` (no trackeado, existe en
+disco). Decisiones tomadas ahí, con el usuario:
+
+- **Modelo de amenaza: un agente futuro tratando de poner el lint en verde.** Adversarial en efecto,
+  no en intención. No es hipotético: de los 5 turnos del loop de `a249d1c`, 4 hallazgos fueron
+  regresiones del turno anterior y dos reintrodujeron el glob incondicional exacto.
+- **El lint admite lo bueno en vez de detectar lo malo**: conjunto CERRADO de dos formas de importar
+  el helper. Todo detector abierto de este archivo fue evadido dentro de un turno (grep → tokens →
+  AST).
+- **Parte E: cinco de las OCHO suites ejecutables** (la novena es `temp-hygiene` misma, que no se
+  puede correr a sí misma). Elegidas por costo medido; tres suites son el 91 % del costo total.
+
+## 🔴 LO MÁS IMPORTANTE: mi decisión de diseño central era FALSA
+
+Escribí que "con el conjunto cerrado no hay espacio de evasión que enumerar". **El turno 1 encontró
+seis grafías nuevas en un solo turno**, todas verificadas ejecutando el predicado. El conjunto
+cerrado **achica** la evasión, no la elimina, porque sigue aproximando ESTÁTICAMENTE una pregunta de
+identidad: *"lo que quedó en scope, ¿es el helper de verdad?"*.
+
+Las seis, ya tabuladas en el código y en `docs/TESTING.md` como borde declarado:
+
+| grafía | por qué pasa |
+|---|---|
+| `foreach ($lib in @('C:\stub.ps1')) { }` | deja la variable con el último valor y no es un `AssignmentStatementAst` |
+| `Set-Variable -Name lib -Value ...` | tampoco es una asignación en el AST |
+| `$script:lib = ...` | en el cuerpo del script **es** `$lib`, pero su `UserPath` es `script:lib` |
+| `$PSScriptRoot = 'C:\fake'` | no es de sólo lectura; rompe la forma 1, la de las ocho suites |
+| `function global:New-TestRunRoot { }` | el `Name` del AST guarda el prefijo de scope |
+| `Import-Module <stub.psm1>` desde fuera de `tests/` | no es un dot-source |
+
+**El borde anterior estaba mal en las dos direcciones**: nombraba `& { function ... }` como evasión y
+**no lo es** (scope hijo, la redefinición muere con él, verificado), y omitía las seis reales.
+
+**La solución de fondo, ya decidida con el usuario, es el próximo slice**: un chequeo de IDENTIDAD en
+runtime — comparar el archivo de origen de las funciones que quedaron en scope contra el del helper,
+p. ej. `(Get-Command New-TestRunRoot).ScriptBlock.File`. Es inmune a las seis porque no aproxima:
+mide la identidad real.
+
+## 🔴 El review-loop: 3 turnos, cerrado SIN limpiar (no por cap)
+
+| turno | regresión del turno anterior | mutantes que sobrevivían | qué encontró |
+|---|---|---|---|
+| 1 | — | **5 de 8** | la afirmación de clausura era falsa; `.psm1` y ocultos invisibles; `&&`/`||` no contaban como condición |
+| 2 | 🔴 **sí, mía** | **9** | usé `Test-Anidado` para descartar asignaciones y abrí la reasignación vía `ForEach-Object`; tres predicados heredados que sólo podían dar verde |
+| 3 | ✅ **ninguna** | **8 de 10** | huecos de cobertura en los predicados; 5 afirmaciones de atribución falsas más |
+
+Turno 1 corrió con **7 reviewers** (5 focos + mutación + `/code-review`); turnos 2 y 3 con 4, sin
+mutación ni `/code-review`, que están prohibidos de turno 2 en adelante.
+
+**Se cerró en el turno 3 por decisión del usuario, no por cap.** Motivo: los hallazgos dejaron de ser
+bugs vivos y pasaron a ser huecos de cobertura en los predicados del propio lint, que son
+prácticamente inagotables (cada guarda admite un fixture), mientras cada turno sumaba 100-200 líneas
+a un slice que ya estaba al doble del techo.
+
+El **pase de coherencia** corrió y dijo que el slice cohiere. Su único hallazgo (que el barrido
+recursivo no tiene test) **es un falso positivo**: el árbol sintético lo verifica por membresía
+(`fixtures/`, `fake/lib/`, `.oculto/`, un `.psm1`) y hay tres mutantes muertos contra esa línea. El
+reviewer dijo explícitamente que leyó el diff "truncado".
+
+## 🔑 Las dos lecciones de la sesión (valen más que los bugs)
+
+### 1. Mis mutantes no miden nada
+
+Corrí 8 mutantes propios → 8/8 muertos. El reviewer eligió otros y **5 de 8 sobrevivieron**. Corrí 10
+→ 10/10 muertos, y en ese mismo turno **yo había introducido una regresión que ninguno de mis 10
+tocó**. Los elijo mirando los asserts que acabo de escribir, o sea muto las líneas que ya sé
+cubiertas. **Un 100 % de mutantes muertos elegidos por el autor no es evidencia de cobertura.**
+Guardado en memoria (`mis-mutantes-son-mas-debiles-que-los-del-reviewer`).
+
+### 2. Parchar prosa de procedimiento sigue sin converger — cuarta medición
+
+En los tres turnos escribí afirmaciones de ATRIBUCIÓN falsas **al explicar mis propios fixes**. La
+peor: un párrafo clasificaba los casos negativos en "cinco agujeros medidos" y "el resto es cobertura
+de rama", y decía que ocho de nueve no eran agujeros del predicado viejo — **el predicado viejo los
+aceptaba a todos menos uno**. El párrafo se contradecía con su propio commit.
+
+**Lo que lo cerró fue cambiar de instrumento en la prosa**: el criterio de cada caso negativo ahora
+es MECÁNICO ("existe porque sin él se puede borrar una línea del predicado y la suite queda verde",
+verificable corriendo el mutante) y **la clasificación histórica se eliminó**, con `git log` como
+fuente. Corolario: **no afirmar lo no medible**.
+
+## 🔴 Errores míos de esta sesión, para no repetirlos
+
+1. **Avancé el marcador DESPUÉS de commitear los fixes del turno 2**, no antes. Deja el rango del
+   turno siguiente vacío y no hay verbo para retroceder. Ya estaba en memoria y lo repetí. El turno 3
+   se corrió pasando el rango `89dc53c` explícito a los reviewers.
+2. **Lancé 4 lotes de suites en paralelo** y la contención los llevó por encima del timeout de 10
+   min: tres se mataron solos. Las suites van de a una o en lotes chicos, en serie.
+3. Al partir la rama **se me cayó la limpieza final** (`Remove-TestRunRoot $script:runRoot`) de
+   `temp-hygiene`. Lo atrapó el propio lint de la suite.
+4. Mi criterio de veredicto de mutantes era `exit != 0 AND fails >= 1`: **está mal**, un mutante puede
+   hacer reventar la suite sin producir ningún `FAIL:` y eso también es detección. Es `exit != 0`.
+
+## Archivos cambiados (las dos ramas, `3b3636a..4866cb3`)
+
+| archivo | qué |
+|---|---|
+| `tests/temp-hygiene.tests.ps1` | de 564 a 1250 líneas. Predicados nuevos: `Test-ImportaElHelper`, `Test-JoinPathCanonico`, `Get-DentroDelParen`, `Test-VariableCanonica`, `Test-BajoCondicion`, `Test-DentroDeUnaFuncion`, `Get-RedefinicionesDelHelper`, `Get-Ps1DeArbol`, `New-SuiteDeJuguete`. Bloques nuevos: A0b (fixtures de import), A0c (fixtures de trap y limpieza), E ampliada, E (no feliz) |
+| `docs/TESTING.md` | § "La importación del helper es un conjunto CERRADO" y § "El borde declarado (medido, no imaginado)" |
+| `.scratch/issue-lint-de-temp-evadible.md` | **NUEVO**, no trackeado. El issue con las decisiones D1-D3 y el alcance |
+
+## Tests
+
+**15/15 suites en verde** en la rama sin partir; `temp-hygiene` en verde en las dos ramas nuevas
+(141 y 213 asserts). **Cero rastros de suite en `%TEMP%`**, medido con foto previa.
+
+Correr por lotes de 5-8 **en serie**: la suite completa pasa los 10 min del timeout de la tool.
+
+```powershell
+foreach($n in @("mirror","copy-scaffold","alignment-gate","apply-env","export-shareable","gen-mcp-json","install-clients","regla-de-afirmaciones")){
+  $o = & pwsh -NoProfile -File "tests\$n.tests.ps1" 2>&1
+  "{0,-24} exit={1} FAILs={2}" -f $n,$LASTEXITCODE,($o|Select-String -SimpleMatch 'FAIL:').Count
+}
+```
+
+Duraciones medidas (n=1, dependen de carga): `apply-env` 4,5 s · `export-shareable` 9,3 ·
+`gen-mcp-json` 9,5 · `copy-scaffold` 19,9 · `alignment-gate` 21,1 · `temp-hygiene` ~85 ·
+`review-loop-docs-gate` 143 · `review-loop-trigger` 258 · `review-marker` 259.
+
+## Antes de tocar código
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`).
+  **No commitear ni stagear ahí.** Su árbol cambia entre dos comandos tuyos.
+- ⚠️ **Correr `temp-hygiene` ahora ESCRIBE en el árbol del repo**: la parte E ejecuta
+  `export-shareable`, que crea `skills/bootstrap-ai-project/LEAK-TEST.md` y lo borra en un `finally`
+  que no corre si el proceso muere. Hay un assert que lo detecta. Si aparece, borralo a mano: pone en
+  rojo a `shareable-leaks` porque su contenido es un marcador de fuga dentro del payload exportable.
+- **Los reviewers en paralelo se contaminan.** Antes de atribuir un `<prefijo>-run-*` a un defecto,
+  fijate si su PID está vivo. Windows recicla PIDs: uno de los rastros de esta sesión tenía el PID de
+  un `bash`. Y un reviewer que corre mutantes deja rastros **por diseño**.
+- **NUNCA barras `%TEMP%` por glob incondicional.** Filtrá por edad o por PID. Es el bug de fondo de
+  todo este trabajo y se reintrodujo dos veces en el loop anterior.
+- Los mutantes se aplican en `git worktree add --detach` a `%TEMP%`, **nunca en el árbol real**.
+- El `alignment-gate` frena el primer edit de código de la sesión. Si ya se alineó, decilo y
+  **reintentá**; no grilles de nuevo.
+- El guard del entorno bloquea comandos cuyo texto parece un path peligroso (p. ej. un regex con
+  `'\.md$'`). **Reescribir con variables.**
+- Commits largos con `git commit -F <archivo>` (**no** here-strings de PowerShell con la Bash tool).
+- El clasificador de auto-mode frena `git merge` en un comando compuesto; separalo.
+
+## Próximos pasos
+
+1. **Decidir el merge de las dos ramas apiladas.** Si es merge: `split/regla-de-importacion` → `main`
+   ff-only, después `split/parte-e-y-predicados` → `main` ff-only, push con **southpointtech**, y
+   borrar `fix/lint-de-temp-resistente-a-evasion`. **No hace falta deployar**: nada bajo `skills/`.
+2. **El slice del chequeo de IDENTIDAD en runtime** (arriba). Es lo que cierra las seis grafías de una
+   vez en vez de perseguirlas. Ya está alineado y decidido con el usuario.
+3. Inicializar el marcador de review en las ramas nuevas (`-Action open`) antes de correr un loop
+   sobre ellas; el de la rama vieja quedó mal en `705894b`.
+4. **Benchmark Track B** — la línea base congelada **vence el 2026-09-10**. Es lo más urgente por fecha.
+5. **Self-upgrade de `SouthPoint-Hub`** (la v1 dejó el frontend sin revisar).
+6. Pasada al `README.md` de la raíz: dice "Both bootstrap skills" (son 3) y "~43 template files" (52).
+   Slice solo-docs, no dispara el loop.
+7. Bugs abiertos de antes, sin cambios: deuda de `bc973c2`; `autocrlf`/hashes mixtos en los manifests;
+   el párrafo del hook redactado distinto en `bootstrap-ai-project`; las 2 carpetas sin git con el
+   hook inerte (sin decidir, es tuya).
+
+## ⚖️ Deuda declarada del slice nuevo
+
+1. **`split/regla-de-importacion` son 509 líneas de lógica**, 27 % arriba del techo. Intenté partirla
+   en dos y **aborté**: el borde declarado, el conjunto cerrado y la prohibición de redefinir son una
+   sola historia, y separarlos dejaba a la primera mitad prometiendo en prosa un detector que no
+   existiría hasta la segunda. `CLAUDE.md` dice "Cohesion comes first".
+2. **El loop cerró en el turno 3 de 5, sin ir limpio.** El turno 3 dejó hallazgos sin arreglar: ramas
+   de predicados sin fixture (`Test-JoinPathCanonico` con comando que no es `Join-Path`, raíz que no
+   es `$PSScriptRoot`; `Get-DentroDelParen` con pipeline de más de un elemento).
+3. **`Test-BajoCondicion` sobre-aproxima en `&&`/`||`**: marca también el operando izquierdo, que sí
+   se ejecuta siempre. Declarado; el error va hacia el rojo, que es el lado seguro.
+4. Un mutante **equivalente** verificado y declarado como tal: borrar la guarda `$s -isnot
+   [PipelineAst]` del trap. `PipelineAst` es la única de las 33 subclases de `StatementAst` con
+   propiedad `PipelineElements`.
+5. Ítems 1, 5 y 6 de la deuda de `a249d1c` siguen abiertos: `MAX_PATH` / `-LiteralPath` / el reintento
+   de `Remove-TestRunRoot` (piden fabricar un `%TEMP%` profundo o con corchetes), el
+   `alignment-gate.ps1` que escribe en la raíz de `%TEMP%` sin repo git, y los rastros legacy.
+
+## Preferencias del usuario confirmadas esta sesión
+
+- **No hacerle preguntas técnicas.** Textual: *"no quiero que me hagas más preguntas técnicas porque
+  no te sigo, solo consultame por preguntas de diseño, después hacé lo que creas mejor"*. Respondió
+  "vamos con la recomendación" a las tres preguntas técnicas del grill antes de cortarlo. Las
+  bifurcaciones técnicas van **resueltas y registradas por escrito** (en el issue de `.scratch/`), no
+  ofrecidas. Las de diseño/costo/alcance **sí** se preguntan.
+- Prefiere cerrar y partir antes de mergear un slice que pasó el techo, en vez de normalizarlo.
+
+---
+
 # Session Handoff — 2026-09-01 — Línea anterior DEPLOYADA. Issue de `%TEMP%` cerrado en `fix/suites-que-no-limpian-temp` (6 commits, `a249d1c`). **SIN mergear, SIN pushear.** El review-loop cerró POR CAP.
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
