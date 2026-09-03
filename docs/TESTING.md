@@ -204,20 +204,34 @@ omitía las seis que sí lo son — un borde mal declarado manda a buscar donde 
 Más `Set-Item function:` y `New-Item -Path function:`, que no son `FunctionDefinitionAst`.
 
 No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
-cinco veces. Se cierran todas juntas con el **chequeo de identidad en runtime** de la **parte F**
-(2026-09-03): corre la suite en un runspace anidado y compara `(Get-Command X).ScriptBlock.File`
-contra el archivo del helper. Es inmune a las seis —y a la familia variable/raíz completa— porque
-mide la identidad real en vez de aproximar la forma: una redefinición, venga como venga, deja el
-`.File` en otro archivo (o en null), y un import redirigido a un stub carga las funciones desde ese
-stub.
+cinco veces. El **chequeo de identidad en runtime** de la **parte F** (2026-09-03) corre la suite en
+un runspace anidado y compara `(Get-Command X).ScriptBlock.File` contra el archivo del helper. Es
+inmune a la **forma** de la evasión porque mide la identidad real en vez de aproximarla: una
+redefinición deja el `.File` en otro archivo (o en null), y un import redirigido carga las funciones
+desde otro archivo. Así que caza cualquiera de estas grafías **que esté presente** en una suite que
+el probe corre.
 
 **El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
-que la parte E, por el mismo techo de 10 min: las tres caras cuestan ~250 s c/u). Sobre esas cinco
-las seis grafías de la tabla se cazan en runtime. Las **tres suites caras** y `temp-hygiene` misma
-siguen sólo con el chequeo estático de arriba, así que la tabla sigue describiendo su borde real
-sobre esas cuatro. La parte F se prueba con controles sintéticos (una suite por familia de grafía,
-más una limpia como control positivo) y corre además las cinco reales para confirmar que ninguna
-reemplaza el helper hoy.
+que la parte E, por el mismo techo de 10 min; las tres caras cuestan del orden de 150–260 s cada una,
+medido arriba, §2026-09-02). Las **tres suites caras** y `temp-hygiene` misma siguen sólo con el
+chequeo estático de arriba, así que la tabla sigue describiendo su borde real sobre esas cuatro.
+
+Qué EJECUTA F2 como control y qué cubre por deducción, sin sobreafirmar:
+
+- **Ejecutadas con control propio** (una suite sintética por grafía, cada una afirma por función):
+  `function global:`, `function script:`, `function local:`, `Set-Item function:`,
+  `New-Item -Path function: -Force` (sin `-Force` ni siquiera es evasión: falla en el item
+  existente), `Import-Module` de un `.psm1`, un **scriptblock fileless** (ejercita la rama del `.File`
+  null), y una suite que **revienta al cargar** (ejercita el camino `catch`, que es también lo que
+  produciría `$PSScriptRoot = 'C:\fake'`).
+- **Cubierta por deducción** (un solo control-proxy, declarado): la familia de redirección del import
+  (`foreach`/`Set-Variable`/`$script:lib`) vía una suite que dot-sourcea un stub — se ejercita el
+  resultado observable (cargar desde otro archivo), no cada grafía literal.
+- **Control positivo**: una suite limpia que no marca ninguna, sin la cual un predicado que marcara
+  siempre todo pasaría.
+- **F3** corre además las cinco suites reales para confirmar que **ninguna reemplaza el helper hoy**
+  (no inyecta grafías: es la red contra una edición futura), con un piso propio que exige que las
+  cinco hayan corrido.
 
 **Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
 **archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.

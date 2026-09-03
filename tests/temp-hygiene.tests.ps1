@@ -425,13 +425,15 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
 #     ya mira los `.psm1`, pero `Import-Module` no es un dot-source y el conjunto cerrado no lo ve.
 #
 # No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
-# cinco veces. Se cierran todas juntas con el chequeo de IDENTIDAD en runtime de la PARTE F —correr la
-# suite y comparar `(Get-Command X).ScriptBlock.File` contra el archivo del helper—, inmune a las seis
-# porque mide la identidad real en vez de aproximar la forma. La parte F cubre las cinco suites baratas
-# (la misma lista que la parte E); las tres caras y esta misma suite siguen sólo con el estático de acá
-# por costo. Así que el estático de abajo NO es redundante: es la única red sobre esas cuatro. El borde
-# de estas grafías se ACHICA —de "escapan a toda detección" a "escapan sólo al estático, y la parte F
-# las caza sobre las cinco baratas"—, no desaparece.
+# cinco veces. El chequeo de IDENTIDAD en runtime de la PARTE F —correr la suite y comparar
+# `(Get-Command X).ScriptBlock.File` contra el archivo del helper— es inmune a la FORMA de la evasión
+# (mide la identidad real en vez de aproximarla), así que caza cualquiera de estas grafías que esté
+# PRESENTE en una suite que el probe corre. Pero cubre las cinco suites baratas (la misma lista que la
+# parte E); las tres caras y esta misma suite siguen sólo con el estático de acá por costo, así que el
+# estático de abajo NO es redundante: es la única red sobre esas cuatro. El borde de estas grafías se
+# ACHICA —de "escapan a toda detección" a "escapan sólo al estático, y la parte F las caza sobre las
+# cinco baratas"—, no desaparece. Qué grafías EJECUTA F como control y cuáles cubre por deducción está
+# detallado en la parte F (F2), sin afirmar "las seis por ejecución".
 $script:FuncionesDelHelper = @('New-TestRunRoot', 'Remove-TestRunRoot', 'New-TestWorkspace', 'New-TestTempPath')
 
 function Get-RedefinicionesDelHelper([string]$path) {
@@ -1252,14 +1254,21 @@ foreach ($cnf in $casosNoFelices) {
 # ---------------------------------------------------------------------------
 # Todo lo de la parte A mira la FORMA del código y aproxima estáticamente una pregunta de IDENTIDAD:
 # "lo que quedó en scope, ¿es el helper de verdad?". El conjunto cerrado achica la evasión pero no la
-# elimina — el borde declarado de la parte A tiene seis grafías MEDIDAS que lo pasan (function
-# global:, Set-Item function:, Import-Module de un .psm1 de afuera, etc.). Perseguirlas una por una
+# elimina — el borde declarado de la parte A (tabla en el comentario de $script:FuncionesDelHelper)
+# lista grafías que lo pasan: la familia de redefinición (function global:/script:/local:,
+# Set-Item function:, New-Item -Path function: -Force, Import-Module de un .psm1 de afuera) y la de
+# redirección del import (foreach/Set-Variable/$script:lib/$PSScriptRoot=). Perseguirlas una por una
 # es el juego que este archivo ya perdió cinco veces.
 #
 # Esto no aproxima: corre la suite en un runspace anidado y compara, por cada función del helper,
-# `(Get-Command X).ScriptBlock.File` contra el archivo canónico del helper. Es inmune a las seis
-# porque mide la identidad real: una redefinición, venga como venga, deja `.File` en otro archivo (o
-# en null). Verificado empíricamente el 2026-09-03 contra las seis grafías.
+# `(Get-Command X).ScriptBlock.File` contra el archivo canónico del helper. El mecanismo es inmune a
+# la FORMA de la evasión porque mide la identidad real: cualquier redefinición deja `.File` en otro
+# archivo (o en null), y cualquier redirección del import carga las funciones desde otro archivo.
+# Verificado empíricamente el 2026-09-03 (spikes): el probe distingue el helper real de una
+# redefinición (por función global:/script:/local:, Set-Item, New-Item -Force, .psm1 y scriptblock
+# fileless), de un import redirigido a un stub, y de una suite que revienta al cargar. Lo que F2
+# EJECUTA como control y lo que queda cubierto por el argumento de identidad se detalla abajo, caso
+# por caso: no se afirma "las seis por ejecución", se afirma lo que cada assert corre.
 
 # Corre una suite en un runspace anidado y devuelve las funciones del helper cuya identidad NO es el
 # helper canónico. El runspace anidado es lo que hace esto posible: el `exit 0/1` con el que terminan
@@ -1282,9 +1291,23 @@ foreach ($f in $fns) {
 $o
 '@
   $ps = [powershell]::Create()
+  $tabla = $null
   try {
-    [void]$ps.AddScript(". `"$suitePath`"")
-    $ps.Invoke() | Out-Null
+    # El path de la suite va como literal single-quoted, NO interpolado con comillas dobles: un
+    # %TEMP% con un `$` o un backtick (ambos legales en Windows) rompería `. "$suitePath"` — el
+    # dot-source apuntaría a otro lado y las cuatro darían falso-marcadas. Es el mismo escape que
+    # Get-LiteralDePath aplica a los paths embebidos en las suites sintéticas; acá aplica al de la
+    # suite bajo prueba.
+    [void]$ps.AddScript(". " + (Get-LiteralDePath $suitePath))
+    try {
+      $ps.Invoke() | Out-Null
+    } catch {
+      # La suite tiró un error terminante al cargar (p.ej. `$PSScriptRoot = 'C:\fake'` hace que su
+      # dot-source apunte a un archivo inexistente). La identidad no se pudo establecer, así que
+      # ninguna función es el helper: se marcan las cuatro. SIN este catch la excepción se propaga y
+      # aborta toda la suite temp-hygiene en vez de reportar la suite hija como identidad rota.
+      return , @($script:FuncionesDelHelper)
+    }
     $q = [powershell]::Create()
     try {
       $q.Runspace = $ps.Runspace
@@ -1302,10 +1325,14 @@ $o
   return ,$malas
 }
 
-# Un path como literal PowerShell single-quoted, con los apóstrofes escapados (se doblan). Es la única
-# forma segura de interpolar un path en el código de una suite sintética: un %TEMP% bajo un usuario
-# `O'Brien` rompería un literal sin escapar y el probe se leería como "la medición está rota". En un
-# solo lugar porque tres sitios lo usan y una divergencia en el escape sería un bug latente.
+# Un path como literal PowerShell single-quoted, con los apóstrofes escapados (se doblan). Cuando hay
+# que EMBEBER un path en el código de una suite (las sintéticas, y el dot-source de la suite bajo
+# prueba en Test-IdentidadEnRuntime), el literal single-quoted es lo más robusto: a diferencia de
+# `. "$p"` no interpola `$` ni backtick, y a diferencia de un literal crudo no lo rompe un apóstrofe
+# (un %TEMP% bajo un usuario `O'Brien`). No es la única forma de esquivar el problema —la parte E lo
+# resuelve pasando el path como ARGUMENTO en vez de embeberlo—, pero acá el path se embebe, así que
+# se escapa. En un solo lugar porque cuatro sitios lo usan y una divergencia en el escape sería un
+# bug latente.
 function Get-LiteralDePath([string]$path) {
   return "'" + ($path -replace "'", "''") + "'"
 }
@@ -1323,26 +1350,45 @@ exit 0
   return $p
 }
 
-# F2. Controles sintéticos: una suite por cada FAMILIA de grafía, más una limpia. Sin la limpia (el
-# control positivo del bloque) un predicado que devolviera siempre "todas malas" pasaría los casos de
-# sabotaje sin medir nada. Las grafías cubren las dos formas de romper la identidad:
-#   - REDEFINIR una función tras importar el helper (function global:, Set-Item function:,
-#     Import-Module de un .psm1). La parte A declara estas tres como borde y no las ve; acá se cachan.
-#   - REDIRIGIR el import a otro archivo (la familia variable/raíz: foreach/$script:/$PSScriptRoot=).
-#     Si el dot-source carga un stub, las funciones vienen de ese stub → su .File no es el helper. Una
-#     sola suite que dot-sourcea un stub en vez del helper cubre toda la familia por identidad.
-# El sabotaje del `.File` esperado se AFIRMA por función (atribución, no conteo): un caso que dijera
-# sólo "hay marcadas" pasaría aunque el predicado marcara la función equivocada.
+# F2. Controles sintéticos: uno por grafía de redefinición, un proxy de la familia de redirección, la
+# rama del `.File` null, el camino catch, y una suite LIMPIA como control positivo. Sin la limpia un
+# predicado que devolviera siempre "todas malas" pasaría todos los casos de sabotaje sin medir nada.
+# Cada caso de sabotaje AFIRMA por función (atribución, no conteo): un caso que dijera sólo "hay
+# marcadas" pasaría aunque el predicado marcara la función equivocada.
+#
+# QUÉ SE EJECUTA vs. QUÉ SE DEDUCE, explícito para no sobreafirmar:
+#   - EJECUTADAS con control propio: function global:, function script:, function local:,
+#     Set-Item function:, New-Item -Path function: -Force, Import-Module de un .psm1, y un scriptblock
+#     fileless (para la rama .File null). Son las grafías de REDEFINICIÓN de la tabla del borde.
+#   - PROXY (un control, no una grafía por control): la familia de REDIRECCIÓN del import
+#     (foreach/Set-Variable/$script:lib) se cubre por su resultado observable —una suite que
+#     dot-sourcea un stub—, no ejecutando cada grafía. Se declara así, no se afirma "verificada por
+#     grafía".
+#   - $PSScriptRoot= NO redirige a otro archivo: apunta el import a un dir inexistente y lo hace
+#     FALLAR. Cae en el control "revienta al cargar" (camino catch), no en el proxy de redirección.
 $fLimpia = New-SuiteDeIdentidad "idlimpia" ''
 $mLimpia = Test-IdentidadEnRuntime $fLimpia $lib
 Assert ($mLimpia.Count -eq 0) `
   "F (control positivo): una suite que importa el helper y no lo toca no marca ninguna (marcadas: $($mLimpia -join ', '))"
 
 $casosDeIdentidad = @(
-  @{ n = "function global: redefine una función";  fn = 'New-TestRunRoot'
+  @{ n = "function global:";  fn = 'New-TestRunRoot'
      sabotaje = 'function global:New-TestRunRoot { param($p) "X" }' }
-  @{ n = "Set-Item function: redefine una función"; fn = 'Remove-TestRunRoot'
+  @{ n = "function script:";  fn = 'New-TestRunRoot'
+     sabotaje = 'function script:New-TestRunRoot { param($p) "X" }' }
+  @{ n = "function local:";   fn = 'New-TestRunRoot'
+     sabotaje = 'function local:New-TestRunRoot { param($p) "X" }' }
+  @{ n = "Set-Item function:"; fn = 'Remove-TestRunRoot'
      sabotaje = 'Set-Item -Path function:\Remove-TestRunRoot -Value { param($p) "X" }' }
+  # New-Item necesita -Force: SIN él falla en un item existente (no terminante) y el helper queda
+  # intacto — o sea sin -Force ni siquiera es una evasión. Con -Force sí redefine.
+  @{ n = "New-Item -Path function: -Force"; fn = 'Remove-TestRunRoot'
+     sabotaje = 'New-Item -Path function:\Remove-TestRunRoot -Value { param($p) "X" } -Force | Out-Null' }
+  # Scriptblock fileless: su `.File` es null, así que ejercita específicamente la rama
+  # `IsNullOrEmpty($file)` del predicado. Un mutante que borraba esa rama sobrevivía sin este caso —
+  # ninguna otra suite produce un `.File` null.
+  @{ n = "scriptblock fileless (.File null)"; fn = 'New-TestWorkspace'
+     sabotaje = 'Set-Item -Path function:\New-TestWorkspace -Value ([scriptblock]::Create(''param($r,$n) "X"''))' }
 )
 foreach ($ci in $casosDeIdentidad) {
   $sp = New-SuiteDeIdentidad "ident" $ci.sabotaje
@@ -1360,10 +1406,23 @@ $mImport = Test-IdentidadEnRuntime $fImport $lib
 Assert ($mImport -contains 'New-TestWorkspace') `
   "F: Import-Module de un .psm1 de afuera — el probe marca New-TestWorkspace (marcadas: $($mImport -join ', '))"
 
-# Familia variable/raíz: una suite que dot-sourcea un STUB en vez del helper. Las cuatro funciones
-# vienen del stub, así que las cuatro tienen que salir marcadas. Es lo que cierra las grafías del
-# `foreach`, `$script:lib` y `$PSScriptRoot =` de una vez: cualquier redirección del import termina
-# cargando las funciones desde otro archivo, y la identidad lo ve sin importar CÓMO se redirigió.
+# Camino catch: una suite que REVIENTA al cargar (dot-source de un archivo inexistente, que es también
+# lo que produce `$PSScriptRoot = 'C:\fake'`). El catch de Test-IdentidadEnRuntime marca las cuatro en
+# vez de dejar que la excepción aborte esta suite. Sin el catch, esta suite abortaría acá.
+$fThrow = New-TestTempPath $script:runRoot "idthrow" ".ps1"
+$noExiste = Get-LiteralDePath (Join-Path $script:runRoot "no-existe-jamas.ps1")
+@"
+. $noExiste
+exit 0
+"@ | Set-Content -LiteralPath $fThrow -Encoding UTF8
+$mThrow = Test-IdentidadEnRuntime $fThrow $lib
+Assert ($mThrow.Count -eq 4) `
+  "F: una suite que revienta al cargar marca las CUATRO (catch), no aborta esta suite (marcadas: $($mThrow.Count))"
+
+# Familia de REDIRECCIÓN del import, por PROXY: una suite que dot-sourcea un STUB en vez del helper.
+# Las cuatro funciones vienen del stub, así que las cuatro salen marcadas. Ejercita el RESULTADO
+# observable de las grafías foreach/Set-Variable/$script:lib (cargar desde otro archivo), no cada
+# grafía literal — un control por deducción, declarado como tal.
 $stubHelper = New-TestTempPath $script:runRoot "stubhelper" ".ps1"
 @'
 function New-TestRunRoot { param($p) "X" }
@@ -1381,18 +1440,36 @@ $mRedir = Test-IdentidadEnRuntime $fRedir $lib
 Assert ($mRedir.Count -eq 4) `
   "F: un import redirigido a un stub marca las CUATRO funciones (marcadas: $($mRedir.Count) — $($mRedir -join ', '))"
 
+# El escape de Get-LiteralDePath, directo: ninguna suite de fixture tiene un apóstrofe en su path, así
+# que este assert es lo ÚNICO que ejercita el `-replace "'","''"`. Un mutante que lo borraba sobrevivía
+# sin él (la función quedaba sin test que la anclara).
+Assert ((Get-LiteralDePath "C:\O'Brien\lib.ps1") -eq "'C:\O''Brien\lib.ps1'") `
+  "F: Get-LiteralDePath escapa los apóstrofes (literal seguro para un path con comilla)"
+
 # F3. Cobertura sobre las CINCO suites reales baratas (la misma lista que la parte E): ninguna
 # reemplaza el helper. Es la red contra un agente futuro que edite una de estas cinco con una grafía
-# invisible al estático. Corre en runspace anidado, no como subproceso, así que comparte este proceso;
-# la única con efecto en el árbol es export-shareable (mismo residuo declarado en la parte E), que se
-# vuelve a verificar más abajo.
+# invisible al estático. Corre en runspace anidado, no como subproceso.
+# ⚠️ COSTO DECLARADO: esto vuelve a ejecutar las cinco (la parte E ya las corrió como subprocesos),
+# ~64 s extra por corrida de temp-hygiene, y export-shareable muta el árbol del repo una SEGUNDA vez
+# (su residuo se re-verifica más abajo, no se asume). Sigue holgadamente bajo el techo de 10 min. Los
+# modelos de ejecución difieren (E: subproceso + medición de %TEMP% por PID; F: in-process +
+# Get-Command), así que no se fusionan trivialmente en una sola corrida.
+$cubiertas = 0
 foreach ($nombreSuite in $suitesBaratas) {
   $suiteReal = Join-Path $PSScriptRoot "$nombreSuite.tests.ps1"
+  Assert (Test-Path -LiteralPath $suiteReal) "F: existe la suite real $nombreSuite"
   if (-not (Test-Path -LiteralPath $suiteReal)) { continue }
   $mReal = Test-IdentidadEnRuntime $suiteReal $lib
   Assert ($mReal.Count -eq 0) `
     "F: la suite real '$nombreSuite' no reemplaza ninguna función del helper (marcadas: $($mReal -join ', '))"
+  $cubiertas++
 }
+# Piso de cobertura PROPIO de F, no prestado de E: sin esto un `continue` silencioso (una suite
+# renombrada) bajaría la cobertura de 5 a 4 sin ponerse en rojo. El assert de existencia de arriba ya
+# lo caza, pero el piso lo ancla en F y no depende de que la parte E siga corriendo antes.
+Assert ($cubiertas -eq $suitesBaratas.Count) `
+  "F: el probe de identidad corrió sobre las $($suitesBaratas.Count) suites baratas (corrió: $cubiertas)"
+
 # export-shareable corrió de nuevo acá dentro; su residuo se re-verifica, no se asume (su finally no
 # corre si el proceso muere).
 Assert (-not (Test-Path -LiteralPath $residuoFuga)) `
