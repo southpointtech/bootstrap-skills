@@ -74,11 +74,12 @@ overwriting a file you've customized.
 | **`setup-mcp-workstation`** | Prepares a Windows PC **once**: stores git identity, DOMO token and Zoho MCP URL as user env vars, clones the DOMO MCP client + installs its deps, installs Playwright browsers. | First time someone uses these skills on a new machine (onboarding). |
 | **`bootstrap-southpoint-project`** | Scaffolds a **client / SOUTHPOINTLABS** project: full AI workflow + DOMO & Zoho conventions, git initialized with the company identity. | Starting any client/work project. |
 | **`bootstrap-personal-project`** | Scaffolds a **personal** project: same workflow, without DOMO; Playwright / Firebase / Azure / Zoho conventions persist, git initialized with a personal identity. | Starting a personal / side project. |
+| **`bootstrap-ai-project`** | Scaffolds **any** project with the same workflow, but **generic**: no DOMO, a **generic** (non-Zoho) issue tracker, and it **leaves your git identity untouched**. The shareable variant, safe to hand to another team. | Starting a project not tied to SOUTHPOINTLABS tooling. |
 | **`upgrade-bootstrap`** | Brings an already-bootstrapped project up to the current scaffold, applying only what's missing or changed and never clobbering your customizations. | An existing project is on an older version of the scaffold. |
 
 ## What gets scaffolded into a project
 
-Both bootstrap skills land the same operating model:
+All three bootstrap skills land the same operating model:
 
 - **`CLAUDE.md`** — the 8-step AI-assisted workflow (alignment → PRD → vertical slices → tasks →
   TDD → QA → clean-context review → human approval) plus a **Workflow State Machine** that keeps
@@ -87,8 +88,9 @@ Both bootstrap skills land the same operating model:
 - **`docs/agents/`** — agent conventions (local issue tracker, triage labels, domain docs).
 - **Custom Claude Code skills** — `grill-me`, `grill-with-docs`, `tdd`, `to-prd`, `to-issues`,
   `triage`, `handoff`, `zoom-out`, `review-loop`, `slice-review` and their commands.
-- **A configured git repository** — `main` branch, correct identity, an initial scaffolding commit,
-  and a `.bootstrap-manifest.json` so the project can later be upgraded safely.
+- **A configured git repository** — `main` branch, correct identity (the generic `bootstrap-ai-project`
+  leaves your existing identity untouched), an initial scaffolding commit, and a
+  `.bootstrap-manifest.json` so the project can later be upgraded safely.
 
 ## The 8-step workflow (the heart of it)
 
@@ -239,7 +241,7 @@ it with your approval.
 ## Repository structure
 
 ```
-skills/          The four skills (each: SKILL.md + assets/scaffold with ~43 template files)
+skills/          The five skills; the three bootstrap skills each carry a 52-file assets/scaffold/
 tools/           sync-skills.ps1  → deploys repo → ~/.claude/skills/
                  gen-manifest.ps1 → regenerates the scaffold's .bootstrap-manifest.json
 docs/            HISTORIA.md  → origin, design decisions, eval results
@@ -262,8 +264,9 @@ Editing the skills here has **no effect** until you deploy. The workflow is:
 
 A few hard rules worth knowing (the full list is in [`CLAUDE.md`](CLAUDE.md)):
 
-- The two bootstrap skills must stay **mirrored in structure** — a change to the mechanics of one
-  applies to the other. They only differ in DOMO content and git identity.
+- The three bootstrap skills must stay **mirrored in structure** — a change to the mechanics of one
+  applies to all three. They only differ in DOMO content, issue tracker, MCP catalog, git identity,
+  and their `SKILL.md`.
 - The scaffold's `.bootstrap-manifest.json` is **generated, not hand-edited**. `sync-skills.ps1`
   regenerates it before deploying; if you commit a scaffold change without syncing, regenerate it with
   `tools/gen-manifest.ps1` so `upgrade-bootstrap` compares against correct hashes.
