@@ -1266,9 +1266,10 @@ foreach ($cnf in $casosNoFelices) {
 # archivo (o en null), y cualquier redirección del import carga las funciones desde otro archivo.
 # Verificado empíricamente el 2026-09-03 (spikes): el probe distingue el helper real de una
 # redefinición (por función global:/script:/local:, Set-Item, New-Item -Force, .psm1 y scriptblock
-# fileless), de un import redirigido a un stub, y de una suite que revienta al cargar. Lo que F2
-# EJECUTA como control y lo que queda cubierto por el argumento de identidad se detalla abajo, caso
-# por caso: no se afirma "las seis por ejecución", se afirma lo que cada assert corre.
+# fileless) y de un import fallido o redirigido (las funciones vienen de otro archivo, o quedan sin
+# definir → null). Lo que F2 EJECUTA como control y lo que queda cubierto por el argumento de
+# identidad se detalla abajo, caso por caso: no se afirma "las seis por ejecución", se afirma lo que
+# cada assert corre.
 
 # Corre una suite en un runspace anidado y devuelve las funciones del helper cuya identidad NO es el
 # helper canónico. El runspace anidado es lo que hace esto posible: el `exit 0/1` con el que terminan
@@ -1291,7 +1292,6 @@ foreach ($f in $fns) {
 $o
 '@
   $ps = [powershell]::Create()
-  $tabla = $null
   try {
     # El path de la suite va como literal single-quoted, NO interpolado con comillas dobles: un
     # %TEMP% con un `$` o un backtick (ambos legales en Windows) rompería `. "$suitePath"` — el
@@ -1299,15 +1299,14 @@ $o
     # Get-LiteralDePath aplica a los paths embebidos en las suites sintéticas; acá aplica al de la
     # suite bajo prueba.
     [void]$ps.AddScript(". " + (Get-LiteralDePath $suitePath))
-    try {
-      $ps.Invoke() | Out-Null
-    } catch {
-      # La suite tiró un error terminante al cargar (p.ej. `$PSScriptRoot = 'C:\fake'` hace que su
-      # dot-source apunte a un archivo inexistente). La identidad no se pudo establecer, así que
-      # ninguna función es el helper: se marcan las cuatro. SIN este catch la excepción se propaga y
-      # aborta toda la suite temp-hygiene en vez de reportar la suite hija como identidad rota.
-      return , @($script:FuncionesDelHelper)
-    }
+    # NO se atrapa la excepción de Invoke, a propósito. Un import que FALLA sin ser terminante —un
+    # path errado, `$PSScriptRoot='C:\fake'`, un dot-source a un archivo inexistente— NO tira desde
+    # Invoke (medido: es un error no terminante bajo el ErrorActionPreference=Continue por defecto del
+    # runspace hijo); deja las funciones sin definir y la rama null de abajo las marca. Un error
+    # TERMINANTE de carga —un parse error en una suite real— sí propaga y aborta temp-hygiene con la
+    # excepción REAL, que nombra el archivo y la línea: mejor diagnóstico que relabelarla como
+    # "identidad rota". Un catch acá convertía un crash ajeno en un falso "reemplaza el helper".
+    $ps.Invoke() | Out-Null
     $q = [powershell]::Create()
     try {
       $q.Runspace = $ps.Runspace
@@ -1331,7 +1330,7 @@ $o
 # `. "$p"` no interpola `$` ni backtick, y a diferencia de un literal crudo no lo rompe un apóstrofe
 # (un %TEMP% bajo un usuario `O'Brien`). No es la única forma de esquivar el problema —la parte E lo
 # resuelve pasando el path como ARGUMENTO en vez de embeberlo—, pero acá el path se embebe, así que
-# se escapa. En un solo lugar porque cuatro sitios lo usan y una divergencia en el escape sería un
+# se escapa. En un solo lugar porque varios sitios lo usan y una divergencia en el escape sería un
 # bug latente.
 function Get-LiteralDePath([string]$path) {
   return "'" + ($path -replace "'", "''") + "'"
@@ -1351,10 +1350,10 @@ exit 0
 }
 
 # F2. Controles sintéticos: uno por grafía de redefinición, un proxy de la familia de redirección, la
-# rama del `.File` null, el camino catch, y una suite LIMPIA como control positivo. Sin la limpia un
-# predicado que devolviera siempre "todas malas" pasaría todos los casos de sabotaje sin medir nada.
-# Cada caso de sabotaje AFIRMA por función (atribución, no conteo): un caso que dijera sólo "hay
-# marcadas" pasaría aunque el predicado marcara la función equivocada.
+# rama del `.File` null, un import fallido, un control positivo de no-evasión, y una suite LIMPIA como
+# control positivo del bloque. Sin la limpia un predicado que devolviera siempre "todas malas" pasaría
+# todos los casos de sabotaje sin medir nada. Cada caso de sabotaje AFIRMA por función (atribución, no
+# conteo): un caso que dijera sólo "hay marcadas" pasaría aunque marcara la función equivocada.
 #
 # QUÉ SE EJECUTA vs. QUÉ SE DEDUCE, explícito para no sobreafirmar:
 #   - EJECUTADAS con control propio: function global:, function script:, function local:,
@@ -1365,7 +1364,8 @@ exit 0
 #     dot-sourcea un stub—, no ejecutando cada grafía. Se declara así, no se afirma "verificada por
 #     grafía".
 #   - $PSScriptRoot= NO redirige a otro archivo: apunta el import a un dir inexistente y lo hace
-#     FALLAR. Cae en el control "revienta al cargar" (camino catch), no en el proxy de redirección.
+#     FALLAR de forma NO terminante, así que las funciones quedan sin definir y la rama null las marca.
+#     Cae en el mismo camino que el control "import fallido" de abajo, no en el proxy de redirección.
 $fLimpia = New-SuiteDeIdentidad "idlimpia" ''
 $mLimpia = Test-IdentidadEnRuntime $fLimpia $lib
 Assert ($mLimpia.Count -eq 0) `
@@ -1406,18 +1406,30 @@ $mImport = Test-IdentidadEnRuntime $fImport $lib
 Assert ($mImport -contains 'New-TestWorkspace') `
   "F: Import-Module de un .psm1 de afuera — el probe marca New-TestWorkspace (marcadas: $($mImport -join ', '))"
 
-# Camino catch: una suite que REVIENTA al cargar (dot-source de un archivo inexistente, que es también
-# lo que produce `$PSScriptRoot = 'C:\fake'`). El catch de Test-IdentidadEnRuntime marca las cuatro en
-# vez de dejar que la excepción aborte esta suite. Sin el catch, esta suite abortaría acá.
-$fThrow = New-TestTempPath $script:runRoot "idthrow" ".ps1"
+# Import FALLIDO (no terminante): una suite que dot-sourcea un archivo inexistente — el mismo error no
+# terminante que produce `$PSScriptRoot = 'C:\fake'`. El helper nunca se define, así que las cuatro
+# funciones quedan ausentes y la rama null las marca. NO ejercita ningún catch (Test-IdentidadEnRuntime
+# no atrapa a propósito): un import fallido no terminante ni siquiera tira desde Invoke. Medido
+# 2026-09-03 (turno 2 del review-loop): dot-sourcear un inexistente y `$PSScriptRoot='C:\fake'` son los
+# dos no terminantes, y el probe los caza por AUSENCIA de las funciones, no por excepción.
+$fFallo = New-TestTempPath $script:runRoot "idfallo" ".ps1"
 $noExiste = Get-LiteralDePath (Join-Path $script:runRoot "no-existe-jamas.ps1")
 @"
 . $noExiste
 exit 0
-"@ | Set-Content -LiteralPath $fThrow -Encoding UTF8
-$mThrow = Test-IdentidadEnRuntime $fThrow $lib
-Assert ($mThrow.Count -eq 4) `
-  "F: una suite que revienta al cargar marca las CUATRO (catch), no aborta esta suite (marcadas: $($mThrow.Count))"
+"@ | Set-Content -LiteralPath $fFallo -Encoding UTF8
+$mFallo = Test-IdentidadEnRuntime $fFallo $lib
+Assert ($mFallo.Count -eq 4) `
+  "F: un import fallido deja las cuatro sin definir → las CUATRO marcadas por la rama null (marcadas: $($mFallo.Count))"
+
+# Control positivo de NO-evasión: New-Item SIN -Force falla en el item existente (el helper ya está
+# importado) y NO lo pisa, así que el probe NO debe marcar nada. Ancla con un test la afirmación de
+# arriba ("sin -Force ni siquiera es evasión") en vez de sólo afirmarla, y además prueba que el probe
+# no da falso-positivo sobre una suite que intentó y no logró redefinir.
+$fNoForce = New-SuiteDeIdentidad "idnoforce" 'New-Item -Path function:\Remove-TestRunRoot -Value { param($p) "X" } -ErrorAction SilentlyContinue | Out-Null'
+$mNoForce = Test-IdentidadEnRuntime $fNoForce $lib
+Assert ($mNoForce.Count -eq 0) `
+  "F (control positivo): New-Item sin -Force no pisa el helper, el probe no marca nada (marcadas: $($mNoForce -join ', '))"
 
 # Familia de REDIRECCIÓN del import, por PROXY: una suite que dot-sourcea un STUB en vez del helper.
 # Las cuatro funciones vienen del stub, así que las cuatro salen marcadas. Ejercita el RESULTADO
@@ -1457,8 +1469,9 @@ Assert ((Get-LiteralDePath "C:\O'Brien\lib.ps1") -eq "'C:\O''Brien\lib.ps1'") `
 $cubiertas = 0
 foreach ($nombreSuite in $suitesBaratas) {
   $suiteReal = Join-Path $PSScriptRoot "$nombreSuite.tests.ps1"
-  Assert (Test-Path -LiteralPath $suiteReal) "F: existe la suite real $nombreSuite"
-  if (-not (Test-Path -LiteralPath $suiteReal)) { continue }
+  $existe = Test-Path -LiteralPath $suiteReal
+  Assert $existe "F: existe la suite real $nombreSuite"
+  if (-not $existe) { continue }
   $mReal = Test-IdentidadEnRuntime $suiteReal $lib
   Assert ($mReal.Count -eq 0) `
     "F: la suite real '$nombreSuite' no reemplaza ninguna función del helper (marcadas: $($mReal -join ', '))"

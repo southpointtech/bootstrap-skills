@@ -212,23 +212,25 @@ desde otro archivo. Así que caza cualquiera de estas grafías **que esté prese
 el probe corre.
 
 **El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
-que la parte E, por el mismo techo de 10 min; las tres caras cuestan del orden de 150–260 s cada una,
-medido arriba, §2026-09-02). Las **tres suites caras** y `temp-hygiene` misma siguen sólo con el
-chequeo estático de arriba, así que la tabla sigue describiendo su borde real sobre esas cuatro.
+que la parte E, por el mismo techo de 10 min; las tres caras miden 142,9 / 258,2 / 258,8 s, §2026-09-02
+arriba). Las **tres suites caras** y `temp-hygiene` misma siguen sólo con el chequeo estático de
+arriba, así que la tabla sigue describiendo su borde real sobre esas cuatro.
 
 Qué EJECUTA F2 como control y qué cubre por deducción, sin sobreafirmar:
 
 - **Ejecutadas con control propio** (una suite sintética por grafía, cada una afirma por función):
   `function global:`, `function script:`, `function local:`, `Set-Item function:`,
-  `New-Item -Path function: -Force` (sin `-Force` ni siquiera es evasión: falla en el item
-  existente), `Import-Module` de un `.psm1`, un **scriptblock fileless** (ejercita la rama del `.File`
-  null), y una suite que **revienta al cargar** (ejercita el camino `catch`, que es también lo que
-  produciría `$PSScriptRoot = 'C:\fake'`).
+  `New-Item -Path function: -Force` (sin `-Force` no pisa un item existente, y hay un control positivo
+  que lo confirma), `Import-Module` de un `.psm1`, un **scriptblock fileless** (ejercita la rama del
+  `.File` null), y un **import fallido** (dot-source de un inexistente: las cuatro funciones quedan sin
+  definir → la rama null las marca; es también lo que produce `$PSScriptRoot = 'C:\fake'`, ambos NO
+  terminantes). `Test-IdentidadEnRuntime` no atrapa la excepción: un error TERMINANTE de carga (un
+  parse error real) propaga con su diagnóstico real en vez de relabelarse como "identidad rota".
 - **Cubierta por deducción** (un solo control-proxy, declarado): la familia de redirección del import
   (`foreach`/`Set-Variable`/`$script:lib`) vía una suite que dot-sourcea un stub — se ejercita el
   resultado observable (cargar desde otro archivo), no cada grafía literal.
-- **Control positivo**: una suite limpia que no marca ninguna, sin la cual un predicado que marcara
-  siempre todo pasaría.
+- **Controles positivos**: una suite limpia que no marca ninguna (sin la cual un predicado que marcara
+  siempre todo pasaría), y una `New-Item` sin `-Force` que tampoco marca (no logró redefinir).
 - **F3** corre además las cinco suites reales para confirmar que **ninguna reemplaza el helper hoy**
   (no inyecta grafías: es la red contra una edición futura), con un piso propio que exige que las
   cinco hayan corrido.
