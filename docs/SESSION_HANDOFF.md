@@ -51,6 +51,60 @@ arreglando sus propios hallazgos, que por regla no cuentan contra el techo.
 - `skill-bases.json` **no cambia** con este slice: los cuerpos de las 11 skills son idénticos antes
   y después, medido. El 05b arranca sobre la misma base.
 
+## ▶ Lo que sigue: el 05b (el lockfile), ENTERO — decisión del usuario 2026-09-03
+
+El issue vive en `.scratch/bootstrap-v2/issues/05-lockfile-sellado-y-verificado.md`. Su prerequisito
+—esta herramienta— quedó saneado, y el módulo de hashing (`tools/normalized-hash.ps1`, `Get-NormalizedHash`)
+ya está entregado por el 05a. **Arrancá el slice registrando el ancla** (`review-marker.ps1 -Action open`
+lo hace el propio `/review-loop` en su primer turno).
+
+### Lo que hay hoy
+
+`skills-lock.json` en **4 copias** (la raíz + `skills/*/assets/scaffold/`). Registra **9 skills**, un
+solo `SKILL.md` por skill, y un `computedHash` que **nunca fue computado por nada**: los nueve son
+fabricados (ADR-0005). No tiene commit base, ni rename, ni marca de fork propio.
+
+### Lo que tiene que quedar
+
+- **25 archivos** de **11 skills**, no los 9 `SKILL.md`: con solo el `SKILL.md`, editar `tdd/mocking.md`
+  pasaría la verificación en verde. (Repartidos: `tdd` y `setup-matt-pocock-skills` 6 c/u,
+  `grill-with-docs` y `triage` 3 c/u, el resto 1.)
+- **Tres estados de upstream, sin colapsar**: `upstream-vivo`; `upstream-huérfano` (`to-issues`,
+  `zoom-out`: `gone-from-upstream-head` pero CON commit base recuperado); `fork-propio`
+  (`review-loop`, `slice-review`: sin upstream). Colapsar huérfano en fork propio tira el commit base
+  que ADR-0005 recuperó.
+- Por entrada, transcrito de `skill-bases.json`: `base.blob`, `base.upstreamPath`, `base.commit`,
+  `base.commitDate`. A nivel documento: `upstream.url` + `upstream.head` (`6654f6b…`).
+- El lockfile **NO** sella ni referencia `skill-bases.json` (guarda la ruta absoluta de un temporal:
+  nunca es byte-estable).
+- Dos operaciones: **sellar** y **verificar**; la verificación es **offline** y entra a la suite.
+  Verificar **las 4 copias** es red extra gratis.
+- La regla de conteo del grill va al `CLAUDE.md` **de este repo** (no al del scaffold): *el cuerpo
+  adoptado literal de upstream cuenta como vendored y no suma al techo; sí suman el drift propio, los
+  tests, el lockfile y el `CLAUDE.md`*.
+- **Corregir la user story 15 del PRD**: pide marcar `zoom-out` como fork propio, pero lo medido es
+  `recovered` con similitud 1.0.
+
+### Tamaño: NO se parte, se declara
+
+Proyectado en **~425 líneas de lógica**, por encima del techo de ~400. El usuario decidió el
+2026-09-03 **no partirlo** (partir deja media herramienta sin su verificación), así que el exceso
+**se declara** en el `Slice-Close:` y acá. Se le ofreció partir en 05b (sellar + verificar + hash que
+miente) y 05c (fork propio + entrada faltante + rename + regla del `CLAUDE.md`), con la medición de
+esta sesión encima —80 líneas de lógica de producción dieron 30 hallazgos y 5 turnos de loop—, y
+eligió no partir igual. Es decisión tomada: **no la re-litigues, ejecutá**.
+
+### El 19 NO bloquea
+
+El lockfile no sella `similarity`; el fork propio es hecho de git, no salida de la métrica.
+
+### Datos que vas a necesitar
+
+- `skill-bases.json` (en `.scratch/bootstrap-v2/`) ya trae las 11 entradas con base, commit y estado
+  de HEAD. **No hace falta el clon de upstream** para el 05b: se transcribe de ahí.
+- El clon que se usó para medir vive en el scratchpad de OTRA sesión y puede desaparecer; si lo
+  necesitás, `--upstream-clone` o volver a clonar.
+
 ---
 
 # Session Handoff — 2026-09-03 — slice 05a (hashing normalizado) CERRADO, review-loop de 4 turnos LIMPIO
