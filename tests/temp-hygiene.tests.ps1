@@ -1299,13 +1299,15 @@ $o
     # Get-LiteralDePath aplica a los paths embebidos en las suites sintéticas; acá aplica al de la
     # suite bajo prueba.
     [void]$ps.AddScript(". " + (Get-LiteralDePath $suitePath))
-    # NO se atrapa la excepción de Invoke, a propósito. Un import que FALLA sin ser terminante —un
-    # path errado, `$PSScriptRoot='C:\fake'`, un dot-source a un archivo inexistente— NO tira desde
-    # Invoke (medido: es un error no terminante bajo el ErrorActionPreference=Continue por defecto del
-    # runspace hijo); deja las funciones sin definir y la rama null de abajo las marca. Un error
-    # TERMINANTE de carga —un parse error en una suite real— sí propaga y aborta temp-hygiene con la
-    # excepción REAL, que nombra el archivo y la línea: mejor diagnóstico que relabelarla como
-    # "identidad rota". Un catch acá convertía un crash ajeno en un falso "reemplaza el helper".
+    # NO se atrapa la excepción de Invoke, a propósito. Casi todo lo que puede salir mal al cargar una
+    # suite es NO terminante desde Invoke (medido 2026-09-03, bajo el ErrorActionPreference=Continue
+    # por defecto del runspace hijo): un path errado, `$PSScriptRoot='C:\fake'`, un dot-source a un
+    # inexistente, y —contra la intuición— un PARSE ERROR en la suite. Todos ésos dejan las funciones
+    # sin definir y la rama null de abajo las marca. Lo ÚNICO que propaga terminante es un `throw`
+    # explícito o un error bajo `$ErrorActionPreference='Stop'`; ahí, como no hay catch, la excepción
+    # aborta temp-hygiene con su diagnóstico real en vez de relabelarse como "identidad rota". Un catch
+    # acá convertía ese crash terminante en un falso "reemplaza el helper" (y encima no se disparaba
+    # para los casos no terminantes, que son los más comunes).
     $ps.Invoke() | Out-Null
     $q = [powershell]::Create()
     try {
@@ -1422,11 +1424,24 @@ $mFallo = Test-IdentidadEnRuntime $fFallo $lib
 Assert ($mFallo.Count -eq 4) `
   "F: un import fallido deja las cuatro sin definir → las CUATRO marcadas por la rama null (marcadas: $($mFallo.Count))"
 
-# Control positivo de NO-evasión: New-Item SIN -Force falla en el item existente (el helper ya está
-# importado) y NO lo pisa, así que el probe NO debe marcar nada. Ancla con un test la afirmación de
-# arriba ("sin -Force ni siquiera es evasión") en vez de sólo afirmarla, y además prueba que el probe
-# no da falso-positivo sobre una suite que intentó y no logró redefinir.
-$fNoForce = New-SuiteDeIdentidad "idnoforce" 'New-Item -Path function:\Remove-TestRunRoot -Value { param($p) "X" } -ErrorAction SilentlyContinue | Out-Null'
+# El único error de carga TERMINANTE es un `throw` explícito (o uno bajo `-ErrorAction Stop`); ése SÍ
+# propaga desde Invoke, y como Test-IdentidadEnRuntime no lo atrapa, aborta la corrida con la excepción
+# real. Este control lo verifica: envuelve la llamada en su propio try/catch y exige que HAYA tirado.
+# Es lo que ancla la decisión de NO poner un catch en el predicado — un parse error, en cambio, es no
+# terminante y cae en el control de import fallido de arriba (medido; no confundir los dos).
+$fThrow = New-SuiteDeIdentidad "idthrow" 'throw "identidad rota al cargar"'
+$propago = $false
+try { Test-IdentidadEnRuntime $fThrow $lib | Out-Null } catch { $propago = $true }
+Assert $propago `
+  "F: un error terminante al cargar (throw) propaga desde Test-IdentidadEnRuntime, no se traga (propagó: $propago)"
+
+# Control positivo de NO-evasión: New-Item SIN -Force no pisa un item existente (el helper ya está
+# importado) — falla no-terminante y el helper queda intacto, así que el probe NO debe marcar nada.
+# Ancla con un test la afirmación de arriba ("sin -Force ni siquiera es evasión") en vez de sólo
+# afirmarla, y prueba que el probe no da falso-positivo sobre una suite que intentó y no logró
+# redefinir. Sin `-ErrorAction SilentlyContinue`: el error va al stream del runspace hijo (no a la
+# consola) y es no terminante, así que no hace falta suprimirlo — y así el fixture es el natural.
+$fNoForce = New-SuiteDeIdentidad "idnoforce" 'New-Item -Path function:\Remove-TestRunRoot -Value { param($p) "X" } | Out-Null'
 $mNoForce = Test-IdentidadEnRuntime $fNoForce $lib
 Assert ($mNoForce.Count -eq 0) `
   "F (control positivo): New-Item sin -Force no pisa el helper, el probe no marca nada (marcadas: $($mNoForce -join ', '))"

@@ -222,10 +222,12 @@ Qué EJECUTA F2 como control y qué cubre por deducción, sin sobreafirmar:
   `function global:`, `function script:`, `function local:`, `Set-Item function:`,
   `New-Item -Path function: -Force` (sin `-Force` no pisa un item existente, y hay un control positivo
   que lo confirma), `Import-Module` de un `.psm1`, un **scriptblock fileless** (ejercita la rama del
-  `.File` null), y un **import fallido** (dot-source de un inexistente: las cuatro funciones quedan sin
-  definir → la rama null las marca; es también lo que produce `$PSScriptRoot = 'C:\fake'`, ambos NO
-  terminantes). `Test-IdentidadEnRuntime` no atrapa la excepción: un error TERMINANTE de carga (un
-  parse error real) propaga con su diagnóstico real en vez de relabelarse como "identidad rota".
+  `.File` null), un **import fallido** (dot-source de un inexistente: las cuatro funciones quedan sin
+  definir → la rama null las marca; es también lo que producen `$PSScriptRoot = 'C:\fake'` y un **parse
+  error**, todos NO terminantes desde `Invoke`, medido), y un **error terminante** (`throw`) que SÍ
+  propaga. `Test-IdentidadEnRuntime` no atrapa la excepción a propósito: un `throw` o un error bajo
+  `-ErrorAction Stop` aborta la corrida con su diagnóstico real en vez de relabelarse como "identidad
+  rota" (un control lo verifica exigiendo que la llamada tire).
 - **Cubierta por deducción** (un solo control-proxy, declarado): la familia de redirección del import
   (`foreach`/`Set-Variable`/`$script:lib`) vía una suite que dot-sourcea un stub — se ejercita el
   resultado observable (cargar desde otro archivo), no cada grafía literal.
