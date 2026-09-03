@@ -425,10 +425,13 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
 #     ya mira los `.psm1`, pero `Import-Module` no es un dot-source y el conjunto cerrado no lo ve.
 #
 # No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
-# cinco veces. Se cierran todas juntas con un chequeo de IDENTIDAD en runtime —comparar el archivo
-# de origen de las funciones que quedaron en scope contra el del helper—, que va en un slice aparte.
-# Hasta entonces esto queda declarado y no disimulado: la regla del repo es que una afirmación
-# checkeable se escribe sólo si se verificó, y "ninguna suite puede reemplazar el helper" es falsa.
+# cinco veces. Se cierran todas juntas con el chequeo de IDENTIDAD en runtime de la PARTE F —correr la
+# suite y comparar `(Get-Command X).ScriptBlock.File` contra el archivo del helper—, inmune a las seis
+# porque mide la identidad real en vez de aproximar la forma. La parte F cubre las cinco suites baratas
+# (la misma lista que la parte E); las tres caras y esta misma suite siguen sólo con el estático de acá
+# por costo. Así que el estático de abajo NO es redundante: es la única red sobre esas cuatro. El borde
+# de estas grafías se ACHICA —de "escapan a toda detección" a "escapan sólo al estático, y la parte F
+# las caza sobre las cinco baratas"—, no desaparece.
 $script:FuncionesDelHelper = @('New-TestRunRoot', 'Remove-TestRunRoot', 'New-TestWorkspace', 'New-TestTempPath')
 
 function Get-RedefinicionesDelHelper([string]$path) {
@@ -1243,6 +1246,157 @@ foreach ($cnf in $casosNoFelices) {
   $quedanNf = @($rnf.nuevos | Where-Object { Test-Path -LiteralPath $_ })
   Assert ($quedanNf.Count -eq 0) "E (no feliz): $($cnf.n) — lo que haya dejado quedó barrido (quedan: $($quedanNf.Count))"
 }
+
+# ---------------------------------------------------------------------------
+# F. Identidad en runtime: las funciones que quedan en scope, ¿SON el helper?
+# ---------------------------------------------------------------------------
+# Todo lo de la parte A mira la FORMA del código y aproxima estáticamente una pregunta de IDENTIDAD:
+# "lo que quedó en scope, ¿es el helper de verdad?". El conjunto cerrado achica la evasión pero no la
+# elimina — el borde declarado de la parte A tiene seis grafías MEDIDAS que lo pasan (function
+# global:, Set-Item function:, Import-Module de un .psm1 de afuera, etc.). Perseguirlas una por una
+# es el juego que este archivo ya perdió cinco veces.
+#
+# Esto no aproxima: corre la suite en un runspace anidado y compara, por cada función del helper,
+# `(Get-Command X).ScriptBlock.File` contra el archivo canónico del helper. Es inmune a las seis
+# porque mide la identidad real: una redefinición, venga como venga, deja `.File` en otro archivo (o
+# en null). Verificado empíricamente el 2026-09-03 contra las seis grafías.
+
+# Corre una suite en un runspace anidado y devuelve las funciones del helper cuya identidad NO es el
+# helper canónico. El runspace anidado es lo que hace esto posible: el `exit 0/1` con el que terminan
+# las suites se contiene ahí adentro y no mata a este proceso (verificado). La suite se dot-sourcea
+# POR PATH para preservar su $PSScriptRoot —sin él una suite real no resuelve su propio import—, y la
+# tabla de funciones se lee del MISMO runspace después del Invoke.
+#
+# La comparación es igualdad exacta contra el path canónico, con `-ne` (case-insensitive, como los
+# paths de Windows) y `GetFullPath` para normalizar separadores. Un `.File` vacío o null —el caso de
+# una función redefinida sin archivo de respaldo— cuenta como identidad rota: no es el helper.
+function Test-IdentidadEnRuntime([string]$suitePath, [string]$helperCanonico) {
+  $esperado = [System.IO.Path]::GetFullPath($helperCanonico)
+  $lector = @'
+param($fns)
+$o = @{}
+foreach ($f in $fns) {
+  $c = Get-Command $f -ErrorAction SilentlyContinue
+  $o[$f] = if ($c -and $c.ScriptBlock) { $c.ScriptBlock.File } else { $null }
+}
+$o
+'@
+  $ps = [powershell]::Create()
+  try {
+    [void]$ps.AddScript(". `"$suitePath`"")
+    $ps.Invoke() | Out-Null
+    $q = [powershell]::Create()
+    try {
+      $q.Runspace = $ps.Runspace
+      [void]$q.AddScript($lector).AddArgument($script:FuncionesDelHelper)
+      $tabla = $q.Invoke()[0]
+    } finally { $q.Dispose() }
+  } finally { $ps.Dispose() }
+  $malas = @()
+  foreach ($f in $script:FuncionesDelHelper) {
+    $file = $tabla[$f]
+    if ([string]::IsNullOrEmpty($file) -or ([System.IO.Path]::GetFullPath($file) -ne $esperado)) {
+      $malas += $f
+    }
+  }
+  return ,$malas
+}
+
+# Un path como literal PowerShell single-quoted, con los apóstrofes escapados (se doblan). Es la única
+# forma segura de interpolar un path en el código de una suite sintética: un %TEMP% bajo un usuario
+# `O'Brien` rompería un literal sin escapar y el probe se leería como "la medición está rota". En un
+# solo lugar porque tres sitios lo usan y una divergencia en el escape sería un bug latente.
+function Get-LiteralDePath([string]$path) {
+  return "'" + ($path -replace "'", "''") + "'"
+}
+
+# Suite sintética para el probe: dot-sourcea el helper real por path ABSOLUTO (vive en %TEMP%, así que
+# su $PSScriptRoot no encuentra tests/lib/), aplica un sabotaje opcional, y sale 0.
+function New-SuiteDeIdentidad([string]$prefijo, [string]$sabotaje) {
+  $p = New-TestTempPath $script:runRoot $prefijo ".ps1"
+  $libLit = Get-LiteralDePath $lib
+  @"
+. $libLit
+$sabotaje
+exit 0
+"@ | Set-Content -LiteralPath $p -Encoding UTF8
+  return $p
+}
+
+# F2. Controles sintéticos: una suite por cada FAMILIA de grafía, más una limpia. Sin la limpia (el
+# control positivo del bloque) un predicado que devolviera siempre "todas malas" pasaría los casos de
+# sabotaje sin medir nada. Las grafías cubren las dos formas de romper la identidad:
+#   - REDEFINIR una función tras importar el helper (function global:, Set-Item function:,
+#     Import-Module de un .psm1). La parte A declara estas tres como borde y no las ve; acá se cachan.
+#   - REDIRIGIR el import a otro archivo (la familia variable/raíz: foreach/$script:/$PSScriptRoot=).
+#     Si el dot-source carga un stub, las funciones vienen de ese stub → su .File no es el helper. Una
+#     sola suite que dot-sourcea un stub en vez del helper cubre toda la familia por identidad.
+# El sabotaje del `.File` esperado se AFIRMA por función (atribución, no conteo): un caso que dijera
+# sólo "hay marcadas" pasaría aunque el predicado marcara la función equivocada.
+$fLimpia = New-SuiteDeIdentidad "idlimpia" ''
+$mLimpia = Test-IdentidadEnRuntime $fLimpia $lib
+Assert ($mLimpia.Count -eq 0) `
+  "F (control positivo): una suite que importa el helper y no lo toca no marca ninguna (marcadas: $($mLimpia -join ', '))"
+
+$casosDeIdentidad = @(
+  @{ n = "function global: redefine una función";  fn = 'New-TestRunRoot'
+     sabotaje = 'function global:New-TestRunRoot { param($p) "X" }' }
+  @{ n = "Set-Item function: redefine una función"; fn = 'Remove-TestRunRoot'
+     sabotaje = 'Set-Item -Path function:\Remove-TestRunRoot -Value { param($p) "X" }' }
+)
+foreach ($ci in $casosDeIdentidad) {
+  $sp = New-SuiteDeIdentidad "ident" $ci.sabotaje
+  $m = Test-IdentidadEnRuntime $sp $lib
+  Assert ($m -contains $ci.fn) "F: $($ci.n) — el probe marca $($ci.fn) (marcadas: $($m -join ', '))"
+}
+
+# Import-Module de un .psm1 stub que redefine una función. El .psm1 va bajo la raíz de la corrida, no
+# en tests/, porque la grafía que la parte A no ve es justamente la del módulo importado desde afuera.
+$stubMod = New-TestTempPath $script:runRoot "stubmod" ".psm1"
+'function New-TestWorkspace { param($r,$n) "X" }' | Set-Content -LiteralPath $stubMod -Encoding UTF8
+$modLit = Get-LiteralDePath $stubMod
+$fImport = New-SuiteDeIdentidad "idimport" "Import-Module $modLit -Force"
+$mImport = Test-IdentidadEnRuntime $fImport $lib
+Assert ($mImport -contains 'New-TestWorkspace') `
+  "F: Import-Module de un .psm1 de afuera — el probe marca New-TestWorkspace (marcadas: $($mImport -join ', '))"
+
+# Familia variable/raíz: una suite que dot-sourcea un STUB en vez del helper. Las cuatro funciones
+# vienen del stub, así que las cuatro tienen que salir marcadas. Es lo que cierra las grafías del
+# `foreach`, `$script:lib` y `$PSScriptRoot =` de una vez: cualquier redirección del import termina
+# cargando las funciones desde otro archivo, y la identidad lo ve sin importar CÓMO se redirigió.
+$stubHelper = New-TestTempPath $script:runRoot "stubhelper" ".ps1"
+@'
+function New-TestRunRoot { param($p) "X" }
+function Remove-TestRunRoot { param($p) }
+function New-TestWorkspace { param($r,$n) "X" }
+function New-TestTempPath { param($r,$n,$e) "X" }
+'@ | Set-Content -LiteralPath $stubHelper -Encoding UTF8
+$stubLit = Get-LiteralDePath $stubHelper
+$fRedir = New-TestTempPath $script:runRoot "idredir" ".ps1"
+@"
+. $stubLit
+exit 0
+"@ | Set-Content -LiteralPath $fRedir -Encoding UTF8
+$mRedir = Test-IdentidadEnRuntime $fRedir $lib
+Assert ($mRedir.Count -eq 4) `
+  "F: un import redirigido a un stub marca las CUATRO funciones (marcadas: $($mRedir.Count) — $($mRedir -join ', '))"
+
+# F3. Cobertura sobre las CINCO suites reales baratas (la misma lista que la parte E): ninguna
+# reemplaza el helper. Es la red contra un agente futuro que edite una de estas cinco con una grafía
+# invisible al estático. Corre en runspace anidado, no como subproceso, así que comparte este proceso;
+# la única con efecto en el árbol es export-shareable (mismo residuo declarado en la parte E), que se
+# vuelve a verificar más abajo.
+foreach ($nombreSuite in $suitesBaratas) {
+  $suiteReal = Join-Path $PSScriptRoot "$nombreSuite.tests.ps1"
+  if (-not (Test-Path -LiteralPath $suiteReal)) { continue }
+  $mReal = Test-IdentidadEnRuntime $suiteReal $lib
+  Assert ($mReal.Count -eq 0) `
+    "F: la suite real '$nombreSuite' no reemplaza ninguna función del helper (marcadas: $($mReal -join ', '))"
+}
+# export-shareable corrió de nuevo acá dentro; su residuo se re-verifica, no se asume (su finally no
+# corre si el proceso muere).
+Assert (-not (Test-Path -LiteralPath $residuoFuga)) `
+  "F: no quedó residuo del fixture de fuga de export-shareable tras la pasada de identidad ($residuoFuga)"
 
 Remove-TestRunRoot $script:runRoot
 

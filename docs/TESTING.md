@@ -204,9 +204,20 @@ omitía las seis que sí lo son — un borde mal declarado manda a buscar donde 
 Más `Set-Item function:` y `New-Item -Path function:`, que no son `FunctionDefinitionAst`.
 
 No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
-cinco veces. Se cierran todas juntas con un **chequeo de identidad en runtime** — comparar el
-archivo de origen de las funciones que quedaron en scope contra el del helper —, que va en un slice
-aparte. Hasta entonces esto queda declarado y no disimulado.
+cinco veces. Se cierran todas juntas con el **chequeo de identidad en runtime** de la **parte F**
+(2026-09-03): corre la suite en un runspace anidado y compara `(Get-Command X).ScriptBlock.File`
+contra el archivo del helper. Es inmune a las seis —y a la familia variable/raíz completa— porque
+mide la identidad real en vez de aproximar la forma: una redefinición, venga como venga, deja el
+`.File` en otro archivo (o en null), y un import redirigido a un stub carga las funciones desde ese
+stub.
+
+**El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
+que la parte E, por el mismo techo de 10 min: las tres caras cuestan ~250 s c/u). Sobre esas cinco
+las seis grafías de la tabla se cazan en runtime. Las **tres suites caras** y `temp-hygiene` misma
+siguen sólo con el chequeo estático de arriba, así que la tabla sigue describiendo su borde real
+sobre esas cuatro. La parte F se prueba con controles sintéticos (una suite por familia de grafía,
+más una limpia como control positivo) y corre además las cinco reales para confirmar que ninguna
+reemplaza el helper hoy.
 
 **Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
 **archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.
