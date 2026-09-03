@@ -1,3 +1,94 @@
+# Session Handoff — 2026-09-03 — Las dos ramas apiladas MERGEADAS + la parte F (chequeo de IDENTIDAD en runtime) IMPLEMENTADA, review-loop cerrado LIMPIO en el turno 4, MERGEADA y PUSHEADA (`65cc5be`). Nada pendiente en este frente.
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+✅ **`main` = `origin/main` = `65cc5be`.** Working tree LIMPIO. **NO se deployó a propósito**: el
+trabajo no toca nada bajo `skills/`, así que `sync-skills.ps1` sólo movería el sello de fecha de los
+manifests.
+
+Se cerraron dos cosas esta sesión, las dos ya en `main`:
+
+1. **Las dos ramas apiladas de la sesión anterior** (`split/regla-de-importacion` +
+   `split/parte-e-y-predicados`) → `main` ff-only, pusheadas. Borrada la rama-red
+   `fix/lint-de-temp-resistente-a-evasion` NO (ver abajo).
+2. **La parte F — chequeo de IDENTIDAD en runtime** (`0807247..65cc5be`, 5 commits): el slice que
+   cierra las seis grafías del borde declarado del lint de `%TEMP%`. Review-loop de 4 turnos + pase de
+   coherencia, **cerró LIMPIO** (no por cap).
+
+🔴 **Queda viva la rama-red `fix/lint-de-temp-resistente-a-evasion` (`eb85e7b`).** El clasificador de
+auto-mode bloquea `git branch -D`, y sus commits no son alcanzables desde `main` (copia paralela sin
+partir), así que `-d` la rechaza. Ya cumplió su función. Para borrarla, el usuario corre a mano:
+`! git branch -D fix/lint-de-temp-resistente-a-evasion`. No es urgente.
+
+## Qué es la parte F (lo nuevo)
+
+`Test-IdentidadEnRuntime` en `tests/temp-hygiene.tests.ps1`: corre cada suite en un
+`[powershell]::Create()` anidado (in-process, el `exit` se contiene) y compara
+`(Get-Command X).ScriptBlock.File` contra el helper canónico. Mide la identidad REAL en vez de
+aproximar la forma → inmune a la forma de la evasión. Cubre las 5 suites baratas + controles
+sintéticos por familia de grafía. Las 3 caras + `temp-hygiene` misma quedan static-only (borde
+ACHICADO, no cerrado). 25 asserts en el bloque F.
+
+## El review-loop: 4 turnos, cerró LIMPIO + coherencia
+
+| turno | hallazgos reales | qué |
+|---|---|---|
+| 1 | 9 | bug de escape de path (comillas dobles → `Get-LiteralDePath`); sobreafirmación "inmune a las seis"; **la mutación del reviewer halló 2 ramas sin test que las mías no** (`.File` null, escape); F3 sin piso |
+| 2 | 6 | **el catch que agregué en T1 nunca se disparaba** (import fallido es no-terminante) → catch QUITADO; 6 afirmaciones falsas; "cuatro sitios"(5)/"150-260s"(142,9) |
+| 3 | 1 | **"parse error propaga" era falso** (no-terminante) → corregido + control `throw` |
+| 4 | 0 | **limpio** (2 focos) |
+| coherencia | 2 (prosa) | `$PSScriptRoot=` mal clasificado 1 línea; D4 del issue desactualizado (subproceso→in-process) |
+
+**Lección medida (5ª vez): parchar prosa no converge** — T1/T2/T3 cada uno metió una afirmación
+falsa nueva, esta vez sobre SEMÁNTICA de PowerShell. Cerró **anclando cada afirmación con un control
+EJECUTABLE**, no con prosa mejor. Guardado en memoria (`parchar-prosa-de-procedimiento-no-converge`,
+`mis-mutantes-son-mas-debiles-que-los-del-reviewer`).
+
+## Deuda declarada (no bloqueante, en `main`)
+
+- **LOW:** `idthrow` verifica que "algo tiró", no el mensaje exacto (se cerraría con
+  `$_.Exception.Message -match 'identidad rota'`). No aplicado para no meter código post-cierre sin revisar.
+- F3 corre las 5 baratas una **segunda** vez (~64 s, declarado); in-process, F no aísla un error
+  terminante de una suite real como la parte E por subproceso (mitigado por el `trap`).
+- `.scratch/issue-lint-de-temp-evadible.md` (sin trackear) tiene el diseño completo (D1-D4, F1-F3).
+
+## Antes de tocar código (gotchas que siguen vigentes)
+
+- **La línea B está VIVA** en `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`).
+  **No commitear ni stagear ahí.**
+- ⚠️ **Correr `temp-hygiene` ESCRIBE en el árbol del repo**: la parte E (y ahora F) ejecuta
+  `export-shareable`, que crea/borra `skills/bootstrap-ai-project/LEAK-TEST.md`. Si el proceso muere,
+  queda; borralo a mano (pone en rojo a `shareable-leaks`).
+- **NUNCA barras `%TEMP%` por glob incondicional.** Filtrá por edad o PID.
+- **El marcador de review se avanza ANTES de los fixes, no después** — esta sesión repetí ese error en
+  el turno 3 y lo recuperé revisando el rango correcto a mano. Nota `marcador-avanzar-antes-de-los-fixes`.
+- Push a este repo: cuenta **southpointtech** (MartinDele703 da 403).
+- El clasificador de auto-mode frena `git merge`/`branch -D` en comando compuesto; separalos.
+- Commits largos con `-m` repetidos (no here-strings de PowerShell con la Bash tool).
+- La suite completa `temp-hygiene` pasa los 10 min del timeout de la tool si corrés muchas suites en
+  paralelo; corré en serie o en lotes chicos.
+
+## Próximos pasos (nada pendiente en el frente de `%TEMP%`/lint)
+
+1. 🔴 **Benchmark Track B** — la línea base congelada **VENCE EL 2026-09-10** (7 días). Es lo más
+   urgente por fecha. Sesión concurrente en claude-analytics (ver memoria `track-b-benchmark-freeze`).
+2. **Self-upgrade de `SouthPoint-Hub`** (la v1 dejó el frontend sin revisar).
+3. Pasada al `README.md` de la raíz: dice "Both bootstrap skills" (son 3) y "~43 template files" (52).
+   Slice solo-docs, no dispara el loop.
+4. Bugs abiertos de antes, sin cambios: deuda de `bc973c2`; `autocrlf`/hashes mixtos en los manifests;
+   el párrafo del hook redactado distinto en `bootstrap-ai-project`; las 2 carpetas sin git con el
+   hook inerte.
+5. Borrar la rama-red (arriba, comando a mano del usuario).
+
+## Preferencias del usuario (vigentes)
+
+- **No hacerle preguntas técnicas.** Las bifurcaciones técnicas van resueltas y registradas por
+  escrito (en el issue de `.scratch/`), no ofrecidas. Diseño/costo/alcance **sí** se preguntan.
+- Prefiere cerrar y partir un slice que pasó el techo antes de normalizarlo.
+- No usar `/compact`; handoff + terminal nueva.
+
+---
+
 # Session Handoff — 2026-09-02 — El slice de `%TEMP%` MERGEADO Y PUSHEADO (`3b3636a`). Slice nuevo del lint cerrado en el turno 3 y **PARTIDO EN DOS RAMAS APILADAS**, sin mergear. El loop encontró que mi decisión de diseño central era FALSA.
 
 ## ▶▶▶▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
