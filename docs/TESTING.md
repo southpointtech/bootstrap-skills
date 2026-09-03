@@ -430,13 +430,18 @@ la limpieza queda un `.tmp` huérfano). El detalle de qué cubre el self-test es
 ## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
 
 `pwsh -NoProfile -File tests/normalized-hash.tests.ps1` — cubre el módulo M1 del release
-`bootstrap-v2`: la única forma de hashear contenido del repo. Existe porque el hash con el que se
-sellan los manifests se calculaba sobre los bytes crudos, o sea sobre cómo el checkout de cada
-máquina escribió los fines de línea, y un manifest sellado en una máquina reportaba drift falso en
-otra (memoria `bug-autocrlf-manifests-hashes-mixtos`). El contrato: **sha256 hex minúscula de los
-bytes UTF-8 del contenido con los fines de línea unificados a LF y el BOM descartado.**
+`bootstrap-v2`: la **forma canónica** de hashear contenido del repo, que los cálculos crudos hoy
+replicados en `gen-manifest`, `compare-scaffold` y `reseal-manifest` —más las dos variantes
+normalizadas de `NormHash`— todavía **no** usan (migrarlos es un slice aparte, issue 03). Existe porque el hash con el que se sellan los manifests se calculaba sobre los bytes crudos, o
+sea sobre cómo el checkout de cada máquina escribió los fines de línea, y un manifest sellado en una
+máquina reportaba drift falso en otra (memoria `bug-autocrlf-manifests-hashes-mixtos`). El contrato:
+**sha256 hex minúscula de los BYTES del contenido con las secuencias de fin de línea (CRLF y CR)
+unificadas a LF.** La normalización opera sobre bytes vía Latin1 (biyección byte↔char) y **no
+decodifica a texto**: decodificar haría desaparecer un BOM y colapsaría dos bytes inválidos en
+`U+FFFD`, la pérdida silenciosa que ADR-0007 midió y rechazó. El BOM y la corrupción son drift real
+y **sí** cuentan; lo único que se trata como ruido es el fin de línea.
 
-Dos trampas de este repo que el archivo evita a propósito:
+Tres trampas de este repo que el archivo evita a propósito:
 
 - **Asertar solo "igual" y "distinto" no fija el algoritmo.** Una función que devolviera sha1, o que
   hasheara la longitud, pasaría todos los pares igual/distinto. Por eso hay **literales hex
@@ -445,18 +450,32 @@ Dos trampas de este repo que el archivo evita a propósito:
 - **Un normalizador que BORRA los saltos pasaría toda la batería de CRLF/LF.** Por eso se verifica
   también que `ab` y `a<LF>b` sigan dando hashes **distintos**: la normalización unifica el salto,
   no lo elimina.
+- **Un normalizador que decodifica a texto colapsa el BOM y los bytes inválidos.** Por eso se
+  verifica que un BOM (por las dos entradas) cambie el hash, y que dos secuencias de bytes inválidos
+  distintas no colapsen — el filo que `[IO.File]::ReadAllText` borraría.
 
 Casos cubiertos: los tres estilos de fin de línea colapsan al mismo hash (archivo y cuerpo); lo que
-NO se colapsa (contenido distinto, salto final, espacios al final, vacío vs. un salto); el algoritmo
-contra literales; `-Scope Body` (el frontmatter no cuenta, el cuerpo sí, sin frontmatter los dos
-alcances coinciden); las reglas del frontmatter (solo si arranca con `---`, cierre exacto `---`, un
-`----` no cierra, abierto sin cierre no recorta, un `---` en el medio no es delimitador); el BOM por
-las dos entradas; los acentos como UTF-8 y no como codepage; y que un archivo inexistente **tire**
-en vez de devolver el hash del vacío. Verificado con 13 mutantes, cada uno con su falla vista: el
-que borra el descarte de BOM solo muere por el caso de `-Content` (por `-Path`, `ReadAllText` ya se
-come el BOM). El guard de conteo (`$ExpectedChecks`) muerde al mutante que borra un assert, con el
-número capturado **antes** de la llamada que lo verifica —PowerShell evalúa los argumentos antes de
-entrar a la función—, no `$ExpectedChecks + 1`, que pasaría en verde afirmando un número equivocado.
+NO se colapsa (contenido distinto, salto final, espacios al final, vacío vs. un salto, BOM, bytes
+inválidos); el algoritmo contra literales; `-Scope Body` (el frontmatter no cuenta, el cuerpo sí,
+sin frontmatter los dos alcances coinciden); las reglas del frontmatter (solo si arranca con `---`,
+cierre exacto `---`, un `----` no cierra, cierre en la última línea sin salto final, abierto sin
+cierre no recorta, un `---` en el medio no es delimitador); los acentos como bytes UTF-8 y no como
+codepage; y que un archivo inexistente **tire** en vez de devolver el hash del vacío. Verificado con
+14 mutantes, cada uno con su falla vista salvo un equivalente declarado: 13 mueren (incluidos el que
+decodifica a texto en vez de bytes, el que rompe la rama del cierre en la última línea, y el que
+codifica la salida con UTF-8 en vez de Latin1); el 14.º —un mutante que evita `ReadAllBytes` para un
+archivo inexistente devolviendo un `[byte[]]` vacío por una rama `else`— es equivalente respecto de
+la aserción. No porque un `[byte[]]` vacío sea `$null` (no lo es: `GetString` sobre él devuelve `""`
+sin tirar), sino porque PowerShell **desenrolla el array vacío al salir del `if/else`**: el valor
+asignado queda en `$null`, y `GetString($null)` tira igual que el `Resolve-Path -ErrorAction Stop`
+del código real. El comportamiento observable —tirar ante un inexistente— no cambia, así que ningún
+test puede distinguirlos (verificado en `pwsh`: el array del `if/else` sale `$null`, `GetString($null)`
+lanza `Value cannot be null (Parameter 'bytes')`). El guard de conteo (`$ExpectedChecks`) muerde al mutante
+que borra un assert, con el número capturado **antes** de la llamada que lo verifica —PowerShell
+evalúa los argumentos antes de entrar a la función—, no `$ExpectedChecks + 1`, que pasaría en verde
+afirmando un número equivocado. El BOM se genera anteponiendo sus tres bytes a mano: `GetBytes`
+nunca emite el preámbulo, así que "generar con BOM" vía el flag del constructor daría los mismos
+bytes que sin BOM y el caso no probaría nada.
 
 ## Testeo de setup-mcp-workstation
 

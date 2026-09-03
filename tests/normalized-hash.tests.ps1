@@ -1,19 +1,30 @@
 # tests/normalized-hash.tests.ps1 — runner sin Pester. Correr: pwsh -NoProfile -File tests/normalized-hash.tests.ps1
 #
-# Cubre tools/normalized-hash.ps1 — el modulo M1 del PRD de bootstrap-v2: la unica forma de hashear
-# del repo. Existe porque el hash con el que se sellan los manifests depende hoy de como el checkout
-# de cada maquina escribio los fines de linea, y un manifest sellado en una maquina reporta drift
-# falso en otra (memoria `bug-autocrlf-manifests-hashes-mixtos`).
+# Cubre tools/normalized-hash.ps1 — el módulo M1 del PRD de bootstrap-v2: la forma canónica de
+# hashear del repo, que los cálculos crudos replicados hoy en gen-manifest, compare-scaffold y
+# reseal-manifest —más las dos variantes de NormHash (mirror.tests y review-loop-incremental)—
+# todavía NO usan (migrarlos es un slice aparte, issue 03). Existe porque el hash con
+# el que se sellan los manifests dependía de cómo el checkout de cada máquina escribió los fines de
+# línea, y un manifest sellado en una máquina reportaba drift falso en otra (memoria
+# `bug-autocrlf-manifests-hashes-mixtos`).
 #
-# Dos trampas que este archivo evita a proposito:
+# CONTRATO: sha256 hex minúscula de los BYTES del contenido, con las secuencias de fin de línea
+# (CRLF y CR) unificadas a LF. La normalización opera sobre bytes y NO decodifica a texto: decodificar
+# haría desaparecer un BOM y colapsaría dos bytes inválidos distintos en `U+FFFD`, y ambos son cambios
+# reales que quedarían ocultos — la misma pérdida silenciosa que ADR-0007 midió y rechazó para la
+# comparación de copy-scaffold. Este módulo sella contenido para detectar drift; ese drift incluye el
+# BOM y la corrupción, así que NO los descarta.
 #
-# 1. **Asertar solo "igual" y "distinto" no fija el algoritmo.** Una funcion que devolviera sha1, o
-#    que hasheara la longitud del contenido, pasaria todos los pares igual/distinto. Por eso hay
-#    literales hex CONGELADOS, calculados fuera de la funcion bajo prueba (`hashlib.sha256` de
-#    Python sobre los mismos bytes), contra los que se compara directo.
-# 2. **Un normalizador que BORRA los saltos de linea pasaria toda la bateria de CRLF/LF.** Por eso
-#    se verifica tambien que "ab" y "a<LF>b" sigan dando hashes distintos: la normalizacion unifica
-#    el salto, no lo elimina.
+# Tres trampas que este archivo evita a propósito:
+#
+# 1. **Asertar solo "igual" y "distinto" no fija el algoritmo.** Una función que devolviera sha1, o
+#    que hasheara la longitud, pasaría todos los pares igual/distinto. Por eso hay literales hex
+#    CONGELADOS, calculados fuera de la función bajo prueba (`hashlib.sha256` de Python sobre los
+#    mismos bytes), contra los que se compara directo.
+# 2. **Un normalizador que BORRA los saltos de línea pasaría toda la batería de CRLF/LF.** Por eso se
+#    verifica también que "ab" y "a<LF>b" sigan dando hashes distintos: unifica el salto, no lo elimina.
+# 3. **Un normalizador que decodifica a texto colapsa el BOM y los bytes inválidos.** Por eso se
+#    verifica que un BOM cambie el hash y que dos secuencias de bytes inválidos distintas no colapsen.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $tool = Join-Path $repo "tools/normalized-hash.ps1"
@@ -25,44 +36,47 @@ function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 
-# Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este numero un
-# mutante que BORRA asserts sale en verde: 0 fails de 0 checks tambien es "0 fail". No es un minimo:
+# Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
+# mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail". No es un mínimo:
 # con holgura, un mutante puede borrar tantos checks como holgura haya y seguir pasando.
-$ExpectedChecks = 30
+$ExpectedChecks = 34
 
 # La herramienta tiene que existir: si no, el dot-source explota con su propio error y un assert de
-# "no hubo fails" pasaria en verde sin haber ejercitado nada.
+# "no hubo fails" pasaría en verde sin haber ejercitado nada.
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
 }
 . $tool
 
 # Directorio propio para los casos que necesitan disco. Se limpia SOLO el directorio propio, sin
-# barrer `$env:TEMP` por prefijo: barrer por glob es exactamente lo que hacia que dos suites
-# concurrentes se borraran los workspaces entre si.
+# barrer `$env:TEMP` por prefijo: barrer por glob es exactamente lo que hacía que dos suites
+# concurrentes se borraran los workspaces entre sí.
 $script:tmp = Join-Path ([IO.Path]::GetTempPath()) ("nh-run-$PID-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $script:tmp -Force | Out-Null
 
-# Escribe bytes crudos: ni Set-Content ni Out-File, que reescriben los fines de linea y el encoding
-# segun la plataforma y arruinarian justamente lo que estos casos miden.
+# Escribe bytes crudos: ni Set-Content ni Out-File, que reescriben los fines de línea y el encoding
+# según la plataforma y arruinarían justamente lo que estos casos miden.
 function Write-Raw($rel, [byte[]]$bytes) {
   $p = Join-Path $script:tmp $rel
   [IO.File]::WriteAllBytes($p, $bytes)
   return $p
 }
-function Utf8Bytes($text, [bool]$bom = $false) {
-  [Text.UTF8Encoding]::new($bom).GetBytes($text)
+# Sin parámetro de BOM: `GetBytes` nunca emite el preámbulo aunque el flag del constructor sea
+# $true, así que un "BOM por flag" sería un no-op silencioso. El único caso con BOM lo antepone a
+# mano (más abajo), que es la forma honesta de meterlo.
+function Utf8Bytes($text) {
+  [Text.UTF8Encoding]::new($false).GetBytes($text)
 }
 
 try {
 
   # --- Literales congelados -------------------------------------------------------------------
-  # sha256 hex de los bytes UTF-8 sin BOM del contenido YA normalizado a LF.
+  # sha256 hex de los bytes del contenido YA normalizado a LF (ninguno de estos lleva BOM).
   $H_a_nl_b  = "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78"  # "a<LF>b"
   $H_ab      = "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603"  # "ab"
   $H_cuerpo  = "c743db13ab5f6d009ac9f54e5cef8274aa9f5cb84c27453dd4c321235bce0d80"  # "cuerpo<LF>"
   $H_vacio   = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"  # ""
-  $H_cafe    = "7b49b9e063bd91a4f9252b413261f5557b9c570aa61516989499f64a62dbcdd6"  # "café<LF>"
+  $H_cafe    = "7b49b9e063bd91a4f9252b413261f5557b9c570aa61516989499f64a62dbcdd6"  # "café<LF>" (UTF-8)
 
   # --- A. La normalizacion unifica los tres estilos de fin de linea ---------------------------
   $lf   = "a`nb"
@@ -93,7 +107,7 @@ try {
 
   # --- C. El algoritmo queda fijado contra literales, no contra si mismo ----------------------
   Assert ((Get-NormalizedHash -Content "a`nb") -eq $H_a_nl_b) `
-    "el hash de archivo es sha256 de los bytes UTF-8 normalizados (literal congelado)"
+    "el hash de archivo es sha256 de los bytes normalizados (literal congelado)"
   Assert ((Get-NormalizedHash -Content "a`r`nb") -eq $H_a_nl_b) `
     "el CRLF hashea al literal de la version LF, no a uno propio"
   Assert ((Get-NormalizedHash -Content "ab") -eq $H_ab) `
@@ -144,6 +158,13 @@ try {
   Assert ((Get-NormalizedHash -Content $soloFm -Scope Body) -eq $H_vacio) `
     "un documento que es solo frontmatter tiene cuerpo vacio (literal congelado)"
 
+  # Cierre del frontmatter en la ULTIMA linea, sin salto final: el cuerpo es vacio. Esta es la rama
+  # `elseif EndsWith` del modulo; sin este caso ningun test la ejercita y un mutante que la rompa
+  # sobrevive en verde (medido: el foco de mutacion lo confirmo). Ojo, este no termina en `<LF>`.
+  $cierreUltimaLinea = "---`nname: x`n---"
+  Assert ((Get-NormalizedHash -Content $cierreUltimaLinea -Scope Body) -eq $H_vacio) `
+    "frontmatter que cierra en la ultima linea sin salto final tiene cuerpo vacio (literal congelado)"
+
   # El cuerpo NO se recorta en los extremos. Es una diferencia deliberada con la metrica de
   # similitud de recover-skill-bases.py, que si recorta: aca sellamos contenido, no lo comparamos.
   $conBlanco = "---`nname: x`n---`ncuerpo`n`n"
@@ -156,28 +177,46 @@ try {
   Assert ((Get-NormalizedHash -Path $pCrlf) -eq (Get-NormalizedHash -Path $pLf)) `
     "dos archivos con el mismo contenido y distinto fin de linea dan el mismo hash"
   Assert ((Get-NormalizedHash -Path $pLf) -eq (Get-NormalizedHash -Content "a`nb")) `
-    "leer de disco y pasar el contenido dan el mismo hash (la ruta no entra al hash)"
+    "un archivo sin BOM y su contenido dan el mismo hash (la ruta no entra al hash)"
 
-  # El BOM es un artefacto del editor, no contenido: dos archivos que solo difieren en el BOM son
-  # el mismo archivo. Sin esta normalizacion, guardar con otro editor rutea el archivo a drift.
-  $pBom = Write-Raw "bom.md" (Utf8Bytes "a`nb" $true)
-  Assert ((Get-NormalizedHash -Path $pBom) -eq (Get-NormalizedHash -Path $pLf)) `
-    "el BOM UTF-8 no cambia el hash"
-
-  # Este caso es el que ejercita el descarte de BOM de la herramienta: por `-Path` no lo ejercita
-  # nadie, porque `[IO.File]::ReadAllText` ya se come el BOM al decodificar. Medido con un mutante
-  # que borra esa linea: sin este assert, el mutante sobrevive. Lo que se rompe sin ella es la
-  # coincidencia entre los dos puntos de entrada, que es justo el contrato de la funcion.
+  # El BOM es un cambio real, no ruido (ADR-0007): decodificar a texto lo haria desaparecer, y este
+  # modulo existe para NO perder cambios en silencio. Por eso un archivo con BOM hashea distinto que
+  # el mismo contenido sin BOM, por las dos entradas.
+  # Los 3 bytes del BOM (EF BB BF) se anteponen a mano: `UTF8Encoding::GetBytes` NUNCA emite el
+  # preambulo (el flag del constructor solo controla GetPreamble/los writers), asi que "generar con
+  # BOM" via GetBytes daria los mismos bytes que sin BOM y el caso no probaria nada.
+  $pBom = Write-Raw "bom.md" ([byte[]](0xEF, 0xBB, 0xBF) + (Utf8Bytes "a`nb"))
+  Assert ((Get-NormalizedHash -Path $pBom) -ne (Get-NormalizedHash -Path $pLf)) `
+    "un archivo con BOM UTF-8 hashea distinto que el mismo contenido sin BOM"
   $conBom = [string][char]0xFEFF + "a`nb"
-  Assert ((Get-NormalizedHash -Content $conBom) -eq (Get-NormalizedHash -Content "a`nb")) `
-    "un BOM al inicio del contenido tampoco cambia el hash: los dos puntos de entrada coinciden"
+  Assert ((Get-NormalizedHash -Content $conBom) -ne (Get-NormalizedHash -Content "a`nb")) `
+    "un BOM al inicio del contenido tambien cambia el hash: no se descarta"
 
-  # Encoding fijado en UTF-8: si la funcion usara la codepage de la consola (cp1252 en esta
-  # maquina), el acento hashearia distinto y el sello no seria portable.
+  # Dos secuencias de bytes INVALIDOS UTF-8 distintas no deben colapsar. `[IO.File]::ReadAllText`
+  # las decodificaria ambas a U+FFFD y darian el mismo hash — corrupcion distinta, sello identico.
+  # Operar sobre bytes las mantiene separadas. Es el segundo filo del mismo hallazgo que el BOM.
+  $pInv1 = Write-Raw "inv1.bin" ([byte[]](0xFF, 0xFE))
+  $pInv2 = Write-Raw "inv2.bin" ([byte[]](0xFE, 0xFF))
+  Assert ((Get-NormalizedHash -Path $pInv1) -ne (Get-NormalizedHash -Path $pInv2)) `
+    "dos secuencias de bytes invalidos UTF-8 distintas no colapsan en el mismo hash"
+
+  # Encoding fijado: el acento se hashea como sus bytes UTF-8, no como la codepage de la consola
+  # (cp1252 en esta maquina), para que el sello sea portable.
   $cafe  = "caf" + [char]0xE9 + "`n"
   $pCafe = Write-Raw "cafe.md" (Utf8Bytes $cafe)
   Assert ((Get-NormalizedHash -Path $pCafe) -eq $H_cafe) `
-    "los acentos se hashean como UTF-8, no como la codepage de la consola (literal congelado)"
+    "los acentos se hashean como sus bytes UTF-8, no como la codepage de la consola (literal congelado)"
+
+  # `-Path` + `-Scope Body` combinados: es el caso de uso REAL del modulo (hashear un archivo de
+  # skill por su cuerpo, ignorando la `description`), y ningun otro caso lo ejercita — los `-Scope
+  # Body` de arriba usan `-Content`, y los `-Path` de aca usan el `File` por defecto. Se escribe un
+  # archivo con frontmatter y se verifica que por disco el cuerpo se recorta igual (anclado a
+  # literal, no auto-comparacion).
+  $pFm = Write-Raw "confrontmatter.md" (Utf8Bytes $fmLf)
+  Assert ((Get-NormalizedHash -Path $pFm -Scope Body) -eq $H_cuerpo) `
+    "-Path con -Scope Body recorta el frontmatter del archivo en disco (literal congelado)"
+  Assert ((Get-NormalizedHash -Path $pFm -Scope Body) -ne (Get-NormalizedHash -Path $pFm)) `
+    "-Path: el hash de cuerpo difiere del de archivo completo cuando hay frontmatter"
 
   # Un archivo que no existe tiene que ser un error, no el hash del vacio: si devolviera el hash de
   # "", sellar un manifest con una ruta mal escrita saldria en verde.
@@ -193,8 +232,8 @@ finally {
 
 # El conteo se captura ANTES de llamar al Assert que lo verifica: PowerShell evalua los argumentos
 # antes de entrar a la funcion, asi que `$script:checks` leido adentro de la llamada todavia no
-# incluye a este guard. Escribirlo como `$ExpectedChecks + 1` pasaba en verde afirmando un numero
-# equivocado en su propio mensaje, que es el defecto que la regla de afirmaciones prohibe.
+# incluye a este guard. La captura en un statement previo — no `$ExpectedChecks + 1` — es lo que
+# mantiene honesto el numero del mensaje.
 $corridas = $script:checks
 Assert ($corridas -eq $ExpectedChecks) `
   "se corrieron las $ExpectedChecks aserciones declaradas (contadas: $corridas)"
