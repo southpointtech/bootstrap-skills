@@ -1,3 +1,38 @@
+# Session Handoff — 2026-09-03 (noche) — Handoff pusheado (`d97c1c9`); **`freeze.mjs` PROMOVIDO a `claude-analytics/tools/`** (paso 2), revisado con review-loop y MERGEADO a `master` LOCAL de analytics (`03a258e`). Sigue el paso 3 (A/B honesto) en `claude-analytics`.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **El trabajo de esta sesión terminó en OTRO repo: `C:\Repos\PERSONAL\claude-analytics`.** Este repo (`Bootstrap Skills`) solo recibió el push del handoff.
+
+Dos cosas cerradas esta sesión:
+
+1. **Paso 1 — push del handoff de Bootstrap Skills:** `d97c1c9` pusheado a `origin/main` (cuenta southpointtech; el clasificador de auto-mode bloquea `git push`, lo corrió el usuario con `!`). `main` = `origin/main` = `d97c1c9`, working tree LIMPIO.
+
+2. **Paso 2 — promoción de `freeze.mjs` (el extractor canónico de Track B) a control de versiones:**
+   - Copiados **verbatim** (sha256 verificado) a `claude-analytics/tools/`: `freeze.mjs` (303 líneas), `task.xml` (def del Scheduled Task) y un `README.md` nuevo. Antes vivían solo machine-local en `~/.claude/automation/review-cost-freeze/`.
+   - **Comparabilidad con el baseline VERIFICADA** por diff normalizado contra `output/raw/review-cost-baseline-2026-08/{extract,agents}.mjs`: el bloque productor de registros es idéntico; solo difieren scaffolding/paths, el `await` sobre el `finish` de streams (bugfix de rango `null..null`) y la clave de dedupe sin `requestId` (`Math.random()` → `norq:${n}:${byReq.size}`, determinista y de salida equivalente). **Ningún cambio de forma de registros** → A/B intacto.
+   - **review-loop corrido** (5 focos + `/code-review`). La promoción salió limpia. Los hallazgos son calidad del extractor de producción (verbatim), NO del acto de promover → **diferidos y trackeados** en `claude-analytics/.scratch/freeze-mjs-hardening.md` (gitignoreado). El slice se cerró como **promoción verbatim atómica** a pedido del usuario (opción A).
+   - **Mergeado ff-only a `master` LOCAL** de analytics (`03a258e`). **`claude-analytics` NO tiene remoto git** → no hay push; el master local ES el landing. Rama `chore/promote-review-cost-freeze` borrada (ya mergeada).
+
+## ⚠️ Gotchas críticos antes de tocar `claude-analytics`
+
+- **`claude-analytics` está en la rama `fix/migration-billable` con trabajo AJENO sin commitear de OTRA sesión concurrente:** `SESSION_HANDOFF.md` (edit de 914 líneas) + 3 untracked (`Claude Code Usage Tracking Research.pdf`, `ZOHO-CARGA-2026-06-29_07-06.md`, `output/ZOHO-CARGA-2026-07-21_31.pdf`). **NO tocarlo, NO commitearlo, NO stagearlo.** El paso 2 se stageó con `git add tools/` (nunca `-A`).
+- **`claude-analytics` es LOCAL-ONLY** (sin remoto). El "landing" es merge ff a `master` local, no push.
+- **El fork `/code-review` del review-loop está atado al cwd de la sesión** — si corrés el loop de analytics desde una sesión cuyo cwd es otro repo, misfira (revisó `Bootstrap Skills` esta vez). Usá los 5 focos de `/slice-review` con **rutas absolutas**, o corré la sesión con cwd = `claude-analytics`.
+- **El marcador de review de analytics NO se avanzó** (su rango arrastra el `SESSION_HANDOFF.md` ajeno; avanzarlo marcaría trabajo de otro como revisado).
+- **Para el paso 3, trabajá DENTRO de `claude-analytics`** (tiene su propio `CLAUDE.md` con el ritual "continuemos" que lee su `SESSION_HANDOFF.md`).
+
+## Próximos pasos
+1. **Paso 3 — el A/B honesto (en `claude-analytics`):** correr el downstream del CLI contra los snapshots congelados: `baseline freeze --dataset all` → `classify` → `attribute` → `compare` (B6, ya en `master`). Paso manual de analista. Sin incendio (septiembre rota recién en octubre).
+2. **Follow-up nuevo — hardening/tests de `freeze.mjs`** (`claude-analytics/.scratch/freeze-mjs-hardening.md`): 3 MEDIUM (aserción "verbatim" sobredimensionada en header + PROVENANCE; PROVENANCE sin fijar versión del extractor; sin cobertura de tests), 1 LOW-MED (`Math.min/max(...ts)` sin semilla aborta todo el freeze), varios LOW. Todos shape-neutrales. Su slice debe además **sincronizar la copia machine-local** o re-registrar la tarea al repo (harness bloquea `Register-ScheduledTask`; usar `schtasks /Create /XML`).
+3. **Deuda vieja aún abierta:** self-upgrade de `SouthPoint-Hub` (diferido); podar snapshots viejos ya congelados en la DB (~50 MB/semana); borrar rama-red `fix/lint-de-temp-resistente-a-evasion` en Bootstrap Skills (`! git branch -D ...`).
+
+## Preferencias reconfirmadas
+- No `/compact`; handoff + terminal nueva. No preguntas técnicas; sí diseño/scope. Quiere cosas que funcionen y se trackeen sin supervisión.
+- El clasificador de auto-mode frena escrituras hacia afuera (`git push`); commit/merge local NO.
+
+---
+
 # Session Handoff — 2026-09-03 (tarde) — README raíz corregido y PUSHEADO (`b882c19`); bugs diferidos triados (nada accionable); **FREEZE de Track B AUTOMATIZADO** (Scheduled Task semanal + snapshot de hoy disparado).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
