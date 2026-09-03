@@ -88,6 +88,32 @@ def _repo_rel(path):
 # Cuerpo sin frontmatter
 # --------------------------------------------------------------------------- #
 
+# Cierra el frontmatter la primera línea posterior a la apertura que sea `---` sola.
+#
+# Buscar `\n---` pelado NO sirve: casa también `\n----` y `\n--- texto`, corta en la línea
+# equivocada y deja el cierre real adentro del cuerpo — el bug que este patrón reemplaza.
+#
+# Los espacios y tabs DESPUÉS de los tres guiones tampoco cuentan, y esa mitad importa igual:
+# exigir `\n---\n` exacto hace que un cierre `---␣` (invisible al leer) se lea como "no hay
+# cierre", y entonces el frontmatter entero entra al cuerpo. Acá eso mueve un número en
+# silencio, no un hash ruidoso. Medido el 2026-09-03 sobre las skills locales, ensuciando el
+# cierre con UN espacio y leyendo ese documento con el lector estricto, contra el cuerpo
+# limpio: `zoom-out` da 0.4009 y `grill-me` 0.5551, los dos **abajo del umbral de 0.60**, o sea
+# que saldrían `unmatched` por un espacio. (Un `.strip()` de más o de menos al construir el
+# lado sucio mueve el cuarto decimal: estos son con el `.strip()` de `body_of` en los dos
+# lados.) Hoy no lo dispara nadie —0 de los 413 blobs de upstream y 0 de los 49 `SKILL.md`
+# locales cierran con whitespace— así que esto es una red, no un arreglo de algo que falla.
+#
+# `\Z` cubre el cierre en la última línea sin salto final: ahí el cuerpo queda vacío.
+#
+# Por qué NO es la misma regla que `tools/normalized-hash.ps1 -Scope Body`, aunque el
+# delimitador sí lo sea: aquel exige `\n---\n` sin tolerar whitespace (allá un byte de más es
+# drift real y se ve), y además NO saca el BOM antes de mirar la apertura, así que un
+# documento con BOM no recorta nada — medido: su `-Scope Body` devuelve el hash del archivo
+# entero. Acá el BOM se saca primero. Delimitador parecido, alcance distinto.
+_CIERRE_FRONTMATTER = re.compile(r"\n---[ \t]*(?:\n|\Z)")
+
+
 def body_of(text):
     """Cuerpo de un SKILL.md: sin frontmatter, con fines de línea LF y extremos recortados.
 
@@ -99,10 +125,9 @@ def body_of(text):
     if t and ord(t[0]) == 0xFEFF:          # BOM
         t = t[1:]
     if t.startswith("---\n"):
-        end = t.find("\n---", 3)
-        if end != -1:
-            nl = t.find("\n", end + 1)
-            t = t[nl + 1:] if nl != -1 else ""
+        m = _CIERRE_FRONTMATTER.search(t, 3)
+        # Sin linea de cierre no hay frontmatter: el cuerpo es todo el contenido.
+        t = t[m.end():] if m else t
     return t.strip()
 
 
@@ -125,7 +150,12 @@ def similarity(a, b):
     movio el numero publicado y el blob elegido de `review-loop` y `slice-review` (0.0308 y
     0.0202 medidos el 2026-08-28 con autojunk; 0.1305 y 0.1101 el 2026-08-31 sin el, contra
     otro blob). De las otras nueve, las dos con drift dan el mismo ratio contra su base con
-    y sin el (`tdd` 0.8625, `to-issues` 0.9466, medido el 2026-08-31) y las siete restantes
+    y sin el (`tdd` 0.8450, `to-issues` 0.9466, re-medidos el 2026-09-03; iguales a los seis
+    decimales en los dos casos). El `tdd` publicado antes era 0.8625, medido el 2026-08-31,
+    y ya no se reproduce: `87f11fe` edito el cuerpo local DESPUES de esa medicion. No lo movio
+    el arreglo del delimitador de frontmatter de `body_of` — con la version vieja y la nueva
+    el cuerpo de las once skills es identico, y el ratio de `tdd` da 0.844958 con las dos.
+    O sea que este numero envejece con cada edicion del scaffold. Y las siete restantes
     publican 1.0. Dos limites de eso, para no leerlo de mas: el 1.0 es el ratio REDONDEADO
     (`exactBodyMatches` es el campo que habla de cuerpos identicos) y no se verifico que
     ningun otro de los 413 blobs las supere con el heuristico apagado. O sea "solo esas dos cambian" vale para el numero contra su
@@ -163,19 +193,122 @@ def _skill_blobs(upstream):
 
 
 def _read_blobs(upstream, oids):
-    """Lee muchos blobs de una sola pasada con `cat-file --batch`."""
+    """Lee muchos blobs de una sola pasada con `cat-file --batch`.
+
+    Un oid que el repo no puede entregar vuelve como `<oid> missing`: dos campos, sin contenido
+    y sin el `\\n` que cierra a los demas. `split()[2]` levantaba ahi un `IndexError` que no
+    nombraba ni el oid ni la causa, y se llevaba puesta la corrida entera.
+
+    Cuando aparece ese header, medido el 2026-09-03 con git 2.53:
+
+      - un oid que el repo directamente no tiene (fabricado, o podado): `missing`, exit 0;
+      - un clon parcial (`--filter=blob:none`) con `GIT_NO_LAZY_FETCH=1`: `missing`, exit 0;
+      - un clon parcial SIN esa variable y con el promisor inalcanzable: git **no** llega a
+        imprimir `missing` — intenta el fetch, falla, y sale con **exit 128**. Ahi levanta
+        `_git_bytes`, antes que nada de esta funcion. O sea: el guard de abajo NO es la red de
+        ese caso, y decir lo contrario seria falso.
+
+    El ausente simplemente NO entra al dict: leer no es donde se decide que hacer con lo que
+    falta. Quien pide decide — `_exigir_blobs` para el corpus de candidatos, saltear para las
+    pistas de sucesor.
+    """
     if not oids:
         return {}
     raw = _git_bytes(upstream, "cat-file", "--batch",
                      stdin=("\n".join(oids) + "\n").encode("ascii"))
+    return _parse_batch(raw, oids)
+
+
+def _parse_batch(raw, oids):
+    """Parsea la salida cruda de `cat-file --batch` contra los oids que se pidieron.
+
+    Separada de `_read_blobs` para poder alimentarla con bytes FABRICADOS: un batch cortado a
+    la mitad, o un header con un payload que corra el desplazamiento, no salen de git pidiendo
+    normal, y sin esta costura esas ramas serian codigo sin test.
+
+    Contrato de entrada: `oids` son los oids **resueltos**, 40 hex en minuscula, que es lo que
+    git eco-a en cada header. Un oid abreviado o en mayuscula NO cumple —git eco-a igual el
+    resuelto— y el guard de abajo lo corta. Los dos call-sites de produccion cumplen: salen de
+    `rev-list --objects --all` y de `rev-parse HEAD:<path>`.
+    """
     contents = {}
     i = 0
-    for oid in oids:
-        j = raw.index(b"\n", i)
-        size = int(raw[i:j].split()[2])
+    for procesados, oid in enumerate(oids):
+        # Un batch que se corta antes de tiempo levantaba `ValueError` pelado desde `index`, que
+        # NO es `RuntimeError`: se escapaba del handler de `main` y volvia a salir como traceback
+        # con exit 1 — exactamente lo que el exit 5 vino a sacar. Misma familia que el header
+        # desincronizado, mismo tratamiento.
+        j = raw.find(b"\n", i)
+        if j == -1:
+            raise RuntimeError(
+                "`cat-file --batch` devolvio una salida truncada: se esperaba la cabecera de %s "
+                "y no hay ninguna linea mas. Procesados %d de %d objetos."
+                # La posicion del loop, no `oids.index(oid)`: `index` devuelve la PRIMERA
+                # aparicion, asi que con un oid repetido el mensaje miente hacia atras.
+                % (oid, procesados, len(oids)))
+        cabecera = raw[i:j].split()
+        # Cada header arranca con el oid RESUELTO (40 hex minuscula), asi que compararlo contra
+        # el que pedimos es gratis y ancla el recorrido: si un header arrastrara una linea de
+        # payload, el desplazamiento se correria y los blobs quedarian atribuidos al oid
+        # EQUIVOCADO. Esa es la mentira silenciosa que `_exigir_blobs` no puede atrapar —todos
+        # los oids figurarian presentes—, y es peor que cortar la corrida.
+        # Ojo con el reves: como git eco-a el RESUELTO y no lo que se le mando, pedir un oid
+        # abreviado o en mayuscula tambien dispara este guard. Es el contrato de entrada del
+        # docstring, no un bug; los dos call-sites de produccion pasan 40 hex minuscula.
+        if not cabecera or cabecera[0] != oid.encode("ascii"):
+            raise RuntimeError(
+                "`cat-file --batch` se desincronizo: para el oid %s devolvio la cabecera %r. "
+                "El recorrido no puede seguir sin atribuir contenidos al oid equivocado."
+                % (oid, raw[i:j][:120]))
+        # `<oid> missing` y `<oid> ambiguous` son headers de dos campos (verificados los dos con
+        # git 2.53; `ambiguous` no se alcanza acá, porque todos los oids vienen de `rev-list` /
+        # `rev-parse` con sus 40 hex completos). Cualquier otro header de menos de tres campos
+        # cae igual acá: no hay contenido que saltear, se avanza solo la linea.
+        if len(cabecera) < 3:
+            i = j + 1
+            continue
+        # `int()` sobre un tercer campo que no es un numero levanta `ValueError`, que NO es
+        # `RuntimeError` y por lo tanto se escapa del handler de `main` y vuelve a dar exit 1
+        # con traceback. Igual que el corte de mas arriba; el guard del `size` de abajo es de
+        # otra clase —ese no explotaba, devolvia contenido truncado en silencio.
+        if not cabecera[2].isdigit():
+            raise RuntimeError(
+                "`cat-file --batch` devolvio un tamaño que no es un numero para %s: %r."
+                % (oid, cabecera[2][:40]))
+        size = int(cabecera[2])
+        # Un `size` que se pasa del largo de `raw` truncaria el contenido en silencio, y con un
+        # solo oid no hay iteracion siguiente que lo note.
+        if j + 1 + size > len(raw):
+            raise RuntimeError(
+                "`cat-file --batch` anuncio %d bytes para %s y la salida tiene %d: esta "
+                "truncada." % (size, oid, len(raw) - (j + 1)))
         contents[oid] = raw[j + 1:j + 1 + size]
         i = j + 1 + size + 1          # +1 por el \n que cierra cada objeto
     return contents
+
+
+def _exigir_blobs(contents, oids, contexto):
+    """Aborta si el batch no devolvio alguno de los blobs pedidos.
+
+    Que la lectura no explote no alcanza para el corpus de candidatos: con un blob de menos
+    se elige OTRA base, o ninguna, y la skill se publica como fork propio sin que nada lo
+    diga. Un reporte que miente en silencio es peor que una corrida que se corta.
+    """
+    faltan = [o for o in oids if o not in contents]
+    if faltan:
+        # El detalle se trunca a tres, y se DICE que se trunca: sin el "y N mas", una lista de
+        # tres se lee como la lista completa. `contexto` nombra QUE corpus vino incompleto —hoy
+        # lo llama un solo caller (el de candidatos), porque el de las pistas de sucesor
+        # deliberadamente degrada en vez de exigir; el parametro existe para que el mensaje
+        # oriente, no para distinguir dos llamadas que existan hoy.
+        detalle = ", ".join(faltan[:3])
+        if len(faltan) > 3:
+            detalle += " y %d mas" % (len(faltan) - 3)
+        raise RuntimeError(
+            "upstream no devolvio %d de los %d blobs pedidos (%s): %s. El repo no los tiene: "
+            "puede estar incompleto o podado, o ser un clon parcial (--filter=blob:none), que "
+            "lista los oids sin tener los blobs. Traelos con `git fetch` o cloná entero."
+            % (len(faltan), len(oids), contexto, detalle))
 
 
 def _history(upstream):
@@ -323,7 +456,10 @@ def recover(upstream, skills_dir, names, threshold):
     head = _git(upstream, "rev-parse", "HEAD").strip()
 
     candidates = _skill_blobs(upstream)
-    contents = _read_blobs(upstream, [oid for oid, _ in candidates])
+    oids_candidatos = [oid for oid, _ in candidates]
+    contents = _read_blobs(upstream, oids_candidatos)
+    # El corpus contra el que se mide TODA similitud: incompleto, el reporte sale mintiendo.
+    _exigir_blobs(contents, oids_candidatos, "candidatos de base")
     bodies = {oid: body_of(blob.decode("utf-8", "replace")) for oid, blob in contents.items()}
     rev_list_path = {oid: path for oid, path in candidates}
 
@@ -459,8 +595,18 @@ def recover(upstream, skills_dir, names, threshold):
                 for p in sorted(head_paths):
                     head_oids[p] = _git(upstream, "rev-parse", "HEAD:" + p).strip()
                 hb = _read_blobs(upstream, sorted(set(head_oids.values())))
+                # Acá NO se exige el corpus completo, al reves que arriba: estos candidatos
+                # son pistas para que un humano decida si hay sucesor, no bases. Un path que
+                # no se pudo leer sale de las pistas y no aborta la recuperacion entera.
+                #
+                # Limitacion ACEPTADA, no olvidada: el reporte no distingue un candidato que
+                # se descarto por ilegible de uno que simplemente no entro al top-3 —
+                # `unconfirmedSuccessorCandidates` es una lista mas corta y nada mas. Se
+                # decidio no agregarle un campo porque el esquema del reporte lo consume el
+                # lockfile del issue 05b y cambiarlo es decision de ESE slice, no de este.
+                # Queda declarado acá y en `docs/agents/recuperar-base-de-skills.md`.
                 head_bodies = {p: body_of(hb[o].decode("utf-8", "replace"))
-                               for p, o in head_oids.items()}
+                               for p, o in head_oids.items() if o in hb}
             succ = sorted(((similarity(bodies[best_oid], b), p)
                            for p, b in head_bodies.items()), reverse=True)[:3]
             uh["unconfirmedSuccessorCandidates"] = [
@@ -1724,6 +1870,397 @@ def self_test():
               lambda: _clasifica("cafe", "skills/caf\xe9/SKILL.md",
                                  "core.quotepath", "true", estado="present"))
 
+        # --- el delimitador del frontmatter es una linea `---` sola ---------------------
+        # Buscar `\n---` pelado casa tambien `\n----` y `\n--- texto`. Cuando eso pasa
+        # DENTRO del frontmatter, el corte se hace en la linea equivocada y el cierre real
+        # queda adentro del cuerpo: dos cuerpos que solo difieren en el frontmatter dejan de
+        # dar 1.0 y la skill sale con drift que no tiene. `normalized-hash.ps1` nunca tuvo
+        # este bug —nacio en `b9c8a8e` con el patron ya anclado—, asi que lo suyo es evitarlo,
+        # no haberlo corregido. Y la regla no es identica: alla el whitespace tras los guiones
+        # NO se tolera y el BOM no se saca (ver el comentario de `_CIERRE_FRONTMATTER`).
+        check("body_of: una linea `--- texto` del frontmatter no lo cierra",
+              lambda: (body_of("---\nname: x\n--- ojo\n---\nCUERPO\n") == "CUERPO",
+                       body_of("---\nname: x\n--- ojo\n---\nCUERPO\n")))
+        check("body_of: una linea `----` del frontmatter no lo cierra",
+              lambda: (body_of("---\nname: x\n----\n---\nCUERPO\n") == "CUERPO",
+                       body_of("---\nname: x\n----\n---\nCUERPO\n")))
+        check("body_of: un `----` del CUERPO se conserva (el corte no se aplica dos veces)",
+              lambda: (body_of("---\nname: x\n---\nCUERPO\n----\nmas\n") == "CUERPO\n----\nmas",
+                       body_of("---\nname: x\n---\nCUERPO\n----\nmas\n")))
+        # Las dos ramas que no son "cerro con salto de los dos lados", que un mutante que
+        # borre cualquiera de las dos deja pasar si no se las asserta por separado.
+        check("body_of: frontmatter cerrado en la ultima linea, sin salto final -> cuerpo vacio",
+              lambda: (body_of("---\nname: x\n---") == "", body_of("---\nname: x\n---")))
+        check("body_of: sin frontmatter (no arranca con `---`) el cuerpo es todo el texto",
+              lambda: (body_of("hola\n---\nno soy fm\n") == "hola\n---\nno soy fm",
+                       body_of("hola\n---\nno soy fm\n")))
+        check("body_of: el caso sano sigue dando el cuerpo",
+              lambda: (body_of("---\nname: x\n---\nCUERPO\n") == "CUERPO",
+                       body_of("---\nname: x\n---\nCUERPO\n")))
+        # El whitespace tras los guiones es INVISIBLE al leer, y exigir `\n---\n` exacto lo
+        # convertia en "no hay cierre": el frontmatter entero se iba al cuerpo y el ratio se
+        # desplomaba en silencio (0.4009 para `zoom-out`, bajo el umbral de 0.60; el numero y
+        # como se midio estan en el comentario de `_CIERRE_FRONTMATTER`).
+        check("body_of: un cierre `---` con espacios finales cierra igual",
+              lambda: (body_of("---\nname: x\n---   \nCUERPO\n") == "CUERPO",
+                       body_of("---\nname: x\n---   \nCUERPO\n")))
+        check("body_of: un cierre `---` con tab final cierra igual",
+              lambda: (body_of("---\nname: x\n---\t\nCUERPO\n") == "CUERPO",
+                       body_of("---\nname: x\n---\t\nCUERPO\n")))
+        # La APERTURA tambien tiene que ser una linea `---` sola: sin esto, `----` abre.
+        check("body_of: `----` NO abre frontmatter (la apertura tambien es exacta)",
+              lambda: (body_of("----\nx\n---\ny\n") == "----\nx\n---\ny",
+                       body_of("----\nx\n---\ny\n")))
+        # La tercera rama: abre y NO cierra nunca. El cuerpo es todo, no vacio.
+        check("body_of: un frontmatter abierto y jamas cerrado no recorta nada",
+              lambda: (body_of("---\nname: x\nCUERPO\n") == "---\nname: x\nCUERPO",
+                       body_of("---\nname: x\nCUERPO\n")))
+        check("body_of: frontmatter vacio (`---` y `---` pegados) recorta bien",
+              lambda: (body_of("---\n---\nCUERPO\n") == "CUERPO",
+                       body_of("---\n---\nCUERPO\n")))
+        # El BOM se saca ANTES de mirar la apertura. Es justo la propiedad que el comentario de
+        # `_CIERRE_FRONTMATTER` usa para distinguirse de `normalized-hash.ps1` (que no lo saca,
+        # y por eso con BOM no recorta nada), y no la cubria nadie: borrar el strip del BOM
+        # pasaba en verde.
+        check("body_of: un BOM adelante no impide reconocer el frontmatter",
+              lambda: (body_of("﻿---\nname: x\n---\nCUERPO\n") == "CUERPO",
+                       body_of("﻿---\nname: x\n---\nCUERPO\n")))
+
+        # --- un blob que upstream no entrega sale del batch como `<oid> missing` --------
+        # Dos campos, sin contenido y sin el `\n` de cierre. `split()[2]` explotaba con un
+        # IndexError que no nombraba ni el oid ni la causa, y se llevaba puesta la corrida
+        # entera. El fixture lo ejercita con un oid fabricado, que es una de las formas
+        # medidas de producir ese header; las tres estan en el docstring de `_read_blobs`.
+        _oid_real = _skill_blobs(up)[0][0]
+        _oid_falta = "0" * 39 + "1"
+
+        check("_read_blobs: un oid ausente no explota y no entra al dict",
+              lambda: (_oid_falta not in _read_blobs(up, [_oid_falta, _oid_real]),
+                       sorted(_read_blobs(up, [_oid_falta, _oid_real]))))
+        # Los bytes ESPERADOS se leen de git aparte, con `cat-file blob`, no con la funcion que
+        # se esta probando. Compararla contra si misma (`_read_blobs(...) == _read_blobs(...)`)
+        # dejaba pasar cualquier corrupcion uniforme: medido, truncar el blob en un byte
+        # (`raw[j+1:j+size]`) sobrevivia entero a las 94 aserciones, porque el `.strip()` de
+        # `body_of` se come el `\n` sobrante en las dos direcciones.
+        _esperado = _git_bytes(up, "cat-file", "blob", _oid_real)
+
+        check("_read_blobs: el contenido es byte a byte el del blob (ancla externa)",
+              lambda: (_read_blobs(up, [_oid_real])[_oid_real] == _esperado,
+                       (len(_read_blobs(up, [_oid_real])[_oid_real]), len(_esperado))))
+        # El ausente corre el desplazamiento de todo lo que sigue. Se prueban las tres
+        # posiciones, porque cada una rompe distinto: al principio, en el medio (con un blob
+        # bueno de cada lado) y al final.
+        check("_read_blobs: con el ausente PRIMERO, el que sigue se lee entero",
+              lambda: (_read_blobs(up, [_oid_falta, _oid_real]).get(_oid_real) == _esperado,
+                       len(_read_blobs(up, [_oid_falta, _oid_real]).get(_oid_real) or b"")))
+        check("_read_blobs: con el ausente en el MEDIO, los dos buenos se leen enteros",
+              lambda: (_read_blobs(up, [_oid_real, _oid_falta, _oid_real]).get(_oid_real)
+                       == _esperado,
+                       len(_read_blobs(up, [_oid_real, _oid_falta,
+                                            _oid_real]).get(_oid_real) or b"")))
+        check("_read_blobs: con el ausente al FINAL, el anterior se lee entero",
+              lambda: (_read_blobs(up, [_oid_real, _oid_falta]).get(_oid_real) == _esperado,
+                       len(_read_blobs(up, [_oid_real, _oid_falta]).get(_oid_real) or b"")))
+        check("_read_blobs: todos ausentes devuelve un dict vacio, sin explotar",
+              lambda: (_read_blobs(up, [_oid_falta]) == {}, _read_blobs(up, [_oid_falta])))
+        # El corto de entrada. Assertar solo el `{}` NO alcanza: sin el corto, `cat-file
+        # --batch` con stdin vacio devuelve `b" missing\n"` y el parseo de una lista vacia
+        # tambien da `{}`, asi que el check pasaba igual. Lo que hay que observar es que git
+        # no se llame, y para eso se cuenta la llamada.
+        def _sin_oids_no_llama_a_git():
+            real = _git_bytes
+            llamadas = []
+
+            def espia(*a, **k):
+                llamadas.append(a)
+                return real(*a, **k)
+
+            globals()["_git_bytes"] = espia
+            try:
+                got = _read_blobs(up, [])
+            finally:
+                globals()["_git_bytes"] = real
+            return (got == {} and not llamadas, (got, len(llamadas)))
+
+        check("_read_blobs: sin oids devuelve vacio SIN llamar a git", _sin_oids_no_llama_a_git)
+
+        # El ancla del recorrido: si el header no es el del oid pedido, el batch se
+        # desincronizo y seguir atribuiria contenidos al oid equivocado.
+        def _corta_si_se_desincroniza():
+            # Bytes FABRICADOS: git nunca devuelve un header con otro oid, asi que este caso
+            # solo se puede montar sobre `_parse_batch`. Es la forma que tendria la salida si
+            # un header desconocido arrastrara una linea de payload y corriera el recorrido.
+            raw = b"aaa blob 3\nXYZ\nOTRO blob 3\nZZZ\n"
+            try:
+                _parse_batch(raw, ["aaa", "bbb"])
+                return False, "no levanto"
+            except RuntimeError as exc:
+                return "desincronizo" in str(exc), str(exc)[:120]
+
+        check("_parse_batch: un header que no corresponde al oid pedido corta la corrida",
+              _corta_si_se_desincroniza)
+
+        def _corta_con_oid_abreviado():
+            # La misma desincronizacion, pero provocada con git DE VERDAD: git eco-a el oid
+            # resuelto, asi que pedir uno abreviado devuelve un header que no coincide. Es el
+            # contrato de entrada de `_parse_batch` (40 hex minuscula) puesto a prueba.
+            try:
+                _read_blobs(up, [_oid_real[:8]])
+                return False, "no levanto"
+            except RuntimeError as exc:
+                return "desincronizo" in str(exc), str(exc)[:120]
+
+        check("_read_blobs: un oid abreviado no se acepta en silencio (git eco-a el resuelto)",
+              _corta_con_oid_abreviado)
+
+        def _levanta(raw, oids):
+            try:
+                return "OK:%r" % (_parse_batch(raw, oids),)
+            except RuntimeError as exc:
+                return "RuntimeError: %s" % exc
+            except Exception as exc:              # un ValueError pelado se escapa del handler
+                return "OTRA: %r" % (exc,)        # de `main` y vuelve a dar exit 1
+
+        # Los dos casos van dirigidos a que SIN el guard la funcion NO levante: si se eligen
+        # entradas donde igual salta el guard de desincronizacion, el check queda en verde
+        # aunque se borre lo que dice cubrir (medido: pasaba).
+        check("_parse_batch: un batch cortado antes de la cabecera se declara truncado",
+              lambda: ("truncada" in _levanta(b"aaa blob 3", ["aaa"]),
+                       _levanta(b"aaa blob 3", ["aaa"])[:110]))
+        check("_parse_batch: un `size` mas grande que la salida se declara truncado",
+              lambda: ("truncada" in _levanta(b"aaa blob 99\nXY\n", ["aaa"]),
+                       _levanta(b"aaa blob 99\nXY\n", ["aaa"])[:110]))
+        # El BORDE del guard, que es donde vive el off-by-one: `b"aaa blob 3\nXY\n"` tiene 3
+        # bytes despues de la cabecera (`XY\n`), asi que size 3 es lo maximo legitimo y size 4
+        # ya se pasa por uno. Sin un caso pegado al borde, correr el guard un byte pasa en
+        # verde y deja entrar justo la lectura de mas que el guard existe para frenar.
+        check("_parse_batch: el `size` maximo que entra en la salida se acepta",
+              lambda: (_levanta(b"aaa blob 3\nXY\n", ["aaa"]) == "OK:{'aaa': b'XY\\n'}",
+                       _levanta(b"aaa blob 3\nXY\n", ["aaa"])[:110]))
+        check("_parse_batch: un `size` que se pasa por UN byte ya se declara truncado",
+              lambda: ("truncada" in _levanta(b"aaa blob 4\nXY\n", ["aaa"]),
+                       _levanta(b"aaa blob 4\nXY\n", ["aaa"])[:110]))
+        # `int()` sobre un tamaño no numerico levantaba `ValueError`, que se escapa del handler
+        # de `main`. El check de abajo afirma un universal ("ninguna salida rara"), asi que
+        # este caso tiene que estar entre sus fixtures, no solo aca.
+        check("_parse_batch: un tamaño que no es numero se declara, no explota",
+              lambda: ("no es un numero" in _levanta(b"aaa blob xyz\nXYZ\n", ["aaa"]),
+                       _levanta(b"aaa blob xyz\nXYZ\n", ["aaa"])[:110]))
+        # Con UN solo oid, para que el guard del tamaño sea lo unico que puede frenarlo. Con dos
+        # el check tambien se pone rojo, pero por otro motivo —salta antes el guard de
+        # desincronizacion—, y entonces deja de DEMOSTRAR lo que dice: que sin el guard un size
+        # negativo devuelve `b""` en silencio (`raw[12:11]`), la peor de las salidas.
+        check("_parse_batch: un tamaño negativo se declara, no devuelve vacio en silencio",
+              lambda: ("no es un numero" in _levanta(b"aaa blob -1\nXY\n", ["aaa"]),
+                       _levanta(b"aaa blob -1\nXY\n", ["aaa"])[:110]))
+        # El conteo del mensaje de truncado, en sus DOS formas de mentir. Con un `missing`
+        # adelante, porque contar `len(contents)` los excluia. Y con un oid REPETIDO, porque
+        # `oids.index(oid)` devuelve la primera aparicion y miente hacia atras: con oids todos
+        # distintos ese mutante es indistinguible del codigo bueno y sobrevive.
+        check("_parse_batch: el mensaje de truncado dice cuantos objetos alcanzo a procesar",
+              lambda: ("Procesados 2 de 3" in _levanta(b"aaa missing\nbbb blob 1\nZ\n",
+                                                       ["aaa", "bbb", "ccc"])
+                       and "Procesados 1 de 2" in _levanta(b"aaa blob 1\nZ\n", ["aaa", "aaa"]),
+                       (_levanta(b"aaa missing\nbbb blob 1\nZ\n", ["aaa", "bbb", "ccc"])[:120],
+                        _levanta(b"aaa blob 1\nZ\n", ["aaa", "aaa"])[:120])))
+        # Y ninguna de esas formas puede salir como excepcion de otra familia: `ValueError` no
+        # es `RuntimeError`, no lo agarra el handler de `main`, y vuelve a dar exit 1 con
+        # traceback — que es justo lo que el exit 5 vino a sacar.
+        check("_parse_batch: ninguna salida rara escapa como excepcion que `main` no atrapa",
+              lambda: (all(not _levanta(r, ["aaa", "bbb"]).startswith("OTRA")
+                           for r in (b"", b"aaa blob 3\nXYZ\n", b"aaa missing",
+                                     b"aaa blob 99\nXY\n", b"aaa", b"aaa blob xyz\nXYZ\n",
+                                     b"aaa blob -1\nXYZ\n", b"aaa blob \nXYZ\n")),
+                       [(r, _levanta(r, ["aaa", "bbb"])[:60])
+                        for r in (b"", b"aaa blob 3\nXYZ\n", b"aaa missing",
+                                  b"aaa blob 99\nXY\n", b"aaa", b"aaa blob xyz\nXYZ\n",
+                                  b"aaa blob -1\nXYZ\n", b"aaa blob \nXYZ\n")]))
+        # El desplazamiento del camino NORMAL, medido sin depender de `_exigir_blobs`: antes,
+        # romper `i = j + 1 + size + 1` solo lo delataba el guard levantando durante el setup
+        # de otro check, o sea que la red era el guard y no un test.
+        check("_parse_batch: dos blobs seguidos se separan en el byte exacto",
+              lambda: (_parse_batch(b"aaa blob 3\nXYZ\nbbb blob 2\nQW\n", ["aaa", "bbb"])
+                       == {"aaa": b"XYZ", "bbb": b"QW"},
+                       _parse_batch(b"aaa blob 3\nXYZ\nbbb blob 2\nQW\n", ["aaa", "bbb"])))
+        # El contenido lleva `\n` adentro a proposito: el recorrido tiene que avanzar por el
+        # `size` del header, nunca buscando el proximo salto de linea.
+        check("_parse_batch: un contenido con `\\n` adentro no corta el objeto antes de tiempo",
+              lambda: (_parse_batch(b"aaa blob 5\nA\nB\r\n\nbbb blob 1\nZ\n", ["aaa", "bbb"])
+                       == {"aaa": b"A\nB\r\n", "bbb": b"Z"},
+                       _parse_batch(b"aaa blob 5\nA\nB\r\n\nbbb blob 1\nZ\n", ["aaa", "bbb"])))
+        check("_parse_batch: un contenido vacio (size 0) se lee como vacio, no se saltea",
+              lambda: (_parse_batch(b"aaa blob 0\n\nbbb blob 1\nZ\n", ["aaa", "bbb"])
+                       == {"aaa": b"", "bbb": b"Z"},
+                       _parse_batch(b"aaa blob 0\n\nbbb blob 1\nZ\n", ["aaa", "bbb"])))
+
+        # Que no explote NO alcanza: un candidato que se pierde en silencio cambia la base
+        # elegida y publica un "fork propio" que nadie midio. El corpus exige estar completo.
+        def _exige_y_nombra():
+            try:
+                _exigir_blobs({_oid_real: b"x"}, [_oid_real, _oid_falta], "candidatos")
+                return False, "no levanto"
+            except RuntimeError as exc:
+                return _oid_falta in str(exc), str(exc)
+
+        check("_exigir_blobs: aborta nombrando el oid que falta", _exige_y_nombra)
+        check("_exigir_blobs: con todos presentes no levanta",
+              lambda: (_exigir_blobs({_oid_real: b"x"}, [_oid_real], "candidatos") is None,
+                       "no levanto"))
+
+        def _mensaje_de_faltantes(pedidos, presentes=0, contexto="candidatos de base"):
+            """Mensaje de `_exigir_blobs` con `pedidos` oids, de los cuales `presentes` estan."""
+            oids = ["%040d" % n for n in range(pedidos)]
+            contents = {o: b"x" for o in oids[:presentes]}
+            try:
+                _exigir_blobs(contents, oids, contexto)
+                return "no levanto"
+            except RuntimeError as exc:
+                return str(exc)
+
+        # El conteo tiene que ser FALTANTES sobre PEDIDOS, y por eso el caso de prueba tiene
+        # los dos numeros DISTINTOS: con 5 de 5, un mensaje que imprima dos veces los pedidos
+        # es indistinguible del correcto, y el mutante pasa en verde. Medido: pasaba.
+        check("_exigir_blobs: el mensaje cuenta faltantes sobre pedidos, no dos veces lo mismo",
+              lambda: ("3 de los 5 blobs" in _mensaje_de_faltantes(5, presentes=2),
+                       _mensaje_de_faltantes(5, presentes=2)[:90]))
+        # El detalle se trunca a 3, y decirlo es parte del contrato. No alcanza con mirar el
+        # sufijo: el sufijo se calcula aparte, asi que un truncado a 1 seguia diciendo "y 2
+        # mas" y el check pasaba igual. Hay que contar los oids que REALMENTE se listaron.
+        def _listados(pedidos, presentes=0):
+            """Cuantos de los oids faltantes aparecen ENTEROS en el mensaje."""
+            msg = _mensaje_de_faltantes(pedidos, presentes)
+            return sum(1 for n in range(presentes, pedidos) if ("%040d" % n) in msg)
+
+        check("_exigir_blobs: con mas de 3 faltantes lista exactamente 3 y declara el resto",
+              lambda: (_listados(5) == 3 and "y 2 mas" in _mensaje_de_faltantes(5),
+                       (_listados(5), _mensaje_de_faltantes(5)[:150])))
+        # El ancla es el conteo, no un `not in` sobre la prosa: buscar la palabra "mas" suelta
+        # se pondria rojo el dia que el mensaje diga "demasiado" o "masivo", sin que haya
+        # ninguna regresion. El sufijo se busca completo y solo por eso.
+        check("_exigir_blobs: con 3 o menos los lista todos y NO inventa un `y N mas`",
+              lambda: (_listados(2) == 2 and "y 0 mas" not in _mensaje_de_faltantes(2)
+                       and " mas." not in _mensaje_de_faltantes(2),
+                       (_listados(2), _mensaje_de_faltantes(2)[:150])))
+        # `contexto` es el parametro que dice QUE corpus vino incompleto. Sin este check,
+        # reemplazarlo por una constante pasaba en verde.
+        check("_exigir_blobs: el mensaje nombra el contexto que le pasaron",
+              lambda: ("pistas de sucesor" in _mensaje_de_faltantes(
+                           1, contexto="pistas de sucesor"),
+                       _mensaje_de_faltantes(1, contexto="pistas de sucesor")[:90]))
+
+        # --- las DOS politicas, ejercitadas dentro de `recover()` -----------------------
+        # Lo que el slice decide es cual caller exige y cual degrada, y eso no lo tocaba
+        # ningun check: borrar la llamada a `_exigir_blobs` del corpus, o el `if o in hb` de
+        # las pistas, dejaba las 94 aserciones en verde. Los dos checks de abajo mutilan la
+        # lectura de blobs a proposito y miran que `recover()` reaccione distinto segun quien
+        # pidio.
+        def _recover_con_lectura_mutilada(omitir_en_llamada):
+            """`recover()` omitiendo un blob en la llamada N a `_read_blobs`.
+
+            Devuelve `(reporte, estado)`. `estado` importa: si la llamada N nunca ocurre, la
+            mutilacion no se aplico y cualquier assert sobre el reporte pasa por el motivo
+            equivocado. El caller tiene que mirarlo.
+            """
+            real = _read_blobs
+            estado = {"n": 0, "aplicada": False, "quitados": 0}
+
+            def falso(upstream, oids):
+                estado["n"] += 1
+                got = real(upstream, oids)
+                if estado["n"] == omitir_en_llamada and got:
+                    # Se vacia la lectura entera, no un blob suelto: las pistas se publican
+                    # como un top-3, asi que sacar UNO lo tapa el cuarto candidato y el
+                    # reporte queda igual — el check pasaba sin observar nada (medido: 6
+                    # pistas antes y 6 despues).
+                    estado["quitados"] = len(got)
+                    got.clear()
+                    estado["aplicada"] = True
+                return got
+
+            globals()["_read_blobs"] = falso
+            try:
+                return recover(up, local, None, DEFAULT_THRESHOLD), estado
+            finally:
+                globals()["_read_blobs"] = real
+
+        def _corpus_incompleto_aborta():
+            try:
+                _recover_con_lectura_mutilada(1)
+                return False, "recover() siguio con el corpus incompleto"
+            except RuntimeError as exc:
+                # Que aborte no alcanza: tiene que decir QUE corpus, o el mensaje no orienta.
+                return "candidatos de base" in str(exc), str(exc)[:110]
+
+        check("recover: un corpus de candidatos incompleto corta la corrida, y lo dice",
+              _corpus_incompleto_aborta)
+
+        def _candidatos_de_sucesor(rep):
+            """Todos los paths de pista de sucesor que publica el reporte."""
+            paths = []
+            for s in rep["skills"]:
+                uh = s.get("upstreamHead") or {}
+                for c in uh.get("unconfirmedSuccessorCandidates") or []:
+                    paths.append(c["path"])
+            return paths
+
+        def _pistas_incompletas_degradan():
+            # La segunda llamada a `_read_blobs` es la de los blobs del HEAD (las pistas de
+            # sucesor). Ahi la politica es la contraria: se saltea el path ilegible y la
+            # recuperacion sigue.
+            #
+            # El ancla NO puede ser "hay skills gone": eso lo calcula `_head_path`, que ni mira
+            # los blobs, asi que era verdadero tambien sin mutilar y el check pasaba aunque la
+            # mutilacion no se aplicara. Lo que hay que observar es que el path ilegible
+            # DESAPARECIO de las pistas publicadas — y que la mutilacion efectivamente ocurrio.
+            limpio, _ = _recover_con_lectura_mutilada(0)      # 0 = ninguna llamada, control
+            mutilado, estado = _recover_con_lectura_mutilada(2)
+            antes, despues = _candidatos_de_sucesor(limpio), _candidatos_de_sucesor(mutilado)
+            # Las tres puntas: la mutilacion ocurrio, sin ella hay pistas, y con ella el
+            # reporte sale igual pero SIN las pistas que no se pudieron leer.
+            return (estado["aplicada"] and antes and not despues,
+                    {"aplicada": estado["aplicada"], "llamadas": estado["n"],
+                     "pistas antes": len(antes), "pistas despues": len(despues)})
+
+        check("recover: una pista ilegible sale de las pistas y NO corta la corrida",
+              _pistas_incompletas_degradan)
+
+        def _abort_de_recuperacion_sale_con_5():
+            """El CLI ante una recuperacion que aborta: exit 5, mensaje por stderr, sin escribir.
+
+            Los exits 2, 3 y 4 ya se ejercitan por `main([...])`; el 5 era lo unico que el CLI
+            gano sin cobertura, y el doc le dedica una fila de la tabla de codigos. Se fuerza
+            haciendo levantar a `recover`, que es la unica puerta que el handler cubre.
+            """
+            import io
+
+            # El destino se pre-crea con un centinela y se verifica que SOBREVIVA. Mirar que un
+            # archivo que nunca existio siga sin existir tambien caza a un `main` que escribe
+            # igual (medido), pero no ve la otra mitad: pisar o truncar un reporte bueno.
+            destino = os.path.join(tmp, "reporte-que-ya-estaba.json")
+            with open(destino, "w", encoding="utf-8") as f:
+                f.write('{"centinela": true}')
+            real = recover
+
+            def revienta(*a, **k):
+                raise RuntimeError("upstream no devolvio 3 de los 9 blobs pedidos (simulado)")
+
+            globals()["recover"] = revienta
+            err = io.StringIO()
+            real_stderr = sys.stderr
+            sys.stderr = err
+            try:
+                rc = main(["--upstream-clone", up, "--skills-dir", local, "--out", destino])
+            finally:
+                sys.stderr = real_stderr
+                globals()["recover"] = real
+            quedo = open(destino, encoding="utf-8").read()
+            return (rc == 5 and "simulado" in err.getvalue()
+                    and quedo == '{"centinela": true}',
+                    {"rc": rc, "stderr": err.getvalue()[:80], "destino": quedo[:40]})
+
+        check("CLI: una recuperacion abortada sale con exit 5, lo dice por stderr y no escribe",
+              _abort_de_recuperacion_sale_con_5)
+
         print("\nSELF-TEST: %d ok, %d fail (de %d)"
               % (len(checks) - len(fails), len(fails), len(checks)))
         return 1 if fails else 0
@@ -1850,7 +2387,17 @@ def main(argv=None):
             return 4
         print("Clon: %s (reusalo con --upstream-clone)" % clone, file=sys.stderr)
 
-    report = recover(clone, args.skills_dir, args.skills, args.threshold)
+    # La recuperación aborta con `RuntimeError` cuando git falla (`_git_bytes`) o cuando el
+    # corpus vino incompleto (`_exigir_blobs`). Sin este `except` salía como traceback crudo y
+    # con **exit 1**, que ya está tomado: la tabla de códigos del doc declara el 1 como "solo
+    # con --self-test: alguna aserción falló", así que quien llama no podía distinguir un test
+    # roto de un upstream incompleto. El 5 es propio, y va aparte del 4 ("no se pudo clonar")
+    # porque acá el clon existe y responde: lo que falta es contenido adentro.
+    try:
+        report = recover(clone, args.skills_dir, args.skills, args.threshold)
+    except RuntimeError as exc:
+        print("No se pudo recuperar contra %s: %s" % (clone, exc), file=sys.stderr)
+        return 5
     text = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     if args.stdout:
         sys.stdout.write(text)

@@ -404,7 +404,7 @@ Los workspaces temporales se borran al terminar cada eval.
 ## Testeo de la recuperación de bases de skills
 
 `pwsh -NoProfile -File tests/recover-skill-bases.tests.ps1` — envuelve el self-test offline de
-`tools/recover-skill-bases.py` (84 aserciones sobre un repo de git sintético, sin red). Antes ese
+`tools/recover-skill-bases.py` (125 aserciones sobre un repo de git sintético, sin red). Antes ese
 self-test existía y **no lo corría nadie**: quedaba fuera de toda corrida de tests.
 
 El envoltorio no re-verifica lo que el self-test ya verifica. Asserta las dos puntas que el exit

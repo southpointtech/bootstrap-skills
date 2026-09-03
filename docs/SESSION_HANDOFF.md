@@ -1,3 +1,399 @@
+# Session Handoff — 2026-09-03 (b) — slice de saneamiento de `recover-skill-bases` CERRADO POR CAP
+
+> Mismo worktree y rama que abajo. Este slice PRECEDE al 05b y era su prerequisito: `skill-bases.json`
+> es la entrada del lockfile, y salía de una herramienta con dos bugs abiertos.
+
+## Qué cerró
+
+Los 2 hallazgos que el review del issue 04 había dejado anotados en el issue 03:
+
+- **(a)** `_read_blobs` explotaba con `IndexError` ante el header `<oid> missing` de `cat-file --batch`.
+- **(b)** `body_of` cortaba el frontmatter con `t.find("\n---", 3)`, que también casa `\n----` y `\n--- texto`.
+
+Al hacerlo bien, el slice creció con: `_exigir_blobs` (el corpus de candidatos **aborta**) frente a
+degradar salteando (las pistas de sucesor del HEAD), `_parse_batch` extraído para poder testear con
+bytes fabricados, guards de desincronización / salida truncada / `size` no numérico o desbordado, y
+un **exit code 5** propio en el CLI. Self-test: **84 → 125** aserciones.
+
+## 🔴 Lo que el loop enseñó (5 turnos, cerró POR CAP)
+
+1. **El fix de (b) introdujo una regresión**: exigir `\n---\n` exacto hace que un cierre `---␣` con
+   whitespace invisible deje de cerrar, y el frontmatter entero se va al cuerpo. Medido: `zoom-out`
+   0.4009 y `grill-me` 0.5551, **los dos bajo el umbral de 0.60** → saldrían `unmatched` por un
+   espacio. Hoy no lo dispara nadie (0 de 413 blobs de upstream, 0 de 49 locales).
+2. **Siete afirmaciones propias retractadas.** La más cara: "un clon parcial (`--filter=blob:none`)
+   sin red produce `<oid> missing`" — **falso**, git sale con **exit 128** y el guard nunca se
+   alcanza. Estaba escrita en 3 lugares, uno el mensaje que ve el usuario. Lo que sí produce
+   `missing`: un oid que el repo no tiene, o un clon parcial con `GIT_NO_LAZY_FETCH=1`.
+   Otra: dos números se copiaron de un reviewer **sin re-medirlos** y no reproducían.
+3. **Cinco tests que pasaban sin observar nada**, incluido uno que comparaba la función consigo
+   misma (truncar un byte sobrevivía) y otro anclado a un hecho del fixture cierto sin el fix.
+
+**53 mutantes** corridos en 4 rondas, **0 sobrevivientes** al final de cada una.
+
+## Estado del marcador
+
+- El loop cerró **por cap**, así que el ancla `slice-open` **NO se limpió** a propósito (ADR-0002).
+- Los fixes del turno 5 y los del pase de coherencia **no los revisó nadie**: es lo que significa
+  cerrar por cap, y queda declarado acá.
+
+## Tamaño
+
+505 líneas agregadas al `.py`, de las cuales **80 son lógica de producción** (255 self-test, 170
+comentarios). Bajo el techo de ~400. El slice inicial fueron ~123 líneas; el resto lo agregó el loop
+arreglando sus propios hallazgos, que por regla no cuentan contra el techo.
+
+## Declarado, NO arreglado
+
+- El reporte **no distingue** una pista de sucesor descartada por ilegible de una que no entró al
+  top-3 (`unconfirmedSuccessorCandidates` sale más corta y nada lo dice). No se le agregó un campo
+  porque ese esquema lo consume el lockfile: es decisión del **05b**.
+- `skill-bases.json` **no cambia** con este slice: los cuerpos de las 11 skills son idénticos antes
+  y después, medido. El 05b arranca sobre la misma base.
+
+---
+
+# Session Handoff — 2026-09-03 — slice 05a (hashing normalizado) CERRADO, review-loop de 4 turnos LIMPIO
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **44 commits adelante de `main`, 7 atrás, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills` (rama distinta).
+
+## Objetivo del proyecto y del release
+
+Repo de skills de bootstrap para proyectos asistidos por IA. Release en curso `bootstrap-v2`:
+PRD + 19 issues en `.scratch/bootstrap-v2/` (gitignored). Cerrados: **01, 04 (+04b, 04c), 17, 05a**.
+El campo `- **Status**:` de los issues **nunca se actualiza**: no es fuente de verdad, los trailers
+`Slice-Close:` sí.
+
+## Lo que hizo esta sesión — el slice 05a, cerrado
+
+Se abrió el issue 05 (lockfile) y, como el módulo de hashing (issue 03) era prerequisito, se lo trajo
+adentro como **slice 05a** con aprobación del usuario. **El 05 se partió en 05a (la función M1) +
+05b (el lockfile).**
+
+| commit | qué |
+|---|---|
+| `b9c8a8e` | 05a inicial: `tools/normalized-hash.ps1` + su test + sección en `docs/TESTING.md` |
+| `aa51f59` | fixes del review-loop de 4 turnos + pase de coherencia (módulo REESCRITO) |
+
+### Qué entregó el 05a
+
+`tools/normalized-hash.ps1` — **la forma canónica de hashear del repo** (módulo M1). Contrato:
+**sha256 hex minúscula de los BYTES del contenido, con CRLF y CR unificados a LF.** `-Scope Body`
+hashea el cuerpo sin frontmatter (donde vive el drift propio, ADR-0005). Interfaz: `-Path` | `-Content`,
+`-Scope File` | `Body`. Su test: `tests/normalized-hash.tests.ps1` (34 aserciones + guard de conteo).
+
+### 🔴 Decisión de diseño clave del review-loop: opera sobre BYTES, no decodifica
+
+La primera versión decodificaba a texto con `[IO.File]::ReadAllText`. El review-loop (foco histórico)
+lo cazó: decodificar **hace desaparecer el BOM y colapsa bytes inválidos a `U+FFFD`** — la pérdida
+silenciosa que **ADR-0007 midió y rechazó** para copy-scaffold. Se reescribió para operar sobre bytes
+vía **Latin1 (ISO-8859-1, code page 28591)**, que es biyección total byte↔char: permite normalizar
+EOL y separar frontmatter con operaciones de string sin decodificación destructiva. El BOM y la
+corrupción **cuentan como drift real**; solo el fin de línea es ruido. Comparaciones de frontmatter en
+`[StringComparison]::Ordinal`.
+
+### El review-loop: 4 turnos + coherencia, cerró LIMPIO
+
+Turno 1: 7 reviewers (5 focos + mutación + fork de `/code-review`). Turnos 2-4: focos acotados al
+delta chico. Cerró limpio (cero medium/high). Hallazgos resueltos: contradicción ADR-0007 (reescritura
+a bytes), comparaciones culture-sensitive, rama del cierre en última línea sin cobertura (3 reviewers
++ mutación M7 convergen), combo `-Path`+`-Scope Body` sin test (pase de coherencia), afirmaciones en
+presente sobreafirmadas reformuladas, parámetro `$bom` vestigial removido.
+
+## Estado del marcador — LEER ANTES DE CORRER `/review-loop`
+
+- **`range` vuelve VACÍO con exit 0**: todo el delta del 05a fue revisado. El loop está cerrado.
+- **El ancla `slice-open` se LIMPIÓ** (`-Action close`, cierre limpio). El próximo slice registrará su
+  propio arranque. Ojo: durante el 05a, `slice-open` venía heredado en `9b9368d` (del slice anterior
+  que cerró por tope, ADR-0002), que NO era el arranque del 05a; el pase de coherencia se corrió a
+  mano contra `f515d72` (el arranque real). Ese problema ya no aplica: el ancla quedó limpia.
+
+## Tests
+
+`tests/normalized-hash.tests.ps1` (NUEVO): 34 aserciones verde + guard de conteo. Verificado con
+**14 mutantes, 13 muertos + 1 equivalente declarado**. Arnés de mutación (descartable) en el scratch
+de la sesión. `mirror.tests.ps1` verde. Las 14 suites seguras siguen en verde. Siguen **prohibidas en
+esta rama**: `tests/gen-mcp-json.tests.ps1` y `tests/copy-scaffold.tests.ps1` (el fix de `%TEMP%`
+está en `main`, esta rama todavía no lo tiene).
+
+## Bugs / hallazgos abiertos (declarados, NO arreglados en 05a)
+
+1. ✅ **CERRADOS** — los 2 hallazgos del fork de `/code-review` sobre `tools/recover-skill-bases.py`
+   (el parse fatal de `_read_blobs` ante `<oid> missing`, y el delimitador laxo de `body_of()`) se
+   arreglaron en el slice de saneamiento que precede al 05b, junto con la regresión que ese
+   arreglo introdujo (un cierre `---` con whitespace dejaba de cerrar) y las políticas ante un
+   blob ausente. `skill-bases.json` no cambia: los cuerpos de las 11 skills son idénticos antes
+   y después, medido.
+2. **Hex-case mismatch**: `NormHash` de `mirror.tests.ps1` devuelve mayúscula, `Get-NormalizedHash`
+   minúscula. No es bug hoy (cada una se compara consigo misma); se resuelve al migrar (resto del 03).
+3. Bugs preexistentes del handoff anterior siguen abiertos (manifest sin test de sync con su scaffold;
+   hashes crudos del manifest sin normalizar — este último **es exactamente lo que M1 viene a arreglar**
+   cuando se migren los consumidores).
+
+## Pendientes concretos (en orden)
+
+1. 🔴 **05b — el lockfile sellado y verificado offline** (`.scratch/bootstrap-v2/issues/05-lockfile-sellado-y-verificado.md`).
+   Ya puede usar `Get-NormalizedHash` (entregado). Decisiones tomadas con el usuario para el 05b:
+   - El lockfile **NO** sella ni referencia `skill-bases.json` (guarda ruta absoluta del temp, nunca
+     byte-estable). Transcribe por entrada `base.blob`, `base.upstreamPath`, `base.commit`,
+     `base.commitDate`, y a nivel doc `upstream.url` + `upstream.head` (`6654f6b…`).
+   - **Sella los 25 archivos** de las 11 skills (no solo los 11 `SKILL.md`): con solo `SKILL.md`,
+     editar `tdd/mocking.md` pasaría la verificación en verde.
+   - **Fork propio con 3 estados**: `upstream-vivo` / `upstream-huérfano` (`to-issues`, `zoom-out`:
+     `gone-from-upstream-head` pero CON commit base recuperado) / `fork-propio` (`review-loop`,
+     `slice-review`: sin upstream). NO colapsar huérfano en fork propio — tira el commit base que
+     ADR-0005 recuperó. **Corregir la user story 15 del PRD** (pide marcar `zoom-out` fork propio, pero
+     lo medido es `recovered` similitud 1.0). **El 19 NO bloquea al 05b**: el lockfile no sella
+     `similarity`; fork propio es hecho de git, no salida de la métrica.
+   - El lockfile sigue en el scaffold (4 copias: raíz + 3), verificar las 4 es red extra gratis.
+   - Proyección: ~425 líneas de lógica (pasa el techo de ~400) → **declarar en el `Slice-Close:` y acá**,
+     no partir (partir deja media herramienta sin verificación). Si se parte igual: 05b = sellar +
+     verificar + hash miente; 05c = fork propio + entrada faltante + rename + regla del `CLAUDE.md`.
+   - AC extra del 05: escribir en el `CLAUDE.md` del REPO la regla de conteo "cuerpo adoptado literal
+     = vendored, no suma al techo".
+2. **Resto del issue 03**: migrar los 5 consumidores del hash a `Get-NormalizedHash` (`gen-manifest`,
+   `compare-scaffold`, `reseal-manifest`, las 2 `NormHash`) y regenerar manifests. Candidato adicional
+   visto en el loop: `copy-scaffold.ps1` ya implementa la misma política de bytes inline (anotado en
+   issue 03). Hasta que cierre, el AC "ningún consumidor calcula el hash por su cuenta" NO se cumple y
+   el 05 sigue técnicamente bloqueado por 03 (aunque 05b puede usar la función ya entregada).
+3. **Mergear `main`** (7 commits, `3b3636a`) agrupado con el cierre del 05: trae el fix de `%TEMP%` y
+   desbloquea las 16 suites y el issue 02. NO mergear antes (dispara otro review-loop completo).
+4. Issue 19 (métrica/autojunk) cuando toque. Rollout issue 18.
+
+## Antes de tocar código
+
+- El `alignment-gate` bloquea el primer edit de código de la sesión. La alineación del release ya está
+  hecha (grill 2026-08-28, PRD + 19 issues). **Reintentar el edit y seguir.**
+- Commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- 🔴 **Correr los tests desde PowerShell (`pwsh`), NO desde la Bash tool con pipes complejos**: la
+  Bash tool rechaza comandos "demasiado complejos para verificar que quedan en el worktree" (cualquier
+  cosa con `git`/`$()`/`for`). Usar la herramienta PowerShell para loops de suites.
+- `sed -i` pasa el archivo entero a LF y rompe los hashes crudos del manifest; editar con Write/Edit.
+- `tools/normalized-hash.ps1` está en `tools/` del repo, **NO** en el scaffold: no aplica la regla de
+  espejado de las 3 skills.
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola**.
+- No usar `/compact`: handoff + terminal nueva.
+- **No commitear sin que lo pida.** Nada a Zoho. (Esta sesión pidió el commit del 05a explícitamente.)
+
+---
+
+# Session Handoff — 2026-09-02 — `main` MERGEADO a la rama + review-loop de 5 turnos CERRADO POR TOPE
+
+> **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+> salida de `main` (`feb3f23`). **42 commits adelante de `main`, 7 atrás, sin pushear y sin mergear.**
+> La otra terminal trabaja en `C:\Repos\PERSONAL\Bootstrap Skills`, rama `fix/lint-de-temp-resistente-a-evasion`.
+
+## Objetivo del proyecto y del release
+
+Repo de skills de bootstrap para proyectos asistidos por IA. El release en curso es `bootstrap-v2`:
+PRD + 19 issues en `.scratch/bootstrap-v2/` (gitignored). Cerrados: **01, 04 (+04b, 04c), 17**.
+El campo `- **Status**:` de los archivos de issue **nunca se actualiza**: no es fuente de verdad, los
+trailers `Slice-Close:` sí.
+
+## Lo que hizo esta sesión — un solo pedido, cerrado
+
+Mergear `main` en la rama antes de abrir el issue 05. Salieron **7 commits**: el merge y los 6 del
+review-loop que disparó.
+
+| commit | qué |
+|---|---|
+| `f634ecc` | **merge de `main`** — 12 conflictos resueltos a mano + los 3 manifests regenerados |
+| `0ede74d` | turno 1: dos afirmaciones que el merge volvió falsas, dos guards esquivables |
+| `4208a95` | turno 2: los guards de presencia se cambian por **goldens**; nace `tools/reseal-goldens.ps1` |
+| `069d338` | turno 3: el guard de rangos **deja de ensancharse** y pasa a declararse; el golden verifica orden |
+| `2a7187c` | turno 4: dos guards que se esquivaban moviendo una línea; dos afirmaciones que no ocurrieron |
+| `fdda38a` | turno 5: el guion sale del ruido (falso positivo), el guard de comentarios deja de cazar flechas |
+| `f515d72` | pase de coherencia + trailer `Slice-Close:` |
+
+### El merge: 12 conflictos, no los 3 que el handoff anterior anticipaba
+
+`.claude/hooks/review-loop-trigger.ps1` ×4 · los 3 `SKILL.md` · `tests/mirror.tests.ps1` ·
+`CONTEXT.md` · `docs/TESTING.md` · `docs/SESSION_HANDOFF.md` · los 3 `.bootstrap-manifest.json`.
+
+- **Hooks**: se tomó la resolución hoisteada del paso 5b que trae `main`, conservando el comentario
+  de la rama que distingue la red de ~400 líneas del techo de planificación (ADR-0008).
+- **`SKILL.md`**: versión de `main` (el Step 2 cuenta contra el scaffold en vez de llevar números a
+  mano, más el párrafo del reporte JSON de `copy-scaffold`), corrigiendo `docs/ai-workflow` de 5 a
+  **7 docs**, que es lo que el scaffold tiene tras el issue 17.
+- **`mirror.tests.ps1`**: los dos bloques que ambas ramas agregaron en el mismo lugar conviven. El
+  guard de conteos perdió su primer assert porque `main` le sacó los números a la frase que ese
+  assert leía por regex.
+- **`CONTEXT.md` y el handoff**: las dos secciones nuevas conviven; ninguna rama editó la de la otra.
+- **Manifests**: regenerados con `tools/gen-manifest.ps1`, no se eligió un lado.
+
+## 🔴 El review-loop cerró POR TOPE — y lo que enseñó
+
+Cinco turnos, 2-3 reviewers cada uno, **cero bugs de lógica en los cinco**. Todo se repartió en dos
+familias:
+
+1. **Doce afirmaciones mías, retractadas.** Todas de atribución o de cobertura sobreafirmada.
+   **Cuatro estaban dentro del comentario que explicaba el fix del turno anterior**, y una se había
+   publicado en tres lugares a la vez (comentario + `docs/TESTING.md` + mensaje de commit).
+2. **Guards atados a la superficie.** El guard de rangos acumulados del ADR-0008 cayó turno tras
+   turno: sin backticks, negrita, indentación, blockquote, sin pipes externos, palabra antes del sha,
+   link markdown, tabla HTML, elipsis unicode, `<td>` multilínea, `<th>`, entidades numéricas, sha de
+   6, `~~tachado~~`, `_itálica_`. Y **cada ensanchamiento introdujo falsos positivos**: prosa con un
+   pipe adentro, una celda que describe una base nombrando su rango, la blockquote de retractación, y
+   un rango de fechas (`| 2026-09-01..2026-09-05 |`).
+
+**Lo que cortó el ciclo fue, otra vez, cambiar de instrumento o no afirmar:**
+
+- **Tres goldens por hash nuevos**, con su herramienta de re-sellado `tools/reseal-goldens.ps1`
+  (hermana de `reseal-step0b.ps1`): los dos párrafos del Step 2 del `SKILL.md` —acotados a la sección
+  y verificando **membresía Y orden**— y los dos párrafos del techo de `docs/ai-workflow/`.
+  Reemplazan anclas de presencia que pasaban en verde con la frase vaciada, negada o mudada.
+- **El guard de rangos dejó de ensancharse a propósito** y pasó a **declarar** qué caza y qué no,
+  igual que el guard de reparto de al lado. Está verificado con 16 casos: 7 que caza, 4 fugas
+  declaradas, 4 falsos positivos que ya no pueden dispararse.
+
+Esto **extiende** la memoria `parchar-prosa-de-procedimiento-no-converge` con un episodio más y con
+el corolario nuevo: **cada ensanchamiento de un guard de superficie paga con un falso positivo**, y
+el falso positivo rompe el documento, que es peor que el falso negativo declarado.
+
+## Estado del marcador — LEER ANTES DE CORRER `/review-loop`
+
+- **`marker` = `2a7187c`, a propósito.** Los fixes del turno 5 (`fdda38a`) y el del pase de
+  coherencia (`f515d72`) **no los revisó nadie**. El próximo turno los va a leer.
+- **`slice-open` = `9b9368d`, se conserva**: un cierre por tope conserva el ancla (ADR-0002). Ojo:
+  es el ancla del slice ANTERIOR, así que el pase de coherencia de esta sesión se corrió a mano
+  contra `ed07ceb` (el commit previo al merge), que es el arranque real de este slice.
+- Un marcador `WIP on ...` es **normal**: `-Action advance` lo corta con `git stash create`. Se usa
+  `git diff <marcador>` **pelado**; la forma `<marcador>..HEAD` imprime el diff **invertido**.
+
+## 🔴 `main` se movió MIENTRAS trabajaba — cambia los próximos pasos
+
+`main` pasó de `9c8faf5` (lo que mergeé) a **`3b3636a`**: 7 commits de la otra terminal, encabezados
+por `23c21cc` *"las suites ya no filtran sus workspaces a `%TEMP%`"*, con su propio review-loop de 5
+turnos encima. **Es el fix de las dos suites prohibidas.**
+
+Consecuencias: `tests/gen-mcp-json.tests.ps1` y `tests/copy-scaffold.tests.ps1` dejarían de dar un
+rojo espurio (pasaríamos de 14 suites corribles a 16), y el **issue 02** deja de estar bloqueado por
+esa colisión. **Decisión tomada: NO mergear `main` otra vez ahora** — son 7 commits que no tocan
+nada de lo que el 05 necesita y disparan otro review-loop completo. Se agrupa con el cierre del 05.
+
+## Tests
+
+Las **14 suites seguras** en verde tras cada turno (las 16 de `tests/` menos las 2 prohibidas):
+
+```
+pwsh -NoProfile -File tests/mirror.tests.ps1
+pwsh -NoProfile -File tests/techo-del-slice.tests.ps1
+pwsh -NoProfile -File tests/review-loop-docs-gate.tests.ps1      # vino de main en el merge
+pwsh -NoProfile -File tests/shareable-leaks.tests.ps1
+pwsh -NoProfile -File tests/slice-review.tests.ps1
+pwsh -NoProfile -File tests/regla-de-afirmaciones.tests.ps1
+pwsh -NoProfile -File tests/review-loop-incremental.tests.ps1
+pwsh -NoProfile -File tests/export-shareable.tests.ps1
+pwsh -NoProfile -File tests/review-loop-trigger.tests.ps1
+pwsh -NoProfile -File tests/review-marker.tests.ps1
+pwsh -NoProfile -File tests/alignment-gate.tests.ps1
+pwsh -NoProfile -File tests/recover-skill-bases.tests.ps1
+pwsh -NoProfile -File tests/apply-env.tests.ps1
+pwsh -NoProfile -File tests/install-clients.tests.ps1
+python tools/recover-skill-bases.py --self-test                  # 84 ok, 0 fail
+pwsh -NoProfile -File tools/reseal-goldens.ps1 -Check            # no escribe; sale 1 si un golden quedó viejo
+```
+
+🔴 **Siguen PROHIBIDAS en ESTA rama**: `tests/gen-mcp-json.tests.ps1` y `tests/copy-scaffold.tests.ps1`.
+El fix está en `main` (`23c21cc`) pero **esta rama todavía no lo tiene**. Correrlas acá barre `%TEMP%`
+por prefijo global y su rojo es una regresión falsa.
+
+**Ningún test falla.** Correrlas **de a una**: en paralelo colisionan en `%TEMP%` y
+`export-shareable` da un rojo espurio.
+
+## Gotchas medidos esta sesión (todos costaron tiempo)
+
+- 🔴 **`sed -i` convierte CRLF a LF en el archivo entero.** Convirtió 8 archivos que en disco eran
+  CRLF. Hay que restaurarlos **antes** de regenerar manifests: los hashes son crudos, sin normalizar
+  fines de línea, así que un manifest sellado sobre bytes LF rutea todo a `customized` en un clon
+  nuevo. Para editar, mejor Python leyendo/escribiendo bytes y preservando el estilo del archivo.
+- 🔴 **El heredoc de la Bash tool se come un nivel de backslashes.** `"docs\\adr\\0008-..."` en un
+  heredoc de Python llegó como `"docs\adr\0008-..."`, donde `\0` es un **NUL**, y quedó un NUL
+  dentro de un `.ps1` (PowerShell: *"Null character in path"*). **Escribir el script con la
+  herramienta Write y ejecutarlo**, nunca heredoc con backslashes o regex.
+- 🔴 **Python imprimiendo acentos a la consola cp1252 tira `UnicodeEncodeError` a mitad de script** y
+  se lleva puesto el `restore`: un arnés dejó el handoff mutado. Restaurar en `finally`, o no
+  imprimir la salida del test.
+- 🔴 **`git show HEAD:<file>` devuelve el blob (LF).** Restaurar un archivo así lo deja LF con
+  `autocrlf=true` y `git status` lo marca modificado. Restaurar CRLF después.
+- 🔴 **Un reviewer escribió en el árbol real**: `[IO.File]` usa el **CWD del proceso**, no el
+  `Set-Location` de PowerShell. A los reviewers hay que exigirles **rutas absolutas** dentro de su
+  worktree, y verificar `git status` uno mismo cuando avisan que limpiaron.
+- **`git worktree add` con ruta larga falla** (`Filename too long`). Usar
+  `C:\Users\marti\AppData\Local\Temp\<nombre CORTO>`, no el scratchpad de la sesión.
+- **Un `-eq` sobre un array filtra**; `$lineas.Count -eq 1` sobre un int está bien, pero envolver en
+  `@()` antes de indexar sigue siendo obligatorio.
+- **`IndexOf` toma la PRIMERA aparición**: acotar un golden a `## Step 2 ` sin exigir que el
+  encabezado sea único deja que un encabezado señuelo selle una copia decorativa.
+
+## Bugs abiertos (declarados, NO arreglados)
+
+1. 🔴 **Ningún test verifica que un manifest esté sincronizado con su scaffold.**
+   `compare-scaffold.ps1` itera `$canon.files` y **nunca hashea los archivos canónicos**: con un hash
+   viejo, un downstream con el contenido VIEJO da `uptodate`. Preexistente, es su propio slice.
+2. 🔴 **Los hashes del manifest son crudos, sin normalizar fines de línea** (memoria
+   `bug-autocrlf-manifests-hashes-mixtos`). Regenerar manifests desde un `git worktree` fresco
+   produce hashes distintos para `ESTIMATION_GUIDE.md` y `RUNBOOK_TEMPLATE.md` (CRLF vs LF).
+3. **`tools/reseal-goldens.ps1` duplica ~18 líneas de `tools/reseal-step0b.ps1`** (el guard de
+   divergencia y el bloque de `-Check`). Viola la regla de servicios reusables del `CLAUDE.md`;
+   **aceptado a conciencia** en el turno 3 porque unificarlas toca el golden del que depende toda la
+   suite de espejado.
+4. **Mutante sobreviviente** en `tools/recover-skill-bases.py:1094`: el argumento de umbral de ese
+   `_rep(...)` no está cubierto. Severidad baja, defendible.
+5. **Fugas declaradas del guard de rangos** (leer la lista en `tests/techo-del-slice.tests.ps1` antes
+   de "arreglarlo"): palabra antes del sha, blockquote, segunda celda con columna índice, `<td>`
+   multilínea, `<th>`, entidades numéricas, sha de menos de 7, y toda la puntuación fuera de
+   `$reRuido` (la raya `—`, `+`, `#`, `&nbsp;`, lista numerada, y el guion de lista como falso
+   negativo aceptado). **Ensancharlo otra vez reintroduce falsos positivos ya medidos.**
+6. **Familias que el golden del Step 2 NO cubre**, declaradas: un fence o un
+   `<div style="display:none">` con los delimitadores en líneas propias, y una negación en la línea
+   de arriba o de abajo. Cerrarlas pide congelar la sección entera, y el Step 2 diverge
+   legítimamente entre variantes.
+
+## Pendientes concretos
+
+1. 🔴 **Abrir el slice 05** (`.scratch/bootstrap-v2/issues/05-lockfile-sellado-y-verificado.md`).
+   Es el próximo paso acordado. Al planificarlo, contemplar que `upstream.clone` de
+   `.scratch/bootstrap-v2/skill-bases.json` guarda una **ruta absoluta del temp de la sesión**, así
+   que el documento **nunca es byte-estable** entre corridas ni máquinas: si el lockfile sella el
+   documento entero, ese campo hay que excluirlo o normalizarlo.
+2. **Mergear `main` otra vez** (7 commits, `3b3636a`) **agrupado con el cierre del 05**. Trae el fix
+   de `%TEMP%` y desbloquea correr las 16 suites y el issue 02.
+3. **Implementar el issue 19** cuando toque, con el par congelado como fixture.
+4. **Rollout del issue 18**: `C:\Repos\SOUTHPOINTLABS\Forecasting App\CLAUDE.md:98` tiene el bullet
+   viejo del techo. Su bullet del `/review-loop` (`:82`) está **más adelantado** que el de esta rama,
+   así que el merge no es en una sola dirección.
+
+## Antes de tocar código
+
+- El `alignment-gate` bloquea el primer edit de código de la sesión. La alineación de este release ya
+  está hecha (grill del 2026-08-28, PRD + 19 issues aprobados). **Reintentar el edit y seguir.**
+- Al commitear con la Bash tool: `-m "..."` repetidos, **nunca** here-strings de PowerShell.
+- Los tres scaffolds se mantienen espejados: cualquier cambio va en las **4 copias** (repo + 3
+  scaffolds) y después **regenerar los 3 manifests** con `tools/gen-manifest.ps1`.
+- Si tocás un párrafo congelado por un golden, **re-grabalo con su herramienta**
+  (`tools/reseal-goldens.ps1` o `tools/reseal-step0b.ps1`) en el mismo commit. Editar un fixture a
+  mano está prohibido por `CLAUDE.md:87`. Si el cambio es un **reorden** de los párrafos del Step 2,
+  el reseal no alcanza: hay que reordenar las dos listas de anclas duplicadas
+  (`$anclas2` en `tests/mirror.tests.ps1` y `anclas` en `tools/reseal-goldens.ps1`).
+
+## Preferencias del usuario vigentes
+
+- Decidir lo técnico y recomendar; elevar a pregunta solo diseño, producto, costo/tiempo o scope.
+- Exigir medición antes de cambiar el proceso.
+- Paralelizar, pero el techo medido es **4-6 agentes por ola**.
+- No usar `/compact`: handoff + terminal nueva.
+- No commitear sin que lo pida. Nada a Zoho.
+
+---
+
 # Session Handoff — 2026-09-01 (tarde) — issue 19 REESCRITO, `skill-bases.json` REGENERADO, cambio de regla del techo con review-loop CERRADO POR TOPE
 
 > **Worktree propio**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,

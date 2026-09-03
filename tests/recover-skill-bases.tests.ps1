@@ -16,7 +16,7 @@ function Assert($cond, $msg) {
 # holgura, un mutante puede borrar tantos checks como holgura haya y seguir pasando —
 # quedó en 59 mientras el self-test ya corría 62, o sea que los tres checks recién agregados
 # eran borrables en verde.
-$ExpectedChecks = 84
+$ExpectedChecks = 125
 
 # La herramienta tiene que existir: si no, el intérprete escupe su error y un assert de
 # "no hubo fails" pasaría en verde sin haber ejercitado nada.

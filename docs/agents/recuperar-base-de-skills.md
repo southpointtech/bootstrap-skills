@@ -60,6 +60,7 @@ Si la necesitás al día: `git rev-list --objects --all` filtrando por `SKILL.md
 | 2 | error de invocación, **detectado antes de trabajar**: `--upstream-clone` que no es la raíz de un clon, `--skills-dir` inexistente, un `--skill` sin `SKILL.md`, o un `--out` que no se va a poder escribir. También es el que usa argparse para una opción inválida |
 | 3 | la recuperación salió bien pero la escritura de `--out` falló igual (permisos, disco lleno, ruta de red). El reporte sale por **stdout** para no perderlo, y el destino que ya estaba queda intacto |
 | 4 | no se pudo clonar upstream (sin red, URL mala, git que falla). Va aparte del 2 a propósito: "lo tipeaste mal" no se reintenta, "no hay red" sí |
+| 5 | la recuperación no se pudo completar contra el clon: git falló a mitad, o upstream **no entregó blobs que hacen falta** (repo incompleto o podado, o un clon parcial). Va aparte del 4 porque acá el clon existe y responde: lo que falta es contenido adentro. Antes esto salía como traceback crudo **con exit 1**, que ya significa otra cosa |
 
 Todo lo que se puede detectar se detecta antes de clonar y de recuperar, porque la recuperación
 cuesta entre 81 s y 98 s con el clon ya hecho (medido) y un error de invocación no debe costar eso —
@@ -68,7 +69,13 @@ y sobre todo no debe terminar escribiendo un reporte todo-ceros encima de uno bu
 ## Qué requiere
 
 - **Red**, salvo que le pases `--upstream-clone`. El clon tiene que traer **toda la historia**: la
-  base vive en blobs viejos, no en el HEAD. Nada de `--depth`.
+  base vive en blobs viejos, no en el HEAD. Nada de `--depth`. Tampoco `--filter=blob:none` ni
+  ningún otro clon parcial: la base se elige comparando el CONTENIDO de los blobs viejos, así que
+  un clon que no los tiene no puede recuperar nada. Con red, git los va a buscar **de a uno**
+  (medido con `GIT_TRACE`: cinco blobs ausentes, cinco subprocesos `fetch`) y la corrida se
+  vuelve interminable. Sin red **corta con exit 5 en los dos casos**, y solo cambia el mensaje:
+  si el promisor está inalcanzable, git muere primero y el que sale impreso es su error; si no,
+  el de `_exigir_blobs` diciendo cuántos blobs faltaron.
 - **git** y **Python 3** (solo librería estándar: `difflib`, `json`, `subprocess`).
 - **Tiempo.** Medido el 2026-08-28 en la máquina de Martín, contra `mattpocock/skills` en
   `6654f6b` (413 blobs `*/SKILL.md` en toda la historia):
@@ -267,8 +274,18 @@ afirmación verificable escrita sin verificar.
 
 ## Resultado conocido
 
-Medido el 2026-08-28 contra `mattpocock/skills` en `6654f6b`. Sirve de regresión: si volvés a correr
-la herramienta contra ese mismo HEAD y no da esto, algo cambió en la herramienta.
+Medido el 2026-08-28 contra `mattpocock/skills` en `6654f6b`; la columna `similitud` re-medida el
+2026-09-03.
+
+Sirve de regresión **acotada**, y el alcance importa: contra ese mismo HEAD, lo que tiene que
+seguir dando igual son las columnas que **no dependen de nuestra copia** — base (blob), path
+histórico, commit base y HEAD de upstream. Si una de esas cambia, cambió la herramienta.
+
+La columna `similitud`, en cambio, **envejece sola**: compara el blob de upstream contra nuestro
+`SKILL.md`, así que cualquier edición del scaffold la mueve sin que la herramienta haya cambiado.
+Ya pasó: `tdd` figuraba en 0.8625 (medido el 2026-08-31) y hoy da 0.8450 porque `87f11fe` editó el
+cuerpo local el 2026-09-01 — verificado midiendo contra `87f11fe^`, que devuelve 0.862512. Un
+número distinto en esa columna manda a leer `git log` del `SKILL.md`, no a buscar un bug.
 
 | skill | similitud | base (blob) | path histórico | commit base | HEAD de upstream | empate |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -276,7 +293,7 @@ la herramienta contra ese mismo HEAD y no da esto, algo cambió en la herramient
 | grill-with-docs | 1.0000 | `5ea0aa91` | `skills/engineering/grill-with-docs/SKILL.md` | `e74f0061` 2026-05-13 | present | no |
 | handoff | 1.0000 | `0aa5b993` | `skills/productivity/handoff/SKILL.md` | `d54c497a` 2026-05-19 | present | sí: `ec762d97` 2026-06-12 |
 | setup-matt-pocock-skills | 1.0000 | `1ebc6e14` | `skills/engineering/setup-matt-pocock-skills/SKILL.md` | `43692562` 2026-04-29 | present | no |
-| tdd | 0.8625 | `7a989411` | `skills/engineering/tdd/SKILL.md` | `7afa86d3` 2026-04-28 | present | no |
+| tdd | 0.8450 | `7a989411` | `skills/engineering/tdd/SKILL.md` | `7afa86d3` 2026-04-28 | present | no |
 | to-issues | 0.9466 | `9f6efbfe` | `skills/engineering/to-issues/SKILL.md` | `ff3ee1dd` 2026-05-06 | **gone** | sí: `9b7dec9e` 2026-06-12 |
 | to-prd | 1.0000 | `47a01d4e` | `skills/engineering/to-prd/SKILL.md` | `70141119` 2026-05-06 | renamed → `to-spec` | no |
 | triage | 1.0000 | `3dee68f9` | `skills/engineering/triage/SKILL.md` | `179a14e7` 2026-04-28 | present | no |
@@ -321,7 +338,7 @@ correr nada daría verde vacío— y que el total de aserciones sea **exactament
 (3 fallas), assert borrado (1 falla, la del total exacto) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **84
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **125
 afirmaciones** sobre doce skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
@@ -395,7 +412,58 @@ sino armar el fixture, que hace una docena de commits de git. Cubre:
   dejaba el caso anterior en verde;
 - que `missingLocally` cuente **los que faltan** y no cualquier estado (el fixture tiene dos
   faltantes y una presente a propósito: con un solo faltante el contador daba 1 con cualquier
-  predicado).
+  predicado);
+- que el **delimitador del frontmatter sea una línea `---` sola**, en las dos puntas: que un
+  `----` o un `--- texto` no lo cierren —cortaban en la línea equivocada y dejaban el cierre real
+  adentro del cuerpo—, que un `----` tampoco lo **abra**, y que el whitespace invisible después de
+  los guiones (`---␣`, `---⇥`) sí lo cierre. Esa última mitad es la que más duele si se pierde:
+  exigir `\n---\n` exacto convierte un espacio invisible en "no hay cierre", el frontmatter entero
+  se va al cuerpo y el ratio se desploma **en silencio** (medido: `zoom-out` 0.4009 y `grill-me`
+  0.5551, los dos abajo del umbral de 0.60, o sea `unmatched` por un espacio). Se cubren las tres
+  salidas: cierra, cierra en la última línea sin salto final, y no cierra nunca —donde el cuerpo es
+  **todo** el contenido, no vacío;
+- que la lectura por lotes (`cat-file --batch`) sobreviva a un blob que git **no entrega**
+  (`<oid> missing`, dos campos y sin contenido): que no explote, que el ausente no entre al dict, y
+  que el desplazamiento del resto siga bien con el ausente **primero, en el medio y al final**. El
+  contenido se compara contra los bytes que devuelve `cat-file blob` aparte, no contra la propia
+  función: compararla consigo misma dejaba pasar cualquier corrupción uniforme (truncar un byte
+  sobrevivía entero, porque el `.strip()` del cuerpo se lo come). El parseo vive en `_parse_batch`,
+  separado para poder alimentarlo con **bytes fabricados**: una salida cortada a la mitad, o un
+  `size` que se pasa del largo, no salen de un git que funciona, y sin esa costura esas ramas
+  serían código sin test. La **desincronización** —un header que no corresponde al oid pedido, que
+  atribuiría contenidos al oid equivocado— se cubre por las dos vías: con bytes fabricados, y
+  también **con git de verdad**, pidiendo un oid abreviado. Git eco-a el oid **resuelto**, no el
+  que se le mandó, así que un abreviado (o uno en mayúscula) vuelve con un header que no coincide.
+  De ahí el contrato de entrada de `_parse_batch`: 40 hex en minúscula, que es lo que pasan los
+  dos call-sites de producción;
+- que las **dos políticas ante un blob que falta sean las que se declaran, y no se puedan
+  intercambiar**: el corpus de candidatos **corta la corrida** nombrando cuál corpus (una base
+  elegida sobre un corpus incompleto publica un fork propio que nadie midió), y las pistas de
+  sucesor del HEAD **degradan salteando** (son pistas para un humano, no bases). De esa segunda
+  política queda una limitación **aceptada**: el reporte no distingue un candidato descartado por
+  ilegible de uno que no entró al top-3 — `unconfirmedSuccessorCandidates` sale más corta y nada
+  lo dice. No se le agregó un campo porque ese esquema lo consume el lockfile, y cambiarlo es
+  decisión de ese trabajo, no de este. Se ejercitan
+  adentro de `recover()` mutilando la lectura, porque los checks sobre la función suelta dejaban
+  borrar cualquiera de los dos call-sites sin que nada se pusiera rojo. La mutilación **vacía** la
+  lectura en vez de sacarle un blob: las pistas se publican como un top-3, así que sacar uno lo
+  tapa el cuarto candidato y el reporte queda igual (medido: 6 pistas antes y 6 después, o sea el
+  check pasaba sin observar nada);
+- que **ninguna salida rara del batch termine mal**, en las dos formas distintas en que terminaba
+  mal. Una salida cortada antes de la cabecera y un `size` que no es un número levantaban
+  `ValueError` pelado: como no es `RuntimeError`, esquivaba el handler del CLI y volvía a salir
+  como traceback con exit 1, justo lo que el exit 5 vino a sacar. Un `size` **más grande que lo
+  que hay** era el caso peor y no levantaba nada: devolvía el contenido **truncado en silencio**,
+  y con un solo oid no hay iteración siguiente que lo note. Ese guard se ancla **en el borde** (el
+  máximo que entra se acepta; uno más ya es truncado), porque un caso lejos del borde deja correr
+  el guard un byte sin que nada se queje — medido: dos mutantes de borde sobrevivían la suite
+  anterior;
+- que el **BOM** se saque antes de mirar la apertura del frontmatter — es la propiedad que
+  distingue este lector del de `normalized-hash.ps1`, y se afirmaba sin cubrirse;
+- que una recuperación abortada salga por el CLI con **exit 5**, lo diga por stderr y **no pise el
+  reporte que ya estaba**. El destino se pre-crea con un centinela y se verifica que sobreviva:
+  mirar que un archivo que nunca existió siga sin existir sí caza a un `main` que escribe igual
+  —medido—, pero no ve la otra mitad, que es pisar o truncar un reporte bueno que ya estaba.
 
 Devuelve código de salida distinto de cero si alguna falla, e imprime todas: una regresión temprana
 no esconde las que vienen después.
