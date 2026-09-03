@@ -1257,8 +1257,9 @@ foreach ($cnf in $casosNoFelices) {
 # elimina — el borde declarado de la parte A (tabla en el comentario de $script:FuncionesDelHelper)
 # lista grafías que lo pasan: la familia de redefinición (function global:/script:/local:,
 # Set-Item function:, New-Item -Path function: -Force, Import-Module de un .psm1 de afuera) y la de
-# redirección del import (foreach/Set-Variable/$script:lib/$PSScriptRoot=). Perseguirlas una por una
-# es el juego que este archivo ya perdió cinco veces.
+# redirección del import (foreach/Set-Variable/$script:lib). ($PSScriptRoot= no redirige a otro
+# archivo: hace FALLAR el import, así que cae con el "import fallido" de F2, no acá.) Perseguirlas una
+# por una es el juego que este archivo ya perdió cinco veces.
 #
 # Esto no aproxima: corre la suite en un runspace anidado y compara, por cada función del helper,
 # `(Get-Command X).ScriptBlock.File` contra el archivo canónico del helper. El mecanismo es inmune a
