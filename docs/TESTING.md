@@ -427,6 +427,37 @@ atómica el reporte bueno queda destruido; sin la rama de la raíz inexistente e
 la limpieza queda un `.tmp` huérfano). El detalle de qué cubre el self-test está en
 `docs/agents/recuperar-base-de-skills.md`.
 
+## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
+
+`pwsh -NoProfile -File tests/normalized-hash.tests.ps1` — cubre el módulo M1 del release
+`bootstrap-v2`: la única forma de hashear contenido del repo. Existe porque el hash con el que se
+sellan los manifests se calculaba sobre los bytes crudos, o sea sobre cómo el checkout de cada
+máquina escribió los fines de línea, y un manifest sellado en una máquina reportaba drift falso en
+otra (memoria `bug-autocrlf-manifests-hashes-mixtos`). El contrato: **sha256 hex minúscula de los
+bytes UTF-8 del contenido con los fines de línea unificados a LF y el BOM descartado.**
+
+Dos trampas de este repo que el archivo evita a propósito:
+
+- **Asertar solo "igual" y "distinto" no fija el algoritmo.** Una función que devolviera sha1, o que
+  hasheara la longitud, pasaría todos los pares igual/distinto. Por eso hay **literales hex
+  congelados** (calculados con `hashlib.sha256` de Python, fuera de la función bajo prueba) contra
+  los que se compara directo.
+- **Un normalizador que BORRA los saltos pasaría toda la batería de CRLF/LF.** Por eso se verifica
+  también que `ab` y `a<LF>b` sigan dando hashes **distintos**: la normalización unifica el salto,
+  no lo elimina.
+
+Casos cubiertos: los tres estilos de fin de línea colapsan al mismo hash (archivo y cuerpo); lo que
+NO se colapsa (contenido distinto, salto final, espacios al final, vacío vs. un salto); el algoritmo
+contra literales; `-Scope Body` (el frontmatter no cuenta, el cuerpo sí, sin frontmatter los dos
+alcances coinciden); las reglas del frontmatter (solo si arranca con `---`, cierre exacto `---`, un
+`----` no cierra, abierto sin cierre no recorta, un `---` en el medio no es delimitador); el BOM por
+las dos entradas; los acentos como UTF-8 y no como codepage; y que un archivo inexistente **tire**
+en vez de devolver el hash del vacío. Verificado con 13 mutantes, cada uno con su falla vista: el
+que borra el descarte de BOM solo muere por el caso de `-Content` (por `-Path`, `ReadAllText` ya se
+come el BOM). El guard de conteo (`$ExpectedChecks`) muerde al mutante que borra un assert, con el
+número capturado **antes** de la llamada que lo verifica —PowerShell evalúa los argumentos antes de
+entrar a la función—, no `$ExpectedChecks + 1`, que pasaría en verde afirmando un número equivocado.
+
 ## Testeo de setup-mcp-workstation
 
 Los dos scripts de la skill se testean con runners sin Pester, cada uno imprime `TODOS LOS TESTS PASARON` o `N test(s) FALLARON` y devuelve el exit code acorde:
