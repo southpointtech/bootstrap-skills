@@ -1,3 +1,176 @@
+# Session Handoff — 2026-09-04 (tarde) — **`tools/focus-measure.ts` MERGEADO a `master` local de analytics (`39b6f81`)**: los números del ruleset de foco ya son reproducibles. Review-loop de 5 turnos cerrado POR CAP + pasada de coherencia.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo de esta sesión ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` está **3 commits ahead de `origin/main`** (los
+handoffs no se pushean solos; el clasificador de auto-mode bloquea `git push`, lo corre el usuario
+con `!`).
+
+**Se cerró el paso 2 del handoff anterior**: los scripts de medición dejaron de ser `node -e`
+irreproducibles y pasaron a ser una herramienta commiteada con su red de tests.
+
+### Lo que se construyó y aterrizó
+
+`master` local de analytics: `8ddd023..39b6f81`, **ff, 7 commits**. `claude-analytics` NO tiene
+remoto → el master local ES el landing. Worktree y rama borrados; árbol limpio.
+
+`tools/focus-measure.ts` corre las reglas commiteadas sobre los `agents.jsonl` congelados y emite
+cada métrica **con su denominador al lado** y un id estable que la prosa puede citar. **No toca la
+DB**: inmune al lock de `ClaudeAnalyticsSync`.
+
+- `--ruleset <git-ref>` materializa una versión histórica de `focus-rules.ts` con `git show` y
+  clasifica con ella. Es lo único que hace verificable el lado "antes" de cualquier par: el repo
+  guarda el fingerprint de las versiones viejas, no su código.
+- `--vs <git-ref>` reporta en cuántas filas difieren dos rulesets.
+- `--json` para consumo programático.
+
+**Reproduce, verificado:** el par de cobertura v1→v3 (**143/419 → 216/419** en 2026-08 y
+**71/693 → 424/693** en 2026-09-post), el desglose de los 8 focos al dígito, y los períodos de los
+"Supuestos" del reporte de comparación.
+
+### Cambios de fondo en `src/` (sin cambio de clasificación, verificado a escala de corpus)
+
+1. **`declarationZones` deduplica las zonas.** `DECLARED_ANCHORS` tiene anclas que se SOLAPAN (`tu
+   foco:` y `foco:` matchean el mismo texto y terminan en el mismo carácter), así que una sola
+   declaración aportaba dos entradas. `declared.multi_anchor` pasó de **104 a 1** (2026-08) y de
+   **391 a 1** (2026-09-post). O sea: las declaraciones múltiples SÍ son raras, al revés de lo que
+   afirmaba el docstring. `--vs 9a01083` da `focus_differs` 0/440 y 0/888.
+2. **`readAgentsJsonl` extraído de `freezeAgents`** (`src/lib/baseline.ts`) y usado por los dos. La
+   herramienta tenía su propio lector con otra regla de dedupe: por `agentId` (que el esquema declara
+   `nullish`) y quedándose con la copia MENOS completa. Ahora hay una sola regla.
+3. **`declarationDetail`** y **`usableSentinels`** son superficie de medición exportada (precedente:
+   `signatureOffset`). `FOCUS_RULES_HASH` NO se movió y es correcto: cubre la clasificación, no la
+   medición.
+4. **`tsconfig.tools.json` + `npm run lint` extendido**: el perfil principal incluye sólo `src/**/*`,
+   así que `tools/` pasaba el lint sin ser mirado. Encontró un error de tipos real en la 1ª corrida.
+
+### El review-loop: 5 turnos, cerró POR CAP + coherencia
+
+| turno | qué encontró |
+|---|---|
+| 1 | anclas solapadas (métrica artefacto); lector de snapshots duplicado con otra regla de dedupe |
+| 2 | **regresión del turno 1**: guard duro de sentinels rompía los refs de v1; 5 mutantes vivos en el bloque de métricas |
+| 3 | todo el camino de degradación sin un test; un comentario PARTIDO AL MEDIO por un reemplazo por script |
+| 4 | el aviso PODÍA MENTIR (renderizaba la constante, no el conjunto instalado); la red sólo detectaba remociones |
+| 5 | **regresión del turno 4**: la "escritura atómica" crasheaba con `EPERM` en Windows en el escenario que decía cubrir |
+
+**Dos de cinco turnos encontraron regresiones introducidas por el turno anterior.** Ninguna la
+atrapaba la suite.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear de otra
+  sesión** (`SESSION_HANDOFF.md` modificado + 3 untracked). **NO tocarlo.** Para avanzar `master` se
+  usó **`git push . <rama>:master`** desde el repo principal, que no toca ningún working tree.
+- **Al borrar un worktree en Windows, chequear reparse points ANTES**: `Get-ChildItem -Recurse
+  -Attributes ReparsePoint`. Si hay un junction a `node_modules`, borrarlo con
+  `[System.IO.Directory]::Delete($link, $false)` primero — el borrado recursivo lo atraviesa y vacía
+  el target. Esta sesión evitó el junction usando `npm ci` en el worktree.
+- **`git branch -d` compara contra HEAD, no contra master.** Dice "not fully merged" para una rama
+  que SÍ está en master si HEAD está en otra rama. Verificar con `git branch --merged master` y
+  comparar los sha antes de usar `-D`.
+- **El heredoc de la Bash tool se come un nivel de backslashes.** Rompió cuatro veces esta sesión: un
+  patrón de mutación con `\r?\n` que no matcheaba, un `\b` que quedó como backspace literal en un
+  `.md`, una regex de test que quedó con los pipes sin escapar (o sea, alternancia) y fallaba con
+  NaN, y un heredoc entero que no cerró. Para regex, escapes y textos largos: usar Write/Edit, o
+  construir el backslash con `chr(92)` en Python.
+- **Un script de mutación que se cae deja el mutante aplicado.** Pasó (UnicodeDecodeError leyendo la
+  salida de un subprocess). Envolver SIEMPRE en `try/finally` que revierta, y revertir con Edit,
+  nunca con `git checkout` (hay trabajo sin commitear).
+- **No aplicar fixes hasta que cierren TODOS los focos del turno**: dos revisores detectaron que se
+  les cambió el árbol debajo mientras medían.
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- Push a Bootstrap Skills: cuenta **southpointtech** (MartinDele703 da 403).
+
+## Tests
+
+`cd C:\Repos\PERSONAL\claude-analytics` (rama `master`):
+- `node node_modules/vitest/vitest.mjs run` → **536 passed, 3 skipped (539)**. Eran 500/3 al empezar
+  el slice. Los 3 skipped son `baseline-attributions-golden.test.ts` (tocan la DB real).
+- `npm run lint` → limpio (ahora `tsc` sobre `src/` + `tools/`).
+- ⚠️ El lint sigue sin `--noUnusedLocals`: no detecta funciones ni imports muertos.
+
+## Bugs abiertos (declarados, no bloquean)
+
+- **Dos números publicados NO reproducen**: `focus-rules.ts` dice "57 % (396/693) y 36 % (152/419)" y
+  "las 372 filas y las 138"; se mide hoy 400/693 y 146/419 (`declared.anchored`), 370 y 129
+  (`declared`). Decisión de alcance: no reescribir esa prosa. **Ahora están tabulados en
+  `tools/README.md` §"Números que todavía NO reproducen"** con el comando para reproducirlos, porque
+  el registro largo vive en `.scratch/`, que está gitignoreado y no viaja con el repo.
+- **`tests/` no lo typechequea ningún perfil.** Agregar `"tests/**/*.ts"` al include de
+  `tsconfig.tools.json` deja exactamente 2 errores reales preexistentes: una `interface RawAgent`
+  local en `baseline-freeze.test.ts:29` sin el campo `promptLen` que el propio test usa (línea 134), y
+  un doble en `baseline-classifications.test.ts:167` que devuelve `focus: string` donde va `Focus`.
+  Los dos se arreglan en minutos y ahora `baseline.ts` exporta el tipo `RawAgent` que corresponde.
+- **Los 4 tests que cargan un ruleset histórico dependen de la historia de git** (sha `63a781e`
+  hardcodeado). Hoy es seguro (ancestro de HEAD, en master, sin CI). Si se agrega CI hay que
+  configurar fetch completo, o los tests se caen con el error nuevo (que al menos lo explica).
+- **`freeze.mjs` sobre-reporta los turnos en cada PROVENANCE** (3916 vs 3465 líneas reales). En
+  `.scratch/freeze-mjs-hardening.md` junto a los 3 MEDIUM previos. **Sin cambios esta sesión.**
+- **269 reviewers del lado nuevo y 203 del viejo siguen `unrecognized`**, casi todos del fork
+  `/code-review`. Es decisión de taxonomía, no de parsing.
+- El slice mide **+1363 líneas**, más de 3× el techo del CLAUDE.md. Declarado en el turno 3, no
+  corregido: lo que creció fueron los turnos del loop, no el scope.
+
+## Próximos pasos
+
+1. **Medir el BENEFICIO del ciclo nuevo de review** — sigue siendo la mitad que falta del Track B y
+   lo único que convierte "cuesta 60 % más por turno" en una decisión. Hoy no hay dato de hallazgos
+   reales por reviewer. Requiere rehacer la copia de la DB (`db.backup()` de better-sqlite3 →
+   `baseline freeze/classify/attribute`), porque la copia de trabajo vivía en un scratchpad y se
+   perdió. **Ahora hay precedente de cómo commitear los scripts que produzcan esos números.**
+2. **Hardening de `freeze.mjs`** (`.scratch/freeze-mjs-hardening.md`, 4 MEDIUM). Su slice debe además
+   sincronizar la copia machine-local o re-registrar la tarea al repo (`schtasks /Create /XML`; el
+   harness bloquea `Register-ScheduledTask`).
+3. **Cerrar el gap de typecheck de `tests/`** — 2 errores, minutos, y cierra un agujero que hoy deja
+   sin red la API que `focus-measure` expone.
+4. Deuda vieja sin cambios: `! git push` en Bootstrap Skills (3 commits ahead); `! git branch -D
+   fix/lint-de-temp-resistente-a-evasion`; self-upgrade de SouthPoint-Hub; podar snapshots viejos de
+   la DB (~50 MB/semana).
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; las bifurcaciones técnicas van resueltas y registradas por
+  escrito. Diseño/alcance/costo sí se preguntan. (Esta sesión: dos preguntas — el alcance del slice,
+  y la que exigió el hook `alignment-gate`.)
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- El clasificador de auto-mode frena `git push` y escrituras hacia afuera; commit/merge local no.
+- **PARCHE OPERATIVO VIGENTE**: antes de correr `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`. Override de severidad: la prosa interna es
+  Low y no bloquea el cierre; no re-editar prosa de un turno anterior del mismo loop; un delta 100 %
+  prosa CIERRA el loop. **No editar las skills**: el fix real va en el bootstrap.
+
+## Lección medida (7ª vez en estos repos)
+
+**Parchar prosa no converge, y ahora hay una variante peor: la prosa sobre QUÉ PRUEBA UN TEST.** De
+los ~35 hallazgos reales del loop, la mayoría fueron afirmaciones falsas mías. Lo nuevo de esta
+sesión son tres géneros:
+
+1. **Afirmaciones sobre la red misma.** Un comentario decía que cierta aserción se movía si se
+   alteraba la lista de sentinels: **falso en sus dos mitades**, medido. Y un test se llamaba
+   prometiendo distinguir "el conjunto instalado" de "la constante", cuando en todo camino alcanzable
+   son el mismo valor — mutante equivalente. Un test puede pasar y aun así su nombre y su comentario
+   mentir sobre lo que cubre.
+2. **Fixtures que no distinguen lo que dicen distinguir — tres veces en el mismo slice.** Un fixture
+   simétrico (1 fila de cada tipo) da el mismo resultado con `!==` y con `===`. Un fixture de n=3 hace
+   que p50 y p75 lean el mismo elemento. La regla que sale: **el fixture tiene que ser asimétrico en
+   el eje que el test afirma medir**, y eso se verifica mutando, no leyendo.
+3. **Verificar sobre el universo equivocado.** Chequeé que `FOCUS_SENTINELS` existiera en 5 refs —los
+   del slice— y no en los anteriores, que son justo los que la feature promete soportar. El guard duro
+   pasó a producción y rompió v1 entera.
+
+🔑 **Lo que cerró cada uno no fue mejor prosa sino un instrumento**: tests que fijan el EFECTO en la
+tabla (no el texto del aviso), anclas sobre la línea del aviso (no sobre el markdown entero, donde una
+fila de métrica homónima satisfacía el `toContain`), e igualdad exacta en vez de `toContain` (una red
+que sólo detecta remociones deja pasar la mitad de las mutaciones).
+
+**Corolario operativo:** cuando un mutante sobrevive, la pregunta correcta no es "¿agrego un assert?"
+sino "¿el fixture puede distinguir esto?".
+
+---
+
 # Session Handoff — 2026-09-04 — **EL A/B DE TRACK B ESTÁ HECHO Y PUBLICADO**, y el clasificador de foco se arregló (ruleset `v3-2026-09-04`, 5 commits en `master` local de analytics, `8ddd023`). Review-loop de 5 turnos cerrado por cap + coherencia limpia.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
