@@ -1,3 +1,176 @@
+# Session Handoff — 2026-09-04 — **EL A/B DE TRACK B ESTÁ HECHO Y PUBLICADO**, y el clasificador de foco se arregló (ruleset `v3-2026-09-04`, 5 commits en `master` local de analytics, `8ddd023`). Review-loop de 5 turnos cerrado por cap + coherencia limpia.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo de esta sesión ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` sigue en `2c022d7` y **está 1 commit ahead de
+`origin/main`** (el handoff de anoche nunca se pusheó; el clasificador de auto-mode bloquea `git push`,
+lo corre el usuario con `!`).
+
+**Se cerró el paso 3 del handoff anterior (el A/B honesto) y se abrió y cerró un slice entero de
+código que el A/B hizo necesario.**
+
+### 1. El A/B honesto — HECHO
+
+`claude-analytics/output/reports/2026-09-04_AB-review-loop-post-vs-agosto-rulesv3.md` (el vigente).
+
+**El corte que lo hace honesto:** el snapshot `2026-09-03` es un SUPERSET declarado
+(2026-08-04..09-03) que mezcla **936 reviewers del ciclo viejo + 693 del nuevo**. Se cortó por la fecha
+REAL del deploy del loop nuevo — commit `cd183fa` de Bootstrap Skills, **2026-08-26T18:30:02Z** —
+filtrando los tres `.jsonl` por fecha (ninguna línea modificada) a
+`output/raw/review-cost-derived-post-2026-08-26/` con PROVENANCE propio, congelado como label
+`2026-09-post`. Sólo **1 agente al cubo** → el borde del corte es trivial. **Receta reutilizable para
+el freeze de octubre.**
+
+**Resultado: el ciclo nuevo cuesta MÁS.**
+
+| métrica | agosto | post-deploy | Δ |
+|---|---|---|---|
+| share de tokens de revisión | 33,3 % | 39,7 % | +6,4pp |
+| reviewers por turno revisado | 2,21 | 2,99 | +35 % |
+| horas-serie por turno revisado | 21,9 min | 35,0 min | +60 % |
+| factor de concurrencia | 1,70× | 2,04× | +0,34× |
+
+Desglose de foco (v3, % sobre reviewers CON foco — 216 en agosto, 424 en post): bugs 25,0→26,4 ·
+**reglas 11,6→18,2** · tests 17,6→17,7 · contratos 13,4→15,1 · **historia 8,8→12,5** · coherencia
+0,9→3,8 · **confianza 13,9→3,3** · **mutación 8,8→3,1**. El ciclo nuevo concentra el 90 % en la
+columna de cinco focos de `/slice-review`.
+
+**Lo que el A/B NO responde: si el ciclo nuevo encuentra más bugs reales.** El costo está medido; el
+beneficio no. Es la mitad que falta del Track B.
+
+⚠️ **Las métricas de TOTAL no son comparables entre lados** (30 días vs 8): sí lo son share, medianas
+y proporciones. `runs` (131→692) es artefacto de captura (en agosto 288 reviewers eran `branch=HEAD`).
+**`re-review 52→13` sigue SIN EXPLICACIÓN** — sale de `TURN_ANCHORS`, que el slice no tocó; atribuirlo
+al ruleset viejo fue un error de la sesión pasada.
+
+### 2. El slice de código: ruleset de foco v2 → v3 (5 commits, mergeado)
+
+`master` local de analytics: `03a258e..8ddd023`, ff-only. **`claude-analytics` NO tiene remoto** → el
+master local ES el landing.
+
+**Por qué existió:** la familia `focus` del A/B era inservible (143/419 del lado viejo contra 71/693
+del nuevo). Causa medida: el ruleset infería el ángulo por vocabulario temático dentro de
+`HEAD_WINDOW` (120 chars), y el **57 % de los reviewers nuevos y 36 % de los viejos DECLARAN su foco**
+("Tu foco: **Reglas del proyecto**", "## Your focus:", "Sos el foco de **COHERENCIA**") en offset
+mediano ~300-500, fuera de esa ventana.
+
+**Qué hace v3:** lee la declaración en el cuerpo entero (acotado por `is_reviewer`, que sigue
+head-scoped y sin cambios); dentro de la zona declarada gana la **proximidad al ancla**, no la
+prioridad global de FOCI; word boundaries en `FOCUS_NAMES`; se consideran todas las declaraciones y
+gana la última que mapea. Cobertura: **2026-08 34 %→52 %, 2026-09-post 10 %→61 %**, con `is_reviewer`
+sin moverse (419 y 693).
+
+Los 5 commits: `16e7d8a` (v2) → `37b1700` (v3) → `5aa2e1a` (turno 4) → `7063bce` (turno 5) →
+`e92fb42` (congelar) → `8ddd023` (últimos 3 hallazgos).
+
+### 3. El review-loop: 5 turnos, cerró POR CAP (no limpio) + coherencia limpia
+
+| turno | hallazgos reales |
+|---|---|
+| 1 (6 focos, con mutación) | 3 HIGH de comportamiento; **15 de 22 mutantes sobrevivían** |
+| 3 (5 focos) | **18 de mis 33 tests nuevos eran vacuos** (pasaban con la regla apagada); el fix de "última declaración" mueve 0 filas; porcentajes con denominador equivocado |
+| 5 (5 focos) | 0 HIGH, 0 regresiones; 3 números míos que no reproducen; `head()` muerta; guarda de flag `g` evadible |
+| coherencia | limpia — sin defectos lógicos ni andamiaje muerto |
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` está en `fix/migration-billable` con trabajo AJENO sin commitear de otra
+  sesión** (`SESSION_HANDOFF.md` modificado + 3 untracked). **NO tocarlo, NO commitearlo.** Un
+  `git merge` en ese working tree mergearía a la rama de esa sesión: para avanzar `master` se usó
+  **`git push . <rama>:master`** desde el repo principal, que no toca ningún working tree.
+- **El worktree `C:\Repos\PERSONAL\claude-analytics-focus-v2` sigue vivo** (rama `feat/focus-rules-v2`,
+  ya mergeada). Borrarlo con `git worktree remove` — pero **primero borrar el junction
+  `node_modules`**: esta sesión hizo que `git worktree remove --force` siguiera un junction y
+  **vaciara el `node_modules` real de `claude-analytics`** (reparado con `npm ci`, 98 paquetes). En
+  Windows el borrado recursivo atraviesa junctions.
+- **La DB de producción está lockeada casi siempre**: `ClaudeAnalyticsSync` corre **cada 10 min y dura
+  5-7**, y `better-sqlite3` usa `busy_timeout` de 5 s → `database is locked`. Todo el pipeline se corrió
+  contra una **copia** vía `CLAUDE_ANALYTICS_DB`. La copia de trabajo con todo clasificado está en el
+  scratchpad de la sesión (`ab-idx.db`) — **es temporal, se pierde**. Para rehacerlo: backup consistente
+  (`db.backup()` de better-sqlite3) → `baseline freeze/classify/attribute` → `report review-cost-compare`.
+- **`report review-cost` escala mal**: 78 s con 441 agentes, 5 min con 888+441, **>40 min sin terminar**
+  con 1893. Issue en `claude-analytics/.scratch/issue-review-cost-lento.md` (hipótesis marcada como NO
+  confirmada).
+- **La máquina está al límite de RAM** (0,7 GB libres de 15,3): el sistema mató un `report` por falta de
+  memoria. Reintentar funciona.
+- **Bash tool: backticks dentro de `-m "..."` se ejecutan como sustitución de comandos** y se comen
+  fragmentos del mensaje de commit (pasó, hubo que amendar con `-F archivo`). Para mensajes con
+  backticks: escribir el mensaje a un archivo y usar `git commit -F`.
+- **`npx vitest` puede dar FALSO VERDE** en un worktree detached (`could not determine executable to
+  run`). Usar `node node_modules/vitest/vitest.mjs run <archivo>` y **siempre un mutante centinela** que
+  DEBE morir al inicio de cualquier batería de mutación.
+- Push a Bootstrap Skills: cuenta **southpointtech** (MartinDele703 da 403).
+
+## Bugs encontrados esta sesión
+
+**Arreglados:**
+- `focus-rules.ts`: 3 defectos de comportamiento en la regla nueva (prioridad en vez de proximidad —
+  afectaba el 11 % de las filas declaradas; subcadenas sin `\b`; la primera declaración citada ganaba).
+- La **guarda de drift del hash no veía reglas NUEVAS**: al agregar el foco declarado, los 56 tests
+  siguieron verdes con el comportamiento ya cambiado. Cerrado con las familias nuevas en el hash, tres
+  probes y un meta-test estructural.
+- `normalize()` se computaba dos veces por fila (33,9 µs de 78,3 µs).
+
+**Abiertos (declarados, no bloquean):**
+- **`freeze.mjs` sobre-reporta los turnos en cada PROVENANCE** (3916 vs 3465 líneas reales; 2951 vs
+  2588 en el del 08-26). `seenPrompt.add(pid)` corre antes del guard `if (!asst.length) continue`. Los
+  datos NO están truncados (`baseline verify` OK 3/3). En
+  `claude-analytics/.scratch/freeze-mjs-hardening.md` junto a los 3 MEDIUM previos.
+- **269 reviewers del lado nuevo y 203 del viejo siguen `unrecognized`**, casi todos del fork
+  `/code-review`. Darles foco es decisión de taxonomía, no de parsing.
+- `multiLabel` de `review-cost.ts:513` cuenta como multi-foco las filas con declaración explícita
+  (+2,9pp en agosto vs +0,3pp en el post). No entra al reporte de comparación.
+- `FOCUS_SIGNALS` sin `\b` en `mutacion` y `contratos` ("permutación", "subcontratos"). Es regla de v1,
+  congelada.
+- El slice **excede el techo de ~400 líneas** del CLAUDE.md (~870 acumuladas). Creció por los turnos
+  del propio loop, no por scope nuevo. Declarado en `e92fb42`.
+
+## Tests
+
+`cd C:\Repos\PERSONAL\claude-analytics-focus-v2` (o el repo principal tras borrar el worktree):
+- `npx vitest run` → **500 verdes, 3 skipped (503)**. Los 3 skipped son
+  `baseline-attributions-golden.test.ts` (tocan la DB real, ausente del worktree).
+- `npm run lint` (`tsc --noEmit`) → limpio.
+- ⚠️ El `lint` NO usa `--noUnusedLocals`, así que **no detecta funciones muertas** (fue como `head()`
+  quedó sin llamadores sin que nada avisara).
+
+## Próximos pasos
+
+1. **Medir el BENEFICIO del ciclo nuevo** — es la mitad que falta del Track B y lo único que convierte
+   "cuesta 60 % más por turno" en una decisión. Hoy no hay dato de hallazgos reales por reviewer.
+2. **Commitear los scripts de medición** (`claude-analytics/tools/`). Causa raíz medida de que 5
+   números escritos en comentarios y commits de este slice no reprodujeran: cada medición sale de un
+   `node -e` irreproducible. Slice chico y de alto valor.
+3. **Hardening de `freeze.mjs`** (`.scratch/freeze-mjs-hardening.md`, ahora 4 MEDIUM con el del
+   PROVENANCE). Su slice debe además sincronizar la copia machine-local o re-registrar la tarea al repo
+   (`schtasks /Create /XML`; el harness bloquea `Register-ScheduledTask`).
+4. Limpiar: borrar el worktree `claude-analytics-focus-v2` (¡primero el junction!) y la rama
+   `feat/focus-rules-v2` (ya mergeada).
+5. Deuda vieja sin cambios: `! git push` en Bootstrap Skills; `! git branch -D
+   fix/lint-de-temp-resistente-a-evasion`; self-upgrade de SouthPoint-Hub; podar snapshots viejos de la
+   DB (~50 MB/semana).
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; las bifurcaciones técnicas van resueltas y registradas por escrito.
+  Diseño/alcance/costo sí se preguntan. (Esta sesión: una sola pregunta, y fue porque el hook
+  `alignment-gate` la exigía.)
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- El clasificador de auto-mode frena `git push` y escrituras hacia afuera; commit/merge local no.
+
+## Lección medida (6ª vez en estos repos)
+
+**Parchar prosa no converge.** De los ~20 hallazgos reales del loop, la mayoría fueron **afirmaciones
+falsas en comentarios y mensajes de commit**, no defectos de lógica. Cinco números escritos sin
+re-medirlos en el momento de escribirlos (uno copiado del reporte de otro subagente). **La causa
+sistémica es que el script que produce el número no se commitea** → ni el propio autor puede
+reproducirlo media hora después. El error más común: **el mismo numerador con dos denominadores
+plausibles** (40 de 424 filas con foco vs 40 de 372 filas declaradas). Escribir siempre el denominador.
+
+---
+
 # Session Handoff — 2026-09-03 (noche) — Handoff pusheado (`d97c1c9`); **`freeze.mjs` PROMOVIDO a `claude-analytics/tools/`** (paso 2), revisado con review-loop y MERGEADO a `master` LOCAL de analytics (`03a258e`). Sigue el paso 3 (A/B honesto) en `claude-analytics`.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
