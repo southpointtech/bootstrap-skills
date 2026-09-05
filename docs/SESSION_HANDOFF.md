@@ -1,3 +1,174 @@
+# Session Handoff — 2026-09-05 (tarde) — **La red del gate de typecheck está mergeada a `master` local de analytics (`2b255e9`)**: 5 commits, 386 líneas, review-loop de 5 turnos cerrado POR CAP + pasada de coherencia limpia.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo de esta sesión ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` está **2 commits ahead de `origin/main`** (el de
+la sesión anterior + éste; los handoffs los pushea el usuario con `!`, cuenta **southpointtech**).
+
+**Se cerraron los pasos 1 y 2 del handoff anterior**: el guard de `extractorVersion` (3 líneas) y la
+red del gate de typecheck. Absorbidos en un solo slice porque los dos son guards del mismo archivo.
+
+### Lo que aterrizó
+
+`master` local de analytics: **`cda2e9a..2b255e9`, ff, 5 commits, 386 inserciones en 3 archivos**.
+`claude-analytics` NO tiene remoto → el master local ES el landing.
+
+| commit | qué |
+|---|---|
+| `79b908c` | el slice: helper + 2 tests + guard de `extractorVersion` |
+| `cff2a80` | turno 1 — atar la red al script `lint`, a sus opciones y al guard mismo |
+| `48a16e8` | turno 2 — assertar la **invocación**, no sólo que nombre los perfiles |
+| `c240129` | turno 3 — regresión de `opcionEstricta`, `noCheck`, ejecutor para los guards de tipos |
+| `2b255e9` | turno 4 — la familia `strict` sale del compilador, no de una lista de memoria |
+
+**Archivos:**
+- `tests/helpers/typecheck-coverage.ts` (nuevo) — instrumento. Exporta `rutaCanonica`,
+  `tsVersionados`, `invocacionesDelLint`, `cubiertosPor`, `opcionesDe`, `FAMILIA_STRICT`,
+  `opcionEstricta`, `familiaStrictDeTsc` y la interfaz `InvocacionDeLint`.
+- `tests/lib/typecheck-coverage.test.ts` (nuevo) — **6 tests**, uno por junta del gate.
+- `tests/lib/baseline-freeze.test.ts` — guard de `extractorVersion`, `EsNever<T>` y los tres
+  controles negativos (incluido el del guard hermano `SinIndexSignature`, que estaba vacuo).
+
+**Qué cubren los 6 tests** (el repo NO tiene CI ni hooks; `npm test` es `vitest run` a secas, así que
+la suite es el único ejecutor):
+1. todo `.ts`/`.mts`/`.cts`/`.tsx` versionado entra a algún perfil, salvo `vitest.config.ts` declarado;
+2. es el `include` de `tsconfig.tools.json` lo que mete `tests/` (dos inclusiones, no una igualdad);
+3. cada invocación chequea de verdad: 8 sub-flags de `strict` expandidas + 2 crudas + `alwaysStrict`
+   + `noCheck` + `noEmit`;
+4. `FAMILIA_STRICT` es igual a la familia del `tsc` instalado (lee `ts.optionDeclarations`);
+5. ningún archivo versionado trae una directiva de archivo que apague el chequeo;
+6. **`npm run lint` pasa** — el ejecutor que les faltaba a los 4 guards de tipos del repo.
+
+### El review-loop: 5 turnos, cerró POR CAP (no limpio)
+
+| turno | Medium/High encontrados |
+|---|---|
+| 1 | 4 (el gate miraba el contenido de los tsconfig, no lo que el lint corre) |
+| 2 | 3 (leía los NOMBRES de perfil pero no la invocación: `--noCheck`, `\|\| exit 0`, flags de CLI) |
+| 3 | 3 (**regresión del turno 2**: `opcionEstricta` dejó fail-open 2 opciones; `noCheck` de archivo; los guards de tipos sin ejecutor) |
+| 4 | 1 (`FAMILIA_STRICT` desincronizada de TS 6.0.3: faltaba `strictBuiltinIteratorReturn`) |
+| 5 | **0** en el foco de bugs; coherencia: "el slice cohere" |
+
+Cierra por cap y no limpio porque queda **un Medium declarado** (F1, abajo). Cada fix tiene su RED
+medido; los probes están citados en los mensajes de commit.
+
+🔑 **Lo que este loop midió y vale para el proceso**: el turno 2 introdujo una **regresión** que el
+turno 3 tuvo que cerrar — el fix de un turno es donde nacen los defectos del siguiente. Y el patrón
+del hilo (cada commit retracta afirmaciones del anterior) se cortó: los reviewers de los turnos 3, 4 y
+5 verificaron las afirmaciones de los commits y dieron todas verdaderas.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- 🔴 **Un worktree con junction a `node_modules` se lleva puesto el `node_modules` real.** El foco de
+  mutación del turno 1 corrió `git worktree remove --force` sobre un worktree cuyo `node_modules` era
+  un junction al del repo, y **borró 21 paquetes del `node_modules` real de `claude-analytics`**
+  (`@types/node`, `@vitest/*`, …). El síntoma llegó disfrazado: `TS2591 Cannot find name 'node:fs'` en
+  40 archivos de `src/`. Reparado con `npm install` (NO `npm ci`: borra y reconstruye better-sqlite3).
+  **Antes de `git worktree remove`, eliminar el junction sin seguirlo**:
+  `(Get-Item <wt>\node_modules -Force).Delete()`. Y a los subagentes: prohibirles crear worktrees.
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear de otra
+  sesión** (`SESSION_HANDOFF.md` + 3 untracked). **NO tocarlo.** Para avanzar `master` se usó
+  `git push . <rama>:master` desde el worktree, que no toca ningún working tree.
+- **`package-lock.json` figura como modificado y NO lo está**: `npm install` lo dejó stat-dirty. El
+  blob es idéntico al de HEAD (verificado con `git hash-object` vs `git rev-parse HEAD:package-lock.json`).
+- **`git checkout -- <archivo>` borra el trabajo sin commitear.** Pasó de nuevo esta sesión: un probe
+  restauró un archivo con `git checkout` y se llevó un fix que todavía no estaba commiteado. Para
+  probes sobre archivos con cambios sin commitear, respaldar con `cp` al scratchpad y restaurar de ahí.
+- **El marcador se avanza DESPUÉS del review y ANTES de los fixes.** Esta sesión lo avancé al revés en
+  el turno 5 y el rango salió vacío; no hay verbo para retroceder, así que hubo que pasarle el rango
+  real (`c240129`) explícito a los reviewers. El marcador quedó adelantado en `2b255e9`.
+- **El review cross-repo funciona pero hay que forzarlo**: la sesión corría con cwd en
+  `Bootstrap Skills` y el repo revisado era otro. Rutas absolutas en el contexto compartido, y **NO
+  usar el foco `--code-review`** (está atado al cwd de la sesión).
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- **Leer el exit code correcto**: `cmd | head` devuelve el exit de `head`. Usar `${PIPESTATUS[0]}`.
+- **La Bash tool se come un nivel de backslashes**: `\\u0000` en un heredoc/perl llegó como `0000`, y
+  un `\u0000` escrito con la Write tool aterrizó como un byte NUL real dentro del `.ts`. Cuando el
+  contenido lleva escapes, preferir formas sin backslash (`String.fromCharCode(0)`).
+- Push a Bootstrap Skills: cuenta **southpointtech** (MartinDele703 da 403).
+
+## Tests
+
+`cd C:\Repos\PERSONAL\claude-analytics` (rama `master`):
+- `node node_modules/vitest/vitest.mjs run` → **543 passed, 3 skipped (546)**. Eran 537/3 al empezar.
+  Los 3 skipped son `baseline-attributions-golden.test.ts` (tocan la DB real).
+- `npm run lint` → limpio, exit 0 en los dos perfiles.
+- ⚠️ La suite ahora corre `tsc` dos veces desde adentro (test 6): el archivo pasa de ~1 s a ~14 s de
+  test time. Es el precio de que los guards de tipos tengan ejecutor.
+- ⚠️ El lint sigue sin `--noUnusedLocals`: no detecta funciones ni imports muertos.
+
+## Bugs abiertos (declarados, no bloquean)
+
+Documento completo: **`C:\Repos\PERSONAL\claude-analytics\.scratch\gate-typecheck-huecos-declarados.md`**
+
+- **F1 (Medium)** — un `@ts-ignore` de LÍNEA sobre un guard roto deja los 6 tests en verde y el lint en
+  exit 0. Medido con una regresión real (revertir `src/lib/baseline.ts:67`): 2 diagnósticos sin
+  silenciar, 0 con dos `@ts-ignore`. El test 5 sólo busca `@ts-nocheck`. **No se arregló porque
+  prohibir `@ts-expect-error` es decisión de diseño, no un fix mecánico**, y el slice cerró en 386
+  líneas contra el techo de ~400.
+- **F2 (Low)** — `--lib esnext,dom` en el perfil mete los globals del DOM y ningún test mira `lib`.
+- **F3 (Low)** — `OPCIONES_INDEPENDIENTES` es la única lista sin anclar: un typo es ruidoso, pero
+  BORRAR una entrada es mudo.
+- **F4 (Low)** — la sexta junta: `vitest.config.ts` es el único `.ts` que ningún perfil chequea **y**
+  es lo que decide qué tests corren. Angostar su `include` apaga el gate entero. Es otro slice.
+- **Prosa no tocada** (regla 2 del PARCHE): el ejemplo "47 de los 55 / 8 afuera" es ambiguo (dos
+  reviewers lo leyeron al revés) y el glob que nombra literalmente resuelve a 0; la cabecera del
+  helper enumera 4 juntas cuando ya son 5; `79b908c` cita 54 huérfanos y hoy son 56; `cff2a80` dice
+  "8 vs 55" y lo medido es 47 vs 55.
+- **Sin test RED propio**: el endurecimiento del `spawnSync` (timeout propio, `maxBuffer` 32 MB,
+  surface de `error`/`signal`). Un reviewer lo midió después con sondas fuera del repo.
+
+Bugs viejos sin cambios: **`freeze.mjs` sobre-reporta los turnos en cada PROVENANCE** (3916 vs 3465);
+**269+203 reviewers `unrecognized`** (taxonomía, no parsing); los **4 tests que cargan un ruleset
+histórico dependen del sha `63a781e`**; las **27 aserciones de regex sin anclar** en
+`baseline-freeze.test.ts` (slice mecánico aparte).
+
+## Próximos pasos
+
+1. **Medir el BENEFICIO del ciclo nuevo de review** — sigue siendo la mitad que falta del Track B y lo
+   único que convierte "cuesta 60 % más por turno" en una decisión. Requiere rehacer la copia de la DB
+   (`db.backup()` de better-sqlite3 → `baseline freeze/classify/attribute`). **Esta sesión da material
+   nuevo y del tipo que faltaba**: 5 turnos, 11 Medium/High reales, una **regresión introducida por el
+   propio loop** (turno 2 → turno 3), y un turno 5 con cero hallazgos en bugs.
+2. **Hardening de `freeze.mjs`** (`.scratch/freeze-mjs-hardening.md`, 4 MEDIUM). Su slice debe además
+   sincronizar la copia machine-local o re-registrar la tarea al repo (`schtasks /Create /XML`; el
+   harness bloquea `Register-ScheduledTask`).
+3. **F1** (`.scratch/gate-typecheck-huecos-declarados.md`) — decidir si se prohíben `@ts-ignore` /
+   `@ts-expect-error` en el código versionado o se declara una allowlist, y cerrarlo. Slice chico.
+4. Deuda vieja sin cambios: self-upgrade de SouthPoint-Hub; podar snapshots viejos de la DB
+   (~50 MB/semana); anclar las 27 aserciones; rollout de `/slice-review` a 3 repos de cliente.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; las bifurcaciones técnicas van resueltas y registradas por
+  escrito. Diseño/alcance/costo sí se preguntan. (Esta sesión: **una sola**, la que exigió el hook
+  `alignment-gate`, y respondió "seguir, es trivial".)
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- El clasificador de auto-mode frena `git push` y escrituras hacia afuera; commit/merge local no.
+  Esta sesión **no** frenó `git branch -D`, `git push . rama:master` ni `npm install`.
+- **PARCHE OPERATIVO VIGENTE**: antes de correr `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`. **Volvió a funcionar**: cero turnos gastados en
+  churn de prosa en los 5. **No editar las skills**: el fix real va en el bootstrap.
+
+## Lección medida (la novedad de esta sesión)
+
+**El fix de un turno es donde nace el defecto del siguiente, y el loop lo caza sólo si el turno
+siguiente vuelve a medir lo mismo desde cero.** El turno 2 cerró un hoyo real (`options.strict` no se
+expande en sus sub-flags) y al hacerlo abrió otro: aplicó el fallback a `strict` sobre dos opciones que
+`strict` no prende, dejándolas fail-open — y esas dos eran justamente las que el comentario llamaba
+"las que cazaron los errores que este gate cerró". Cuatro reviewers del turno 3 lo levantaron por
+separado. Ninguno de los cinco turnos lo hubiera encontrado leyendo el diff: los cuatro lo midieron
+**mutando el tsconfig y mirando si el test se enteraba**.
+
+🔑 Y el corolario de la sesión anterior se confirmó a lo grande: lo que cerró los defectos reales fue
+**instrumento y no prosa**. Los seis tests que quedaron son, uno por uno, un instrumento que va RED
+sin su fix — y el que más valor agregó (`npm run lint` corriendo dentro de la suite) existe porque un
+reviewer preguntó quién ejecuta los guards de tipos, no porque alguien leyera mejor el código.
+
+---
+
 # Session Handoff — 2026-09-05 — **Paso 3 del handoff anterior CERRADO**: el gap de typecheck de `tests/` está mergeado a `master` local de analytics (`cda2e9a`). Review-loop de 3 turnos cerrado **LIMPIO** (no por cap), sin una sola regresión.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
