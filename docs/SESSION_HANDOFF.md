@@ -1,3 +1,195 @@
+# Session Handoff — 2026-09-05 — **Paso 3 del handoff anterior CERRADO**: el gap de typecheck de `tests/` está mergeado a `master` local de analytics (`cda2e9a`). Review-loop de 3 turnos cerrado **LIMPIO** (no por cap), sin una sola regresión.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo de esta sesión ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` = `origin/main` = `b7d84a9` al empezar la
+sesión (el usuario pusheó los 3 handoffs pendientes), árbol limpio.
+
+**Se cerró el paso 3** ("cerrar el gap de typecheck de `tests/` — 2 errores, minutos"). Resultó ser
+eso **más tres defectos que sólo aparecieron al mirarlo**, uno de ellos en mi propio fix.
+
+### Lo que aterrizó
+
+`master` local de analytics: **`39b6f81..cda2e9a`, ff, 3 commits**. `claude-analytics` NO tiene
+remoto → el master local ES el landing. Worktree y rama borrados; árbol principal (con el trabajo
+ajeno de otra sesión) intacto.
+
+| commit | qué |
+|---|---|
+| `bacdbc1` | `tsconfig.tools.json` suma `"tests/**/*.ts"`; cierra los 2 errores que el gap tapaba |
+| `bde8c99` | turno 1 del loop: el tipo que importé era **más débil** que el que borré |
+| `cda2e9a` | turno 2: el test que faltaba para el `.passthrough()`, + cerrar las 7 firmas internas |
+
+**Archivos cambiados (todo el slice, +77/−23, 4 archivos):**
+- `tsconfig.tools.json` — include suma `tests/**/*.ts`. Cobertura medida con `--listFiles`: **53 de
+  los 53** `.ts` en disco, en los 4 subdirectorios que los tienen (`helpers` 1, `integration` 5,
+  `lib` 46, `tools` 1; `fixtures` no tiene `.ts`).
+- `src/lib/baseline.ts` — `RawAgent` pasa a ser un mapped type que **quita la index signature** que
+  `passthrough()` mete en el tipo inferido; las **7 firmas internas** (líneas 209, 217, 283, 305,
+  339, 349, 372 — 8 ocurrencias) pasan de `z.infer<typeof RawAgentSchema>` a `RawAgent`.
+- `tests/lib/baseline-freeze.test.ts` — importa el tipo real en vez de una copia local; guard de
+  tipos `SinIndexSignature<RawAgent>`; test nuevo *"no acusa de haber cambiado a un campo que el
+  esquema no declara"*.
+- `tests/lib/baseline-classifications.test.ts` — el doble `badClassify` se anota contra
+  `Classification` y castea sólo el foco inválido que inyecta a propósito.
+
+### Los tres defectos que el loop encontró (dos son míos)
+
+1. **El tipo importado detectaba MENOS drift que la `interface` local que borré** (score 85). El
+   esquema es `.passthrough()`, así que `z.infer` traía `[k: string]: unknown` y `keyof RawAgent`
+   era `string`: leer un campo que el esquema ya no declara dejaba de ser error y pasaba a ser
+   `unknown`. Tabla A/B medida por 3 agentes independientes: **3 de 12 campos** ponían el test en
+   rojo con el tipo shipped contra **10 de 12** con uno cerrado, y para 5 campos (`agentId`, `cwd`,
+   `spanSec`, `outTok`, `models`) el esquema podía perderlos con `npm run lint` ENTERO en verde.
+2. **Un conteo falso en `bacdbc1`** (score 95): decía que `promptLen` "el propio archivo usa en dos
+   lugares"; son **9 usos de código** (+1 comentario). El "2" salió de `src/lib/baseline.ts`, el
+   archivo equivocado. Corregido en `bde8c99` (commit nuevo, no `--amend`).
+3. **Una cobertura de test inexistente afirmada en `bde8c99`** (score 92): *"el `.passthrough()` de
+   RUNTIME queda intacto … y el test que lo cubre sigue verde"*. **No existía ese test.** Mutando
+   `.passthrough()` → `.strip()`, lint exit 0 y suite `536 passed | 3 skipped` idéntica. Causa: el
+   único test que nombra los campos extra asevera sobre `raw_json`, y `raw_json` guarda `line` —el
+   texto crudo verbatim— no `parsed.data`. Corregido en `cda2e9a` **escribiendo el test que faltaba**.
+
+### El review-loop: 3 turnos, cerró **LIMPIO** + coherencia
+
+| turno | qué encontró | regresión del turno anterior |
+|---|---|---|
+| 1 | 3 Medium (tipo más débil; "todo lo que NO compila a dist/" falso; el conteo de `promptLen`) | — |
+| 2 | 1 Medium (la cobertura inexistente) + 1 Low (7 firmas internas) | **ninguna** |
+| 3 | **cero Medium/High** → cierre limpio | **ninguna** |
+
+Coherencia: **sin hallazgos.** "El slice cohere."
+
+🔑 **Esto rompe dos patrones que el repo tenía medidos**: (a) 2 de cada 5 turnos introducían una
+regresión — acá cero en 3 turnos; (b) los loops venían cerrando POR CAP — éste cerró limpio en 3.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear de otra
+  sesión** (`SESSION_HANDOFF.md` modificado + 3 untracked). **NO tocarlo.** Para avanzar `master` se
+  usó **`git push . <rama>:master`** desde el worktree, que no toca ningún working tree.
+- **`git branch -d` compara contra HEAD, no contra master** (se repitió esta sesión). Verificar con
+  `git rev-parse <rama>` vs `git rev-parse master` y recién ahí `-D`.
+- **El review cross-repo funciona, pero hay que forzarlo**: la sesión corría con cwd en
+  `Bootstrap Skills` y el repo revisado era otro. Poner el repo objetivo con **rutas absolutas** en
+  el contexto compartido, y **NO usar el foco `--code-review`** (está atado al cwd de la sesión).
+- 🔴 **Un reviewer mutó el árbol compartido en el turno 1** pese a la prohibición, y dos reviewers
+  paralelos lo vieron contaminado a mitad de su medición. Uno lo sorteó midiendo contra el contenido
+  commiteado con un `CompilerHost` virtual. **En los turnos 2 y 3 se puso la prohibición con la
+  evidencia de lo que había pasado y ninguno volvió a mutar.** Vale la pena repetir esa redacción.
+- 🔴 **Un script de medición interrumpido deja el mutante aplicado.** Pasó: un `python -c` con
+  `try/finally` fue interrumpido por el usuario y el `finally` nunca corrió — quedó el esquema sin
+  `spanSec` y el test con una referencia a una variable borrada. **Preferir un probe desechable
+  (archivo nuevo que se borra) antes que mutar un archivo existente**; para el A/B masivo, worktree.
+- **El marcador se avanza DESPUÉS del review y ANTES de los fixes.** Esta sesión me lo salteé tras el
+  turno 2 (quedó en `bacdbc1`); el efecto es revisar de MÁS, no de menos. Se corrigió pasando el
+  rango real (`bde8c99`) explícitamente a los reviewers del turno 3.
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- **Leer el exit code correcto**: `cmd | head` devuelve el exit de `head`. Usar `${PIPESTATUS[0]}`.
+  Me llevó a reportar un probe como concluyente cuando había fallado con `TS5112`.
+- Push a Bootstrap Skills: cuenta **southpointtech** (MartinDele703 da 403).
+
+## Tests
+
+`cd C:\Repos\PERSONAL\claude-analytics` (rama `master`):
+- `node node_modules/vitest/vitest.mjs run` → **537 passed, 3 skipped (540)**. Eran 536/3 al empezar.
+  Los 3 skipped son `baseline-attributions-golden.test.ts` (tocan la DB real).
+- `npm run lint` → limpio. **Ahora `tsc` sobre `src/` + `tools/` + `tests/`.**
+- ⚠️ El lint sigue sin `--noUnusedLocals`: no detecta funciones ni imports muertos.
+
+## Bugs abiertos (declarados, no bloquean)
+
+Del slice de esta sesión, todos triados por el confidence pass y **deliberadamente no arreglados**:
+
+- **El gate nuevo no tiene red** (78, Low): revertir `"tests/**/*.ts"` del include deja `npm run
+  lint` en **exit 0**. Y **nada automatiza el lint**: no hay `.github/workflows` ni `.husky`, y
+  `npm test` es `vitest run` a secas. Es la tesis entera de la rama sin nadie que la ejecute. Lo
+  cerraría un test que cruce el glob contra los `.ts` en disco, o CI.
+- **El test nuevo deja de discriminar si alguien declara `extractorVersion` en el esquema** (92 el
+  hecho, Low porque `tools/freeze.mjs` emite 14 claves y ésa no está — no hay gatillo). **Guard de 3
+  líneas ya verificado, listo para aplicar**, análogo al `SinIndexSignature` que el archivo ya tiene:
+  ```ts
+  type NoDeclaradoEnEsquema<K extends string> = K extends keyof RawAgent ? never : true;
+  const _extractorVersionNoDeclarado: NoDeclaradoEnEsquema<"extractorVersion"> = true;
+  void _extractorVersionNoDeclarado;
+  ```
+- **27 aserciones de regex sin anclar** sobre el texto de mensajes de error en
+  `tests/lib/baseline-freeze.test.ts` (80, Low). Cuatro son `/cwd/`. Arreglar una sola deja el
+  archivo peor; va como **slice mecánico aparte** que ancle todas.
+- **Prosa imprecisa que NO se tocó** (regla 2 del PARCHE, prosa de un turno anterior del mismo loop):
+  el comentario de `RawAgent` cuenta 1 de 4 ejes de desincronización (58); "pasa de largo en claves
+  de `Map`, spreads y elementos de array" es impreciso (92 el hecho) — **ojo: el criterio alternativo
+  que propuso el reviewer TAMBIÉN resultó falso al medirlo**, así que arreglarlo habría cambiado una
+  frase falsa por otra; el guard sólo ve index signatures de `string` (92); y la refutación (b) de
+  `cda2e9a` es imprecisa sobre el mecanismo de `closestTo` (96, conclusión correcta).
+- **Preexistentes, fuera de alcance**: `n === 2` en el doble de `badClassify` sobrevive a la mutación
+  (45); `focus_all` se persiste sin validar contra la taxonomía (35).
+
+Bugs viejos sin cambios: **`freeze.mjs` sobre-reporta los turnos en cada PROVENANCE** (3916 vs 3465);
+**269+203 reviewers `unrecognized`** (taxonomía, no parsing); los **4 tests que cargan un ruleset
+histórico dependen del sha `63a781e`** (seguro hoy, explota si se agrega CI sin fetch completo).
+
+## Próximos pasos
+
+1. **Medir el BENEFICIO del ciclo nuevo de review** — sigue siendo la mitad que falta del Track B y
+   lo único que convierte "cuesta 60 % más por turno" en una decisión. Hoy no hay dato de hallazgos
+   reales por reviewer. Requiere rehacer la copia de la DB (`db.backup()` de better-sqlite3 →
+   `baseline freeze/classify/attribute`), porque la copia de trabajo vivía en un scratchpad y se
+   perdió. **Esta sesión da material nuevo para ese análisis**: 3 turnos con 5 Medium reales, 8
+   hallazgos filtrados por el confidence pass, y **tres casos donde el confidence pass evitó un
+   fix equivocado** (ver "Lección medida").
+2. **Hardening de `freeze.mjs`** (`.scratch/freeze-mjs-hardening.md`, 4 MEDIUM). Su slice debe además
+   sincronizar la copia machine-local o re-registrar la tarea al repo (`schtasks /Create /XML`; el
+   harness bloquea `Register-ScheduledTask`).
+3. **Aplicar el guard de `extractorVersion`** (3 líneas verificadas, arriba) — es el remate barato
+   del slice de hoy.
+4. Deuda vieja sin cambios: self-upgrade de SouthPoint-Hub; podar snapshots viejos de la DB
+   (~50 MB/semana); anclar las 27 aserciones.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; las bifurcaciones técnicas van resueltas y registradas por
+  escrito. Diseño/alcance/costo sí se preguntan. (Esta sesión: **una sola**, la que exigió el hook
+  `alignment-gate`, y respondió "seguir, es trivial".)
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- El clasificador de auto-mode frena `git push` y escrituras hacia afuera; commit/merge local no.
+  Esta sesión **no** frenó `git branch -D` ni `git push . rama:master`.
+- **PARCHE OPERATIVO VIGENTE**: antes de correr `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`. **Funcionó**: el loop cerró limpio en 3
+  turnos en vez de agotar el cap con churn de prosa. **No editar las skills**: el fix real va en el
+  bootstrap.
+
+## Lección medida (la novedad de esta sesión)
+
+Las siete sesiones anteriores midieron que **parchar prosa no converge**. Ésta mide lo complementario:
+**el confidence pass es lo que impide que el loop "arregle" cosas que no están rotas.** Tres casos,
+todos verificados con comandos:
+
+1. **El fix propuesto por un reviewer era falso.** Para la frase "pasa de largo en claves de `Map`,
+   spreads y elementos de array", el reviewer propuso el criterio "lo que decide es si la posición
+   está anotada". El scorer lo midió: **también es falso** (`[f.archivo].map(x => x.toUpperCase())`
+   se cae sin una sola anotación). Arreglarlo habría cambiado una frase falsa por otra.
+2. **El argumento de severidad se apoyaba en un hecho falso.** El hallazgo del test se proponía
+   Medium porque "`extractorVersion` es plausible de agregar, **el extractor lo emite**". `grep` sobre
+   `tools/freeze.mjs`: emite 14 claves y ésa no está; `git log -S extractorVersion --all` devuelve
+   sólo el commit que lo inventó. Sin gatillo, es Low.
+3. **Arreglar un caso aislado empeora el archivo.** El `/cwd/` sin anclar es real (P ≈ 1/59.582,
+   medida con 3000 muestras del alfabeto de `mkdtempSync`), pero el archivo tiene **27 aserciones
+   iguales**; tocar sólo la nueva sugiere que las otras 26 se auditaron.
+
+**Corolario operativo:** cuando un reviewer propone un fix, el confidence pass tiene que puntuar
+**el fix**, no sólo el hallazgo. Dos de los tres casos de arriba pasaban el filtro de "¿el hallazgo
+es real?" (lo eran, 92 y 92) y fallaban el de "¿el fix mejora algo?".
+
+🔑 Y lo que sí cerró los defectos reales fue, otra vez, **un instrumento y no mejor prosa**: un guard
+de tipos que va RED sin el fix (`TS2322: Type 'true' is not assignable to type 'never'`), un probe
+desechable con las tres formas mutadas (0 errores con el tipo abierto, 3 exactos con el cerrado), y
+un test de **comportamiento** —no de forma— que va RED con `.strip()`.
+
+---
+
 # Session Handoff — 2026-09-04 (tarde) — **`tools/focus-measure.ts` MERGEADO a `master` local de analytics (`39b6f81`)**: los números del ruleset de foco ya son reproducibles. Review-loop de 5 turnos cerrado POR CAP + pasada de coherencia.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
