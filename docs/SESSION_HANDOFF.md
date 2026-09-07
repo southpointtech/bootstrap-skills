@@ -1,3 +1,189 @@
+# Session Handoff — 2026-09-07 — **F1 del gate de typecheck CERRADO y mergeado** (`2b255e9..9f838d4`, 7 commits, 646 líneas): review-loop de 5 turnos + coherencia, 20 reviewers, 263 mutantes, 31 Medium reales. Y el **beneficio del Track B ya tiene fuente de datos**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Casi todo el trabajo ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` está **3 commits ahead de `origin/main`** (los dos
+de las sesiones anteriores + éste; los handoffs los pushea el usuario con `!`, cuenta **southpointtech**).
+
+Se cerraron **dos** de los tres puntos que el usuario pidió. El tercero quedó planteado con la decisión
+de diseño ya tomada, a pedido suyo.
+
+### 1. Ruido de Codex borrado — CERRADO
+
+El usuario instaló Codex, le sugirió portar el scaffold y quedó basura sin commitear en 5 repos. Dijo
+textualmente: *"Codex no forma parte de nada… no me interesa codex ni creo utilizarlo de acá en el
+futuro"*. Borrados **60 items untracked** (12 por repo) en `Administracion May`, `Bootstrap Skills`,
+`Bootstrap-Skills-bootstrap-v2`, `claude-analytics` y `Gestor de Obras`: `AGENTS.md`, `.codex/` (con
+`hooks.json` + 2 hooks `.ps1`) y 10 `.agents/skills/source-command-*/` por repo.
+
+Verificado antes de borrar: los 60 eran untracked (`git ls-files` = 0), los `source-command-*` duplicaban
+skills que ya existen, y **cero archivos trackeados se tocaron**.
+
+⚠️ **NO era de Codex y NO se tocó**: en `Gestor de Obras` hay `CLAUDE.md` y `.claude/commands/{review-loop,
+slice-review}.md` modificados sin commitear — es el **PARCHE de churn de prosa** aplicado el 2026-09-06.
+
+⚠️ **Queda `C:\Users\marti\.codex\` (683 MB)**, con secrets de sandbox y un log de hoy. Está FUERA de
+todo repo y **no se borró**: es irreversible y el usuario no lo pidió explícitamente. Si quiere limpiarlo,
+es un `Remove-Item -Recurse` y confirmar que no usa Codex en ningún lado.
+
+### 2. F1 del gate de typecheck — CERRADO Y MERGEADO
+
+`master` local de analytics: **`2b255e9..9f838d4`, ff, 7 commits, 646 inserciones** (291 de lógica, 355 de
+comentario/blanco → bajo el techo de ~400 de LÓGICA del CLAUDE.md, por encima en bruto).
+`claude-analytics` NO tiene remoto → el master local ES el landing.
+
+| commit | qué |
+|---|---|
+| `aba68a8` | el slice: detector `directivasDeChequeo` + allowlist `DIRECTIVAS_DECLARADAS` + test de anclaje |
+| `1a36827` | turno 1 — el guard miraba el principio de la LÍNEA, no el del comentario |
+| `fdf455a` | turno 2 — congelar por forma y no por total; ceguera por posición |
+| `304af9f` | turno 3 — cerrar clases enteras en vez de puntos; saltos anclados al compilador |
+| `733945d` | turno 4 — anclar el universo por su FORMA; romper la circularidad de los saltos |
+| `a2a9a95` | turno 5 — cerrar la SALIDA de cada guard, no sólo su entrada |
+| `9f838d4` | coherencia — la cabecera del helper enumeraba cuatro juntas y ya son cinco |
+
+**Archivos** (los dos ya existían; este slice los amplía):
+- `tests/helpers/typecheck-coverage.ts` — ahora además del instrumento de medición **contiene el
+  detector**: `directivasDeChequeo`, `DIRECTIVAS`, `SALTOS_DE_LINEA`, `saltosDelCompilador`,
+  `diagnosticosDeTextoSuelto`.
+- `tests/lib/typecheck-coverage.test.ts` — **9 tests** (eran 6), 36 formas congeladas contra `tsc`.
+
+**Qué cierra**: el guard viejo buscaba `@ts-nocheck` como substring; las directivas de LÍNEA
+(`@ts-ignore`, `@ts-expect-error`) no las miraba nadie y bastan para apagar el chequeo con
+`npm run lint` en exit 0. Reproducido antes de escribir el fix: un `TS2322` metido a propósito en
+`src/lib/baseline.ts` da exit 2, y una sola directiva encima lo devuelve a exit 0 con todo verde.
+
+**La decisión de diseño que F1 dejaba abierta**: se eligió **allowlist declarada, no prohibición**.
+`DIRECTIVAS_DECLARADAS` está vacía hoy; `@ts-expect-error` es legítima (el repo la usó en `cff2a80`
+hasta que `48a16e8` la reemplazó por `EsNever<T>`). Lo que cambia es que usarla sea visible.
+
+### 3. Track B, paso 3 (el BENEFICIO) — PLANTEADO, NO IMPLEMENTADO
+
+**El hallazgo que desbloquea el paso**: cada registro de `agents.jsonl` ya trae el campo **`report`** —
+el reporte final de cada subagente, ~7.800 chars de media— además de `prompt`, `spanSec`, `steps` y
+`outTok`. O sea que **el beneficio es medible sin instrumentar nada nuevo y de forma RETROACTIVA sobre
+los cinco snapshots congelados**.
+
+**Decisión del usuario (2026-09-07)**: el instrumento es un **ruleset versionado**, con el mismo patrón
+que `focus-rules.ts` / `focus-measure.ts` — reglas explícitas sobre el texto del `report`, fingerprint,
+`--ruleset <git-ref>`, `--vs`, y el denominador al lado de cada métrica. **Descartados**: el clasificador
+LLM (no determinista, caro, y reintroduce el "número que nadie puede recomputar" que `focus-measure` vino
+a cerrar) y medir sólo el resultado del loop desde git (sin lado "antes", no cierra el A/B). El ruleset
+mide un **proxy** y eso hay que declararlo y calibrarlo una vez contra una muestra leída a mano.
+
+**Crudo congelado hoy**: `output/raw/review-cost-snapshot-2026-09-07/` (2677 archivos, 84.152 steps,
+4397 turnos, **2304 agentes**, rango `2026-08-08T13:17..2026-09-07T16:47`). Incluye esta sesión, que es
+material denso del tipo que faltaba. Se generó con `node tools/freeze.mjs` (extraído de master a un temp
+porque el working tree está en otra rama).
+
+**Primera medición de beneficio, hecha a mano** sobre los 21 agentes de esta sesión (`cwd` = Bootstrap
+Skills, `t0 >= 2026-09-07T12:00Z`), en 6 olas de 6/5/4/3/2/1:
+
+| métrica | valor |
+|---|---|
+| tokens de salida | 454.623 |
+| steps | 644 |
+| tiempo serie / reloj | 276 min / 191 min (paralelismo **1,45×**) |
+| Medium reales | **31** |
+| **costo por hallazgo Medium** | **~14.700 tokens · ~9 min-serie** |
+
+Sirve de **calibración**: si el ruleset cuenta bien, sobre esos 21 agentes tiene que dar cerca de 31.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear** de otra
+  sesión (`SESSION_HANDOFF.md`, `package-lock.json` y untracked). **NO tocarlo.** Para avanzar `master`
+  se usó un worktree + `git push . HEAD:master`, que no toca ningún working tree.
+- 🔴 **Worktree con junction a `node_modules`**: sacar el junction ANTES de `git worktree remove`, con
+  `(Get-Item <wt>\node_modules -Force).Delete()`. Esta sesión lo hizo bien y el `node_modules` real quedó
+  intacto (102 entradas, `better-sqlite3` incluido). Los subagentes tienen prohibido crear worktrees.
+- **La Bash tool se come un nivel de backslashes** — falló 5 veces esta sesión. Un `node -e` con `\r\n`,
+  `\s*` o `\u2028` llega mutilado, y un heredoc con `\\` también. **Escribir el script con la Write tool
+  y ejecutarlo**, o usar `String.fromCharCode(10)`. Los `String.raw` con `\u2028` también se rompen.
+- **Backticks en `git commit -m "..."` desde la Bash tool**: el shell los interpreta como sustitución de
+  comandos y **vacía los identificadores del mensaje**. Pasó en el turno 4; se arregló con
+  `git commit --amend -F <archivo>`. Para mensajes largos con backticks, **siempre `-F`**.
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- **U+2028 y U+2029 son terminadores de línea para el parser de JavaScript**: escritos crudos en un
+  `.mjs` parten la línea y rompen el archivo. Escribirlos como `String.fromCharCode(0x2028)`.
+- **El marcador se avanza DESPUÉS del review y ANTES de los fixes.** Esta sesión lo hizo bien en los 5
+  turnos.
+- **NO usar el foco `--code-review`** en review cross-repo: está atado al cwd de la sesión.
+- Push a Bootstrap Skills: cuenta **southpointtech** (MartinDele703 da 403).
+
+## Tests
+
+`cd C:\Repos\PERSONAL\claude-analytics` (los comandos corren contra `master`, pero el working tree está
+en otra rama — usar un worktree):
+- `node node_modules/vitest/vitest.mjs run` → **546 passed, 3 skipped (549)**. Eran 543/3 al empezar.
+- `npm run lint` → exit 0.
+- El archivo del gate: **9 tests, 16,1 s** (era 14,8 s antes del slice; +1,3 s). Los dos barridos
+  exhaustivos nuevos son 445 ms; el resto lo domina el test de formas, que corre 36 programas de `tsc`.
+
+## Bugs abiertos (declarados, medidos, no bloquean)
+
+Documento completo actualizado: **`claude-analytics\.scratch\gate-typecheck-huecos-declarados.md`**
+(F1 marcado como cerrado arriba; el texto original quedó abajo).
+
+Residuales de F1, todos medidos:
+- **El congelado de `raices` cubre directorios de PRIMER nivel.** Un `tsVersionados` que se coma
+  `tests/integration/`, `tests/helpers/`, `tests/tools/` o `src/types/` pasa las tres guardas.
+- **Los guards de contabilidad cuentan iteraciones, no aserciones**: un `continue` después del `push` los
+  deja verdes. ⚠️ El commit `a2a9a95` lo llama "el punto fijo" y **está subvendido**: `expect.assertions(n)`
+  de vitest es la vía mecánica estándar, no explorada. **Es el follow-up más barato que queda.**
+- **Debilitar un literal declarado en el mismo archivo que lo guarda** queda verde por construcción.
+- **`SALTOS_DE_LINEA` se construye a nivel módulo**: si `ts.isLineBreak` desaparece, el import tira y los
+  9 tests dejan de correr en vez de fallar uno.
+- Preexistentes, no tocados: `rutaCanonica` sin `toLowerCase`, `EXTENSIONES` sin `.mts/.cts/.tsx`.
+
+**F2, F3, F4** del doc de huecos siguen abiertos (`--lib dom`; `OPCIONES_INDEPENDIENTES` sin anclar;
+`vitest.config.ts` es el único `.ts` sin chequear **y** decide qué tests corren).
+
+Bugs viejos sin cambios: `freeze.mjs` sobre-reporta los turnos en el PROVENANCE; 269+203 reviewers
+`unrecognized` (taxonomía, no parsing); los 4 tests que dependen del sha `63a781e`; las 27 aserciones de
+regex sin anclar en `baseline-freeze.test.ts`.
+
+## Próximos pasos
+
+1. **Track B paso 3: el ruleset de hallazgos** (decisión ya tomada, ver arriba). Slice propio: reglas
+   sobre `report` + `tools/finding-measure.ts` al estilo de `focus-measure.ts`, calibrado contra los 21
+   agentes de esta sesión (deben dar ~31 Medium). Después, el A/B completo sobre los 5 snapshots.
+2. **`expect.assertions(n)` en el gate** — cierra el residual que `a2a9a95` declaró como "punto fijo" y
+   que no lo es. Chico.
+3. **Hardening de `freeze.mjs`** (`.scratch/freeze-mjs-hardening.md`, 4 MEDIUM) + re-registrar la tarea
+   al repo (`schtasks /Create /XML`; el harness bloquea `Register-ScheduledTask`).
+4. Deuda vieja sin cambios: self-upgrade de SouthPoint-Hub; podar snapshots viejos (~50 MB/semana, ya son
+   5); F2/F3/F4 del gate; rollout de `/slice-review` a 3 repos de cliente.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; se resuelven y se registran por escrito. Diseño/alcance/costo SÍ.
+  Esta sesión: **tres** preguntas — la del hook `alignment-gate` (respondió "seguir, es trivial") y las
+  dos del paso 3 (método y alcance). Pidió que le repitiera las dos últimas antes de contestarlas.
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- **PARCHE OPERATIVO VIGENTE**: antes de `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`. **Volvió a funcionar**: cero turnos gastados en
+  churn de prosa en los 5. **No editar las skills**: el fix real va en el bootstrap.
+
+## Lección medida (la novedad de esta sesión)
+
+**El código bajo prueba quedó bien en el turno 1 y no volvió a fallar; los otros 22 Medium fueron todos
+de la RED que lo mide, subiendo un nivel por turno.** El detector sobrevivió a más de 10.000 casos de
+fuzz contra `tsc` sin un falso negativo, mientras la red fallaba en: las formas del test (turno 2) → el
+barrido que la consume (turno 3) → el universo sobre el que barre (turno 4) → la salida de cada guard
+(turno 5). **Tres de esos huecos los introdujo el fix del turno anterior**, incluido uno donde "anclar al
+compilador" quedó **circular** —la regex se contrastaba contra la función de la que se deriva— con un
+comentario afirmando exactamente lo contrario.
+
+🔑 Y el corolario práctico, que es lo que hay que llevarse: **antes de escribir "ésta es la única que…",
+mutar y contar CUÁNTAS entradas mueren, no si muere la que estoy mirando.** Cuatro afirmaciones de
+unicidad salieron falsas por saltear ese paso, y al corregir una escribí otra igual de falsa con
+precisión fabricada. Guardado en la memoria `la-red-falla-un-nivel-mas-arriba`.
+
+---
+
 # Session Handoff — 2026-09-05 (tarde) — **La red del gate de typecheck está mergeada a `master` local de analytics (`2b255e9`)**: 5 commits, 386 líneas, review-loop de 5 turnos cerrado POR CAP + pasada de coherencia limpia.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
