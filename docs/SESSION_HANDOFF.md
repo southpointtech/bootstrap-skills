@@ -1,3 +1,174 @@
+# Session Handoff — 2026-09-07 (noche) — **Hardening de `tools/freeze.mjs` CERRADO y mergeado** (`250f3f1..3044b71`, 6 commits): review-loop de 5 turnos donde **4 de 4 turnos encontraron una regresión del fix anterior**, y 7 afirmaciones falsas propias retractadas.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo (`Bootstrap Skills`)
+sólo recibe este handoff. `main` queda **5 commits ahead de `origin/main`** (los cuatro anteriores +
+éste; los handoffs los pushea el usuario con `!`, cuenta **southpointtech**).
+
+Se cerró el **paso 2** del handoff anterior (hardening de `freeze.mjs` + apuntar la tarea). Los pasos
+1, 3 y 4 siguen abiertos sin cambios.
+
+### Lo que aterrizó
+
+`master` local de analytics: **`250f3f1..3044b71`, ff, 6 commits, +1208/−98 en 5 archivos**
+(**751 líneas de lógica agregadas, 840 contando borradas** → muy por encima del techo de ~400; ver
+"Deuda declarada"). `claude-analytics` NO tiene remoto → el master local ES el landing.
+
+| commit | qué |
+|---|---|
+| `a9f85fc` | el slice: los 4 MEDIUM del doc de hallazgos + LOWs + la primera batería de tests |
+| `62c41ce` | turno 1 — mi fix del stream era una REGRESIÓN; el `.d.mts` rompió el gate de typecheck de F1 |
+| `6f3a44b` | turno 2 — el `try` del turno 1 se tragaba bugs de código; 3 líneas rompibles sin rojo |
+| `33d3ef5` | turno 3 — la 6ª afirmación falsa, medida contra el corpus; el contador sin ancla por 3ª vez |
+| `98f6f14` | turno 4 — el fix anterior DESANCLÓ un mutante que moría; cierre por cap |
+| `3044b71` | coherencia + sincronización de la copia que corre la tarea |
+
+**Archivos**: `tools/freeze.mjs` (reescrito en partes), `tools/freeze.d.mts` (nuevo),
+`tests/tools/freeze.test.ts` (nuevo, 29 tests), `tools/README.md`, `tsconfig.tools.json`.
+
+**La rama `fix/freeze-mjs-hardening` sigue existiendo** en analytics (mismo commit que `master`).
+El worktree `C:\Repos\PERSONAL\ca-wt-freeze` ya se borró; `node_modules` verificado en 102 entradas
+antes y después de sacar la junction.
+
+### Verificación contra el ARTEFACTO REAL (no sólo tests)
+
+Corrido el script como lo invoca la tarea (`node.exe <ruta> <outDir>`) contra un temporal:
+**exit 0 en 21 s, 2706 transcripts, 84.627 steps, 3957 turnos, 2334 subagentes.**
+
+- `turns` del PROVENANCE = **3957** = líneas reales de `turns.jsonl`. El desfase era **−451/−475/−470**
+  en los tres snapshots anteriores.
+- El sha estampado (`e7deac924bbe…`) **coincide** con el de `tools/freeze.mjs` del repo — imposible
+  antes de normalizar EOL, porque el repo se materializa con CRLF y la copia que corre está en LF.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear.** NO tocarlo.
+  Para avanzar `master` se usó worktree + `git push . HEAD:master`, que no toca ningún working tree.
+- 🔴 **Worktree con junction a `node_modules`**: sacar el junction ANTES de `git worktree remove`, con
+  `(Get-Item <wt>\node_modules -Force).Delete()`. Hecho bien esta sesión.
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- **`npm run lint` NO funciona desde la PowerShell tool** (da `Unknown command: "pm"`). Usar
+  `node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit` y `-p tsconfig.tools.json`.
+- **NO correr el foco de mutación en paralelo con focos de lectura.** Pasó esta sesión: el que muta
+  contamina el árbol que el otro lee. Costo medido: el foco de bugs persiguió una "flake" que era mi
+  mutante (el digest `c840780d` es el del mutante sin flag `/g`, confirmado al dígito).
+- **NO usar el foco `--code-review`** en review cross-repo: está atado al cwd de la sesión.
+- Push a Bootstrap Skills: cuenta **southpointtech** (MartinDele703 da 403).
+
+## Tests
+
+`cd C:\Repos\PERSONAL\claude-analytics` (los comandos corren contra `master`, pero el working tree
+está en otra rama — usar un worktree):
+- `node node_modules/vitest/vitest.mjs run` → **576 passed, 3 skipped, 0 failed** (eran 547/3).
+- Los dos `tsc` en exit 0.
+- `tests/tools/freeze.test.ts`: 29 tests, < 1 s.
+
+**Ningún test queda en rojo.** Durante todo el loop hubo uno rojo POR DISEÑO (el guard de sincronía),
+que se apagó al copiar el archivo en el último paso.
+
+## Decisiones tomadas
+
+- **La tarea programada NO se repuntó al repo** (decisión del usuario, preguntada explícitamente).
+  Apuntarla a `tools\freeze.mjs` la dejaría rota cada vez que el working tree esté en una rama sin
+  `tools/` — que es el caso hoy. Sigue corriendo `~\.claude\automation\review-cost-freeze\freeze.mjs`,
+  con la copia **sincronizada** y respaldo en `freeze.mjs.pre-hardening.bak`.
+- **La deriva entre las dos copias la cierra un test** (`tests/tools/freeze.test.ts`, describe
+  "sincronia"), que lee el path de `tools/task.xml` y compara por contenido normalizado. Flujo al
+  tocar el extractor: editar en el repo → suite en rojo → copiar a `~\.claude\automation\...` → verde.
+- **El sha del PROVENANCE se calcula sobre texto normalizado a LF**, con el mismo `normalizarSaltos`
+  que usa el test, para que sea auditable desde un checkout con CRLF.
+
+## Bugs abiertos (declarados, medidos, no bloquean)
+
+Residuales del slice, declarados en `tools/README.md`:
+- Las truncaciones (`prompt` 220/3000, `report` 14 000) no se ejercitan en el borde.
+- El guard de módulo principal no tiene assert propio (red indirecta).
+- **`rs?.destroy()` no muere con ningún test**: sacarlo no cambia `badFiles`/`turns`/`steps`.
+- El guard `typeof e.code === 'string'` no separa I/O de bugs como sugiere el nombre: los `ERR_*` de
+  Node también traen `code` y caen en `badFiles`.
+- `ts.filter(Boolean)` descarta un timestamp de epoch 0 (preexistente, inalcanzable en producción).
+
+Bugs viejos sin cambios: `freeze.mjs` **ya no** sobre-reporta turnos (cerrado); 269+203 reviewers
+`unrecognized`; los 4 tests que dependen del sha `63a781e`; las 27 aserciones de regex sin anclar en
+`baseline-freeze.test.ts`. Residuales de F1 y F2/F3/F4 del gate:
+`.scratch/gate-typecheck-huecos-declarados.md` (F3 ya cerrado, el doc lo lista abierto).
+
+## Deuda declarada de este slice
+
+- **840 líneas de lógica contra un techo de ~400.** El slice se pasó al doble. La causa no fue el
+  slice inicial (392) sino los 4 turnos del loop, que sumaron ~450 más. **Regla que conviene adoptar:
+  medir el acumulado en cada turno, no sólo al abrir el slice.** El usuario no pidió partirlo.
+- ⚠️ **Reapareció la basura de Codex en `claude-analytics`**: `.codex/`, `AGENTS.md` y 10
+  `.agents/skills/source-command-*/` sin commitear. El handoff del 2026-09-07 decía que se habían
+  borrado de 5 repos. **Algo los está regenerando.** No se tocaron (untracked, en un repo con trabajo
+  ajeno). El usuario ya dijo que Codex no le interesa.
+
+## Próximos pasos
+
+1. **Track B paso 3: el ruleset de hallazgos** (sin cambios desde el handoff anterior). Slice propio:
+   `finding-rules.ts` + `tools/finding-measure.ts` al estilo de `focus-measure.ts`, calibrado contra
+   los 21 agentes del 2026-09-07 (deben dar ~31 Medium). Después, el A/B sobre los 5 snapshots.
+   **Es el slice grande y el único que desbloquea el A/B retroactivo. Conviene partirlo en 2.**
+2. **F2/F4 del gate de typecheck** (`--lib dom`; `vitest.config.ts` es el único `.ts` sin chequear y
+   decide qué tests corren). F3 ya está cerrado.
+3. **Investigar qué regenera la basura de Codex** y borrarla de los repos afectados.
+4. Deuda vieja sin cambios: self-upgrade de SouthPoint-Hub; podar snapshots viejos (hay 4
+   `review-cost-snapshot-*` + baseline + derived en `output/raw/`); rollout de `/slice-review` a 3
+   repos de cliente; `C:\Users\marti\.codex\` (683 MB) sigue sin borrar, fuera de todo repo.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; se resuelven y se registran por escrito. Diseño/alcance/costo SÍ.
+  Esta sesión: **dos** preguntas (la decisión de la tarea programada, y el gate de alignment).
+  Contestó "sincronizar copia + guard en tests" y "ya está alineado, seguimos".
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- **PARCHE OPERATIVO VIGENTE**: antes de `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`. Funcionó: cero turnos gastados en churn de
+  prosa por sí sola. **No editar las skills**: el fix real va en el bootstrap.
+
+## Lecciones medidas (la novedad de esta sesión)
+
+**El patrón de `la-red-falla-un-nivel-mas-arriba` se repitió más nítido que en F1: 4 de 4 turnos
+encontraron una regresión introducida por el fix del turno anterior, ninguna en el código original.**
+
+| turno | la regresión que introdujo el fix previo |
+|---|---|
+| 1 | el listener `'error'` volvía SILENCIOSO un fallo que era ruidoso (exit 0 en vez de 1) |
+| 2 | el `try` agregado para eso se tragaba bugs de código y los reportaba como archivo ilegible |
+| 3 | el contador agregado ahí nació sin ancla — 3ª vez en 3 commits consecutivos |
+| 4 | "realizar" un fixture igualando dos valores mató el ancla que distinguía cuál se reporta |
+
+**7 afirmaciones falsas propias retractadas.** La lección nueva y la más importante:
+
+🔑 **Una afirmación sobre DATOS no se verifica pensando, se verifica midiendo los datos.** Las dos
+peores no cayeron por releerlas sino cuando un reviewer barrió el corpus real (417 K líneas):
+escribí que dos formas "existen en el crudo" (cero ocurrencias) y que "ningún snapshot atravesó ese
+camino" (falso: sólo `null` tiraba). Las escribí **en el documento cuyo trabajo es justificar
+divergencias**.
+
+Corolarios nuevos:
+- **Una afirmación retractada sobrevive en el archivo que nadie volvió a abrir.** Retracté "el único
+  normalizador del repo" en el `.mjs` y quedó viva en el `.d.mts` durante dos turnos. Sólo la cazó el
+  pase de coherencia, que es el único que mira el conjunto.
+- **"Realizar" un fixture puede matar su propio ancla.** Igualar dos valores porque en producción son
+  iguales desanclé el swap entre ellos. Un fixture existe para matar mutantes, no para parecerse a
+  producción.
+- **El denominador envejece, el numerador no.** Dos mediciones del mismo corpus el mismo día dieron
+  417.280 y 417.543 líneas. Escribir "cero, en dos barridos" sobrevive; "0 de 417.280" nace vencido.
+
+**Error de proceso, 4ª repetición**: el `advance` del marcador se cayó otra vez en el hueco de
+atención (esta vez avanzándolo ANTES de lanzar el reviewer, sin consecuencia porque el árbol estaba
+limpio y el rango se capturó antes).
+
+Memorias a actualizar: `la-red-falla-un-nivel-mas-arriba` (3ª), `trampas-de-tests-que-no-muerden`
+(+ "realizar un fixture mata su ancla"), `parchar-prosa-de-procedimiento-no-converge` (8ª),
+`reviewers-que-mutan-contaminan` (confirmada con costo medido),
+`marcador-avanzar-antes-de-los-fixes` (4ª).
+
+---
+
 # Session Handoff — 2026-09-07 (tarde) — **El residual de `expect.assertions` del gate CERRADO y mergeado** (`9f838d4..250f3f1`, 6 commits, 398 líneas): review-loop de 5 turnos cerrado POR CAP, 19 reviewers, ~40 mutantes, y el defecto subió un nivel en cada turno.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
