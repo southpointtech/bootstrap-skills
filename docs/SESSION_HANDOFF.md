@@ -1,3 +1,199 @@
+# Session Handoff — 2026-09-09 — **Dos slices cerrados y mergeados EN PARALELO** (`3044b71..6b59b14`, 11 commits): el gate F2+F4 con un loop de 5 turnos, y `finding-rules` con uno de 2. **5 de 5 turnos del primero encontraron el defecto en el fix del turno anterior**, y la clase que falla es siempre la misma: **la afirmación de robustez sobre el propio fix**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo de código ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` queda **6 commits ahead de `origin/main`**
+(los cinco anteriores + éste; los pushea el usuario con `!`, cuenta **southpointtech**).
+
+**Se paralelizó por primera vez**: dos slices en dos worktrees a la vez, con los review-loops
+serializados. Funcionó. La precondición que lo habilitó está medida (ver "Decisiones").
+
+### Lo que aterrizó
+
+`master` local de analytics: **`3044b71..6b59b14`, ff, 11 commits**. `claude-analytics` NO tiene
+remoto → el master local ES el landing.
+
+| commit | qué |
+|---|---|
+| `6e339ea` | **Carril B, el slice**: F2 (el `lib` de los perfiles) y F4 (el `include` del runner) |
+| `6ac9c26` | turno 1 — la directiva que anulaba F2 entero, el mutante del filtro, dos afirmaciones falsas |
+| `bb773c8` | turno 2 — el fix del turno 1 no tenía red, y su justificación quedó falsa |
+| `22ea129` | turno 3 — las anclas pasan a verificarse solas en vez de declararse |
+| `258d5d3` | turno 4 — la dualidad estaba renombrada, la marca era genérica, plegar un guard fue regresión |
+| `699d947` | turno 5 — la marca nominal era falsificable; cierre POR CAP |
+| `b595872` | coherencia: dos referencias cruzadas que se contradecían |
+| `ed998c3` | **Carril A, el slice**: `finding-rules.ts`, el ruleset que cuenta hallazgos sobre el campo `report` |
+| `ce2adeb` | turno 1 — `ALTO` y `CRÍTICO` al vocabulario, y siete afirmaciones que el corpus refutó |
+| `663db6e` | turno 2 — red semántica para el vocabulario; cierre POR CAP |
+| `6b59b14` | coherencia: la tercera copia de los números que el turno 2 ya había refutado |
+
+**Ramas vivas** en analytics: `fix/gate-f2-f4` y `feat/finding-rules` (las dos en el mismo commit
+que su punta de master). Los worktrees `ca-wt-gate` y `ca-wt-findrules` **ya se borraron**;
+`node_modules` verificado en 102 entradas antes y después de sacar los junctions.
+
+### Verificación final
+
+- Suite completa: **627 passed | 3 skipped | 0 failed** (eran 576|3 al abrir la sesión).
+- `tsc -p tsconfig.json --noEmit` y `-p tsconfig.tools.json` → **exit 0 los dos**.
+- Acumulado del carril B: 600 líneas agregadas, **194 de lógica** (debajo del techo de ~400).
+- Carril A: 990 líneas agregadas; **se pasó del techo y está declarado** (ver "Deuda").
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear.** NO tocarlo.
+  Para avanzar `master` se usa worktree + `git push . HEAD:master`, que no toca ningún working tree.
+- 🔴 **Worktree con junction a `node_modules`**: sacar el junction ANTES de `git worktree remove`, con
+  `(Get-Item <wt>\node_modules -Force).Delete()`, verificando el atributo `ReparsePoint` primero.
+  Hecho bien esta sesión (102 → 102).
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- **`npm run lint` NO funciona desde la PowerShell tool.** Usar los dos `tsc` a mano.
+- **NO usar el foco `--code-review`** en review cross-repo: está atado al cwd de la sesión.
+- **Los backticks en un `-m` de `git commit` con comillas dobles los EJECUTA bash.** Costó un `--amend`
+  esta sesión (tres huecos en el mensaje). Pasar el mensaje por archivo con `-F`.
+- **El heredoc de la Bash tool se come un nivel de escapes** — se comió un backtick y partió un string
+  de test, y antes un `\n`. Si el contenido tiene backticks o backslashes, escribir el script a un
+  archivo con la Write tool y correrlo.
+- **`grep -c $'\r$'` no hace lo que parece en esta shell**: matcheó el fin de línea de las 1207 líneas
+  y me hizo creer que un archivo era CRLF cuando lo había pasado a LF. Medir EOL con `od`/Python a
+  nivel bytes.
+- **Los reviewers que mutan contaminan a los que leen en paralelo.** Pasó cinco veces esta sesión, con
+  reviewers reportándose contaminación entre sí. Todos los hallazgos de valor hay que cruzarlos contra
+  `git status`.
+
+## Decisiones tomadas
+
+- **Paralelizar dos slices SÍ es viable en `claude-analytics`**, y la memoria que decía "un solo
+  carril" no aplicaba acá: la midió sobre la suite PowerShell de Bootstrap Skills, que barre `%TEMP%`
+  por prefijo global. La de analytics tiene **68 `mkdtemp`, cero tmpdir de nombre fijo**, y los 5 tests
+  de DB overridean `CLAUDE_ANALYTICS_DB` a un temporal. Dos corridas simultáneas no colisionan.
+- **Los review-loops se serializan igual**: dos a la vez son 8-12 agentes y caen de 3,1× a 2,0×.
+- **El cap del loop de A se bajó a 2 turnos**, con la medición de B como justificación (ver "Lecciones").
+  Es una decisión de alcance de ese slice, no un cambio de la skill.
+- **Alcance del carril A (preguntado al usuario, que eligió la opción recomendada)**: arreglar sólo lo
+  que hace que el instrumento dé números MAL sobre formas que existen en el corpus, y declarar el resto
+  como residual MEDIDO con su número. El bloque de RESIDUOS pasó de 4 entradas a 12.
+
+## Bugs abiertos (declarados, medidos, no bloquean)
+
+**Del carril B** (gate de typecheck), residual declarado en el código: el mensaje del piso de
+`CONFIG_DE_VITEST_ESPERADO` no se llega a imprimir porque el guard de nombres dispara antes y culpa al
+config cuando el defecto está en la tabla. Queda rojo igual; es diagnóstico, no cobertura.
+
+**Del carril A** (`finding-rules`), los 12 RESIDUOS del módulo. Los que pesan para 3b:
+- **4.** El fingerprint no cubre por RAMA: tres mutantes de comportamiento dejan el hash idéntico y
+  **dos de los tres mueven un agregado** con `assertFindingRulesFresh` en verde.
+- **5.** La tabla ancla el ENCABEZADO, no la COLUMNA: una tabla-resumen de conteos por severidad
+  devuelve **la leyenda en vez de los hallazgos**, y le gana la prioridad a los encabezados reales.
+- **6.** La herencia de sección cuenta como hallazgo TODO encabezado más profundo, incluido el epílogo.
+- **7.** La ventana congelada **fabrica** rótulos al cortar `alta`/`bajo` por la mitad.
+- **12.** La truncación del crudo a 14 000 chars es **asimétrica entre los brazos del A/B**: agosto
+  2,71 % (36 de 1327) contra septiembre 0,51 % (5 de 977), factor 5,3×. **No es de este ruleset** — es
+  del extractor — y corta la cola de los reportes más largos.
+
+Bugs viejos sin cambios: 269+203 reviewers `unrecognized`; los 4 tests que dependen del sha `63a781e`;
+las 27 aserciones de regex sin anclar en `baseline-freeze.test.ts`.
+**F2 y F4 quedaron CERRADOS**; el doc `.scratch/gate-typecheck-huecos-declarados.md` **no se actualizó**
+(ver próximos pasos) y además **miente en las dos direcciones**: lista F3 como abierto cuando se cerró
+en `0a6e44d`, y no tiene los residuales nuevos.
+
+## Deuda declarada
+
+- **El carril A se pasó del techo**: 990 líneas agregadas contra ~400 de lógica. El slice inicial ya
+  entró en 503 y los dos turnos sumaron el resto. **No se partió porque el usuario eligió el alcance
+  acotado**, no por descuido.
+- 🔴 **La app de escritorio de Codex/ChatGPT está instalada y CORRIENDO**, y re-siembra `.codex/`,
+  `AGENTS.md` y los 10 `source-command-*` en cada repo al arrancar. Medido: los borré, y **reaparecieron
+  a las 09:59, un minuto después de que arrancara la app**. Son 11 procesos `ChatGPT.exe` desde
+  `Program Files\WindowsApps\OpenAI.Codex_26.901.6511.0` más `codex.exe` y `codex-code-mode-host.exe`.
+  ⚠️ **Mi diagnóstico anterior en esta misma sesión fue equivocado** ("nada los regenera, fue una
+  corrida manual"): busqué procesos que matchearan `codex` y el principal se llama **`ChatGPT.exe`**, y
+  busqué instalaciones en `LOCALAPPDATA\Programs` cuando es una app de la Store bajo `WindowsApps`. Los
+  dos negativos eran ciegos. **Borrar los archivos es inútil mientras la app corra**; cerrarla o
+  desinstalarla es decisión del usuario.
+- `C:\Users\marti\.codex` sigue en **1,1 GB** y **NO hay que borrarlo**: tiene sesiones y credenciales
+  vivas, con proyectos `trusted` fechados 2026-09-08 y material personal del usuario. La línea del
+  backlog que decía borrarlo estaba escrita sobre una premisa falsa.
+
+## Próximos pasos
+
+1. **Track B paso 3b: `tools/finding-measure.ts` + el A/B retroactivo** sobre los cinco snapshots.
+   Es lo único que cierra el objetivo. `finding-rules` ya está en master y el contrato con
+   `focus-measure.ts` está verificado: un `finding-measure.ts` calcado puede consumirlo. **Leer los 12
+   RESIDUOS antes de escribir el primer número**, sobre todo el 5 y el 12.
+2. **Actualizar `.scratch/gate-typecheck-huecos-declarados.md`**: marcar F2 y F4 cerrados, corregir la
+   premisa de F2 (el hueco estaba ABIERTO por default, no sólo alcanzable), marcar F3 que ya estaba
+   cerrado desde `0a6e44d`, y sumar los residuales nuevos.
+3. **Decidir qué hacer con la app de Codex** (cerrarla, desinstalarla, o aceptar el ruido).
+4. Deuda vieja sin cambios: self-upgrade de SouthPoint-Hub; podar snapshots viejos; rollout de
+   `/slice-review` a 3 repos de cliente.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No hacerle preguntas técnicas**; se resuelven y se registran por escrito. Alcance/costo SÍ. Esta
+  sesión: **una** pregunta (el alcance del carril A), y eligió la opción recomendada.
+- Quiere que las cosas **funcionen y se trackeen sin su supervisión**.
+- No usar `/compact`; handoff + terminal nueva.
+- **PARCHE OPERATIVO VIGENTE**: antes de `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`. Funcionó otra vez: cero turnos gastados en
+  churn de prosa por sí sola.
+
+## Lecciones medidas — la novedad de esta sesión
+
+**El patrón de `la-red-falla-un-nivel-mas-arriba` llegó a 5 de 5 turnos**, y por primera vez se puede
+nombrar QUÉ falla exactamente:
+
+> 🔑 **La afirmación de ROBUSTEZ sobre el propio fix es el punto donde el fix falla.**
+
+Las tres del carril B, todas escritas por mí y todas refutadas midiendo:
+
+| lo que escribí | lo que estaba medido |
+|---|---|
+| "no hay dualidad que revertir si hay un solo texto" | había dos, renombradas: `texto`/`textoDelAncla` |
+| "para que sacarlo sea un diff sobre una constante y no una desaparición" | vaciar la constante ERA la desaparición |
+| "la alternativa nominal es falsificable y ésta no" | se falsifica en dos líneas |
+
+Corolarios nuevos:
+
+- **Plegar dos guardas en una les saca la independencia que era su valor.** Metí el chequeo de
+  `allowOnly` dentro de la tabla declarada "para mejorarlo" y **el código anterior mataba un mutante que
+  el mejorado dejaba pasar**. Dos guardas que fallan por el mismo motivo no son dos guardas.
+- **Un ancla declarada se desarma; una ancla derivada no.** Lo que cerró el ciclo en el carril B no fue
+  otro parche sino cambiar el mecanismo: la lista que ancla el guard **se verifica sola** (se compila
+  suelta y se exige que sus nombres falten) en vez de congelarse.
+- **Un `not.toContain` sobre una frase de error es una aserción débil**: se satisface cuando el
+  escenario ni siquiera ocurrió. Preguntar en POSITIVO por algo que sólo puede existir si el
+  comportamiento ocurrió.
+- **Publicar un conteo sin declarar el método de medición es publicar cuatro números distintos.** En el
+  carril A escribí cuatro conteos de vocabulario que salían de cuatro segmentaciones incompatibles,
+  presentadas como una sola medición — y uno se contradecía con los por-mil de tres párrafos más abajo,
+  **dentro del mismo commit**.
+- **La corrección de una frase falsa nace falsa.** Al arreglar el ejemplo del comentario de
+  `SECTION_EXPR` di vuelta el efecto que describía. Es la tercera versión de ese comentario y la segunda
+  equivocada.
+- **El pase de coherencia es el único que encuentra la copia número tres.** Los turnos revisan el delta;
+  la tercera copia de un número refutado vive en un bloque que ningún delta tocó.
+
+**Sobre el costo del loop, con datos propios**: turno 1 encontró 4 hallazgos **del slice**; los turnos 2
+a 5 encontraron 15, **todos de los fixes del turno anterior**, a costo por turno plano. El loop no
+converge sobre el código: itera sobre sí mismo. Por eso el cap de A se bajó a 2 — y en A el turno 2
+igual encontró que el fix del turno 1 había entrado sin red, así que 2 turnos parece ser el piso, no el
+techo.
+
+**Y lo que sólo se ve barriendo el corpus**: el hallazgo más valioso del carril A (`ALTO` fuera del
+vocabulario, 47 rótulos en 34 reportes, todos del slot más grave) **no se detecta releyendo el
+archivo**. Ni el foco de bugs ni el de tests lo vieron; lo vio el que tenía la orden de medir contra los
+2304 reportes. Arreglarlo recuperó **55 High (+17,4 %)** sin mover un solo Medium ni Low.
+
+Memorias a actualizar: `la-red-falla-un-nivel-mas-arriba` (5ª, con el corolario de la afirmación de
+robustez), `trampas-de-tests-que-no-muerden` (+ "un `not.toContain` sobre una frase de error"),
+`parchar-prosa-de-procedimiento-no-converge` (9ª), `afirmaciones-sobre-datos-se-miden-no-se-piensan`
+(+ "declarar el método o son cuatro números"), `worktrees-paralelos-medido` (la premisa NO aplica a
+analytics), `paralelizar-slices-no-reviewers` (ejecutado y funcionó), `marcador-avanzar-antes-de-los-fixes`
+(5ª: esta vez lo avancé ANTES del review, que es el error inverso).
+
+---
+
 # Session Handoff — 2026-09-07 (noche) — **Hardening de `tools/freeze.mjs` CERRADO y mergeado** (`250f3f1..3044b71`, 6 commits): review-loop de 5 turnos donde **4 de 4 turnos encontraron una regresión del fix anterior**, y 7 afirmaciones falsas propias retractadas.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
