@@ -1,3 +1,166 @@
+# Session Handoff — 2026-09-09 (tarde) — **El Track B tiene su número de BENEFICIO**: `tools/finding-measure.ts` cerrado y mergeado (`6b59b14..8a39ab9`, 5 commits). El ciclo nuevo encuentra **+27 % de hallazgos que bloquean por reporte** — y los High CAEN. Review-loop de 4 turnos donde **los 4 encontraron el defecto en el fix del turno anterior**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **Todo el trabajo de código ocurrió en `C:\Repos\PERSONAL\claude-analytics`.** Este repo
+(`Bootstrap Skills`) sólo recibe este handoff. `main` queda **7 commits ahead de `origin/main`**
+(los seis anteriores + éste; los pushea el usuario con `!`, cuenta **southpointtech**).
+
+### Lo que aterrizó
+
+`master` local de analytics: **`6b59b14..8a39ab9`, ff, 5 commits**. `claude-analytics` NO tiene
+remoto → el master local ES el landing.
+
+| commit | qué |
+|---|---|
+| `ee4a5ad` | **el slice**: `tools/finding-measure.ts` + 14 tests |
+| `1026216` | turno 1 — 4 bugs reales, 1 test verde vacuo, la duplicación con la hermana |
+| `d4a6ed0` | turno 2 — 17 hallazgos, **ninguno del slice original** |
+| `9b553bb` | turno 3 — las cuatro copias número tres |
+| `8a39ab9` | turno 4 + coherencia — cierre |
+
+**El reporte del A/B** está en `output/reports/2026-09-09_AB-hallazgos-beneficio.md` (ese
+directorio está gitignoreado: es artefacto local, como los A/B de costo anteriores).
+
+### El número, que es lo que se buscaba
+
+| corte | `blocking` cada 100 reportes | Δ |
+|---|---|---|
+| **2026-08-26** (la frontera real del ciclo, la del A/B de costo) | 79,5 → 101,2 | **+27,3 %** |
+| **2026-09-01** (mes calendario) | 84,0 → 105,9 | **+26,2 %** |
+
+Se midieron los DOS cortes a propósito: publicar uno solo dejaba la duda de si el signo es un
+artefacto del corte. No lo es.
+
+🔴 **Y el matiz que hay que leer antes de festejar: los High CAEN en términos absolutos** (17,1 →
+15,6 cada 100 reportes en el corte del 26-08; 17,4 → 14,4 en el otro). Lo que el ciclo nuevo agrega
+es Medium y Low. Con el ruleset v2, que ya cuenta `ALTO`, así que no es el artefacto de vocabulario.
+
+⚠️ **NO se puede dividir beneficio por costo todavía.** El A/B de costo compara
+`2026-08-26→09-03` contra un baseline `2026-07-13→08-11` — dos snapshots distintos—, y éste parte
+UN snapshot cuyo brazo viejo arranca el `2026-08-08`. Los brazos viejos no son el mismo período.
+Emparejar "+19,2 % de costo" con "+27,3 % de beneficio" es comparar dos mediciones sin denominador
+común. Está declarado en el reporte.
+
+### Verificación final
+
+- Suite completa: **661 passed | 3 skipped | 0 failed** (eran 627|3 al abrir).
+- `tsc -p tsconfig.json --noEmit` y `-p tsconfig.tools.json` → **exit 0 los dos**.
+- Mutación propia por turno: 7 → 12 → 16 → 11 → 5, **todos muertos al cerrar cada tanda**.
+- Worktrees `ca-wt-measure` y `ca-wt-report` borrados; `node_modules` verificado **102 antes y
+  después**, con el junction sacado con `.Delete()` ANTES de `git worktree remove` las dos veces.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear.** NO
+  tocarlo. Para avanzar `master` se usa worktree + `git push . HEAD:master`.
+- 🔴 **Worktree con junction a `node_modules`**: sacar el junction con `(Get-Item <p> -Force).Delete()`
+  ANTES de `git worktree remove`, verificando `ReparsePoint` primero. Y **contar con el MISMO
+  comando** antes y después: `ls | wc -l` da 98 y `Get-ChildItem -Force` da 102 sobre el mismo
+  directorio intacto. Comparar dos métodos distintos parece una pérdida de 4 paquetes.
+- **`npx vitest` da FALSO VERDE en un worktree.** Usar `node node_modules/vitest/vitest.mjs run`.
+- **NO usar el foco `--code-review`** en review cross-repo: está atado al cwd de la sesión.
+- **El heredoc de la Bash tool se rompe con comillas anidadas** (`'''` de Python dentro de `<<'PY'`).
+  Para ediciones con texto rico, usar la Edit tool o escribir el script con la Write tool.
+- **Un hook bloquea `Add-Content` si el texto contiene ciertos literales** (`"\n"` o un backtick
+  escapado seguido de `t0`): lo interpreta como un path de sistema. Reformular el texto.
+- **`output/raw/` está gitignoreado y vive sólo en el working tree principal**: desde un worktree hay
+  que pasar rutas absolutas o el descubrimiento no encuentra nada.
+
+## Decisiones tomadas
+
+- **El loop cerró en 4 turnos, no en el cap de 5.** Declarado en el commit: los turnos encontraron 4,
+  2, 1 y 1 defectos de CÓDIGO reales respectivamente, con el resto prosa y red. La curva es monótona
+  y el PARCHE operativo dice que el churn de prosa no consume turnos.
+- **El turno 3 se corrió con 3 focos y el turno 4 con 1**, no con 5. Razón declarada: en los turnos 1
+  y 2, los focos de *reglas* y *contratos* aportaron un hallazgo cada uno y los de *bugs*, *tests* y
+  *afirmaciones* aportaron dieciséis.
+- **El pase de confianza se corrió sobre los FIXES, no sobre los hallazgos.** Se pagó solo: puntuó
+  95 un hallazgo y **65 mi fix**, porque el fix destapaba un solape entre brazos sin nombrarlo.
+- **No se extrae el bloque de tabla duplicado con `focus-measure`**: pide unificar antes
+  `ArmReport`/`SnapshotReport`. Declarado en el código SIN números de línea, a propósito.
+
+## Bugs abiertos (declarados, medidos, no bloquean)
+
+- **`surface: none` es el 55-66 % de los reportes en los dos brazos.** El instrumento no puede
+  separar "el ciclo nuevo encuentra más" de "el ciclo nuevo ROTULA más", y no debe pretender que sí.
+- Los **12 RESIDUOS** de `finding-rules.ts` siguen abiertos salvo el 11 (resuelto del lado del
+  consumidor) y el 12 (declarado por `report.truncated`).
+- Bugs viejos sin cambios: 269+203 reviewers `unrecognized`; los 4 tests que dependen del sha
+  `63a781e`; las 27 aserciones de regex sin anclar en `baseline-freeze.test.ts`.
+- **Flake preexistente**: `tests/integration/review-cost-compare-cli.test.ts:100` falló una vez bajo
+  carga (reviewers en paralelo) y pasó al reintentar. No es de este slice.
+
+## Deuda declarada
+
+- **El slice se pasó del techo: 670 líneas de lógica contra ~400**, declarado en los cuatro commits.
+  Todo el crecimiento son fixes de hallazgos del review sobre la misma unidad. El método de conteo va
+  escrito al lado porque el número cambia según qué se cuente (609 vs 650 vs 670 según el universo).
+- 🔴 **La app de escritorio de Codex/ChatGPT sigue instalada y CORRIENDO**, y re-siembra `.codex/`,
+  `AGENTS.md` y los 10 `source-command-*` en cada repo. Borrar los archivos es inútil mientras corra.
+  **Decisión pendiente del usuario.**
+
+## Próximos pasos
+
+1. **Correr el A/B de COSTO sobre la misma partición** que el de beneficio (un snapshot, corte por
+   fecha). Es lo único que falta para poder dividir beneficio por costo y publicar un cociente. Hoy
+   los dos números existen pero no comparten denominador.
+2. **Decidir qué hacer con la app de Codex** (cerrarla, desinstalarla, o aceptar el ruido).
+3. Deuda vieja sin cambios: self-upgrade de SouthPoint-Hub; podar snapshots viejos; rollout de
+   `/slice-review` a 3 repos de cliente.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **Pidió explícitamente avanzar sin interrupciones, tomando yo las decisiones**, con permiso para
+  commitear y mergear. Se hizo así: **cero preguntas** en toda la sesión.
+- No pushear a `origin` de Bootstrap Skills (lo hace él con `!`, cuenta southpointtech).
+- No usar `/compact`; handoff + terminal nueva.
+- **PARCHE OPERATIVO VIGENTE**: antes de `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`.
+
+## Lecciones medidas — la novedad de esta sesión
+
+**El patrón llegó a 4 de 4 turnos**, y esta vez la copia número tres tiene REGLA:
+
+> 🔑 **Está en el bloque que el delta NO tocó, y dice exactamente lo que el commit anunció haber
+> corregido.**
+
+Aparecieron **seis**, todas cumpliendo la regla. Un delta no puede verlas por construcción: por eso
+el pase de coherencia no es opcional.
+
+Lo demás que se midió y no estaba:
+
+- **`toThrow("texto")` de vitest matchea por SUBSTRING.** Anclar "el mensaje completo" NO cierra el
+  mutante que borra una guarda y absorbe su mensaje en el de la vecina. Fue la TERCERA versión de ese
+  test, cada una con un comentario explicando por qué ésta sí cerraba.
+- **Dos preguntas distintas bajo el mismo criterio.** `Date.parse` alcanza para PARTICIONAR (compara
+  números) y no para ORDENAR (compara strings): `Date.parse("Dec 25 2026")` es finito y ordena por la
+  "D", así que se publicaba como fin de período. Y el caso inverso es peor porque es silencioso.
+- **El defecto estructural se reintroduce en la métrica que se escribe AL LADO del que se arregla.**
+  Arreglé `sin_fecha` (cero por construcción) y en el mismo commit agregué `cross_split`, cero por
+  construcción en el otro brazo.
+- **Un fixture REALIZADO tapa el swap de denominadores**, y una identidad que los sume tampoco lo ve
+  porque es invariante bajo el swap. Cuatro veces en el mismo slice.
+- **Una aserción puesta en el escenario equivocado es un mutante equivalente disfrazado de red**: el
+  ancla del dedupe nació en el test de UNA columna, donde no hay nada que deduplicar.
+- **Un ancla por número de línea se pudre con el propio commit que la escribe.** Cité un rango medido
+  sobre el archivo de ANTES del commit que insertaba 48 líneas más arriba en ese mismo archivo.
+- 🔑 **Repetir el número de un subagente sin medirlo es escribir una afirmación falsa propia.** Puse
+  "57 bordes con cruces y CERO solape"; medido son 129 y 66, y la segunda mitad la refutaba **la
+  salida de la propia herramienta**. Y al revés: otro agente reportó largos de 13 990/13 992 para
+  refutar un umbral, y midiéndolo ese rango está VACÍO. **Los subagentes fabrican mediciones igual
+  que uno.**
+- **Escribí mal el conteo de tests en el mensaje de commit dos veces** (34 por 33, 31 por 29), las
+  dos veces corregidas con `--amend`. Es el número más fácil de verificar de todos.
+
+Memorias actualizadas: `afirmacion-de-robustez-sobre-el-propio-fix` (4 turnos + la regla de la copia
+número tres), `trampas-de-tests-que-no-muerden` (+4: substring de `toThrow`, fixture realizado sobre
+denominadores, aserción en el escenario equivocado, negación que no matchea por reescritura),
+`afirmaciones-sobre-datos-se-miden-no-se-piensan` (la dirección de un corte se lee en la llamada),
+`la-red-falla-un-nivel-mas-arriba`, `paralelizar-slices-no-reviewers`, `marcador-avanzar-antes-de-los-fixes`.
+
+---
+
 # Session Handoff — 2026-09-09 — **Dos slices cerrados y mergeados EN PARALELO** (`3044b71..6b59b14`, 11 commits): el gate F2+F4 con un loop de 5 turnos, y `finding-rules` con uno de 2. **5 de 5 turnos del primero encontraron el defecto en el fix del turno anterior**, y la clase que falla es siempre la misma: **la afirmación de robustez sobre el propio fix**.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
