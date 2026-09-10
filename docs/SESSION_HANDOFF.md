@@ -1,3 +1,162 @@
+# Session Handoff — 2026-09-09 (noche, 2ª sesión) — **Grilling del slice `--split` CERRADO**: ADR-0006 + término de glosario commiteados en un worktree nuevo (`c9083c7`). Cinco hallazgos medidos que **corrigen la premisa del handoff anterior**. Paso 0 BLOQUEADO por un Scheduled Task, no por un error.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Fase completada: **Alignment / Grill With Docs**. La siguiente es **PRD del slice 1**, y el
+`CLAUDE.md` de analytics **exige aprobación humana para pasar de fase**. Nada de código escrito:
+cero archivos de `src/` o `tests/` tocados, cero tests corridos.
+
+- **Worktree nuevo**: `C:\Repos\PERSONAL\wt-review-cost-split`, rama `feat/review-cost-split`,
+  desde `master` (`8a39ab9`). **Tiene `node_modules` propio instalado** (`npm install`, exit 0).
+  ⚠️ NO es un junction: es una instalación real, así que `git worktree remove` es seguro acá.
+- **Commit `c9083c7`** en esa rama: `CONTEXT.md` (término **Brazo**) + `docs/adr/0006-ab-de-costo-por-brazos.md`.
+  Sin mergear a `master`. Es 100 % documentación → **no dispara review-loop**.
+- `master` local de `claude-analytics` sigue en **`8a39ab9`**, sin tocar.
+- El checkout principal de analytics sigue en `fix/migration-billable` con trabajo AJENO sin
+  commitear. **No se tocó.**
+- `main` de Bootstrap Skills: **8 commits ahead de `origin/main`** → con este handoff, 9.
+- **Backup nuevo**: `data/backups/claude-analytics-pre-freeze-2026-09-10.db` (280 MB,
+  `integrity_check: ok`, hecho con `db.backup()`, no con copy).
+
+## 🔴 EL BLOQUEO — leer antes de reintentar el paso 0
+
+`baseline freeze` falló tres veces con **`database is locked`**. NO es un bug: el Scheduled Task
+**`ClaudeAnalyticsSync` corre cada ~10 minutos** y mantiene la DB tomada (verificado: estado
+`Running`, última corrida 22:46:59, próxima 22:56:58; el PID de `enrich --remap` cambia entre
+chequeos). `busy_timeout = 5000` no alcanza.
+
+Para correr el paso 0 hay que **deshabilitar la tarea, correr, y volver a habilitarla** —
+`Disable-ScheduledTask -TaskName ClaudeAnalyticsSync` / `Enable-...`. Es decisión del usuario:
+la tarea es suya.
+
+Ojo también con **`ClaudeAnalytics-ReviewCostFreeze-Weekly`**: próxima corrida **13/9 18:00**,
+va a generar un snapshot nuevo bajo `output/raw/`.
+
+## Los 5 hallazgos medidos que CORRIGEN el handoff anterior
+
+El handoff de anoche decía que el slice era "agregar `since`/`until` a `reviewCost`, ~300-380
+líneas". **Eso era incorrecto por tres razones distintas**, todas verificadas contra el código y
+los datos, no razonadas.
+
+1. 🔴 **El beneficio y el costo NO comparten fuente de datos.** `tools/finding-measure.ts` dice
+   textual "NO TOCA LA DB" y lee los `.jsonl` de `output/raw/`; `reviewCost` lee SQLite. Y la DB
+   **tiene un solo label: `2026-08`** (4 batches, 441 agentes, `rules_version=v1-2026-08-19`) —
+   verificado con `COUNT(*)` sobre la DB viva Y sobre `backups/...pre-freeze-2026-09-04.db`.
+   **`2026-09-post` y `v3-2026-09-04` ya no están**: los números publicados en
+   `output/reports/2026-09-04_*.md` (share 33,3 % → 39,7 %) **no son reproducibles hoy**.
+   Por eso el slice necesita un paso 0 de `freeze` + `classify` + `attribute`.
+2. ✅ **El denominador de `tokenShare` es estructuralmente incortable por agente.** De los
+   **39.321 steps `side=0`** del snapshot `2026-09-07` (40.496.240 de `outTok`), **CERO** tienen
+   un `agentId` presente en `agents.jsonl`. Usar dos ejes de corte no es una preferencia de
+   diseño: es la única opción. `side=0` reparte 20.377.447 / 20.118.793 a cada lado del borde
+   `2026-08-26`, así que cortar sólo por agente parte el share casi al medio.
+3. ✅ **Los dos ejes casi no discrepan, y eso es un problema de TEST.** Cruzando cada step
+   `side=1` contra el `t0` de su agente: borde `2026-08-26` → **0** steps discordantes; borde
+   `2026-09-01` → **3 steps (2.272 de `outTok`) sobre 34.115.865 = 0,007 %**. Agentes que cruzan
+   el borde: 0 y 2. **Corolario: un fixture realista NO ancla el eje** y deja vivo el mutante que
+   los intercambia. El fixture va sintético. (Es la trampa de
+   `realizar-un-fixture-mata-su-ancla` en memoria, aplicada antes de escribir el test.)
+4. ✅ **Los brazos NO duran lo mismo.** Borde `2026-08-26`: 17,4 d (835 agentes) contra 12,7 d
+   (1.469). Borde `2026-09-01`: 23,4 d (1.327) contra 6,7 d (977) → **3,5×**. `tokenShare`,
+   `factor` y `perTurn` son inmunes; **`time`, `runs`, `focus` y `attribution` son totales y
+   conteos**, y su Δ crudo mediría duración, no ciclo.
+5. 🔴 **El cociente beneficio/costo no cerraba por el DENOMINADOR, no por la partición.**
+   Beneficio cuelga de `report.present` = **440**; costo declara **419** reviewers. Y
+   `report.present` **no discrimina reviewers**: de las 440 filas no duplicadas de `2026-08`,
+   **0 ausentes y 0 en blanco**; en `2026-09-07`, 2.304 filas → 0 ausentes, 3 en blanco, 2.301
+   presentes (41 truncados a 14.000; sin deduplicar). El cociente sólo se cancela si N es el
+   mismo N.
+
+## Decisiones tomadas (todas con el usuario, todas en el ADR-0006)
+
+- **A′**: el A/B vive en la DB. Paso 0 = `freeze` + `classify` + `attribute` del snapshot
+  `2026-09-07`; paso 1 = la ventana en `reviewCost`.
+- **Superficie = `--split <fecha>`**, gemelo de `finding-measure --split`. NO `--since`/`--until`:
+  el CLI rechaza `--range` con un mensaje que enseña que el período es el snapshot
+  (`src/cli/report.ts:171`), y ese mensaje **sigue siendo cierto** bajo `--split`. Internamente
+  `ReviewCostOptions` sí lleva la ventana.
+- **Dos ejes**: agentes/atribución por `baseline_agents.started_at`; denominador de `tokenShare`
+  por `baseline_steps_v.ts`. Las 4 familias que cuelgan de `baseline_attributions` se cortan por
+  el **agente** (esa tabla no tiene timestamp de evento, sólo `attributed_at`).
+- **Normalizar por el universo del beneficio** (agentes con reporte), manteniendo 419 como
+  universo declarado. ADR-0005 §3 queda intacto. Se rechazó re-normalizar el beneficio.
+- **Partido en 2 slices**, por la línea de inmunidad a la duración:
+  - **Slice 1** = ventana + `--split` + los dos ejes + procedencia del brazo + render de dos
+    columnas, publicando **sólo** `tokenShare`, `factor` y `perTurn`. Ya es un número honesto solo.
+  - **Slice 2** = normalización de `time`/`runs`/`focus`/`attribution` + el cociente.
+- Borde **inclusivo hacia `desde`** (`>=`). Filas sin fecha parseable **fuera de los dos brazos**,
+  contadas aparte.
+
+## ⚠️ Gotchas críticos
+
+- 🔴 **`fix/migration-billable` le quita 67 líneas a `src/lib/baseline.ts`**, archivo que el slice
+  va a tocar. Si esa rama aterriza primero, hay conflicto. Verificado con
+  `git diff --stat master fix/migration-billable`.
+- 🔴 **NO correr el CLI desde el checkout principal**: está en `fix/migration-billable` y su
+  `src/lib/baseline.ts` difiere de `master`. Correrlo desde el worktree con
+  `CLAUDE_ANALYTICS_DB=C:/Repos/PERSONAL/claude-analytics/data/claude-analytics.db`.
+- **`baseline freeze` NO acepta `--dataset all` acá**: el snapshot `2026-09-07` sólo tiene
+  `agents/steps/turns.jsonl` (no `parent-texts.jsonl`), y `all` es todo-o-nada. Correr de a uno.
+  Flags reales: `baseline freeze --raw-dir <dir> --label <l> --dataset <ds>`;
+  `baseline classify --label <l>`; `baseline attribute --label <l>`.
+- **`docs/SESSION_HANDOFF.md` de Bootstrap Skills pesa ~490 KB: leer sólo las primeras ~200 líneas.**
+  🔴 Es **LF puro** (verificado sobre el blob de HEAD: 7.101 LF, 0 CRLF), y `core.autocrlf=true`.
+  Los handoffs anteriores afirmaban que era CRLF y mandaban prependerle CRLF; seguir esa
+  instrucción esta sesión lo dejó mixto y hubo que normalizarlo. **Prepender en LF.**
+- **`CONTEXT.md` y los ADR de analytics son CRLF.** Dos trampas medidas esta sesión: un template
+  literal de JS se rompe con los backticks del markdown, y un heredoc de la Bash tool se rompe con
+  las comillas del contenido. Escribir el `.md` con la herramienta de escritura y convertir el EOL
+  en un paso aparte con node.
+- Siguen vigentes: `npx vitest` da falso verde en worktree (usar
+  `node node_modules/vitest/vitest.mjs run`); NO usar el foco `--code-review` cross-repo.
+
+## Comandos corridos (ninguno escribió en la DB)
+
+Todas las mediciones fueron probes `node` **read-only** contra `data/claude-analytics.db` y
+lecturas de los `.jsonl`. Los tres `baseline freeze` fallaron con `database is locked` **antes de
+escribir**. El único write fue el backup, a un archivo nuevo.
+
+Un probe intermedio dio un resultado imposible (151 turnos idénticos para tres bordes distintos) y
+**resultó ser correcto**: no hay ni un reviewer entre el 2026-07-25 y el 2026-08-01, así que los
+tres bordes caían en el mismo hueco. El probe se validó solo: da 190 turnos con reviewer para
+`2026-08`, exactamente el `n` que publica `2026-09-04_AB-review-loop-post-vs-agosto.md`.
+
+## Próximos pasos
+
+1. **Aprobar el pase de fase** y hacer el **PRD del slice 1** (`/to-prd`). El TDD del slice 1 **no
+   depende del paso 0**: los fixtures son sintéticos por el hallazgo 3.
+2. **Correr el paso 0** en una ventana sin `ClaudeAnalyticsSync` (deshabilitar → correr →
+   habilitar). Recupera además la reproducibilidad de los reportes del 09-04.
+3. Decidir qué hacer con `fix/migration-billable` antes de que el slice toque
+   `src/lib/baseline.ts`.
+4. Deuda vieja sin cambios: `.scratch/gate-typecheck-huecos-declarados.md` desactualizado;
+   self-upgrade de SouthPoint-Hub; podar snapshots viejos; rollout de `/slice-review` a 3 repos.
+5. Basura de Codex: **0 procesos `ChatGPT.exe` corriendo** (verificado esta sesión; el handoff
+   anterior decía 3). Los untracked `.codex/`, `AGENTS.md` y los 10 `source-command-*` siguen en
+   los dos repos y ahora **sí** se pueden borrar sin que se re-siembren.
+
+## Bugs abiertos
+
+Sin cambios: `surface: none` en 55-66 % de los reportes; los 12 RESIDUOS de `finding-rules.ts`
+(salvo 11 y 12); 269+203 reviewers `unrecognized`; los 4 tests atados al sha `63a781e`; las 27
+aserciones de regex sin anclar en `baseline-freeze.test.ts`; el flake de
+`tests/integration/review-cost-compare-cli.test.ts:100` bajo carga.
+
+**Nuevo (no accionado)**: los reportes de `output/reports/2026-09-04_*.md` citan un label y un
+ruleset que ya no existen en la DB. O se regeneran tras el paso 0, o se les pone una nota de
+irreproducibilidad.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No pushear a `origin` de Bootstrap Skills** — lo hace él con `!`, cuenta southpointtech.
+- **No usar `/compact`**: handoff + terminal nueva.
+- **PARCHE OPERATIVO VIGENTE**: antes de `/review-loop` o `/slice-review`, leer
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`.
+- Decidir lo técnico, preguntar sólo diseño/alcance/costo. Esta sesión elevó 5 preguntas, las 5 de
+  alcance o de semántica de una métrica publicada; el resto se decidió y se declaró en el ADR.
+
+---
+
 # Session Handoff — 2026-09-09 (noche) — **Sesión de orientación, CERO código**. Terreno medido para el slice del A/B de COSTO sobre la misma partición, con la trampa del denominador ya localizada. Queda UNA pregunta abierta al usuario (la forma del slice); se cortó porque apagó la PC.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
