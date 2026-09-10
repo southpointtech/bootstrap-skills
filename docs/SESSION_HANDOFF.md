@@ -1,3 +1,137 @@
+# Session Handoff — 2026-09-10 (tarde) — **Slice 01b CERRADO y turno 1 del review-loop APLICADO** (2 commits nuevos en `feat/review-cost-split`). El render y el CLI se partieron a 01c por el punto de corte. 🔴 **El turno 2 del loop quedó SIN CORRER: hay que rehacerlo.**
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Fase completada: **TDD del 01b + turno 1 del review-loop**. La siguiente es **el turno 2 del
+review-loop** (obligatorio antes de tocar 01c).
+
+- **Worktree**: `C:\Repos\PERSONAL\wt-review-cost-split`, rama `feat/review-cost-split`,
+  HEAD `112381d`. **9 commits sobre `master`** (`8a39ab9`), sin mergear. Árbol limpio.
+- **Marcador de review**: `f75bbe7` (avanzado tras el review del turno 1, antes de los fixes).
+  El delta sin revisar es exactamente `112381d`, o sea los fixes del turno 1.
+- **Ancla de coherencia** (`slice-open`): `3c5c869`, conservada.
+- `master` de `claude-analytics` sigue en `8a39ab9`. El checkout principal sigue en
+  `fix/migration-billable` con trabajo AJENO sin commitear: **no se tocó**.
+- **`main` de Bootstrap Skills: 11 commits ahead de `origin/main`** → con este handoff, 12.
+- Suite de analytics: **728 pasan, 3 skipped, 0 fallos**; `tsc` limpio.
+- Este archivo está en **LF puro** en disco, 527 KB (medido, no heredado).
+
+## 🔴 LO PRIMERO AL RETOMAR — el turno 2 del review-loop
+
+El turno 1 encontró 2 High y 6 Medium; sus fixes (`112381d`, +513/−138) **no los revisó nadie**.
+El turno 2 se dispatchó y **se cayó**: un foco stalleó a los 600 s y el otro no llegó a reportar.
+El marcador ya está donde tiene que estar, así que basta con re-correr:
+
+```
+/review-loop
+```
+
+El rango sale de `pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action range` y da
+`f75bbe7`. **Turno 2 en adelante NO lleva `--mutation` ni `--code-review`.**
+
+Qué mirar con más ganas, porque es donde este loop viene fallando:
+
+1. `borderOutsidePeriodOf` ahora compara contra la **intersección** de los dos períodos. ¿Qué pasa
+   cuando no se intersectan (`first > last`), y cuándo los dos extremos son iguales — qué eje nombra?
+2. `observedRange` usa **una columna distinta por extremo** (`started_at` → `ended_at` para agentes,
+   `ts`/`ts` para steps). ¿Puede salir `first` posterior a `last`? Nada lo chequea.
+3. El split de `computeTokenShare` en `tokenShareDenominator` / `tokenShareNumerator`: ¿las cuatro
+   consultas quedaron equivalentes a las de `f75bbe7`, con los mismos params en las mismas
+   posiciones?
+
+## Lo entregado esta sesión
+
+**Issue 01b** (`.scratch/review-cost-split/issues/01b-procedencia-por-brazo-y-render.md`,
+gitignoreado y local): procedencia por brazo + conteo de sin-fecha cableado.
+
+**Commit `f75bbe7`** — la procedencia por brazo:
+- `ReviewCostArmProvenance`: brazo, borde, **eje por mitad**, **período observado por eje**,
+  **N del brazo** (agentes / reviewers / atribuciones), `denominatorDef` con el recorte, los **dos
+  denominadores declarados por definición** (el del beneficio sin número: sale de los `.jsonl`, este
+  reporte no puede verificarlo) y la nota de solapamiento.
+- `undatedClause` **cableada**: conteo directo por eje, nunca por resta.
+- El tripwire de 01a reescrito: de anclar la AUSENCIA de la señal a anclar el conteo.
+
+**Commit `112381d`** — turno 1 del review-loop, 9 reviewers (6 sobre 01b + 3 sobre los fixes de 01a
+que nadie había leído):
+
+| Hallazgo | Sev | Fix |
+|---|---|---|
+| El aviso de borde miraba **un eje de dos** | High | intersección de los dos períodos + eje culpable por extremo |
+| El fixture hacía **idénticos** los 3 contadores de `universe` | High | fixture 3/2/1 + un duplicado; 4 mutantes muertos |
+| El eje "derivado" **no lo estaba** (salía de la variable) | Med | cada mitad recibe UNA cláusula y publica el eje de ESA cláusula |
+| `overlapNote` **falsa** contra lo que `observed` publica | Med | el período llega al `ended_at`; el solapamiento existe y está anclado |
+| `undated` sin `attributed` | Med | contador agregado; la reconciliación cierra en los tres |
+| `undated` compartido **por referencia** entre brazos | Med | copia por brazo |
+| Las 2 guardas de `observedRange` sin test | Med | 3 mutantes que sobrevivían, ahora muertos |
+| 4 piezas de prosa que contradecían al código | Low-Med | corregidas |
+
+## 🔴 EL HALLAZGO QUE MÁS IMPORTA — medido contra la DB viva
+
+El fix del **turno 5 del slice anterior** (`76b4178`) decía mover el aviso de borde "al eje del
+denominador". Lo hizo, y con eso **abrió un hueco 22× más grande que el que cerró**:
+
+- Un brazo queda degenerado si se vacía **cualquiera** de las dos mitades de `tokenShare`, y el
+  numerador se corta por el **otro** eje.
+- Medido sobre `2026-08`: agents va del `2026-07-13T15:46:57.565Z` al `2026-08-11T16:27:52.153Z`;
+  steps del `2026-07-12T17:53:58.464Z` al `2026-08-11T15:29:15.712Z`.
+- Con el eje de steps solo, **todo borde entre el primer step y el primer agente (1313,0 min)** deja
+  `antes` con **cero reviewers y un denominador real** → share `0,000` que se lee como medido. El
+  hueco que cerró medía 58,6 min.
+
+Corolario para el próximo turno: **"cerré el hueco" hay que leerlo como "moví el hueco" hasta
+medirlo en los dos extremos.**
+
+## ✂️ El punto de corte SE TOMÓ — existe el issue 01c
+
+Al cerrar la procedencia y el conteo el delta medía **440 líneas (244 de `src/`, 196 de test)**, así
+que se aplicó el corte que el propio issue declaraba. Pasaron a
+`.scratch/review-cost-split/issues/01c-render-de-dos-columnas-y-flag-cli.md`:
+
+1. **El render de dos columnas** (`antes | desde | Δ`), con Δ **sólo** sobre `pct` global y por repo,
+   la nota de omisión de las siete familias, la procedencia del brazo en el markdown, y los dos
+   avisos que hoy nadie imprime (`shareOutOfRange`, `borderOutsidePeriod`).
+2. **El flag `--split` en el CLI.** 🔴 La validación va **AFUERA de `withStore`**: hoy el CLI abre la
+   base antes de llamar a nada, así que `parseSplit` dentro de `reviewCostArms` **no** cumple el
+   criterio "antes de abrir la base". Va en el `action`, al lado de la guarda de `--range`.
+3. **El conteo de tokens cruzados** (la medida de la no contención, distinta de `shareOutOfRange`):
+   0 steps en el borde `2026-08-26`, 3 (2 272 de `outTok`) en `2026-09-01`.
+
+## Deuda declarada que sigue abierta
+
+- **El aviso de borde se apaga entero si un solo `ts` del lote de steps no parsea.** El período se
+  deriva al congelar con un `.sort()` lexicográfico sin validar que sea fecha, sobre 28 502 filas.
+  Está documentado en el docstring de `borderOutsidePeriodOf`; el fix vive en `freeze`, fuera del
+  slice.
+- **`observed` devuelve el TEXTO crudo**, sin normalizar: puede volver con offset `-03:00` mientras
+  `splitIso` es UTC. Lo que en 01c compare o ordene esas cadenas hereda la deuda.
+- El mutante que **neutraliza el filtro de label** sigue vivo: todos los fixtures tienen un solo label.
+
+## Gotchas nuevos, medidos esta sesión
+
+- 🔴 **`io.open(path, 'w')` de Python TRUNCA antes de encodear.** Un `UnicodeEncodeError` al escribir
+  (lo tiró un par de surrogates `\ud83d\udd34` en el fuente — usar `\U0001F534`) dejó el issue 01b en
+  **0 bytes**. Escribir a un temporal y renombrar, o encodear antes de abrir.
+- **`git worktree` + junction a `node_modules`**: el foco de mutación lo hizo bien esta vez — borró el
+  junction con `[System.IO.Directory]::Delete(link, false)` **antes** de `git worktree remove`.
+  `cmd //c rmdir` falló por comillas y `Remove-Item` estaba bloqueado. `node_modules` quedó intacto
+  (98 paquetes en los dos árboles, verificado antes y después).
+- **El foco `--code-review` NO se usó**, a propósito: su fork se ata al cwd de la sesión, que acá es
+  otro repo.
+- Un reviewer dejó `.probe-tmp/` con tres `.mjs` en el worktree; se borró.
+
+## Preferencias reconfirmadas
+
+- **Autorización durable: no pedir aprobación por fase.** Encadenar y reportar al cerrar cada una.
+  NO se extiende a push, deploy, secretos ni al trabajo ajeno.
+- No pushear a `origin` de Bootstrap Skills (lo hace el usuario; cuenta **southpointtech**).
+- Antes de `/review-loop` o `/slice-review`, leer `~/.claude/PARCHE-review-loop-prosa.md`.
+- Decidir lo técnico, preguntar sólo diseño/alcance. Esta sesión no elevó ninguna pregunta: las tres
+  decisiones de diseño (no repartir las filas sin fecha, cortar a 01c, revisar en dos pasadas) salían
+  del PRD y de las reglas del repo.
+
+---
+
 # Session Handoff — 2026-09-10 — **Slice 01a de `--split` CERRADO** (7 commits en `feat/review-cost-split`, sin mergear). PRD + 3 issues + TDD + review-loop de 5 turnos que cerró **por cap, no por limpio**. 713 tests pasan. Lo que aprendí vale más que el código.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
