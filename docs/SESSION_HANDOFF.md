@@ -1,3 +1,131 @@
+# Session Handoff — 2026-09-09 (noche) — **Sesión de orientación, CERO código**. Terreno medido para el slice del A/B de COSTO sobre la misma partición, con la trampa del denominador ya localizada. Queda UNA pregunta abierta al usuario (la forma del slice); se cortó porque apagó la PC.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+⚠️ **No se editó ni un archivo. No se commiteó nada. No se corrió ningún test.** El árbol de los
+dos repos está exactamente como lo dejó la sesión de la tarde. Esta sesión sólo LEYÓ código, y lo
+que vale es el terreno medido de abajo: **no hace falta re-derivarlo.**
+
+`main` de Bootstrap Skills sigue **7 commits ahead de `origin/main`** (verificado con
+`git rev-list --count origin/main..main`) → con este handoff quedan **8**. Los pushea el usuario
+con `!`, cuenta **southpointtech**.
+
+`master` local de `claude-analytics` sigue en **`8a39ab9`** (verificado). No tiene remoto: el
+master local ES el landing.
+
+## ⚠️ Gotchas críticos (leer ANTES de tocar nada)
+
+- **`claude-analytics` sigue en `fix/migration-billable` con trabajo AJENO sin commitear** —
+  verificado esta sesión: `SESSION_HANDOFF.md` y `package-lock.json` modificados, más varios
+  untracked. NO tocarlo. Para avanzar `master` se usa worktree + `git push . HEAD:master`.
+- **`git worktree list` en analytics devuelve UN solo entry** (el principal). Los worktrees de la
+  sesión anterior están efectivamente borrados.
+- 🔴 **`tools/` NO existe en el working tree de analytics** porque el checkout está en
+  `fix/migration-billable`. Vive en `master`. Para leer sin cambiar de rama: `git show master:<path>`.
+  (Perdí un comando creyendo que el archivo no existía.)
+- Todos los gotchas de las sesiones anteriores siguen vigentes sin cambios: junction de
+  `node_modules` antes de `git worktree remove`; `npx vitest` da falso verde en worktree (usar
+  `node node_modules/vitest/vitest.mjs run`); NO usar el foco `--code-review` cross-repo; heredoc de
+  la Bash tool se come un nivel de escapes.
+- 🔴 **`docs/SESSION_HANDOFF.md` de este repo es CRLF y pesa 488 KB.** Leerlo entero satura la
+  ventana: leer sólo las primeras ~260 líneas (`sed -n '1,260p'`), que son el handoff más reciente.
+  Y al prependerle una sección nueva, escribirla en CRLF o el archivo queda mixto.
+
+## Terreno medido — lo que NO hay que volver a averiguar
+
+Todo esto se leyó del código en `master` de `claude-analytics`. Los `file:line` son de `master`.
+
+**El objetivo del slice**: hoy existen dos números que no comparten denominador — beneficio
+(+27,3 % de `blocking` por reporte) y costo (+19,2 %) —, porque el A/B de costo compara **dos
+snapshots distintos** y el de beneficio parte **un solo snapshot por fecha**. El slice es hacer que
+el costo se pueda medir sobre la misma partición.
+
+1. **`reviewCostCompare` NO puede cortar por fecha.** `src/lib/reports/review-cost-compare.ts:20-28`:
+   `ReviewCostCompareOptions` es `{a, b, rulesVersionA?, rulesVersionB?}` — dos **labels de
+   snapshot**, nada más. Por eso el paso 1 del handoff anterior ("correr el A/B de costo sobre la
+   misma partición") **no es una corrida: es un slice de código.**
+2. **`reviewCost` tampoco.** `src/lib/reports/review-cost.ts:19-24`: `ReviewCostOptions` es
+   `{label, rulesVersion?}`, y el docstring dice explícito "la etiqueta del snapshot congelado
+   (**NO un rango**)". Las 8 familias (`tokenShare`, `time`, `perTurn`, `focus`, `runs`,
+   `toolSplit`, `attribution`, `degradedCapture`) están todas scopeadas por `batch_id`.
+3. **El CLI rechaza `--range` a propósito**: `src/cli/report.ts:157` registra el comando y
+   `:171` tira "usa --label/--vs (etiquetas de snapshot), no --range".
+4. ✅ **El corte SÍ es expresable del lado costo, y es el MISMO corte que el del beneficio.**
+   `src/lib/baseline.ts:19-20` declara `t0`/`t1` en el esquema del crudo; el INSERT de
+   `:149-154` lista `started_at, ended_at` en las posiciones 6 y 7, y `:169` pasa
+   `raw.t0, raw.t1` como argumentos 6 y 7 (tabla en `src/lib/store.ts:150-166`). **Verificado
+   columna contra argumento, no inferido del orden del CREATE TABLE.** O sea: **`armsOf` del
+   beneficio corta por `t0` = cortar `baseline_agents.started_at`.**
+5. ✅ **Los tres datasets tienen timestamp propio**, así que cada uno se puede cortar sin depender
+   del join: `baseline_agents.started_at`; `baseline_steps_v.ts` y `baseline_turns_v.ts`, las dos
+   como `json_extract(raw_json, '$.ts')` (`src/lib/store.ts`, MIGRATION_V5).
+6. 🔴 **LA TRAMPA, localizada antes de escribir una línea**: el denominador de `tokenShare`
+   (`review-cost.ts:592`) es
+   `SELECT SUM(out_tok) FROM baseline_steps_v WHERE batch_id = ? AND is_duplicate = 0` —
+   **sin join a `baseline_agents`**. El numerador (`:597`) sí joinea. Si el corte se aplica sólo
+   por el agente, **se corta el numerador y queda el denominador entero**: es exactamente el swap
+   de denominadores que mordió cuatro veces en el slice de `finding-measure`. El corte tiene que
+   aplicarse a cada dataset **por su propio timestamp**, y eso tiene que tener red de test propia.
+7. **`review-cost-compare` ya trae la marca de no-comparabilidad** (`comparable`, el ⚠ por familia
+   cuando cambia `rules_version`). Un A/B por partición del mismo snapshot corre bajo **un solo
+   ruleset**, así que esa marca queda en verde por construcción — hay que decidir si eso se declara
+   o si la marca pasa a cubrir también "los brazos no comparten ventana".
+
+## Decisiones técnicas ya tomadas (van declaradas en el código cuando se implemente)
+
+- Cada dataset se corta **por su propio timestamp**, no propagando el del agente (por el punto 6).
+- El borde es **inclusivo hacia `desde`** (`>=`), igual que `armsOf` en `tools/finding-measure.ts`.
+- Las filas **sin fecha parseable quedan fuera de los dos brazos** y se cuentan aparte, igual que
+  `snapshot.sin_fecha` del beneficio — no caen calladas en `antes`.
+- Las corridas que **cruzan el borde** se publican como contador explícito, no se esconden.
+
+## 🔴 PREGUNTA ABIERTA — es lo primero que hay que resolver
+
+Se le iba a preguntar al usuario **qué forma darle al slice** y se cortó ahí. Las tres opciones,
+con la estimación de tamaño marcada como lo que es (**una estimación, NO una medición**):
+
+- **(A, la recomendada)** `since`/`until` en `ReviewCostOptions`, hilado como predicado SQL a las 8
+  familias, cada dataset por su timestamp. Reusa todo lo que ya pasó review; `review-cost-compare`
+  pasa a poder comparar dos brazos del mismo snapshot. **Estimado ~300-380 líneas de lógica** →
+  entra al techo de ~400 pero sin margen. Un slice, un review-loop.
+- **(B)** `tools/cost-measure.ts` nuevo, hermano de `finding-measure.ts`, con SÓLO `tokenShare` y
+  `time` sobre la partición. Chico (~150 líneas estimadas), da el cociente rápido. Costo: duplica
+  SQL de `reviewCost` — la duplicación que el proyecto ya declara como deuda — y deja 6 familias
+  sin brazo.
+- **(C)** La ventana completa **partida en 2 slices**: slice 1 = ventana + `tokenShare` + `time` +
+  provenance (ya publica el cociente); slice 2 = las 6 familias restantes. Ningún slice roza el
+  techo; dos review-loops.
+
+## Próximos pasos
+
+1. **Resolver la pregunta de arriba** (A / B / C) y arrancar el slice: alignment → PRD/plan →
+   worktree desde `master` de analytics → TDD → `/review-loop`.
+2. **Decidir qué hacer con la app de Codex/ChatGPT.** Verificado esta sesión: **3 procesos
+   `ChatGPT.exe` corriendo** (PIDs 2604, 5732, 12216, arrancados el 2026-09-09 a la mañana), y
+   `.codex/`, `AGENTS.md` y los 10 `source-command-*` re-sembrados como untracked **en los dos
+   repos**. Borrarlos con la app corriendo no sirve. Es decisión del usuario.
+3. Deuda vieja sin cambios: `.scratch/gate-typecheck-huecos-declarados.md` desactualizado (F2/F4
+   cerrados, F3 mal listado como abierto); self-upgrade de SouthPoint-Hub; podar snapshots viejos;
+   rollout de `/slice-review` a 3 repos de cliente.
+
+## Bugs abiertos
+
+Sin cambios respecto del handoff de la tarde: `surface: none` en 55-66 % de los reportes; los 12
+RESIDUOS de `finding-rules.ts` (salvo el 11 y el 12); 269+203 reviewers `unrecognized`; los 4 tests
+atados al sha `63a781e`; las 27 aserciones de regex sin anclar en `baseline-freeze.test.ts`; el
+flake de `tests/integration/review-cost-compare-cli.test.ts:100` bajo carga.
+
+## Preferencias del usuario (reconfirmadas)
+
+- **No pushear a `origin` de Bootstrap Skills** — lo hace él con `!`, cuenta southpointtech.
+- **No usar `/compact`**: handoff + terminal nueva.
+- **PARCHE OPERATIVO VIGENTE**: antes de `/review-loop` o `/slice-review`, leer y aplicar
+  `C:\Users\marti\.claude\PARCHE-review-loop-prosa.md`.
+- Decidir lo técnico, preguntar sólo lo de diseño/alcance/costo. La pregunta abierta de arriba es
+  de alcance, por eso se elevó.
+
+---
+
 # Session Handoff — 2026-09-09 (tarde) — **El Track B tiene su número de BENEFICIO**: `tools/finding-measure.ts` cerrado y mergeado (`6b59b14..8a39ab9`, 5 commits). El ciclo nuevo encuentra **+27 % de hallazgos que bloquean por reporte** — y los High CAEN. Review-loop de 4 turnos donde **los 4 encontraron el defecto en el fix del turno anterior**.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
