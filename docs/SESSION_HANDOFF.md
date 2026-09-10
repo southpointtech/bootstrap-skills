@@ -1,3 +1,196 @@
+# Session Handoff — 2026-09-10 (noche) — **El review-loop del slice 01b CERRÓ POR CAP: 4 turnos corridos (2 a 5), 29 Medium arreglados, 4 commits nuevos.** La pasada de coherencia dio limpia. El slice está listo para 01c y la rama sigue sin mergear.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Fase completada: **el review-loop del slice 01b, entero**. La siguiente es **el slice 01c** (el render
+de dos columnas y el flag `--split` del CLI), cuyo issue ya existe y está `ready-for-agent`.
+
+- **Worktree**: `C:\Repos\PERSONAL\wt-review-cost-split`, rama `feat/review-cost-split`,
+  HEAD `126e3e5`. **13 commits sobre `master`** (`8a39ab9`), sin mergear. Árbol limpio, sin mutantes.
+- **`master` de `claude-analytics` sigue en `8a39ab9`**, sin tocar. El checkout principal sigue en
+  `fix/migration-billable` con trabajo AJENO sin commitear: **no se tocó**.
+- **Marcador de review**: `112381d`. 🔴 **Quedó ATRÁS a propósito y hay que saberlo** — ver "El error
+  del marcador" abajo. El ancla de coherencia (`slice-open`) es `3c5c869` y **se conserva**, como
+  manda el cierre por cap.
+- Suite de analytics: **743 pasan, 3 skipped, 0 fallos**; `tsc` limpio.
+- **`main` de Bootstrap Skills: 12 commits ahead de `origin/main`** → con este handoff, 13.
+- Este archivo está en **LF puro** en disco, sin BOM (medido, no heredado).
+
+## Los cuatro turnos, y el commit de cada uno
+
+| Turno | Commit | Colacionados | Caídos | Medium arreglados |
+|---|---|---|---|---|
+| 2 | `214af61` | 15 de 5 focos | 2 | **9** |
+| 3 | `a9ab9e4` | 21 | 5 | **8** |
+| 4 | `154f7b4` | 21 | 3 | **7** |
+| 5 (cap) | `126e3e5` | 11 | 0 | **5** |
+
+**29 Medium, 0 High.** Cada turno encontró que los fixes del anterior no hacían lo que su mensaje
+decía. Seis veces seguidas, sobre la misma señal.
+
+## La historia técnica en tres movimientos
+
+**1. El aviso de borde no podía cerrar el hueco, porque era un proxy.** Los tres intentos anteriores
+(`76b4178`, `112381d`) lo movieron de columna en columna. El turno 2 midió que con
+`split = 2026-08-11T15:20:00Z` la DB viva publicaba `pct = 0,000` como medido y sin aviso. La salida
+fue dejar de proxear: **`degenerateShare`** se mide sobre las dos mitades que el brazo YA calculó
+(`reviewerOut`/`totalOut` y ahora también las FILAS de cada una), así que ninguna elección de columna
+puede desalinearla. Los `COUNT(*)` viajan en los `SELECT` de las sumas: **no cuesta consulta**
+(verificado: 30 `db.prepare` antes y 30 después).
+
+**2. El defecto se mudó al motivo, y tardó tres turnos más.** El `reason` afirmaba un borde, un corte,
+una población y un veredicto — tres de las cuatro inconocibles desde sus entradas. Turno 3: recibe el
+brazo y las filas. Turno 4: el corte inexistente había **sobrevivido en un helper** (`deLaMitad`) y el
+veredicto salía invertido en las DOS direcciones. Turno 5: la coda declaraba inconocible lo que su
+propio número decide.
+
+**3. El veredicto terminó con CUATRO ramas, y una es abstenerse:**
+
+- denominador (o las dos mitades) en cero → *no es una medición: sale de la guarda de división*.
+- numerador en cero CON filas → *es una medición: hubo filas de steps de reviewers y suman cero*.
+- numerador en cero, sin filas y **sin reviewers** → *es una medición: no hay nadie que pudiera sumar*.
+- numerador en cero, sin filas y **con reviewers** → **se abstiene**, y ahí y sólo ahí va la
+  advertencia del cruce.
+
+El discriminador es **`universe.reviewers` del brazo**, no `rows.numerator`: con 0 filas ese número no
+distingue "no hay reviewers" de "el cruce quedó vacío". Poblaciones verificadas cláusula por cláusula:
+`universeOf.reviewers` es la del numerador MENOS el requisito de que exista un step `side = 1` con ese
+`agent_id`.
+
+## 🔴 DOS VECES el fix que proponían los reviewers habría movido el problema
+
+Es el aprendizaje más caro de la sesión, y el confidence pass fue lo que lo atajó las dos veces:
+
+1. **`esMedicion = rows.numerator > 0`** (lo proponían tres focos) invertía el caso emblemático: un
+   snapshot sin ningún reviewer tiene 0 % REAL de costo de revisión, y el fix habría dicho que no es
+   una medición.
+2. **"la mitad la vació el lote de steps"** mis-atribuye: `agent_id` es **nullable** y `universeOf` no
+   filtra por él, así que un reviewer sin `agent_id` cuenta en el N y no puede matchear nunca — ahí el
+   culpable ES el lote de agentes. Medido: 0 de 440 no-dup, o sea latente, pero el texto no puede
+   afirmar un lote sobre un supuesto que el esquema no garantiza. La coda le pone dueño al **cruce**,
+   no a un lote, y lista las dos causas sin elegir una.
+
+**Corolario para el próximo loop: el confidence pass tiene que puntuar el FIX, no sólo el hallazgo.**
+Instruirlo explícitamente ("¿este fix cierra o mueve el problema a un séptimo lugar?") fue lo que
+produjo los dos hallazgos.
+
+## Verificación (lo que se corrió, y con qué resultado)
+
+- `npm test` → **743 pasan, 3 skipped, 0 fallos**. `npm run lint` (`tsc` ×2) → limpio.
+- **49 mutantes** en cuatro baterías, **de a uno**, con control sin mutar antes y después:
+  **47 muertos**, 2 sobreviven a propósito (equivalentes adjudicados: la tautología del loop viejo de
+  reconciliación, y el orden de dos ramas cuya precedencia es estructuralmente indistinguible porque
+  `rows.numerator > 0 ⟹ reviewers ≥ 1`).
+- Los scripts de mutación quedaron en el scratchpad de la sesión (`mutate.py`, `mutate2..5.py`), que es
+  temp y se borra. **Si hace falta rehacerlos, el patrón es: sub(old,new) → correr vitest sobre los dos
+  archivos → revert en `finally` → nunca `git checkout`.**
+- Fixes de comportamiento **RED primero**: `degenerateShare` y `notAnInterval` fallaron por la razón
+  correcta antes de existir.
+- Caso vivo, contra una COPIA de la DB (`.scratch/review-cost-split/measure-degenerate.ts`, gitignoreado):
+  el motivo emite *"hay 11 reviewers y ninguna fila de numerador"* — el mismo 11 que los reviewers
+  midieron a mano.
+- **Pasada de coherencia** sobre el slice entero (10 commits, +2589/−98): **cohiere, sin hallazgos
+  bloqueantes**. Los tres avisos son capas distintas y no se contradicen, no quedó andamiaje muerto, y
+  01b está completo. Dejó UNA nota para 01c: la semántica de `{null, null}` en `observed` difiere entre
+  `todo` y los brazos con borde (sin borde puede ser "vacío" o "sin fechas legibles"; con borde
+  equivale a "sin filas").
+
+## 🔴 El error del marcador — leer antes de correr otro loop
+
+**Me salté el avance del marcador al cerrar el turno 3.** Quedó en `112381d` cuando el review ya había
+visto `214af61`, así que los turnos 4 y 5 arrastraron un commit ya revisado.
+
+**No se puede corregir con `advance`**: ese verbo corta en HEAD, y hacerlo habría dejado los fixes del
+turno sin revisar NUNCA — el error grave, no el leve. El script **no tiene verbo para fijar el marcador
+en un ref arbitrario** (`get`, `range`, `advance`, `base`, `open`, `slice-base`, `close`).
+
+Consecuencia para el próximo loop: **el rango que `-Action range` devuelva va a incluir `214af61`,
+`a9ab9e4`, `154f7b4` y `126e3e5`**, que ya se revisaron. Sobre-revisar es la dirección segura, pero hay
+que declararlo en el reporte y no confundirlo con delta nuevo.
+
+Es la **5ª repetición** de este error en el proyecto. Las cuatro anteriores fueron avanzarlo DESPUÉS de
+los fixes; ésta fue no avanzarlo. La ventana tiene dos bordes y ninguno tiene inverso.
+
+## Otros dos errores míos, medidos
+
+1. **El fixture del turno 2 modelaba el caso BENIGNO.** `seedMitadVacia` dejaba el brazo `desde` sin
+   ningún reviewer, así que su `0,000` era una medición real y no había nada que avisar; el caso que
+   motivó el campo tiene reviewers y cero filas. Recién se vio en el turno 4. Ahora siembra un reviewer
+   del lado `desde` sin steps.
+2. **Introduje el bug que el loop venía cazando, en mi propia ancla nueva.**
+   `toContain("en el snapshot entero")` lo satisfacía una SEGUNDA ocurrencia de esa frase dentro del
+   veredicto, así que el mutante sobrevivía. Lo encontré **midiendo**, no leyendo. (Y en el turno 5 el
+   reviewer encontró que esa justificación ya había caducado, porque el veredicto que traía la segunda
+   ocurrencia se reescribió.)
+
+## Gotchas nuevos de esta sesión
+
+- 🔴 **El heredoc de la Bash tool se come los backslashes, y eso ATERRIZÓ EN CÓDIGO COMMITEADO.** Los
+  fixtures que escribí en el turno 2 quedaron con `cwd: "C:\repo"` (UN backslash, o sea `C:` + retorno
+  de carro + `epo`) contra los 77 correctos del archivo. Sobrevivió dos turnos porque ninguna aserción
+  ancla el `cwd`. **Para editar archivos: escribir el script con la herramienta Write y ejecutarlo, no
+  heredoc.** Normalizados los 12 en `154f7b4`.
+- **`cp` de la DB de analytics sale CORRUPTA**: un Scheduled Task la escribe, y el archivo crece entre
+  dos copias. Para medir, abrir el original con `?mode=ro`.
+- **`subprocess.run` en Windows decodifica con cp1252 y explota** con la salida de vitest: pasar
+  `encoding="utf-8", errors="replace"`.
+- El `--list` de un script Python devuelve CRLF, y el `for` de bash se queda con el `\r` → `KeyError`.
+
+## Deuda declarada y abierta (no bloquea 01c, pero conviene saberla)
+
+- El par invertido de `borderOutsidePeriod` cuando los dos lotes no se intersectan (el aviso SÍ dispara:
+  dirección segura; sólo la carga sale invertida).
+- El alias SQL `s.` que `denominatorDef` filtra al markdown.
+- La nota del `T24:30`, no observable porque la guarda `hh > 23` la intercepta.
+- El round-trip evitable de `notAnIntervalOf` (`SELECT julianday(?) <= julianday(?)` podría salir del
+  `SELECT` que ya corre).
+- El `[^.]*` residual de un ancla de `overlapNote` (su mutante natural muere; el de reetiquetado no).
+- El abanico latente del `COUNT(*)` del numerador: no hay UNIQUE sobre `(batch_id, agent_id)` y el
+  corpus tiene una colisión separada sólo por `is_duplicate`.
+- 🔴 **`fmtPct` renderiza `0` como `"0.0%"` mientras el `reason` dice `"0,000"`** — preexistente, y
+  **va a importar en 01c**, que es quien renderiza.
+- El tipo de `half` (`"numerator" | "denominator" | "both"`) **no obliga** a 01c a manejar `"both"`: es
+  un union de strings sin `assertNever`. El gate va en 01c.
+- Las comparaciones lexicográficas sobre TEXT en vez de `julianday`; el aviso de borde se apaga entero
+  si un solo `ts` del lote no parsea (fix en `freeze`, fuera del slice); `observed` devuelve texto
+  crudo; el mutante del filtro de label sigue vivo (un solo label en los fixtures).
+
+## Lo siguiente: el slice 01c
+
+El issue está escrito y `ready-for-agent` en
+`.scratch/review-cost-split/issues/01c-render-de-dos-columnas-y-flag-cli.md`. Tres piezas:
+
+1. **`renderReviewCostArms(arms)`** — markdown de dos columnas `antes | desde | Δ`, con Δ **sólo** sobre
+   `pct` global y por repo; la nota de omisión de las siete familias; la procedencia del brazo; y los
+   avisos que hoy nadie imprime. Ahora son **cuatro** los que hay que renderizar, no dos:
+   `borderOutsidePeriod`, `shareOutOfRange`, `degenerateShare` y `notAnInterval`.
+2. **El flag `--split` en el CLI.** 🔴 La validación va **AFUERA de `withStore`**: el CLI abre la base
+   antes de llamar a nada, así que `parseSplit` dentro de `reviewCostArms` no cumple el criterio "antes
+   de abrir la base". Va en el `action`, al lado de la guarda de `--range`.
+3. **El conteo de tokens cruzados** (la medida de la no contención, distinta de `shareOutOfRange`).
+
+## Pendientes que NO son de código
+
+- **Pushear `main` de Bootstrap Skills** (13 commits con este handoff). Lo hacés vos con `!`, cuenta
+  **southpointtech**.
+- **Decidir el merge** de `feat/review-cost-split` a `master` local de analytics (13 commits, ff).
+- En el repo de Bootstrap Skills quedan sin trackear `AGENTS.md`, `.codex/hooks*` y 10
+  `.agents/skills/source-command-*/` — residuo de Codex, ajeno a este trabajo.
+
+## Preferencias reconfirmadas esta sesión
+
+- **Autorización durable: no pedir aprobación por fase.** Los cuatro turnos, sus fixes y sus commits se
+  encadenaron sin preguntar. NO se extiende a push, deploy, secretos ni al trabajo ajeno.
+- **Decidir lo técnico, preguntar sólo diseño/alcance.** Esta sesión no elevó ninguna pregunta: las
+  decisiones (dejar de proxear, el tercer estado del veredicto, no ponerle dueño al cruce, borrar el
+  ancla vacua en vez de reemplazarla) salían del PRD, del ADR 0006 y de las mediciones.
+- Antes de `/review-loop` o `/slice-review`, leer `~/.claude/PARCHE-review-loop-prosa.md`. **Se aplicó**:
+  los Low de prosa interna no bloquearon el cierre, y quedaron declarados en vez de parchados.
+- El `alignment-gate` disparó en la primera Write de la sesión. Se siguió por estar ya alineado (PRD +
+  issues + grilling del 2026-09-09), y se declaró al usuario en una línea.
+
+---
+
 # Session Handoff — 2026-09-10 (tarde) — **Slice 01b CERRADO y turno 1 del review-loop APLICADO** (2 commits nuevos en `feat/review-cost-split`). El render y el CLI se partieron a 01c por el punto de corte. 🔴 **El turno 2 del loop quedó SIN CORRER: hay que rehacerlo.**
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
