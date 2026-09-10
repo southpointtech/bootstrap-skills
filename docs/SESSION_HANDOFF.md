@@ -100,9 +100,10 @@ los datos, no razonadas.
   Flags reales: `baseline freeze --raw-dir <dir> --label <l> --dataset <ds>`;
   `baseline classify --label <l>`; `baseline attribute --label <l>`.
 - **`docs/SESSION_HANDOFF.md` de Bootstrap Skills pesa ~490 KB: leer sólo las primeras ~200 líneas.**
-  🔴 Es **LF puro** (verificado sobre el blob de HEAD: 7.101 LF, 0 CRLF), y `core.autocrlf=true`.
-  Los handoffs anteriores afirmaban que era CRLF y mandaban prependerle CRLF; seguir esa
-  instrucción esta sesión lo dejó mixto y hubo que normalizarlo. **Prepender en LF.**
+  🔴 **No asumas su EOL: medilo antes de escribir.** El blob de HEAD es LF puro (7.101 LF, 0 CRLF),
+  pero `core.autocrlf=true`, así que git reescribe el archivo en disco a CRLF cada vez que lo toca:
+  el EOL en disco depende de cuándo fue ese último checkout, no del blob. Los handoffs anteriores
+  afirmaban "es CRLF" como un hecho fijo; seguir eso esta sesión lo dejó mixto.
 - **`CONTEXT.md` y los ADR de analytics son CRLF.** Dos trampas medidas esta sesión: un template
   literal de JS se rompe con los backticks del markdown, y un heredoc de la Bash tool se rompe con
   las comillas del contenido. Escribir el `.md` con la herramienta de escritura y convertir el EOL
