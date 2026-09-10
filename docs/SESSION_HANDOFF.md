@@ -1,3 +1,130 @@
+# Session Handoff — 2026-09-10 — **Slice 01a de `--split` CERRADO** (7 commits en `feat/review-cost-split`, sin mergear). PRD + 3 issues + TDD + review-loop de 5 turnos que cerró **por cap, no por limpio**. 713 tests pasan. Lo que aprendí vale más que el código.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Fase completada: **TDD + QA del slice 01a**. La siguiente es **01b**, que todavía NO existe como issue.
+
+- **Worktree**: `C:\Repos\PERSONAL\wt-review-cost-split`, rama `feat/review-cost-split`, HEAD `76b4178`.
+  7 commits sobre `master` (`8a39ab9`), **sin mergear**. Árbol limpio.
+- **`master` de `claude-analytics` sigue en `8a39ab9`**, sin tocar. El checkout principal sigue
+  en `fix/migration-billable` con trabajo AJENO sin commitear: **no se tocó**.
+- **`main` de Bootstrap Skills: 10 commits ahead de `origin/main`** → con este handoff, 11.
+  Los pusheás vos con `!`, cuenta **southpointtech**.
+- Suite de analytics: **713 pasan, 3 skipped, 0 fallos**; `tsc` limpio.
+- El handoff (este archivo) estaba en **LF puro** en disco, 507 KB. **Medilo, no lo asumas.**
+
+## Lo entregado
+
+`.scratch/review-cost-split/` (gitignoreado, **local a tu máquina**, no viaja con la rama):
+`PRD.md` + `issues/01..03`. Si querés que viajen, hay que sacarlos de `.scratch/`.
+
+En la rama:
+- `src/lib/reports/arm-window.ts` — el módulo del borde: `armWindow`, `armsOfSnapshot`,
+  `parseSplit`, `undatedClause`. Los **dos ejes** viven acá (`onAgentStart` / `onStepTs`), no
+  en el call site.
+- `src/lib/reports/review-cost.ts` — `reviewCostArms()` + `resolveContext`/`provenanceOf`
+  extraídos. Publica sólo `tokenShare` por brazo, más `shareOutOfRange` y
+  `borderOutsidePeriod`.
+- `tests/lib/reports/arm-window.test.ts` y `review-cost-arms.test.ts`; `seedAgents` acepta
+  `spanSec` y `seedSteps` acepta su propio período.
+
+## 🔴 LO QUE FALTA — issue 01b, todavía sin escribir
+
+1. **Procedencia por brazo**: período real del brazo, N del brazo, `denominatorDef` con el
+   borde, y el **conteo de sin-fecha** (`undatedClause` existe y ninguna consulta lo llama).
+2. **El hueco del numerador**, anclado con un test que hoy pasa: un reviewer con `started_at`
+   ilegible sale de los DOS numeradores pero sus steps siguen en el denominador de su brazo,
+   así que el share queda **subestimado** y nada lo reporta. El test
+   `"los brazos NO reconstruyen el numerador..."` es el tripwire; **cubre sólo los nombres
+   `undated` y `provenance`**, no cualquier nombre.
+3. **Render de dos columnas** + la nota de omisión de las 5 familias no inmunes.
+4. **El flag `--split` en el CLI.** Nada de esto se renderiza todavía.
+5. Después: issue 02 (`factor` y `perTurn`) y 03 (el comparador entre brazos).
+
+## ⚠️ Deuda declarada del slice (todo Low, en el commit `76b4178`)
+
+- `MIN`/`MAX` y las comparaciones de período son **lexicográficas sobre TEXT**, contra la
+  política que el propio módulo documenta (`julianday`). Hoy los valores son `...Z` con ms,
+  así que los órdenes coinciden. Latente.
+- El mutante que **neutraliza el filtro de label** sobrevive: todos los fixtures tienen un
+  solo label. Brecha preexistente de `resolveContext`, no de este slice.
+- **El marcador de review quedó en `3c5c869` a propósito.** Los fixes de los turnos 3-5 no los
+  revisó nadie (el loop cerró por cap), así que dejarlo atrás hace que un loop futuro los
+  incluya. **No lo avances.** El ancla de coherencia (`slice-open`) también se conserva: es lo
+  que la skill manda en cierre por cap.
+
+## Los 5 turnos del review-loop, y por qué importan
+
+Cada turno encontró que **los fixes del turno anterior no hacían lo que decían**:
+
+| Turno | Focos | Hallazgos reales |
+|---|---|---|
+| 1 | 6 (con mutación) | 2 High, 9 Medium |
+| 2 | 5 | 4 Medium + **6 tests míos que no mordían** |
+| 3 | 3 | 3 Medium + 4 Medium + 6 mutantes vivos |
+| 4 | 2 | **1 High: mi fix del turno 3 empeoró el bug** + 8 afirmaciones falsas |
+| 5 | — | fixes; cerró por cap |
+
+Lo que hay que llevarse (está en memoria como `el-fix-que-no-hace-lo-que-su-mensaje-dice`):
+
+- **Elegí el caso de test que funcionaba.** Para "días imposibles" puse un solo caso,
+  `2026-13-45`, que es mes 13 **y** día 45 — el único miembro de la familia que `Date.parse`
+  sí rechaza. Los demás los rollea en silencio.
+- **Un fix cuyo mutante de reversión sobrevive no está verificado.** El aviso de período no
+  era testeable porque el seeder no escribía el período de steps: revertir el cambio entero
+  dejaba la suite verde. Por eso el error pasó dos turnos.
+- **Razoné bien e implementé otra cosa.** "El denominador se corta por steps" era correcto;
+  usé la unión de los datasets del label, cuyo tope lo pone `parent-texts`, que no alimenta
+  ningún eje. La zona muda **creció**.
+- **Mi verificador de mutantes mintió**: `subprocess` explotaba con `UnicodeDecodeError` al
+  leer stdout con el charmap de Windows y yo buscaba un substring en un string vacío → los 6
+  daban "SOBREVIVE". Verdict **por código de salida**, y con un control que confirme exit 0
+  sin mutar.
+- **El docstring huérfano, 3 veces.** Al insertar una declaración entre un docstring y la
+  suya, TypeScript lo re-ata. Mirar qué docstring queda arriba de qué.
+- **La prosa numérica en comentarios es la fuente.** Cuatro turnos de números correctos
+  pegados al referente equivocado (`3 sobre 34.115.865`; `los 33 no-calendario` que son
+  2.173; `cinco órdenes de magnitud` que era el mismo orden). **Lo que cortó el churn fue
+  recortar**: las cifras de duración por brazo salieron del código y quedan sólo en ADR 0006
+  §4. Repetir un número medido en un comentario es crearse una afirmación que hay que
+  mantener.
+
+## Gotchas confirmados esta sesión
+
+- 🔴 **Los backticks del mensaje de commit se ejecutan como comandos de bash** y se comen los
+  términos. Me pasó y costó un `--amend`. Usar `git commit -F <archivo>`.
+- 🔴 **El heredoc de la Bash tool muere** con contenido que mezcla comillas y paréntesis.
+  Para ediciones con texto complejo: escribir un script Python a un archivo con la
+  herramienta de escritura y ejecutarlo. Con `assert` por reemplazo: un `sed` que no matchea
+  falla en silencio.
+- `cwd: "C:\repo"` con UNA barra en TS es `C:` + retorno de carro + `epo`. Y `JSON.stringify`
+  lo renderiza de vuelta como `\r`, así que **el valor roto se imprime como si estuviera
+  bien**. Eran 12 en mis tests.
+- `npx vitest` da falso verde en worktree: `node node_modules/vitest/vitest.mjs run`.
+- El foco `--code-review` del reviewer se ata al `cwd` de la sesión: **no usarlo cross-repo**.
+- El `alignment-gate` frena el primer edit de código por sesión; con el grill ya hecho,
+  reintentar y seguir.
+
+## El paso 0 sigue bloqueado (sin cambios)
+
+`baseline freeze` del snapshot `2026-09-07` necesita una ventana sin `ClaudeAnalyticsSync`
+(corre cada ~10 min). La DB sigue con **un solo label `2026-08`** y un solo
+`rules_version v1-2026-08-19`. **Ojo**: ese label va del 2026-07-12 al 2026-08-11, así que
+los dos bordes que el ADR cita (`2026-08-26`, `2026-09-01`) caen **enteramente afuera** — los
+números de brazo del ADR salen de los `.jsonl` crudos, no de la DB.
+
+## Preferencias reconfirmadas
+
+- **Autorización durable dada el 2026-09-10: no pedir aprobación por fase.** Encadenar y
+  reportar al cerrar cada una. NO se extiende a push, deploy, secretos ni al trabajo ajeno.
+- No pushear a `origin` de Bootstrap Skills.
+- Antes de `/review-loop` o `/slice-review`, leer `~/.claude/PARCHE-review-loop-prosa.md`.
+- Decidir lo técnico, preguntar sólo diseño/alcance. Esta sesión elevó 4 preguntas: las 3 del
+  arranque (familias omitidas, alcance del comparador, cobertura de tests) y la del `share`
+  fuera de rango.
+
+---
+
 # Session Handoff — 2026-09-09 (noche, 2ª sesión) — **Grilling del slice `--split` CERRADO**: ADR-0006 + término de glosario commiteados en un worktree nuevo (`c9083c7`). Cinco hallazgos medidos que **corrigen la premisa del handoff anterior**. Paso 0 BLOQUEADO por un Scheduled Task, no por un error.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
