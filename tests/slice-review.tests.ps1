@@ -483,7 +483,7 @@ foreach ($p in $loopPairs) {
     Assert ($coh -match '/slice-review --coherence') `
       "$($p.label)/${rel}: el loop invoca el pase de coherencia (/slice-review --coherence)"
     # Corre en AMBOS cierres: limpio y por techo de turnos.
-    Assert ($coh -match '(?i)clean, or at the turn cap') `
+    Assert ($coh -match '(?i)clean, prose-only delta, or at the turn cap') `
       "$($p.label)/${rel}: el loop corre el pase tanto por limpio como por techo de turnos"
     Assert ($coh -match '(?i)run it on \*\*both\*\* exits') `
       "$($p.label)/${rel}: el loop corre el pase en ambos cierres explicitamente"
@@ -535,6 +535,17 @@ foreach ($p in $slicePairs) {
     Assert ($s5 -match '(?is)only prose.*is \*\*Low\*\*') `
       "$($p.label)/${rel}: Step 5 clasifica Low el hallazgo cuyo fix es solo prosa"
     Assert ($txt -notmatch '(?i)5-turn cap') "$($p.label)/${rel}: no quedan menciones al techo de 5 turnos"
+    # Turno 1 del loop: la precedencia de --light y la excepcion de la regla de prosa no tenian ancla,
+    # y los mutantes que las invertian sobrevivian.
+    Assert ($s1 -match '`--light` wins over') "$($p.label)/${rel}: Step 1 da precedencia a --light sobre --mutation/--code-review"
+    Assert ($s1 -notmatch 'win over `--light`') "$($p.label)/${rel}: Step 1 no invierte la precedencia de --light"
+    Assert ($s4 -match '(?is)if `--light` was passed.*no\s+Mutation or Code-review focus') `
+      "$($p.label)/${rel}: Step 4 no despacha mutacion ni code-review con --light"
+    Assert ($s5 -match '(?is)only prose.*is \*\*Low\*\*.*Medium only when.*end user') `
+      "$($p.label)/${rel}: la regla de prosa conserva su excepcion (Medium si llega a un usuario final)"
+    # Una instruccion en un archivo que gobierna al agente es comportamiento, no prosa.
+    Assert ($s5 -match '(?is)Instructions are not prose.*`\.agents/`') `
+      "$($p.label)/${rel}: Step 5 clasifica como codigo las instrucciones de los archivos que gobiernan al agente"
   }
 }
 foreach ($p in $loopPairs) {
@@ -555,7 +566,60 @@ foreach ($p in $loopPairs) {
     Assert ($theLoop -notmatch '(?i)5 turns have run') "$($p.label)/${rel}: el techo ya no es de 5 turnos"
     Assert ($coh -match '(?i)a `light` loop skips it') "$($p.label)/${rel}: un loop light saltea el pase de coherencia"
     Assert ($txt -notmatch '(?i)5-turn cap|cap of 5 turns') "$($p.label)/${rel}: no quedan menciones al techo de 5 turnos"
+    # El rigor se decide una vez, en el turno 1, sobre TODOS los commits del rango, y un rango sin
+    # Slice-Close: es standard (el push y la red de ~400 lineas no pueden caer en light).
+    Assert ($rig -match '(?i)once, on turn 1') "$($p.label)/${rel}: el rigor se decide una vez, en el turno 1"
+    Assert ($rig -match '(?is)at least one commit.*\*\*every\*\*') "$($p.label)/${rel}: light exige al menos un Slice-Close y que todos declaren light"
+    Assert ($rig -notmatch 'trailers:key') "$($p.label)/${rel}: el rigor no se lee con el parser de trailers de git (solo lee el ultimo parrafo)"
+    # El techo vive en un solo lugar, la tabla; la condicion de corte la cita en vez de repetir el numero.
+    Assert ($theLoop -match '(?i)turn cap in the \*\*Rigor\*\* table') "$($p.label)/${rel}: la condicion de corte cita la tabla de rigor"
+    Assert ($theLoop -notmatch '(?i)\b[2-9]\b\s+(turns?\s+)?in\s+`standard`') "$($p.label)/${rel}: la condicion de corte no repite un numero de turnos"
+    # Que se arregla y que no.
+    Assert ($theLoop -match '\*\*Medium or High\*\*') "$($p.label)/${rel}: standard arregla Medium y High"
+    Assert ($theLoop -match '(?i)in `light`, \*\*High only\*\*') "$($p.label)/${rel}: light arregla solo High (sus Medium se reportan)"
+    Assert ($theLoop -match '(?i)Low findings are reported, not fixed') "$($p.label)/${rel}: los Low se reportan y no se arreglan"
+    Assert ($theLoop -match '(?is)do not re-edit.*unless the new finding about it scored Medium or High') `
+      "$($p.label)/${rel}: la prohibicion de re-editar prosa de un turno previo cede ante un Medium"
+    # El cierre por prosa excluye los archivos que gobiernan al agente.
+    Assert ($theLoop -match '(?is)delta is only prose.*\*\*outside\*\*.*`\.agents/`') `
+      "$($p.label)/${rel}: el cierre por delta de prosa excluye los archivos que gobiernan al agente"
+    # light tambien ancla el slice, y todo cierre que no sea por cap limpia el ancla.
+    Assert ($theLoop -match '(?i)A `light` loop runs\s+`open`') "$($p.label)/${rel}: un loop light tambien corre -Action open"
+    Assert ($coh -match '(?i)prose-only delta, or at the turn cap') "$($p.label)/${rel}: la coherencia corre tambien en el cierre por prosa"
+    Assert ($coh -match '(?is)prose-only\s+close.*-Action close') "$($p.label)/${rel}: el cierre por prosa tambien limpia el ancla"
   }
+}
+
+# El techo tambien vive en el hook, el CLAUDE.md, el AI_DEVELOPMENT_WORKFLOW y tdd. Ninguna suite los
+# leia: un revert simetrico a "5-turn cap" en las copias pasaba mirror en verde.
+$capRoots = @($repo) + @($skills | ForEach-Object { Join-Path $_.FullName "assets\scaffold" })
+$capDocs = @()
+foreach ($pre in $capRoots) {
+  $capDocs += @(
+    (Join-Path $pre ".claude\hooks\review-loop-trigger.ps1"),
+    (Join-Path $pre "CLAUDE.md"),
+    (Join-Path $pre "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md"),
+    (Join-Path $pre ".claude\commands\tdd.md"),
+    (Join-Path $pre ".agents\skills\tdd\SKILL.md")
+  )
+}
+Assert ($capDocs.Count -eq 20) "hay 20 copias fuera de las skills que citan el techo ($($capDocs.Count))"
+foreach ($f in $capDocs) {
+  $rel = $f.Substring($repo.Length).TrimStart('\')
+  if (-not (Test-Path -LiteralPath $f)) { Assert $false "existe $rel"; continue }
+  $txt = [IO.File]::ReadAllText($f)
+  Assert ($txt -match '(?i)(turn cap|tope de turnos):\s*2\b[^.]{0,60}?\b1\b[^.]{0,60}?Review-Rigor: light') `
+    "${rel}: cita el techo nuevo (2, o 1 en light)"
+  Assert ($txt -notmatch '(?i)5-turn cap|cap of 5 turns|tope de 5 turnos|hard cap of 5|5 turns have run') `
+    "${rel}: no cita el techo de 5 turnos"
+}
+# El CLAUDE.md no reescribe la regla de prosa sin su excepcion: remite al Step 5.
+foreach ($pre in $capRoots) {
+  $f = Join-Path $pre "CLAUDE.md"
+  $rel = $f.Substring($repo.Length).TrimStart('\')
+  $txt = [IO.File]::ReadAllText($f)
+  Assert ($txt -match 'scored per `/slice-review` Step 5') "${rel}: la regla de prosa remite al Step 5 de /slice-review"
+  Assert ($txt -notmatch '(?i)only prose is Low and never blocks') "${rel}: no afirma que toda prosa es Low sin excepcion"
 }
 
 # --- 08b: framing en AI_DEVELOPMENT_WORKFLOW.md (el unico doc no-par que se copia al scaffold) ------

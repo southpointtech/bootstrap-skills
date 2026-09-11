@@ -81,7 +81,7 @@ revisar por partes deja pasar el defecto que solo se ve en el conjunto: un slice
 todas bien pero que no cierra como unidad contra su intención. El costo de una lectura de solo
 lectura al final es chico comparado con lo que evita.
 
-**Bajar el techo de turnos de 5 a 2.** Propuesta y rechazada con los datos: 59 de 235 reportes de
+**Bajar el techo de turnos de 5 a 2.** *(Revertida el 2026-09-11 por ADR-0009, que acepta este riesgo por decisión del usuario.)* Propuesta y rechazada con los datos: 59 de 235 reportes de
 turno encuentran regresiones introducidas por el turno anterior. Cortar en 2 entrega los fixes del
 turno 2 sin revisar. Con re-reviews angostos un turno cuesta ~6 minutos, así que el techo solo acota
 la cola: el ahorro no justifica el riesgo.

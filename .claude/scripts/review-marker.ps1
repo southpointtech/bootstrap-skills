@@ -23,8 +23,8 @@
 #                       snapshot when it resolves, otherwise the branch base (Get-SliceBase, exactly
 #                       what `base` returns). Same exit contract as `base`. A superset of `base`.
 #   -Action close    -> clears the `slice-open:<branch>` anchor so the NEXT slice's `open` records
-#                       fresh. The loop calls it only on a CLEAN close, after the coherence pass;
-#                       never on a cap close. Idempotent, exits 0, and never touches a corrupt state
+#                       fresh. The loop calls it on every close but a cap close (clean, or a
+#                       prose-only delta), after the coherence pass; never on a cap close. Idempotent, exits 0, and never touches a corrupt state
 #                       (Read-State returns @{} then, so there is no key to clear). See ADR-0002.
 #
 # Exit codes are part of the contract, because "nothing new to review" and "I cannot tell" must
@@ -379,7 +379,7 @@ switch ($Action) {
 
   "close" {
     # Clear the coherence anchor `slice-open:<branch>` so the NEXT slice starts fresh. The loop calls
-    # this ONLY on a clean close (zero medium/high findings), AFTER the coherence pass has read the
+    # this on every close but a cap close (clean, or a prose-only delta), AFTER the coherence pass has read the
     # anchor via `slice-base` — never on a cap close. That is the whole point: a cap close leaves the
     # anchor in place, so a manual re-run of the still-open slice keeps anchoring at the slice's real
     # start (`open` is write-once and no-ops) instead of under-scoping to the already-advanced marker.

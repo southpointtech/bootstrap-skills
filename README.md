@@ -165,7 +165,8 @@ What makes it more than "just run a review":
 - **Its rigor scales with risk.** A slice declares `Review-Rigor: light` next to its `Slice-Close:`
   trailer when its blast radius is low (a local tool, tests only, a behavior-preserving refactor):
   one turn, two focuses, no coherence pass. Everything else runs `standard`, capped at 2 turns.
-  Prose-only findings are Low and never block the close, so the loop stops polishing comments.
+  Prose-only findings are Low (with the exceptions in `/slice-review` Step 5) and do not block the
+  close, so the loop stops polishing comments.
 
 > A note on "5/5": that score comes from Greptile's tool. Claude Code's reviewer reports findings by
 > **severity**, not a number — so here "5/5" means *the latest review surfaced no medium/high-severity

@@ -228,7 +228,11 @@ For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
 docstring, commit message or internal doc) is **Low**, whichever rule it violates, the `CLAUDE.md`
 assertion rule included. It is Medium only when the text reaches an end user (UI copy, help output,
 a generated report, a persisted string) or contradicts the code in a way that would mislead whoever
-changes that code next. Before this rule, loose comments scored Medium, their fixes were more prose
+changes that code next. **Instructions are not prose**: in a file that governs the agent (the
+paths `CLAUDE.md` lists as never documentation: `CLAUDE.md` anywhere, `.claude/`, `.agents/`,
+`docs/ai-workflow/`, `docs/agents/`), a sentence that tells the agent what to do (a step, a
+condition, a flag, a threshold, an ordering or a stop rule) is behavior and is classified like code.
+Rationale and history in those files stay prose. Before this rule, loose comments scored Medium, their fixes were more prose
 for the next turn, and loops kept ending at the turn cap instead of clean.
 
 ## Step 6 — Report

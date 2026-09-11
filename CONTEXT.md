@@ -13,7 +13,7 @@ La unidad de cambio que se implementa y se revisa como un todo, acotada para que
 _Avoid_: feature, tarea, ticket
 
 **Cierre de slice**:
-El momento en que un slice queda listo para revisión. Es un acto declarado, no una consecuencia de haber commiteado o pusheado. El loop distingue dos formas de cierre: **cierre limpio** (la última revisión no dejó hallazgos medium/high) y **cierre por cap** (se agotó el techo de turnos con hallazgos abiertos); solo el limpio limpia el ancla `slice-open` del pase de coherencia (ADR-0002).
+El momento en que un slice queda listo para revisión. Es un acto declarado, no una consecuencia de haber commiteado o pusheado. El loop distingue tres formas de cierre: **cierre limpio** (la última revisión no dejó hallazgos medium/high; en `light`, ningún High), **cierre por prosa** (el delta sin revisar es sólo prosa fuera de los archivos que gobiernan al agente) y **cierre por cap** (se agotó el techo de turnos con hallazgos abiertos). Todo cierre que no sea por cap limpia el ancla `slice-open` del pase de coherencia (ADR-0002, ampliado por ADR-0009).
 _Avoid_: terminar, cerrar el commit
 
 **Corrida de review**:
