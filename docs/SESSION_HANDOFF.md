@@ -1,3 +1,113 @@
+# Session Handoff — 2026-09-11 (tarde) — **El review-loop se arregló: techo de 2 turnos, rigor por slice y la prosa es Low (ADR-0009). MERGEADO, PUSHEADO y DEPLOYADO.** `review-cost --split` quedó PAUSADO por decisión del usuario.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo**: `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` = `origin/main` = `f7ae28f`, árbol limpio.
+  4 commits nuevos: `cb5b6cd` (slice), `49edefe` (fixes turno 1), `451eb32` (fixes turno 2), `f7ae28f`
+  (resello de manifests). La rama `fix/review-loop-converge` quedó mergeada por ff y **se puede borrar**.
+- **Deployado** con `tools/sync-skills.ps1`: las 5 skills están en `~/.claude/skills`. **Las skills nuevas
+  entran recién en la próxima sesión de Claude Code.**
+- **Suite**: las 15 suites de `tests/` pasan (`pwsh -NoProfile -File tests/<n>.tests.ps1`).
+- **Marcador de revisión**: en `49edefe`. Los fixes del turno 2 (`451eb32`) NO están cubiertos por él:
+  los leyó sólo el pase de coherencia. El ancla `slice-open` **se conserva** (cerró por cap).
+
+## Por qué se hizo esto (el pedido del usuario)
+
+El usuario frenó el desarrollo: "hace semanas… horas y cientos de miles de tokens que no se termina
+nunca". Medido sobre `8a39ab9..0ca4551` de `claude-analytics`: **14 de 19 commits eran fixes de review**
+y **900 de las 1.666 líneas agregadas en `src/` eran comentarios**; los 3 slices cerraron por el techo de
+5 turnos. Encima, ese proyecto medía el costo del review-loop **usando** el review-loop.
+
+Orden acordado: (1) pausar `review-cost --split`, (2) arreglar el review-loop, (3) Graphify medido.
+
+## Lo que cambió en el review-loop (ADR-0009, `docs/adr/0009-rigor-del-review-por-slice.md`)
+
+| Antes | Ahora |
+|---|---|
+| Techo de 5 turnos | **2 turnos** en `standard`, **1** en `light` |
+| Un solo rigor para todo | **`Review-Rigor: light`** como trailer, junto al `Slice-Close:` |
+| Prosa floja = Medium (bloqueaba) | **Prosa = Low**, salvo texto de usuario final o contradicción engañosa |
+| Todo `.md` era prosa | Las **instrucciones** de `CLAUDE.md`, `.claude/`, `.agents/`, `docs/ai-workflow/`, `docs/agents/` son comportamiento |
+| Cierre limpio o por cap | **Tres cierres nombrados**: limpio, por prosa, por cap. Los dos primeros limpian el ancla |
+
+`light` = 1 turno, focos Bugs + Tests, sin mutación, sin `/code-review`, sin coherencia; sólo un High se
+arregla (los Medium se reportan) y un High promueve el slice a `standard`, arreglando también los Medium
+de ese turno. El rigor se decide **una vez, en el turno 1**: es `light` sólo si HEAD lleva `Slice-Close:`,
+todos los cierres del rango declaran `light` y no hay cambios trackeados sin commitear.
+
+🔴 **El techo de 2 lo eligió el usuario sabiendo que ADR-0001 lo había rechazado con datos** (59 de 235
+turnos traían regresiones del turno anterior). El riesgo —los fixes del último turno sólo los lee el pase
+de coherencia— está declarado en las Consecuencias del ADR-0009.
+
+## Archivos tocados
+
+- Mecánica (4 copias cada uno: raíz + los 3 scaffolds): `.agents/skills/review-loop/SKILL.md`,
+  `.agents/skills/slice-review/SKILL.md`, sus gemelos en `.claude/commands/`, `.agents/skills/tdd/SKILL.md`,
+  `.claude/hooks/review-loop-trigger.ps1`, `.claude/scripts/review-marker.ps1` (sólo comentarios),
+  `CLAUDE.md` (bullet del review-loop), `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`.
+- Sólo raíz: `README.md`, `CONTEXT.md`, `docs/TESTING.md`, `docs/adr/0009-…` (nuevo), anotaciones en
+  `docs/adr/0001-…` y `0002-…`, `tests/slice-review.tests.ps1`.
+- Generados: los 3 `.bootstrap-manifest.json`.
+
+## Cómo cerró el review de este cambio
+
+Rigor `standard`, **cierre por cap** en 2 turnos. Turno 1: 7 reviewers, ~30 hallazgos → 12 deduplicados →
+**8 Medium** sobrevivieron el pase de confianza. Turno 2: 5 reviewers → **6 Medium**. Coherencia: cohiere,
+sin hallazgos nuevos.
+
+🔴 **En 5 de los 22 hallazgos, el fix que propuse YO movía el problema**, y el scorer lo atajó cada vez
+(scores 30–60). El peor: "si también corrió el cap, es cierre por cap" convertía todo cierre `light` y
+todo turno 2 limpio en cierre por cap, y el ancla no se limpiaba casi nunca. Ver
+`~/.claude/projects/C--Repos-PERSONAL-Bootstrap-Skills/memory/confidence-pass-debe-puntuar-el-fix.md`.
+
+## Lo que blindan los tests nuevos (`tests/slice-review.tests.ps1`)
+
+- **El snippet de PowerShell que decide el rigor SE EJECUTA** contra repos git temporales, 9 casos × 8
+  copias: cierre light, sin `Slice-Close:`, mixto, trailer arriba del bloque de atribución, un standard
+  ANTES del rango, light + commit sin trailer, árbol sucio, `lightweight`, rango vacío.
+- La lista de rutas que gobiernan al agente se compara **como conjunto** contra el `CLAUDE.md` y contra el
+  `$govern` del hook, en las 4 raíces. La precedencia de flags se compara **como aristas**.
+- Un loop sobre las **20 copias** (hook, `CLAUDE.md`, workflow, tdd) impide que vuelva el techo de 5.
+- 19 mutantes probados en dos rondas: **todos mueren**. `temp-hygiene` exige que el único dot-source del
+  archivo sea el del helper: por eso `Invoke-RigorSnippet` usa `&` y no `.`.
+
+## Deuda declarada, reportada y NO arreglada (Low)
+
+- `.claude/scripts/review-marker.ps1:278` dice "A clean close clears the anchor" (hoy también el de prosa).
+- `docs/adr/0002-…` línea ~107: "solo el primero limpia el ancla".
+- `tests/review-loop-incremental.tests.ps1:155`: la etiqueta dice "restringe -Action close al cierre limpio".
+- ADR-0009 no nombra la **regla 5** del parche de prosa.
+- El `CLAUDE.md` de Forecasting App (línea 82) sigue con "5-turn cap" → le llega con `upgrade-bootstrap`.
+
+## Pendientes, en orden
+
+1. **`upgrade-bootstrap` en los 14 repos bootstrapeados**, empezando por Forecasting App
+   (`C:\Repos\SOUTHPOINTLABS\Forecasting App`). Recién ahí se puede retirar
+   `~/.claude/PARCHE-review-loop-prosa.md` **para sus reglas 1 a 3**: las reglas 4 y 5 no entraron al
+   bootstrap y el parche sigue haciendo falta para ellas. En `Administracion May` y `Gestor de Obras` hay
+   que revertir a mano los bloques `PATCH:prose-churn`.
+2. **Graphify** (decisión del usuario: "más adelante cuando tengamos listo graphify"). Es un experimento
+   **medido y fuera del bootstrap**: `pip`/`uv` package `graphifyy`, **fijar la 0.9.50** (2026-08-25) por la
+   regla de dependencias de 14 días — sacan ~8 releases cada 14 días. Correrlo en Forecasting App (533
+   archivos, 288 de código; es el único repo que llega al umbral de 500) y comparar tokens de exploración
+   con y sin grafo. Sólo si gana, entra al scaffold como paso opcional.
+3. **Medir el review-loop nuevo**: cuántos de los próximos slices cierran limpios en vez de por cap. Es la
+   señal que el ADR-0009 declara pendiente.
+4. `review-cost --split` en `claude-analytics` queda **pausado**: el PRD y los issues 01d, 02 y 03 están en
+   `needs-triage` (`.scratch/review-cost-split/`, gitignoreado). Retomar sólo si el usuario decide que el
+   cociente costo/beneficio sigue haciendo falta.
+
+## Preferencias y restricciones confirmadas esta sesión
+
+- **El clasificador de auto-mode bloquea `git push` combinado con otros comandos.** Hay que correrlo solo.
+- **Decidir lo técnico, preguntar sólo diseño**: esta sesión elevó dos preguntas (el esquema de rigor y el
+  techo de 2 turnos) y decidió sola todo lo demás.
+- **Autorización durable**: las fases se encadenaron sin preguntar; merge, push y deploy sí se pidieron.
+- `sync-skills.ps1` ensucia el árbol en cada corrida por `autocrlf` (los manifests hashean bytes del disco).
+  Commitear el resello, como hizo `f7ae28f`.
+
+---
+
 # Session Handoff — 2026-09-11 — **Slice 01c CERRADO y su review-loop CERRÓ POR CAP: 5 turnos, 5 commits de fix.** El mismo defecto se movió de extremo TRES veces sobre la misma línea hasta que el fix dejó de predecir y pasó a citar. La pasada de coherencia dio que el slice cohiere.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
