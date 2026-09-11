@@ -29,8 +29,10 @@ sabiendas: el usuario eligió el techo de 2 el 2026-09-11, con el rechazo de ADR
    `Slice-Close:`. `light` es un turno con los focos de Bugs y Tests, sin mutación, sin `/code-review` y
    sin pase de coherencia. Sólo un High bloquea y sólo un High se arregla: los Medium de un slice
    `light` se reportan sin arreglar, porque ningún turno revisaría su fix. Un High promueve el slice a
-   `standard`. El rigor se decide una vez, en el turno 1: es `light` sólo si al menos un commit del rango
-   lleva `Slice-Close:` y todos los que lo llevan declaran `Review-Rigor: light`; si no, `standard`.
+   `standard`. El rigor se decide una vez, en el turno 1: es `light` sólo si HEAD lleva `Slice-Close:`, todos
+   los commits del rango que lo llevan declaran `Review-Rigor: light` y no hay cambios sin commitear
+   en archivos trackeados; si no, `standard`. Cuando un High promueve el slice, se arreglan también
+   los Medium de ese turno, que el turno 2 revisa.
 3. **La prosa es Low** en el pase de confianza, cualquiera sea la regla que viola, salvo que el texto lo
    lea un usuario final o contradiga el código de un modo que engañe a quien lo modifique después. Las
    instrucciones de los archivos que gobiernan al agente (`CLAUDE.md`, `.claude/`, `.agents/`,

@@ -30,17 +30,22 @@ Review-Rigor: light
 | `standard` (default) | 2 | the five focuses, plus `--mutation` and `--code-review` | runs at close | a High or Medium finding |
 
 Decide the rigor **once, on turn 1**, and keep it for the whole loop: only a promotion changes it,
-and only upward. It is `light` only if at least one commit in the unreviewed range carries a
-`Slice-Close:` line and **every** commit that carries one also carries `Review-Rigor: light`.
-Anything else is `standard`: no trailer, a mix, or a loop fired by `git push` or by the ~400-line
-net with no `Slice-Close:` in the range. Match the lines anywhere in the message, as the hook does:
-git's own trailer parser reads only the last paragraph, so it misses a trailer written above the
-attribution block.
+and only upward. It is `light` only if the newest commit in the unreviewed range (HEAD) carries a
+`Slice-Close:` line, **every** commit in the range that carries one also carries
+`Review-Rigor: light`, and no tracked file has uncommitted changes (the marker's range carries
+them, and they belong to no declared close). Anything else is `standard`: no trailer, a mix,
+commits after the last close, a dirty tree, or a loop fired by `git push` or by the ~400-line net
+with no `Slice-Close:` in the range. If `range` exited 2, the rigor is `standard`. Match the lines
+anywhere in the message, as the hook does: git's own trailer parser reads only the last paragraph,
+so it misses a trailer written above the attribution block.
 
 ```powershell
 $msgs   = @(git rev-list "<range>..HEAD" | ForEach-Object { (git log -1 --format=%B $_) -join "`n" })
 $closes = @($msgs | Where-Object { $_ -match '(?m)^\s*Slice-Close:' })
-$light  = $closes.Count -gt 0 -and
+$head   = (git log -1 --format=%B HEAD) -join "`n"
+$dirty  = @(git status --porcelain --untracked-files=no).Count -gt 0
+$light  = -not $dirty -and $msgs.Count -gt 0 -and
+          $head -match '(?m)^\s*Slice-Close:' -and
           @($closes | Where-Object { $_ -notmatch '(?m)^\s*Review-Rigor:\s*light\s*$' }).Count -eq 0
 ```
 
@@ -51,8 +56,8 @@ Declare `light` for a slice with a low blast radius: a local tool or script, a t
 a refactor that preserves behavior. Keep `standard` for anything a client or production depends on,
 data writes or migrations, security, auth, money, or deploy config. When in doubt, `standard`.
 
-A High in a `light` slice promotes it to `standard`: fix it and run turn 2 on the fix, so no High fix
-ships unreviewed.
+A High in a `light` slice promotes it to `standard` on that same turn: fix the High and that turn's
+real Medium findings, and run turn 2 on those fixes, so no fix ships unreviewed.
 
 ## The reviewer: `/slice-review` as backbone, `/code-review` as a turn-1 extra
 
@@ -188,7 +193,7 @@ that finishes the slice, so a RED commit normally does not declare a close at al
 One turn = one complete pass through these steps:
 
 1. Ask the marker for the range (`-Action range`). **Empty with exit 0 → the loop is done; close
-   it. Empty with exit 2 → undeterminable; recover as the exit-code section above says, and do
+   it as the stop conditions and the At close section say. Empty with exit 2 → undeterminable; recover as the exit-code section above says, and do
    not close.** On the **first turn only**, once there is something to review, record where this
    slice starts so the coherence pass at close reads only this slice and not the whole stacked
    branch: `-Action open`. It snapshots the marker as it stands right now — the previous slice's
@@ -218,7 +223,8 @@ One turn = one complete pass through these steps:
    reviewed by anyone — which is the exact failure this loop exists to prevent.
 4. Read the findings. Fix ONLY findings that are real, relevant to this change, and **Medium or High**
    — in `light`, **High only**: a `light` slice reports its Medium findings as deliberately not
-   fixed, because no turn would review their fix. Low findings are reported, not fixed. Do not
+   fixed, because no turn would review their fix. When a High promotes the slice, fix that turn's
+   real Medium findings too: turn 2 reviews them. Low findings are reported, not fixed. Do not
    rewrite unrelated code. Do not re-edit a comment, docstring or message that an earlier turn of
    this same loop wrote, unless the new finding about it scored Medium or High.
 5. For each bug fix, first write a test that **fails without the fix** — run it and watch it fail (RED)
@@ -229,7 +235,10 @@ After step 5, begin the next turn back at step 1 — which now reviews only the 
 
 - The latest `/slice-review` reported clean: no findings of medium or high severity (in `light`,
   no High).
-- `range` came back empty **with exit 0** (exit 2 is not a stop condition).
+- `range` came back empty **with exit 0** (exit 2 is not a stop condition). After a turn whose
+  reviewer ran, this means you fixed nothing because you judged every Medium/High not real: that
+  is a **clean close**. On the first turn no reviewer ran this loop: stop, with no coherence pass
+  and no `-Action close`.
 - The unreviewed delta is only prose with no behavior change: comments, docstrings, or `.md` files
   **outside** the paths `CLAUDE.md` says govern the agent (`CLAUDE.md` anywhere, `.claude/`,
   `.agents/`, `docs/ai-workflow/`, `docs/agents/`). An edit to a governing file is behavior, so it
@@ -255,7 +264,7 @@ shows in the whole — a slice whose pieces each passed but that does not cohere
 out to do. Its findings go through the same confidence pass as any other; fix the real ones as in
 step 5 (a test that fails without the fix first), then report.
 
-Run it on **both** exits — clean and cap — because a slice can pass every delta review and still
+Run it on **every** exit that closes the loop — clean, prose-only and cap — because a slice can pass every delta review and still
 fail to cohere as a unit; the cap exit needs it most, since it closes with findings still open.
 Skip it only when no reviewer ever ran this loop: an empty range with nothing to review from the
 first turn (a RED-only commit, or a slice already fully reviewed before the loop began). With
@@ -264,14 +273,25 @@ nothing read, there is no slice to check for coherence.
 A `light` loop skips it: its point is one cheap turn, and its slices are the ones where a
 whole-slice re-read buys the least.
 
-On a **clean close** — no medium/high findings left (in `light`: no High) — and on a **prose-only
-close**, clear the slice anchor once the coherence pass above has run (a `light` loop has none to
-wait for): `-Action close`. It deletes `slice-open:<branch>` so the next
-slice's first-turn `open` records its own start instead of inheriting this one's. Do **not** clear it
-on a cap close: a slice that hit the turn cap without going clean may be re-run, and keeping the
-anchor lets that re-run stay scoped to the slice's real start (`open` is write-once) rather than
-under-scope to the advanced marker. Order matters — the coherence pass reads the anchor via
-`-Action slice-base`, so `close` runs strictly after it. See `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`.
+Name the close before acting on it; the final report states it:
+
+- **clean close** — the last review left no Medium/High you judged real (in `light`: no High). This
+  holds even when that review was the cap turn, and covers an empty range after a reviewed turn.
+- **prose-only close** — the prose-only stop condition fired **before** the cap ran.
+- **cap close** — the cap ran and its last review reported a Medium/High (a High in `light`
+  promotes, so in practice `standard`). Its fixes were never reviewed, so a prose-only fix delta
+  left by that last turn is still a cap close.
+
+A stop because you are blocked on a human decision, and an empty range on the first turn, are
+**not** closes.
+
+Run `-Action close` on a **clean** or **prose-only** close only, strictly after the coherence pass
+when one runs (a `light` loop has none to wait for). It deletes `slice-open:<branch>` so the next
+slice's first-turn `open` records its own start instead of inheriting this one's. Do **not** run it
+on a cap close, a blocked stop, or a first-turn empty range: each may be followed by a re-run of the
+same slice, and keeping the anchor (`open` is write-once) keeps that re-run scoped to the slice's
+real start instead of under-scoping to the advanced marker. Order matters — the coherence pass reads
+the anchor via `-Action slice-base`, so `close` runs strictly after it. See `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`.
 
 ## Guardrails
 
