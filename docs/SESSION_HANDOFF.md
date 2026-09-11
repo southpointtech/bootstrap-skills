@@ -1,3 +1,141 @@
+# Session Handoff — 2026-09-03 (c) — slice 05b (lockfile sellado y verificado) EN VERDE, SIN COMMITEAR
+
+> Mismo worktree y rama: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2`.
+> **Nada de este slice está commiteado.** `git status` tiene 7 modificados + 2 sin trackear.
+> El review-loop **todavía no corrió**.
+
+## Qué se hizo
+
+El slice 05b del issue `.scratch/bootstrap-v2/issues/05-lockfile-sellado-y-verificado.md`,
+implementado con TDD (rojo→verde por grupo). Dos archivos nuevos:
+
+| archivo | qué | tamaño |
+|---|---|---|
+| `tools/skills-lock.ps1` | sellar / verificar el lockfile | 321 líneas, **219 efectivas** (83 de comentario) |
+| `tests/skills-lock.tests.ps1` | su suite: **55 aserciones, verde** | 385 líneas, 252 efectivas |
+
+Y 7 archivos regenerados: las **4 copias** de `skills-lock.json` (raíz + 3 scaffolds) migradas a
+**version 2**, y los **3 `.bootstrap-manifest.json`** (el lockfile está sellado adentro del manifest,
+así que cambiarlo obliga a regenerarlos con `tools/gen-manifest.ps1`).
+
+## La interfaz que quedó
+
+```
+pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal   [-Bases <skill-bases.json>] [-Repo <dir>]
+pwsh -NoProfile -File tools/skills-lock.ps1 -Action Verify [-Repo <dir>]
+```
+
+- Exit codes: **0** ok | **1** el lockfile y el árbol no concuerdan | **2** no se puede correr.
+- `-Repo` existe **para el test** (árboles sintéticos en `%TEMP%`); en el repo se omite.
+- `Seal` **con** `-Bases`: importa los metadatos de base desde la salida de `recover-skill-bases.py`.
+  Es el camino de migración y el único que puede registrar una skill nueva.
+- `Seal` **sin** `-Bases`: conserva los metadatos de base del lockfile que ya está y solo recomputa
+  hashes. **Decisión de diseño**: `skill-bases.json` es gitignored y necesita red + clon de upstream;
+  si sellar lo exigiera siempre, actualizar el cuerpo de una skill sería imposible desde un clon
+  limpio y el lockfile volvería a pudrirse — el escenario exacto de ADR-0005.
+- `Seal` **verifica lo que acaba de escribir** y sale 1 si no da verde. Sellar y verificar es un
+  solo acto.
+
+## El lockfile v2, medido
+
+11 skills, **25 archivos sellados** (no 11 `SKILL.md`), los **3 estados sin colapsar**:
+
+| estado | skills | base | `upstreamHeadPath` |
+|---|---|---|---|
+| `upstream-vivo` | grill-me, grill-with-docs, handoff, setup-matt-pocock-skills, tdd, to-prd, triage | sí | sí (el rename: `to-prd` → `skills/engineering/to-spec/SKILL.md`) |
+| `upstream-huerfano` | to-issues, zoom-out | **sí** (es lo que se perdería al colapsarlas) | null |
+| `fork-propio` | review-loop, slice-review | null | null |
+
+`skill-bases.json` **no se sella ni se referencia** (guarda la ruta absoluta de un temporal). El hash
+por archivo lo calcula `Get-NormalizedHash -Scope File` (M1, entregado por el 05a).
+
+## 🔴 Tres bugs que los tests cazaron, y su fix
+
+1. **`return @(...)` desde una función desenrolla el array de UN elemento**: con una sola raíz,
+   `$roots` era el string y `$roots[0]` el carácter `"C"` de `"C:\..."`. Selló un lockfile con
+   `files: {}` — verde vacuo. Fix: `@()` en el llamador.
+2. **`return ,$array` rompe el array VACÍO** (protege el de un elemento, pero devuelve un array de
+   uno que contiene el vacío). Reportaba un problema fantasma con mensaje vacío. Fix: devolver pelado
+   y envolver en el llamador. **Los dos idiomas son trampas opuestas; están comentados en el código.**
+3. **`ConvertFrom-Json` coacciona las fechas ISO-8601 a `[datetime]` en la zona LOCAL**: medido,
+   `2026-05-13T14:05:18+01:00` se selló como `2026-05-13T10:05:18-03:00`. El mismo lockfile sellado
+   en otra zona horaria habría dado bytes distintos y las 4 copias tienen que ser el mismo documento.
+   Fix: `ConvertTo-UtcIso` normaliza a UTC (`...Z`). Es una normalización **declarada**: el lockfile
+   NO transcribe el offset con el que git imprimió la fecha.
+
+Además: el orden de claves es **ordinal**, no cultural (`Sort-Object` en es-AR pone `mocking.md`
+antes que `SKILL.md`; el hash crudo del lockfile entra al manifest, así que el orden no puede
+depender de la máquina).
+
+## Tests (55 aserciones, todas verdes)
+
+`pwsh -NoProfile -File tests/skills-lock.tests.ps1` → **55 aserciones, 0 fallidas**. Grupos:
+
+- **A** tracer: sellar → verificar da verde.
+- **B** los 6 rojos: contenido alterado, hash que miente, archivo sellado que ya no está, archivo
+  nuevo dentro de una skill sellada (el caso `tdd/mocking.md`), skill sin entrada, entrada sin skill.
+  Cada uno asserta **exit code Y atribución** — un caso pasaba por un crash de null-reference antes
+  de que se le agregara la aserción del mensaje.
+- **C** los 3 estados + el rename + la fecha en UTC + el sellado se niega si bases y árbol no
+  describen el mismo conjunto.
+- **D** las 4 copias: mutación solo en el scaffold, copia divergente (`no es el mismo documento`),
+  copia sin lockfile, copia sin árbol.
+- **E** re-sellar sin `-Bases`: conserva base, actualiza hash, **idempotente byte a byte**, se niega
+  con skill nueva y se niega sobre un lockfile v1.
+- **F** el repo de verdad: `Verify` sin `-Repo` da verde y cubre **todas** las copias que el propio
+  test cuenta en disco (no hardcodea 4).
+
+`tests/mirror.tests.ps1` → verde tras regenerar los manifests.
+
+## ⛔ Lo que FALTA (en orden)
+
+1. **Correr la suite completa.** Quedó a medias: el runner secuencial se pasó de los 2 min del
+   timeout. Correr una por una o en background. **Siguen prohibidas en esta rama**:
+   `tests/gen-mcp-json.tests.ps1` y `tests/copy-scaffold.tests.ps1` (el fix de `%TEMP%` está en
+   `main`, esta rama todavía no lo tiene).
+2. **`docs/TESTING.md`**: falta la sección del lockfile. Es el único archivo de tests sin la suya, y
+   `docs/TESTING.md` tiene una sección por suite.
+3. **`CLAUDE.md` DEL REPO** (no el del scaffold): falta el AC 9 del issue — la regla de conteo del
+   grill: *el cuerpo adoptado literal de upstream cuenta como vendored y no suma al techo; sí suman
+   el drift propio, los tests, el lockfile y el `CLAUDE.md`*.
+   ⚠️ **Tensión a resolver antes de escribirla, es una decisión del usuario**: el bullet del techo que
+   ya está en `CLAUDE.md` dice *"Generated files, vendored code, lockfiles and snapshots never
+   count"*, y ahora `skills-lock.json` LO GENERA `skills-lock.ps1 -Action Seal`. Las dos frases se
+   contradicen sobre el mismo objeto. No la resolví por mi cuenta.
+4. **PRD user story 15**: `.scratch/bootstrap-v2/PRD.md` línea 91 pide marcar `zoom-out` como fork
+   propio; lo medido es `recovered` con similitud 1.0 → quedó `upstream-huerfano`. Corregir el PRD.
+5. **Commitear** con el trailer, **declarando el exceso del techo** (decisión del usuario del
+   2026-09-03: no se parte, se declara):
+   `Slice-Close: 05b — lockfile de skills sellado y verificado offline (~470 líneas efectivas entre herramienta y test, por encima del techo de ~400: exceso DECLARADO, no partido)`
+6. **`/review-loop`** hasta que cierre. **Ojo con el marcador**: el ancla `slice-open` viene puesta
+   en `70a54d7` del slice anterior (cerró por cap, ADR-0002 dice no pisarla), así que el turno 1 va a
+   revisar **la cola sin revisar del saneamiento de `recover-skill-bases` MÁS todo el 05b**. Es
+   correcto y es la dirección segura, pero el rango es grande: no te sorprendas.
+
+## Tamaño del slice — el exceso, declarado
+
+**~470 líneas efectivas** (219 de la herramienta + 252 del test, sin comentarios ni líneas vacías)
+sobre un techo de ~400. Los 7 archivos regenerados (4 lockfiles + 3 manifests, 606 inserciones) **no
+cuentan**: son generados. El usuario decidió el 2026-09-03 **no partir el slice** —partirlo deja
+media herramienta sin su verificación—, con la medición del slice anterior encima (80 líneas de
+lógica dieron 30 hallazgos y 5 turnos de loop). **Es decisión tomada: no la re-litigues.**
+
+## Comandos útiles
+
+```
+pwsh -NoProfile -File tests/skills-lock.tests.ps1
+pwsh -NoProfile -File tools/skills-lock.ps1 -Action Verify
+pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal -Bases .scratch/bootstrap-v2/skill-bases.json
+foreach ($s in @('bootstrap-ai-project','bootstrap-personal-project','bootstrap-southpoint-project')) { pwsh -NoProfile -File tools/gen-manifest.ps1 -SkillDir "skills/$s" }
+```
+
+## Contradicción con el handoff anterior
+
+El handoff (b) dice *"Mergear `main` (7 commits, `3b3636a`)"*. **Hoy son 17 commits**, tip `b882c19`.
+`feat/bootstrap-v2` está 46 adelante / 17 atrás. El merge sigue agrupado con el cierre del 05.
+
+---
+
 # Session Handoff — 2026-09-03 (b) — slice de saneamiento de `recover-skill-bases` CERRADO POR CAP
 
 > Mismo worktree y rama que abajo. Este slice PRECEDE al 05b y era su prerequisito: `skill-bases.json`
