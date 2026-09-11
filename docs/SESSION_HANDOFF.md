@@ -1,3 +1,137 @@
+# Session Handoff — 2026-09-11 — **Slice 01c CERRADO y su review-loop CERRÓ POR CAP: 5 turnos, 5 commits de fix.** El mismo defecto se movió de extremo TRES veces sobre la misma línea hasta que el fix dejó de predecir y pasó a citar. La pasada de coherencia dio que el slice cohiere.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+Fase completada: **el slice 01c entero, con su review-loop**. La siguiente es **el slice 01d**
+(el conteo de tokens cruzados), cuyo issue está escrito y `ready-for-agent`.
+
+- **Worktree**: `C:\Repos\PERSONAL\wt-review-cost-split`, rama `feat/review-cost-split`,
+  HEAD `0ca4551`. **20 commits sobre `master`** (`8a39ab9`), sin mergear. Árbol limpio.
+- **`master` de `claude-analytics` sigue en `8a39ab9`**. El checkout principal sigue en
+  `fix/migration-billable` con trabajo AJENO sin commitear: **no se tocó**.
+- Suite de analytics: **797 pasan, 3 skipped, 0 fallos**; `tsc` limpio ×2.
+- **`main` de Bootstrap Skills: 13 commits ahead de `origin/main`** → con este handoff, 14.
+- Este archivo está en **LF puro** en disco, sin BOM (medido, no heredado).
+
+## Los cinco commits del slice, y qué cerró cada uno
+
+| Commit | Qué es |
+|---|---|
+| `02700bd` | El slice: `renderReviewCostArms` + el flag `--split` (203 líneas de lógica en `src/`) |
+| `912d59b` | Turno 1: share imposible sin marca; `--split ""` ignorado; 7 de 8 mutantes vivos |
+| `5291548` | Turno 2: **tres afirmaciones mías falsas**, una copiada de otro fixture |
+| `dd5c076` | Turno 3: mi fix duplicaba el texto; dos retractaciones vivas en el archivo que no reabrí |
+| `bc94b7b` | Turno 4: el aviso tenía tres caminos y le puse dos |
+| `0ca4551` | Turno 5 (cap): el aviso **cita** la celda en vez de predecirla |
+
+## 🔴 El aprendizaje más caro: el mismo defecto se movió TRES veces sobre una línea
+
+El prefijo del aviso de `shareOutOfRange` afirmaba qué mostraba la celda. Cada versión fue
+falsificada por un par de números distinto:
+
+| Versión | Falsificada por | La celda daba |
+|---|---|---|
+| `"se pasó de 1"` | `50 / 0` | `0.0%` (guarda de división) |
+| ramificar por `=== 0` | `100 / -50` | `-200.0%` |
+| ramificar por el signo, 3 ramas | `-50 / -100` y `0 / -50` | `50.0%` y `0.0%` |
+
+**La raíz**: la rama se elegía con un predicado sobre `totalOut`, y lo que la celda muestra lo
+deciden DOS números (el cociente) y el redondeo de `fmtPct` — con `40 496 241 / 40 496 240` el
+cociente pasa de 1 y `toFixed(1)` imprime `100.0%`. **Ningún predicado sobre uno solo de los
+dos puede acertarle**, así que una cuarta ramificación lo habría movido una cuarta vez.
+
+**El fix que cerró**: sacar la predicción. El aviso cita la celda con `fmtPct(a.tokenShare.pct)`,
+la misma función que la imprime, así que no puede contradecirla por construcción.
+
+**Y por qué se movió tres veces**: ningún test leía la celda y el aviso JUNTOS. Las aserciones
+anclaban el string del aviso y nunca lo confrontaban con `pctCell`. La red es lo que cierra la
+familia; el texto es la consecuencia.
+
+## Lo demás que midieron los reviewers, y que yo no vi
+
+- **7 de 8 mutantes del foco de mutación sobrevivieron** en el turno 1. Ninguno era de los 31
+  que yo había corrido. Los míos siguen siendo más débiles.
+- **Tres afirmaciones mías eran falsas** (turno 2), las tres verificadas midiendo: un `pct` por
+  repo SÍ puede pasarse de 1 (`main` negativo da 2,000); la idempotencia de `parseSplit` falla
+  en los DOS extremos (año 0000 con offset positivo, no sólo 9999); y el `-180.0pp` era un
+  número de OTRO fixture copiado con el signo invertido (el real: `+187.5pp`).
+- **Dos retractaciones sobrevivieron** en el test file porque retracté en `src` y no reabrí el
+  archivo con las copias.
+- **El confidence pass atajó dos fixes míos que movían el problema**: los valores del fixture
+  rompían la otra invariante (`sum(main) ≤ totalOut`), y la comparación cruda de nombres
+  empeoraba el orden visible.
+- **El foco de reglas midió el churn**: dos tercios de la prosa del turno 2 reescribía prosa del
+  turno 1 del mismo loop. Dos de esos hunks eran Low y no debí tocarlos (regla 2 del parche).
+
+## 🔴 Dos incidentes operativos
+
+1. **Un worktree de reviewer con junction se llevó puesto el `node_modules` REAL** (98 → 0
+   paquetes) al limpiarse con `git worktree remove --force`. El árbol de trabajo quedó intacto
+   (todo gitignoreado) y se reparó con `npm install`. Es el hazard ya documentado: **sacar el
+   junction con `cmd /c rmdir` ANTES del remove**. El brief se lo decía y el agente igual lo hizo.
+2. **Avancé el marcador ANTES de correr el review**, no después (6ª repetición de este error).
+   No tiene inverso. Se salvó pasándole a los reviewers el rango explícito.
+
+## El marcador, y por qué queda donde queda
+
+**Está en `dd5c076` a propósito.** El turno 5 revisó `dd5c076..bc94b7b`, así que `bc94b7b` ya se
+revisó, pero `0ca4551` (los fixes del turno 5) NO. Avanzarlo ahora cortaría en HEAD y escondería
+`0ca4551` de todo review futuro — el error grave. El próximo rango va a sobre-incluir `bc94b7b`:
+**es la dirección segura y hay que declararlo, no confundirlo con delta nuevo.**
+
+El ancla de coherencia (`slice-open`) sigue en `3c5c869` y **se conserva**, como manda el cierre
+por cap. Viene del cap de 01b, así que cubre 01b + 01c.
+
+## La pasada de coherencia
+
+Corrió sobre `bc94b7b` — es decir, **antes del último fix** (`0ca4551`), que es un cambio acotado
+a una función y sus fixtures. Veredicto: **el slice cohiere**. 11 de 12 criterios cumplidos; el
+parcial es el "dónde llegan" de la nota de omisión, que sólo está dicho para `factor`/`perTurn` —
+hueco honesto y declarado, no una afirmación falsa.
+
+## Deuda declarada y abierta
+
+- El reporte clásico (sin `--split`) sigue imprimiendo un share > 100 % **sin marca**:
+  `ReviewCostResult` no tiene campo `shareOutOfRange`. Es el mismo defecto que 01c cerró, fuera
+  del slice. Vale como issue aparte.
+- `parseSplit` no es idempotente en los dos extremos del rango de año (declarado en su docstring).
+- `computeFocus` sigue usando `localeCompare` sin locale (preexistente, declarado en `porNombre`).
+- El `denominadorPositivo` de los tests viola la invariante 2 sin declararlo (sólo se puede
+  cumplir con `main` negativo).
+- La cota "`undated` ≤ `universe`" no aplica a los brazos con borde; el comentario la usa igual.
+- Toda la deuda de 01b sigue abierta (ver el handoff anterior).
+
+## Lo siguiente: el slice 01d
+
+Issue en `.scratch/review-cost-split/issues/01d-tokens-cruzados.md`, `ready-for-agent`, con la
+medición nueva adentro: sobre el único label congelado (`2026-08`), el borde `2026-08-11T15:20:00Z`
+da **8 steps cruzados / 9 620 `outTok`**, todos en la dirección agente `antes` → step `desde`.
+Los bordes `2026-08-26` y `2026-09-01` dan cero (caen fuera del período).
+
+🔴 **Los números de `2026-09-07` que citan varios docstrings NO son reproducibles**: ese snapshot
+no está en la base (el único label congelado es `2026-08`, y en `data/backups/` sólo hay
+`pre-freeze` del 09-04 y del 09-10). Los "3 steps / 2 272 de `outTok`" y los "44 831 steps" salen
+de un congelado que ya no existe.
+
+## Pendientes que NO son de código
+
+- **Pushear `main` de Bootstrap Skills** (14 commits con este handoff). Lo hacés vos con `!`,
+  cuenta **southpointtech**.
+- **Decidir el merge** de `feat/review-cost-split` a `master` local de analytics (20 commits, ff).
+- En el repo de Bootstrap Skills siguen sin trackear `AGENTS.md`, `.codex/` y 10
+  `.agents/skills/source-command-*/` — residuo de Codex, ajeno a este trabajo.
+
+## Preferencias reconfirmadas
+
+- **Autorización durable**: las fases se encadenaron sin preguntar. No se extendió a push ni merge.
+- **Decidir lo técnico, preguntar sólo diseño**: esta sesión no elevó ninguna pregunta.
+- El `alignment-gate` disparó en la primera Write; se siguió por estar ya alineado (PRD + ADR 0006
+  + grilling del 2026-09-09) y se declaró en una línea.
+- Se aplicó el `PARCHE-review-loop-prosa.md`: los Low de prosa interna no bloquearon, y desde el
+  turno 3 se aplicó el criterio estricto tras medir el churn.
+
+---
+
 # Session Handoff — 2026-09-10 (noche) — **El review-loop del slice 01b CERRÓ POR CAP: 4 turnos corridos (2 a 5), 29 Medium arreglados, 4 commits nuevos.** La pasada de coherencia dio limpia. El slice está listo para 01c y la rama sigue sin mergear.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
