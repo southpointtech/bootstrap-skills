@@ -6,11 +6,15 @@ Fase completada: **el slice 01c entero, con su review-loop**. La siguiente es **
 (el conteo de tokens cruzados), cuyo issue está escrito y `ready-for-agent`.
 
 - **Worktree**: `C:\Repos\PERSONAL\wt-review-cost-split`, rama `feat/review-cost-split`,
-  HEAD `0ca4551`. **20 commits sobre `master`** (`8a39ab9`), sin mergear. Árbol limpio.
-- **`master` de `claude-analytics` sigue en `8a39ab9`**. El checkout principal sigue en
-  `fix/migration-billable` con trabajo AJENO sin commitear: **no se tocó**.
+  HEAD `0ca4551`. Árbol limpio.
+- ✅ **MERGEADO**: `master` de `claude-analytics` pasó de `8a39ab9` a `0ca4551` — **fast-forward
+  puro, sin merge commit**, 19 commits (los slices 01a + 01b + 01c con sus review-loops). Se hizo
+  actualizando la ref (`git push . feat/review-cost-split:master`), NO con checkout: el checkout
+  principal sigue en `fix/migration-billable` con su trabajo AJENO sin commitear, **intacto**.
+  La rama `feat/review-cost-split` y `master` apuntan al mismo commit.
 - Suite de analytics: **797 pasan, 3 skipped, 0 fallos**; `tsc` limpio ×2.
-- **`main` de Bootstrap Skills: 13 commits ahead de `origin/main`** → con este handoff, 14.
+- ✅ **PUSHEADO**: `main` de Bootstrap Skills, `b7d84a9..0245386` (14 commits), a
+  `southpointtech/bootstrap-skills`.
 - Este archivo está en **LF puro** en disco, sin BOM (medido, no heredado).
 
 ## Los cinco commits del slice, y qué cerró cada uno
@@ -115,9 +119,9 @@ de un congelado que ya no existe.
 
 ## Pendientes que NO son de código
 
-- **Pushear `main` de Bootstrap Skills** (14 commits con este handoff). Lo hacés vos con `!`,
-  cuenta **southpointtech**.
-- **Decidir el merge** de `feat/review-cost-split` a `master` local de analytics (20 commits, ff).
+- ~~Pushear `main` de Bootstrap Skills~~ — **hecho** (`b7d84a9..0245386`).
+- ~~Decidir el merge a `master` de analytics~~ — **hecho**, ff puro a `0ca4551`. `claude-analytics`
+  es local-only: no se pushea a ningún remoto.
 - En el repo de Bootstrap Skills siguen sin trackear `AGENTS.md`, `.codex/` y 10
   `.agents/skills/source-command-*/` — residuo de Codex, ajeno a este trabajo.
 
