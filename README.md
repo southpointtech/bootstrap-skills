@@ -129,7 +129,7 @@ review-passing code**. The **`review-loop`** skill runs a tight cycle:
 
 ```
 /slice-review on the diff  →  fix ONLY the real findings  →  re-review  →  repeat
-                           until no medium/high-severity findings remain (hard cap: 5 turns)
+                           until no medium/high-severity findings remain (cap: 2 turns, 1 for `Review-Rigor: light`)
 ```
 
 The backbone reviewer is **`/slice-review`**, a multi-agent reviewer over the *local* diff (parallel
@@ -162,6 +162,10 @@ What makes it more than "just run a review":
   agents over-fix, so it touches only what each finding is about; and **tests are the objective
   signal** — "looks fine" is not a pass. It refuses to run on huge diffs (≥ ~400 lines), pushing you
   back to smaller slices where the loop is actually accurate.
+- **Its rigor scales with risk.** A slice declares `Review-Rigor: light` next to its `Slice-Close:`
+  trailer when its blast radius is low (a local tool, tests only, a behavior-preserving refactor):
+  one turn, two focuses, no coherence pass. Everything else runs `standard`, capped at 2 turns.
+  Prose-only findings are Low and never block the close, so the loop stops polishing comments.
 
 > A note on "5/5": that score comes from Greptile's tool. Claude Code's reviewer reports findings by
 > **severity**, not a number — so here "5/5" means *the latest review surfaced no medium/high-severity

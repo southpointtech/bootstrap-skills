@@ -355,7 +355,7 @@ A4 agregó un pase de coherencia: un foco **único de solo lectura** que mira el
 - **Invocación** — se dispara con `/slice-review --coherence`; Step 1 rutea `--coherence` a la sección del pase, no como un rango de diff.
 - **No saltea steps reusados** — el ruteo de `--coherence` no manda a saltear los steps que el pase reusa (Step 3 contexto compartido, Step 5 confianza, Step 6 reporte): un `skip Steps 1-5` haría que un agente literal saltee la confianza (AC6).
 - **Base irresoluble** — en exit 2 la base es justo lo irresoluble: la frase `do not reach for` vive DENTRO de la sección del pase, no solo en el Step 1.
-- **El loop lo invoca al cierre** — verificado en `/review-loop` (command + SKILL, 4 copias), sección `## At close: the coherence pass`: invoca `/slice-review --coherence` en **ambos** cierres (limpio o por el techo de 5 turnos) y lo saltea solo cuando ningún reviewer corrió (rango vacío desde el primer turno).
+- **El loop lo invoca al cierre** — verificado en `/review-loop` (command + SKILL, 4 copias), sección `## At close: the coherence pass`: invoca `/slice-review --coherence` en **ambos** cierres (limpio o por el techo de turnos) y lo saltea solo cuando ningún reviewer corrió (rango vacío desde el primer turno).
 
 ## Testeo del anclaje del pase de coherencia (A4b)
 

@@ -483,7 +483,7 @@ foreach ($p in $loopPairs) {
     Assert ($coh -match '/slice-review --coherence') `
       "$($p.label)/${rel}: el loop invoca el pase de coherencia (/slice-review --coherence)"
     # Corre en AMBOS cierres: limpio y por techo de turnos.
-    Assert ($coh -match '(?i)clean, or at the 5-turn cap') `
+    Assert ($coh -match '(?i)clean, or at the turn cap') `
       "$($p.label)/${rel}: el loop corre el pase tanto por limpio como por techo de turnos"
     Assert ($coh -match '(?i)run it on \*\*both\*\* exits') `
       "$($p.label)/${rel}: el loop corre el pase en ambos cierres explicitamente"
@@ -513,6 +513,48 @@ foreach ($p in $loopPairs) {
     # (la premisa caduco 2026-08-26). El error fabricado "cannot be used with Skill tool" era falso.
     Assert ($txt -notmatch '(?i)cannot be used with Skill tool') `
       "$($p.label)/${rel}: el loop ya no afirma que /code-review no es invocable (premisa caduca)"
+  }
+}
+
+# --- Rigor por slice (ADR-0009) ------------------------------------------------------------------
+# Los tres slices de review-cost-split cerraron por el techo de 5 turnos: la prosa nacia Medium y cada
+# fix de prosa era delta nuevo para el turno siguiente. El loop pasa a techo de 2 turnos (1 en `light`),
+# la prosa es Low en el pase de confianza y el rigor se declara por slice con el trailer `Review-Rigor:`.
+# Las anclas son flags, filas de tabla y el trailer; las dos reglas de prosa no tienen otro ancla.
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $s1 = Section $txt 'Step 1 — Resolve what to review'
+    $s4 = Section $txt 'Step 4 — Fan out parallel reviewers'
+    $s5 = Section $txt 'Step 5 — Confidence pass (filter false positives)'
+    Assert ($s1 -match '--light') "$($p.label)/${rel}: Step 1 parsea --light"
+    Assert ($s4 -match '(?is)if `--light` was passed.*only the \*\*Bugs\*\* and \*\*Tests\*\* focuses') `
+      "$($p.label)/${rel}: Step 4 reduce --light a los focos de Bugs y Tests"
+    Assert ($s5 -match '(?is)only prose.*is \*\*Low\*\*') `
+      "$($p.label)/${rel}: Step 5 clasifica Low el hallazgo cuyo fix es solo prosa"
+    Assert ($txt -notmatch '(?i)5-turn cap') "$($p.label)/${rel}: no quedan menciones al techo de 5 turnos"
+  }
+}
+foreach ($p in $loopPairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $rig = Section $txt 'Rigor: light or standard'
+    $theLoop = Section $txt 'The loop'
+    $coh = Section $txt 'At close: the coherence pass'
+    Assert ($rig -match 'Review-Rigor: light') "$($p.label)/${rel}: el loop declara el trailer Review-Rigor"
+    Assert ($rig -match '\|\s*`light`\s*\|\s*1\s*\|') "$($p.label)/${rel}: light tiene techo de 1 turno"
+    Assert ($rig -match '\|\s*`standard` \(default\)\s*\|\s*2\s*\|') `
+      "$($p.label)/${rel}: standard es el default, con techo de 2 turnos"
+    Assert ($rig -match '(?i)promotes it to `standard`') "$($p.label)/${rel}: un High en light promueve el slice a standard"
+    Assert ($theLoop -match '--light') "$($p.label)/${rel}: el paso del loop pasa --light en un slice light"
+    Assert ($theLoop -match '(?i)delta is only prose') "$($p.label)/${rel}: el loop cierra si el delta sin revisar es solo prosa"
+    Assert ($theLoop -notmatch '(?i)5 turns have run') "$($p.label)/${rel}: el techo ya no es de 5 turnos"
+    Assert ($coh -match '(?i)a `light` loop skips it') "$($p.label)/${rel}: un loop light saltea el pase de coherencia"
+    Assert ($txt -notmatch '(?i)5-turn cap|cap of 5 turns') "$($p.label)/${rel}: no quedan menciones al techo de 5 turnos"
   }
 }
 

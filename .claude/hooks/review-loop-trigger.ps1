@@ -510,7 +510,7 @@ $msg = "Cerraste un commit/slice en el branch '$branch' (base '$base'). " +
        "Ejecuta /review-loop AHORA sobre el diff del slice. No preguntes si querés correrlo: corrélo. " +
        "El rango sale del marcador ('.claude/scripts/review-marker.ps1 -Action range'), no del branch entero: " +
        "solo si ese script no existe, usá 'git diff $base...HEAD'. " +
-       "No marques el trabajo como completo hasta que el loop cierre (cero hallazgos de severidad media/alta, o el tope de 5 turnos)."
+       "No marques el trabajo como completo hasta que el loop cierre (cero hallazgos de severidad media/alta, o el tope de turnos: 2, o 1 si el commit declara 'Review-Rigor: light')."
 @{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
     ConvertTo-Json -Depth 4 -Compress
 exit 0

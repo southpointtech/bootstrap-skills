@@ -1,11 +1,11 @@
 ---
 name: review-loop
-description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /slice-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or a 5-turn cap is hit. Adapts the Greptile "greploop" / GP-loop to a local, agent-invocable reviewer (no external paid service, no PR/remote required).
+description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /slice-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or the turn cap is hit (2 turns; 1 when the slice declares `Review-Rigor: light`). Adapts the Greptile "greploop" / GP-loop to a local, agent-invocable reviewer (no external paid service, no PR/remote required).
 ---
 
 # Review Loop
 
-Iterate review → fix → re-review on a small change until it is clean: zero medium/high-severity findings, or a hard cap of 5 turns.
+Iterate review → fix → re-review on a small change until it is clean: zero medium/high-severity findings, or the turn cap — **2 turns**, or **1** for a slice that declares `Review-Rigor: light` (see **Rigor** below).
 
 ## When to use
 
@@ -14,6 +14,33 @@ Iterate review → fix → re-review on a small change until it is clean: zero m
 - Findings are specific enough to act on, and tests/typechecks can confirm fixes.
 
 Do not use on huge diffs (thousands of lines) or for unclear product decisions.
+
+## Rigor: light or standard
+
+How much review a slice gets is declared by the agent, per slice, next to the close trailer:
+
+```
+Slice-Close: <what closed>
+Review-Rigor: light
+```
+
+| Rigor | Turn cap | Turn 1 runs | Coherence pass | What blocks the close |
+|---|---|---|---|---|
+| `light` | 1 | `/slice-review --light`: the Bugs and Tests focuses only | skipped | a High finding |
+| `standard` (default) | 2 | the five focuses, plus `--mutation` and `--code-review` | runs at close | a High or Medium finding |
+
+No trailer means `standard`. Read it from the commit that carries `Slice-Close:`, normally HEAD:
+
+```powershell
+git log -1 --format="%(trailers:key=Review-Rigor,valueonly)"
+```
+
+Declare `light` for a slice with a low blast radius: a local tool or script, a tests-only change, or
+a refactor that preserves behavior. Keep `standard` for anything a client or production depends on,
+data writes or migrations, security, auth, money, or deploy config. When in doubt, `standard`.
+
+A High in a `light` slice promotes it to `standard`: fix it and run turn 2 on the fix, so no High fix
+ships unreviewed.
 
 ## The reviewer: `/slice-review` as backbone, `/code-review` as a turn-1 extra
 
@@ -157,9 +184,12 @@ One turn = one complete pass through these steps:
    `open` is **write-once**: if this slice already recorded an anchor — a re-run of a slice that hit
    the cap without closing — it keeps the original start instead of re-snapshotting the by-now
    advanced marker, so a re-run never under-scopes the coherence pass. A missing or pruned marker
-   records nothing, and the coherence pass falls back to the branch base.
+   records nothing, and the coherence pass falls back to the branch base. A `light` loop skips
+   `open`: it runs no coherence pass (if it is promoted to `standard`, the pass falls back to the
+   branch base, which reads more, never less).
 2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
-   files the range does not carry. On the **first turn only**, add **`--mutation` and
+   files the range does not carry. In a `light` loop pass **`--light`** and no other flag. In
+   `standard`, on the **first turn only**, add **`--mutation` and
    `--code-review`** so `/slice-review` also runs the **Mutation focus** — which checks the slice's
    tests have teeth by breaking changed lines and seeing whether a test notices — and adds the
    built-in **`/code-review`** as an extra independent reviewer. Later turns must not carry either
@@ -174,23 +204,29 @@ One turn = one complete pass through these steps:
    up to this point, and the fixes you are about to write become the next turn's unreviewed delta.
    Advancing after fixing would hand the next turn an empty range and the fixes would never be
    reviewed by anyone — which is the exact failure this loop exists to prevent.
-4. Read the findings. Fix ONLY findings that are real and relevant to this change. Do not rewrite unrelated code.
+4. Read the findings. Fix ONLY findings that are real, relevant to this change, and **Medium or High**:
+   Low findings are reported, not fixed. Do not rewrite unrelated code. Do not re-edit a comment,
+   docstring or message that an earlier turn of this same loop wrote. If a fix would change no
+   behavior and its text reaches no end user, report the finding and leave the code as it is.
 5. For each bug fix, first write a test that **fails without the fix** — run it and watch it fail (RED)
    before writing the fix. A test that never failed is not a net. Then apply the fix, re-run the test,
    and run the relevant tests/typechecks.
 
 After step 5, begin the next turn back at step 1 — which now reviews only the fixes you just made. Stop when ANY of:
 
-- The latest `/slice-review` reported clean: no findings of medium or high severity.
+- The latest `/slice-review` reported clean: no findings of medium or high severity (in `light`,
+  no High).
 - `range` came back empty **with exit 0** (exit 2 is not a stop condition).
-- 5 turns have run.
+- The unreviewed delta is only prose (comments, docstrings, `.md`) with no behavior change: close
+  without another turn.
+- The turn cap for the slice's rigor has run: 1 turn in `light`, 2 in `standard`.
 - You are blocked by a decision that needs a human → stop and report.
 
 Note: `/slice-review` reports findings by severity, not a numeric score — "clean" means the latest review surfaced no medium/high-severity findings (the Greptile 5/5 score does not exist here).
 
 ## At close: the coherence pass
 
-However the loop ended — clean, or at the 5-turn cap — run the coherence pass **once** before the
+However a `standard` loop ended — clean, or at the turn cap — run the coherence pass **once** before the
 final report:
 
 ```
@@ -210,10 +246,13 @@ Skip it only when no reviewer ever ran this loop: an empty range with nothing to
 first turn (a RED-only commit, or a slice already fully reviewed before the loop began). With
 nothing read, there is no slice to check for coherence.
 
+A `light` loop skips it: its point is one cheap turn, and its slices are the ones where a
+whole-slice re-read buys the least.
+
 On a **clean close only** — the latest review found no medium/high findings — clear the slice anchor
 once the coherence pass above has run: `-Action close`. It deletes `slice-open:<branch>` so the next
 slice's first-turn `open` records its own start instead of inheriting this one's. Do **not** clear it
-on a cap close: a slice that hit the 5-turn cap without going clean may be re-run, and keeping the
+on a cap close: a slice that hit the turn cap without going clean may be re-run, and keeping the
 anchor lets that re-run stay scoped to the slice's real start (`open` is write-once) rather than
 under-scope to the advanced marker. Order matters — the coherence pass reads the anchor via
 `-Action slice-base`, so `close` runs strictly after it. See `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`.
@@ -229,6 +268,7 @@ under-scope to the advanced marker. Order matters — the coherence pass reads t
 
 ## Final report
 
+- State the rigor (`light` or `standard`) and how the loop closed: clean, prose-only delta, or cap.
 - List the findings resolved this run.
 - State the tests/typechecks run and their result, including which fixes went RED before green.
 - Note any finding deliberately not fixed (with reason) and any blocker that needs a human.
