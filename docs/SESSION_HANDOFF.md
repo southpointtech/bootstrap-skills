@@ -1,3 +1,128 @@
+# Session Handoff — 2026-09-11 (noche) — **Graphify MEDIDO en 4 repos y DESCARTADO del bootstrap (decisión del usuario, con datos).** El slice 05b, que llevaba 8 días en verde sin commitear, quedó commiteado en `bootstrap-v2` (`e474fb1`).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo de sesión**: `C:\Repos\PERSONAL\Bootstrap Skills`, `main` = `origin/main` = `2fc2131`.
+  **Esta sesión no cambió una sola línea de este repo.** El único untracked es el residuo de Codex
+  (`AGENTS.md`, `.codex/`, 10 `.agents/skills/source-command-*/`): ajeno, y **hay 8 procesos
+  `ChatGPT.exe` + `codex` + `codex-code-mode-host` corriendo**, así que borrarlo lo re-siembra.
+  Sigue sin gitignorear.
+- **Worktree `bootstrap-v2`**: `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama
+  `feat/bootstrap-v2`, HEAD **`e474fb1`**, **árbol limpio** (ya no hay trabajo suelto ahí).
+- **`graphify` 0.9.51 queda INSTALADO a propósito** (`uv tool`), para uso manual. No entra al scaffold.
+- Scratchpad con ~7 MB de grafos en
+  `…\6aaf7864-7067-4dc2-b4d1-02506904def7\scratchpad\graphify-eval\` (4 repos). Borrable.
+
+## 1. El slice 05b, commiteado (`e474fb1`)
+
+Llevaba desde el 2026-09-03 en verde y sin commitear. Son `tools/skills-lock.ps1` (321 líneas, 219
+efectivas) + `tests/skills-lock.tests.ps1` (385 / 252) + 4 `skills-lock.json` y 3
+`.bootstrap-manifest.json` regenerados. Total +1.450 / −154 en 10 archivos.
+
+**Verificado hoy, no heredado del handoff viejo** — 8 suites, todas exit 0:
+`skills-lock` 55/0 · `mirror` · `normalized-hash` 34 · `recover-skill-bases` 125/125 ·
+`copy-scaffold` · `export-shareable` · `shareable-leaks` · `techo-del-slice`.
+
+Los blobs entraron **CRLF homogéneo** (321/321 y 385/385), igual que `tools/gen-manifest.ps1` (40/40)
+que ya estaba trackeado: el commit no sella ruido de fines de línea.
+
+🔴 **El review-loop del 05b sigue PENDIENTE y nada lo va a pedir solo.** El hook
+`review-loop-trigger` está bien registrado en el `settings.json` del worktree, pero su comando usa
+`${CLAUDE_PROJECT_DIR}`, que apunta al directorio donde **arrancó la sesión** (`Bootstrap Skills`), no
+al worktree donde se commiteó. Es el mismo hazard ya documentado del fork de `/code-review` atado al
+cwd. **Rango sin revisar: `40260f4`, `598765a`, `e474fb1`.** El marcador está en `70a54d73`, que es un
+`git stash create` ("WIP on feat/bootstrap-v2") y **no es ancestro de HEAD** — eso es normal para un
+stash, no corrupción. **No se avanzó el marcador** (avanzarlo antes del review deja ciegos a los
+reviewers y no tiene inverso).
+
+## 2. Graphify: medido en 4 repos, DESCARTADO del bootstrap
+
+Montaje que **no toca ningún repo**: `graphify extract <repo> --out <scratchpad> --code-only`
+(AST local, **sin API key**, sin indexar PDFs). Verificado al cerrar: los 4 repos quedaron intactos,
+y Graphify **no escribió nada** en ningún `CLAUDE.md`, `AGENTS.md`, skill, hook ni `graphify-out/`,
+ni creó `~/.graphify` ni el `~/.cache/graphify-queries.log` que su README anuncia.
+
+| Repo | Archivos | Nodos | Edges/nodo | Tiempo | graph.json | Cruce vs grep+read |
+|---|---|---|---|---|---|---|
+| MyTube | 7 | 20 | 1,00 | 5 s | 16 K | **nunca** — "No matching nodes found" |
+| Task Manager | 86 | 624 | 1,90 | 9 s | 636 K | ~12 archivos |
+| Forecasting App | 325 | 2.449 | 1,99 | 22 s | 2,5 M | **<1 archivo** (gana casi siempre) |
+| SouthPoint-Hub | 416 | 2.312 | **2,46** | 27 s | 2,9 M | ~21 archivos |
+
+**El ahorro NO escala con el tamaño**: el repo más grande (SouthPoint-Hub) es el peor. El predictor
+es la **densidad de aristas**, no el tamaño. Su `benchmark` propio reporta 3,8×–13,4×, pero compara
+contra *"naive full-corpus"* (leer el repo entero), que es un hombre de paja: un agente hace grep y
+lee 2-3 archivos. Contra ese denominador honesto, una query en SouthPoint-Hub costó **94.593 tokens =
+61 % del corpus entero**.
+
+🔴 **Dos defectos que decidieron el NO:**
+
+1. **El budget por defecto no comprime: TRUNCA.** La salida es ~6.700 caracteres en los 4 repos sin
+   importar el tamaño. Descarta 30 % de los nodos en Forecasting, 50 % en Task Manager, **68 % en
+   SouthPoint-Hub**, avisando que la respuesta puede estar entre los cortados.
+2. **Falla en silencio con exit 0.** `query "how is authentication handled"` en SouthPoint-Hub →
+   **"No matching nodes found"**, en un repo con 178 archivos de auth y con `AuthGate()`,
+   `AuthProvider()`, `AuthContext` **dentro del grafo**. `query "auth"` → 128 nodos. **El matcher de
+   nodos semilla es literal por substring**: la palabra natural y precisa falla, la abreviatura
+   funciona.
+
+**Por qué no entra al bootstrap** (decidido por el usuario con estos datos): no hay umbral simple que
+programar (el predictor es la densidad, que no se conoce hasta después de extraer); en repos chicos no
+funciona y la mitad de los suyos lo son; el fallo silencioso es descalificante para algo que el agente
+invoca solo; y para ahorrar tendría que ser model-invoked, pagando description en un listado **ya al
+206 % del presupuesto en 200k**, más 2,5–3 MB de `graph.json` por repo, una dependencia con 17
+releases en 30 días, y la invalidación del prompt cache si falta el `.claudeignore`.
+
+**Cómo SÍ usarlo (manual, por repo y sesión):** `god-nodes` para orientarse en un repo desconocido;
+`affected "X"` y `path "A" "B"`, que un grep no puede responder; y `query` **con nombres de símbolos**,
+nunca con lenguaje natural. Reglas: siempre `--code-only`; siempre `--out` fuera del repo; **nunca
+creerle a un "No matching nodes found"** sin probar la abreviatura; subir `--budget` cuando importa la
+completitud; y si `extract` reporta más de ~2,3 edges/nodo, cerrar la herramienta y usar grep.
+
+## 3. `bootstrap-v2` está al ~25 % y divergiendo (lo más caro que queda)
+
+| | |
+|---|---|
+| Avance | **~5 de 19 issues** trabajados. Los 19 `.md` dicen `ready-for-agent`: **el campo Status no se actualiza al cerrar**, no confiar en él |
+| Divergencia | v2 **+46** commits / `main` **+41**, base común `9c8faf5` (2026-09-01) |
+| Solapamiento | **44 archivos tocados por AMBOS**, 33 sólo v2, 17 sólo main |
+| Riesgo | Los 44 incluyen lo que `main` acaba de reescribir con ADR-0009 (`review-loop`, `slice-review`, `tdd`, `CLAUDE.md`, el hook). **El merge se encarece cada día** |
+
+Su PRD (`.scratch/bootstrap-v2/PRD.md`, gitignoreado) declara dos reglas que gobiernan cualquier
+agregado al scaffold: *"cada skill nueva encarece todas las sesiones"* y *"todo lo que toca el scaffold
+sale en un único release con un único rollout"*. Por eso **nada nuevo entra al scaffold por un parche a
+`main`**.
+
+## Pendientes, en orden
+
+1. **Review-loop del 05b** en el worktree v2, rango `40260f4..e474fb1`. Hay que invocarlo a mano: el
+   hook no dispara cross-worktree.
+2. **`upgrade-bootstrap` en los 14 repos bootstrapeados**, empezando por Forecasting App
+   (su `CLAUDE.md:82` sigue diciendo "5-turn cap"; manifest del 2026-09-02). Recién ahí se retira
+   `~/.claude/PARCHE-review-loop-prosa.md` **para sus reglas 1 a 3** (las 4 y 5 no entraron al
+   bootstrap). En `Administracion May` y `Gestor de Obras` hay que revertir a mano los bloques
+   `PATCH:prose-churn`.
+3. **Decidir qué hacer con `bootstrap-v2`**: destrabarlo, o asumir el costo creciente del merge.
+4. **Gitignorear el residuo de Codex** (3 líneas). Requiere OK del usuario: `AGENTS.md` es un nombre
+   que otros agentes usan legítimamente.
+5. **Medir el review-loop nuevo**: cuántos slices cierran limpios en vez de por cap (lo que ADR-0009
+   declara pendiente).
+6. `review-cost --split` en `claude-analytics` sigue **pausado** por decisión del usuario.
+
+## Lo que el próximo debe saber antes de editar
+
+- **`Gestor de Obras` NO es un repo git** (el hook queda inerte ahí).
+- **`Task Manager` no tiene `src/`**: es `web/` (44) y `backend/` (41). Un `git grep -- "src/**"` ahí
+  devuelve 0 y parece un hallazgo cuando es un comando que no midió nada.
+- **No correr dos suites de este repo en paralelo**: barren `%TEMP%` global.
+- **`docs/SESSION_HANDOFF.md` está en LF puro, sin BOM** (medido hoy con `file`, en disco y en el
+  blob). No reescribirlo entero con un write: 7.963 líneas con emojis es el caso que lo deja en cero
+  bytes. Insertar con `Edit`.
+- El clasificador de auto-mode **bloquea `git push` combinado con otros comandos**; correrlo solo.
+- Commits con la Bash tool: `-m` repetidos, **nunca** here-string `@'...'@` (filtra el `@` al subject).
+
+---
+
 # Session Handoff — 2026-09-11 (tarde) — **El review-loop se arregló: techo de 2 turnos, rigor por slice y la prosa es Low (ADR-0009). MERGEADO, PUSHEADO y DEPLOYADO.** `review-cost --split` quedó PAUSADO por decisión del usuario.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
