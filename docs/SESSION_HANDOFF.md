@@ -1,3 +1,83 @@
+# Session Handoff — 2026-09-13 — **El review-loop del 05b CERRÓ POR CAP (2 turnos) + pase de coherencia.** 3 commits nuevos en `feat/bootstrap-v2`; 6 Medium del turno 1 y 1 del turno 2 arreglados con RED verificado.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` = `a5dcb45` + este commit de handoff,
+  **1 commit adelante de `origin/main` (`2fc2131`) sin pushear** (el handoff del 09-11 noche). Untracked:
+  el residuo de Codex de siempre (ajeno, no tocar).
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD
+  **`9998cfe`**, árbol limpio, sin push (la rama es local).
+- **Marcador de review** en `16c559a` (avanzado tras el turno 2, antes de sus fixes). **Ancla
+  `slice-open` sigue puesta** (`102489d`, la del 05a): cierre por cap ⇒ NO se corrió `-Action close`.
+- **Unreviewed delta = `72e742f` + `9998cfe`** (fix del turno 2 y comentario del pase de coherencia).
+  Nadie los revisó: es lo que significa cerrar por cap.
+
+## 1. Los commits del loop (`git log e474fb1..9998cfe`)
+
+| Commit | Qué |
+|---|---|
+| `16c559a` turno 1 | Import-Bases rechaza bases no resueltas (`unresolved-commit`, empate entre cuerpos distintos, status/relación desconocidos); Seal compara los árboles de TODAS las raíces **antes** de escribir; `ConvertTo-UtcIso` con InvariantCulture (th-TH escribía 2569); test F cuenta copias con `git ls-files`; C4 exige "no se sello nada" + lockfile ausente; asserts de `blob`/`source` |
+| `72e742f` turno 2 (cap) | La guarda mira HECHOS: `recovered` sin blob/commit/commitDate se rechaza; empate con `tiedCandidates` o `tieOnIdenticalBodies` presentes sin `=true` se rechaza. Mensaje ya no manda a editar a mano `skill-bases.json` |
+| `9998cfe` coherencia | Comentario de Seal decía que la verificación posterior caza árboles distintos; desde `16c559a` los rechaza la guarda previa. Solo prosa |
+
+Detalle de cada fix y su evidencia: en los mensajes de commit (no duplicar acá).
+
+## 2. Verificación (corrida hoy, no heredada)
+
+- `tests/skills-lock.tests.ps1` **76/0**; `mirror` verde; `normalized-hash` 34 verde.
+- RED antes del fix: C5, C6, C7, D5 (turno 1), C5b, C6b (turno 2).
+- Mutantes que mueren (tests que ya pasaban): sacar la guarda de C4, `blob = commit`, `source = $null`,
+  sacar InvariantCulture. D: con una copia suelta en `.bootstrap-backup/` el conteo viejo daba 5 vs 4.
+- `Seal -Bases .scratch/bootstrap-v2/skill-bases.json` real ⇒ 11 skills, 4 copias, **cero diff**.
+- 🔴 El fix del turno 2 introdujo una regresión (exigía `tiedCandidates` y dejaba pasar el empate de C6,
+  que solo trae `tieOnIdenticalBodies=false`). La cazó la **suite completa**, no los tests nuevos.
+- 🔴 El helper `Run-ToolInCulture` daba exit 0 sin correr la herramienta (nombres de parámetro entre
+  comillas = posicionales + `exit $null`). Lo delató el assert sobre el archivo. Corregido; está en la
+  memoria `trampas-de-tests-que-no-muerden` (#46, #47).
+- EOL medido: blobs de `tools/skills-lock.ps1` y `tests/skills-lock.tests.ps1` son **LF** antes y después
+  (`git ls-files --eol` = `i/lf w/lf`). El handoff anterior decía "CRLF homogéneo": era falso.
+
+## 3. Cómo se corrió (desvíos declarados)
+
+- Rango turno 1: `git diff 70a54d7` (marcador stash del 05a); ~500 líneas de lógica, sobre el techo.
+- **Sin foco `/code-review`**: el fork está atado al cwd de la sesión (`main`), no al worktree.
+- Todos los reviewers con rutas absolutas al worktree v2 (contextos en el scratchpad de la sesión, borrable).
+- Coherencia anclada en **`40260f4`** (cierre del 05a), no en `slice-base` = `102489d`: esa ancla
+  arrastraba 571 líneas de `recover-skill-bases.py` del 05a.
+- El guard de Remove-Item de la PowerShell tool bloquea comandos con `Split-Path`/globs dentro de
+  `Remove-Item`: borrar en un comando aparte.
+
+## 4. Abierto (Low, reportado, NO arreglado)
+
+Exit 1 vs 2 (errores no capturados y rechazos de bases); nombres duplicados en bases; faltan tests de CRLF,
+de archivo oculto (`-Force`), de orden de claves de skill; D5 con solo 2 raíces (mutante `-First 1`
+sobrevive); `huerfana.source`/`upstreamPath` sin assert; predicado de aceptación parcialmente anclado
+(relación desconocida, blacklist); comentario "decisión humana (ADR-0005)" en Import-Bases; diferimiento
+viejo "lo consume el lockfile (05b)" en `docs/agents/recuperar-base-de-skills.md` y
+`recover-skill-bases.py`; "9 synced" en los 3 SKILL.md + `docs/TESTING.md`; comparación de árboles con
+`-ne` (insensible a mayúsculas); rama `[datetimeoffset]` inalcanzable. **Asignados a issues posteriores**:
+mapeo `to-issues`→`to-tickets` (07), `zoom-out` fork propio vs ADR-0006 (12), verificación downstream del
+lockfile del scaffold (18). No hay forma documentada de que un humano resuelva un empate entre cuerpos
+distintos: decisión de diseño pendiente.
+
+## 5. Decisiones que esperan al usuario
+
+1. **Regla de conteo del cuerpo adoptado en `CLAUDE.md`** (AC del issue 05, sin cumplir aunque el slice
+   se declaró cerrado): choca con `CLAUDE.md:78` ("lockfiles ... never count"). ¿Escribirla o marcarla
+   diferida en el issue?
+2. **Qué hacer con `bootstrap-v2`**: destrabar (merge de `main`, que ya diverge en 44 archivos) o congelar.
+   Define si el upgrade de los 14 repos sale de `main` o espera a v2.
+
+## Pendientes, en orden
+
+1. Decisión 2 (rumbo de `bootstrap-v2`), y la 1 de paso.
+2. `upgrade-bootstrap` en los 14 repos (empezando por Forecasting App) — ver sección del 09-11 noche.
+3. Si v2 sigue: ¿otra ronda de review sobre `72e742f..9998cfe`? (el cap cerró sin revisarlos).
+4. Pushear `main` (1 commit de handoff + este). `git push` solo, en su propio comando.
+5. Resto de pendientes del handoff del 09-11 noche (gitignore Codex, medir el loop nuevo).
+
+---
+
 # Session Handoff — 2026-09-11 (noche) — **Graphify MEDIDO en 4 repos y DESCARTADO del bootstrap (decisión del usuario, con datos).** El slice 05b, que llevaba 8 días en verde sin commitear, quedó commiteado en `bootstrap-v2` (`e474fb1`).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
