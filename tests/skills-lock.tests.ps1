@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 70
+$ExpectedChecks = 76
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -314,6 +314,29 @@ try {
   Assert ($r.Out -match "'huerfana'" -and $r.Out -match "empate" -and $r.Out -match "no se sello nada") `
     "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6 "skills-lock.json"))) "y no escribe el lockfile"
+
+  # La guarda mira los HECHOS, no solo la etiqueta: `recovered` con el commit en null es exactamente
+  # lo que el productor llama `unresolved-commit`, y un empate cuyo `tieOnIdenticalBodies` falta no
+  # probó que los cuerpos sean iguales. Las dos formas solo llegan editando a mano el archivo generado.
+  $rootC5b = Join-Path $script:tmp "C5b"
+  New-Tree $rootC5b @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC5b = Join-Path $script:tmp "bases-C5b.json"
+  New-Bases $basesC5b { param($b) $b.skills[0].base.commit = $null }
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC5b, "-Bases", $basesC5b)
+  Assert ($r.Code -eq 1) "sellar una base recovered sin commit sale con codigo 1 (salida: $($r.Out))"
+  Assert ($r.Out -match "'viva'" -and $r.Out -match "sin commit" -and $r.Out -match "no se sello nada") `
+    "y nombra la skill sin commit, sin sellar nada (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC5b "skills-lock.json"))) "y no escribe el lockfile"
+
+  $rootC6b = Join-Path $script:tmp "C6b"
+  New-Tree $rootC6b @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC6b = Join-Path $script:tmp "bases-C6b.json"
+  New-Bases $basesC6b { param($b) $b.skills[0].base.tiedCandidates = @(@{ blob = "cccc333"; upstreamPath = "otro/viva/SKILL.md" }) }
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC6b, "-Bases", $basesC6b)
+  Assert ($r.Code -eq 1) "sellar un empate sin tieOnIdenticalBodies sale con codigo 1 (salida: $($r.Out))"
+  Assert ($r.Out -match "'viva'" -and $r.Out -match "empate" -and $r.Out -match "no se sello nada") `
+    "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6b "skills-lock.json"))) "y no escribe el lockfile"
 
   # --- C7. La fecha canónica no depende de la cultura de la máquina que sella -------------------
   # Un formato personalizado sin InvariantCulture usa el calendario de la cultura: en th-TH el año sale
