@@ -42,8 +42,11 @@ $SKILLS_DIR = ".agents/skills"
 # Es una normalización DECLARADA: el lockfile no transcribe el offset con el que git imprimió la fecha.
 function ConvertTo-UtcIso($v) {
   if ($null -eq $v) { return $null }
-  if ($v -is [datetimeoffset]) { return $v.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }
-  if ($v -is [datetime])       { return $v.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }
+  # InvariantCulture: sin ella el formato usa el calendario de la cultura del proceso (th-TH escribe
+  # el año 2569) y el separador de hora de esa cultura.
+  $inv = [Globalization.CultureInfo]::InvariantCulture
+  if ($v -is [datetimeoffset]) { return $v.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", $inv) }
+  if ($v -is [datetime])       { return $v.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", $inv) }
   # Si el deserializador no la coaccionó, se deja tal cual: inventarle un formato a algo que no
   # entendemos es peor que conservarlo.
   return [string]$v
@@ -109,6 +112,27 @@ function Import-Bases([string]$path) {
   $raw = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $path -ErrorAction Stop).ProviderPath)
   $b = $raw | ConvertFrom-Json -AsHashtable
   $meta = [ordered]@{}
+  # Solo se transcriben las dos formas que la recuperación resolvió: `recovered` con una relación
+  # upstream conocida, y `unmatched`. Lo demás que el productor emite (`unresolved-commit`: hay blob
+  # pero ningún commit fechado; un empate entre cuerpos distintos, cuya base decide un humano) sellado
+  # como `upstream-vivo` dejaría una base que nadie resolvió.
+  $rechazos = @()
+  foreach ($s in $b.skills) {
+    $resuelta = ($s.status -eq "recovered" -and $null -ne $s.base -and
+                 $s.upstreamRelation -in @("in-upstream-head", "gone-from-upstream-head")) -or
+                ($s.status -eq "unmatched" -and $null -eq $s.base -and
+                 $s.upstreamRelation -eq "no-match-above-threshold")
+    if (-not $resuelta) {
+      $rechazos += "la skill '$($s.name)' tiene status '$($s.status)' y relacion '$($s.upstreamRelation)': la recuperacion no resolvio su base"
+    } elseif ($null -ne $s.base -and $s.base.tieOnIdenticalBodies -eq $false) {
+      $rechazos += "la skill '$($s.name)' tiene un empate entre cuerpos distintos: su base la decide un humano"
+    }
+  }
+  if ($rechazos.Count -gt 0) {
+    foreach ($m in $rechazos) { Write-Host "ERROR: $m" }
+    Write-Host "No se sello nada: resolve esas bases en $path antes de sellar."
+    exit 1
+  }
   foreach ($s in $b.skills) {
     $tieneBase = $null -ne $s.base
     $estado = if (-not $tieneBase) { "fork-propio" }
@@ -277,6 +301,17 @@ if ($Action -eq 'Seal') {
   if ($desajuste.Count -gt 0) {
     foreach ($d in $desajuste) { Write-Host "ERROR: $d" }
     Write-Host "No se sello nada: la fuente de metadatos y el arbol tienen que describir el mismo conjunto de skills."
+    exit 1
+  }
+
+  # El documento se arma con el árbol de la primera raíz y se escribe en todas. Si otra raíz tiene un
+  # árbol distinto, la verificación posterior lo delataría, pero recién DESPUÉS de haber pisado todas
+  # las copias: la comparación va antes de escribir.
+  $refTree = $tree | ConvertTo-Json -Depth 5 -Compress
+  $distintas = @($roots | Select-Object -Skip 1 | Where-Object { (Get-SkillTree $_ | ConvertTo-Json -Depth 5 -Compress) -ne $refTree })
+  if ($distintas.Count -gt 0) {
+    foreach ($d in $distintas) { Write-Host "ERROR: el arbol de skills de $d no es el mismo que el de $($roots[0])" }
+    Write-Host "No se sello nada: todas las copias tienen que tener el mismo arbol de skills."
     exit 1
   }
 

@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 55
+$ExpectedChecks = 70
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -43,6 +43,18 @@ function Run-Tool([string[]]$toolArgs) {
   return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
 }
 
+# La misma corrida, pero con la cultura del proceso forzada. `-File` no deja fijarla antes de que
+# arranque el script, así que se entra por `-Command` y se re-emite el exit code del script.
+function Run-ToolInCulture([string]$culture, [string[]]$toolArgs) {
+  # Los nombres de parámetro van SIN comillas: `'-Action'` entre comillas es un valor posicional, el
+  # binding falla y el script no corre. Y `$LASTEXITCODE` se siembra en 99 para que un script que no
+  # llegó a correr no salga con el 0 de un `exit $null`.
+  $quoted = ($toolArgs | ForEach-Object { if ($_ -like '-*') { $_ } else { "'" + ($_ -replace "'", "''") + "'" } }) -join ' '
+  $cmd = "[cultureinfo]::CurrentCulture = [cultureinfo]::new('$culture'); `$global:LASTEXITCODE = 99; & '$tool' $quoted; exit `$LASTEXITCODE"
+  $out = & pwsh -NoProfile -Command $cmd 2>&1 | Out-String
+  return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+}
+
 # Escribe un árbol sintético: <raíz>/.agents/skills/<skill>/<archivo>.
 # $skills es un hashtable  nombre -> (hashtable  rutaRelativa -> contenido).
 function New-Tree([string]$root, [hashtable]$skills) {
@@ -60,19 +72,21 @@ function New-Tree([string]$root, [hashtable]$skills) {
 # El `skill-bases.json` que produce tools/recover-skill-bases.py, en versión mínima: la herramienta
 # solo lee `upstream.url`, `upstream.head` y, por skill, `name` / `base` / `upstreamRelation` /
 # `upstreamHead.path`. El fixture trae los tres estados que el lockfile no puede colapsar.
-function New-Bases([string]$path) {
+function New-Bases([string]$path, [scriptblock]$mutar) {
   $bases = @{
     upstream = @{ url = "https://github.com/ejemplo/skills.git"; head = "0123456789abcdef0123456789abcdef01234567" }
     skills   = @(
-      @{ name = "viva"; upstreamRelation = "in-upstream-head"
+      @{ name = "viva"; status = "recovered"; upstreamRelation = "in-upstream-head"
          upstreamHead = @{ status = "renamed"; path = "skills/nuevo/viva/SKILL.md" }
          base = @{ blob = "aaaa111"; upstreamPath = "viejo/viva/SKILL.md"; commit = "c0ffee1"; commitDate = "2026-03-26T14:28:04Z" } },
-      @{ name = "huerfana"; upstreamRelation = "gone-from-upstream-head"
+      @{ name = "huerfana"; status = "recovered"; upstreamRelation = "gone-from-upstream-head"
          upstreamHead = @{ status = "gone"; path = $null }
          base = @{ blob = "bbbb222"; upstreamPath = "viejo/huerfana/SKILL.md"; commit = "c0ffee2"; commitDate = "2026-05-06T09:26:48+01:00" } },
-      @{ name = "propia"; upstreamRelation = "no-match-above-threshold"; base = $null }
+      @{ name = "propia"; status = "unmatched"; upstreamRelation = "no-match-above-threshold"; base = $null }
     )
   }
+  # Para los casos que necesitan una entrada que el productor emite pero el fixture base no trae.
+  if ($mutar) { & $mutar $bases }
   [IO.File]::WriteAllText($path, ($bases | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
 }
 
@@ -198,6 +212,10 @@ try {
 
   Assert ($docC.skills['viva'].upstreamState -eq 'upstream-vivo') "una skill que sigue en el HEAD de upstream queda como upstream-vivo"
   Assert ($docC.skills['viva'].base.commit -eq 'c0ffee1') "y transcribe el commit base que la recuperacion encontro"
+  # El blob es lo que el próximo merge de tres vías usa para traer el contenido de la base. Los valores
+  # del fixture son todos distintos entre sí, para que transcribir un campo en lugar de otro se note.
+  Assert ($docC.skills['viva'].base.blob -eq 'aaaa111') "y el blob base, no otro campo de la base"
+  Assert ($docC.skills['viva'].source -eq 'https://github.com/ejemplo/skills.git') "y declara el origen upstream"
   Assert ($docC.skills['viva'].base.upstreamPath -eq 'viejo/viva/SKILL.md') "y el path que tenia EN el commit base"
   # El rename queda registrado por el PAR de paths: dónde vivía en la base y dónde vive en el HEAD.
   # Sin el segundo, el próximo merge compararía contra un path que ya no existe.
@@ -205,6 +223,7 @@ try {
 
   Assert ($docC.skills['huerfana'].upstreamState -eq 'upstream-huerfano') "una skill que upstream borro queda como upstream-huerfano, no como fork propio"
   Assert ($docC.skills['huerfana'].base.commit -eq 'c0ffee2') "y CONSERVA su commit base: es lo que se perderia al colapsarla en fork-propio"
+  Assert ($docC.skills['huerfana'].base.blob -eq 'bbbb222') "y su blob base"
   Assert ($null -eq $docC.skills['huerfana'].upstreamHeadPath) "pero no declara path en el HEAD, porque ahi ya no esta"
 
   # El fixture trae `2026-05-06T09:26:48+01:00`. El lockfile lo guarda en UTC: `ConvertFrom-Json`
@@ -263,8 +282,51 @@ try {
   $basesC4 = Join-Path $script:tmp "bases-C4.json"; New-Bases $basesC4
   $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC4, "-Bases", $basesC4)
   Assert ($r.Code -ne 0) "sellar con una skill de las bases ausente del arbol NO sale con codigo 0"
-  Assert ($r.Out -match "propia" -and $r.Out -match "no esta en el arbol") `
-    "y nombra la skill de las bases que el arbol no tiene (salida: $($r.Out))"
+  # "no esta en el arbol" solo NO alcanza: la verificación posterior al sellado dice lo mismo, así que
+  # sin la guarda el test pasaría igual y dejaría escrito el lockfile. Lo que distingue a la guarda es
+  # que se niega ANTES de escribir.
+  Assert ($r.Out -match "propia" -and $r.Out -match "no esta en el arbol" -and $r.Out -match "no se sello nada") `
+    "y nombra la skill de las bases que el arbol no tiene, sin sellar nada (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC4 "skills-lock.json"))) `
+    "y no deja un lockfile a medias escrito"
+
+  # --- C5/C6. El sellado se niega a transcribir una base que la recuperación no resolvió ---------
+  # recover-skill-bases.py emite `unresolved-commit` (hay blob, pero ningún commit fechado que citar) y
+  # empates entre cuerpos distintos (`tieOnIdenticalBodies: false`, "la base la decide un humano").
+  # Sellarlos como `upstream-vivo` dejaría en el lockfile una base que nadie resolvió: la afirmación no
+  # verificada de ADR-0005.
+  $rootC5 = Join-Path $script:tmp "C5"
+  New-Tree $rootC5 @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC5 = Join-Path $script:tmp "bases-C5.json"
+  New-Bases $basesC5 { param($b) $b.skills[0].status = "unresolved-commit"; $b.skills[0].base.commit = $null; $b.skills[0].base.commitDate = $null }
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC5, "-Bases", $basesC5)
+  Assert ($r.Code -eq 1) "sellar una base con status unresolved-commit sale con codigo 1 (salida: $($r.Out))"
+  Assert ($r.Out -match "'viva'" -and $r.Out -match "unresolved-commit" -and $r.Out -match "no se sello nada") `
+    "y nombra la skill y su status, sin sellar nada (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC5 "skills-lock.json"))) "y no escribe el lockfile"
+
+  $rootC6 = Join-Path $script:tmp "C6"
+  New-Tree $rootC6 @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC6 = Join-Path $script:tmp "bases-C6.json"
+  New-Bases $basesC6 { param($b) $b.skills[1].base.tieOnIdenticalBodies = $false }
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC6, "-Bases", $basesC6)
+  Assert ($r.Code -eq 1) "sellar una base empatada entre cuerpos distintos sale con codigo 1 (salida: $($r.Out))"
+  Assert ($r.Out -match "'huerfana'" -and $r.Out -match "empate" -and $r.Out -match "no se sello nada") `
+    "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6 "skills-lock.json"))) "y no escribe el lockfile"
+
+  # --- C7. La fecha canónica no depende de la cultura de la máquina que sella -------------------
+  # Un formato personalizado sin InvariantCulture usa el calendario de la cultura: en th-TH el año sale
+  # 2569. Las cuatro copias saldrían iguales entre sí —se escriben en la misma corrida— y Verify no
+  # lo vería nunca.
+  $rootC7 = Join-Path $script:tmp "C7"
+  New-Tree $rootC7 @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC7 = Join-Path $script:tmp "bases-C7.json"; New-Bases $basesC7
+  $r = Run-ToolInCulture "th-TH" @("-Action", "Seal", "-Repo", $rootC7, "-Bases", $basesC7)
+  Assert ($r.Code -eq 0) "sellar con la cultura th-TH sale con codigo 0 (salida: $($r.Out))"
+  $textoC7 = if (Test-Path -LiteralPath (Join-Path $rootC7 "skills-lock.json")) { [IO.File]::ReadAllText((Join-Path $rootC7 "skills-lock.json")) } else { "" }
+  Assert ($textoC7 -match '"commitDate": "2026-05-06T08:26:48Z"') `
+    "y la fecha del commit base sale en el calendario gregoriano, igual que en cualquier otra cultura"
 
   # --- D. Las cuatro copias -------------------------------------------------------------------
   # El lockfile vive en la raíz del repo (self-bootstrap) y en el scaffold de cada skill bootstrap-*.
@@ -302,6 +364,23 @@ try {
   $r = Run-Tool @("-Action", "Verify", "-Repo", $rootD4)
   Assert ($r.Code -eq 1) "una copia con lockfile pero sin arbol de skills sale con codigo 1"
   Assert ($r.Out -match 'no existe \.agents/skills') "y dice que no existe el arbol (salida: $($r.Out))"
+
+  # Sellar sobre raíces cuyo árbol de skills difiere: el documento se arma con el árbol de la primera
+  # raíz y se copia a todas, así que tiene que negarse ANTES de escribir. Negarse después dejaría las
+  # cuatro copias commiteadas ya pisadas.
+  $rootD5 = Join-Path $script:tmp "D5"
+  New-Tree $rootD5 @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  New-Tree (Join-Path $rootD5 "skills/bootstrap-x-project/assets/scaffold") @{
+    viva = @{ "SKILL.md" = "distinta en el scaffold`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" }
+  }
+  $basesD5 = Join-Path $script:tmp "bases-D5.json"; New-Bases $basesD5
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootD5, "-Bases", $basesD5)
+  Assert ($r.Code -eq 1) "sellar raices con arboles de skills distintos sale con codigo 1 (salida: $($r.Out))"
+  Assert ($r.Out -match 'bootstrap-x-project' -and $r.Out -match 'no se sello nada') `
+    "y nombra la raiz que difiere, sin sellar nada (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootD5 "skills-lock.json")) -and
+          -not (Test-Path -LiteralPath (Join-Path $rootD5 "skills/bootstrap-x-project/assets/scaffold/skills-lock.json"))) `
+    "y no escribe ninguna de las dos copias"
 
   # --- E. Re-sellar sin las bases -------------------------------------------------------------
   # `skill-bases.json` es la salida de una herramienta que necesita RED y un clon de upstream, y vive
@@ -365,10 +444,10 @@ try {
   Assert ($docReal.version -eq 2) "y es un lockfile version 2, con metadatos de base por entrada"
 
   # El conteo no se hardcodea —agregar una cuarta variante de bootstrap es legítimo—: se compara
-  # contra las copias que el propio test encuentra en disco. Lo que se fija es que el descubrimiento
-  # de la herramienta no se saltee ninguna.
-  $copias = @(Get-ChildItem -LiteralPath $repo -Recurse -File -Filter "skills-lock.json" -Force |
-              Where-Object { $_.FullName -notlike "*\.git\*" }).Count
+  # contra las copias que git trackea. Lo que se fija es que el descubrimiento de la herramienta no se
+  # saltee ninguna. Se cuenta lo trackeado y no lo que hay en disco: un worktree anidado o un
+  # `.bootstrap-backup/` traen copias que no son del repo y pondrían la suite en rojo sin motivo.
+  $copias = @(git -C $repo ls-files -- 'skills-lock.json' '*/skills-lock.json').Count
   Assert ($rReal.Out -match "OK: $copias copia") `
     "y verifica TODAS las copias que hay en el repo ($copias), no solo la de la raiz (salida: $($rReal.Out))"
 
