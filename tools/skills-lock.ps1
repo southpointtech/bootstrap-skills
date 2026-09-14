@@ -339,8 +339,8 @@ if ($Action -eq 'Seal') {
   foreach ($r in $roots) { Set-Content -LiteralPath (Join-Path $r $LOCK) -Value $json -Encoding UTF8 }
 
   # Sellar y verificar es un solo acto: si lo recién escrito no verifica en verde, el sellado no
-  # sirvió. Pasa cuando las raíces no tienen el mismo árbol de skills — el documento se escribe una
-  # vez y se copia, así que una copia desincronizada se delata acá y no tres semanas después.
+  # sirvió. Las raíces con árboles de skills distintos NO llegan hasta acá: las rechaza la
+  # comparación de antes de escribir, que es la que evita pisar las copias. Esta relee lo escrito.
   $problemas = @(Test-Lock $roots)
   if ($problemas.Count -gt 0) {
     foreach ($p in $problemas) { Write-Host "ROJO: $p" }
