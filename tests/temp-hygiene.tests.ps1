@@ -391,6 +391,8 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
     $n -is [System.Management.Automation.Language.CommandAst] -and $n.InvocationOperator -eq 'Dot'
   }, $true))
   if ($ds.Count -eq 0) { return $false }
+  # En orden de aparición: la forma 3 se juzga contra lo que ya se importó.
+  $ds = @($ds | Sort-Object { $_.Extent.StartOffset })
   $vioElHelper = $false
   # TODOS los dot-sources del archivo, no "al menos uno". Con "al menos uno" la evasión es poner el
   # canónico y un stub abajo: medido contra el predicado anterior, pasaba en verde.
@@ -405,8 +407,10 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
     if ($null -ne $interno -and (Test-JoinPathCanonico $interno $relativo)) { $vioElHelper = $true; continue }
     if ($obj -is [System.Management.Automation.Language.VariableExpressionAst] -and
         (Test-VariableCanonica $ast $obj.VariablePath.UserPath $relativo $c.Extent.StartOffset)) { $vioElHelper = $true; continue }
-    # La forma 3 no importa el helper: sólo se admite AL LADO de él, por eso no marca `$vioElHelper`.
-    if ($null -ne (Get-RelativoDeTools $c)) { continue }
+    # La forma 3 no importa el helper: sólo se admite DESPUÉS de él, por eso no marca `$vioElHelper`.
+    # Antes del helper, un error al cargar la herramienta dispara el trap sin `Remove-TestRunRoot`
+    # definido, y ese error tapa al de la herramienta.
+    if ($null -ne (Get-RelativoDeTools $c)) { if (-not $vioElHelper) { return $false }; continue }
     return $false
   }
   return $vioElHelper
@@ -583,6 +587,9 @@ $casosDeImport = @(
   @{ ok = $false; n = 'el canónico MÁS un escape detrás del .ps1';     codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"..\tools\stub.ps1\..\..\stub.ps1`")" }
   @{ ok = $false; n = 'la herramienta de tools/ con un segmento de más'; codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"..\tools\stub.ps1`" `"..\..\stub.ps1`")" }
   @{ ok = $false; n = 'la herramienta de tools/ desde otra raíz';      codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$HOME `"..\tools\stub.ps1`")" }
+  # El orden importa: si la herramienta tira al cargarse antes del helper, el trap llama a
+  # `Remove-TestRunRoot` sin que exista y ese error reemplaza al de la herramienta.
+  @{ ok = $false; n = 'la herramienta de tools/ ANTES del canónico';   codigo = ". (Join-Path `$PSScriptRoot `"..\tools\normalized-hash.ps1`")`n. (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")" }
 )
 # Piso, y por CLASE: la lista es el único control de que `Test-ImportaElHelper` no devuelve siempre
 # lo mismo. Sin negativos, un predicado que acepta todo pasa; sin positivos, uno que rechaza todo
@@ -627,6 +634,7 @@ $ramasExigidas = @(
   'el canónico MÁS un escape detrás del .ps1'
   'la herramienta de tools/ con un segmento de más'
   'la herramienta de tools/ desde otra raíz'
+  'la herramienta de tools/ ANTES del canónico'
 )
 $nombresDeCaso = @($casosDeImport | ForEach-Object { $_.n })
 $ramasFaltantes = @($ramasExigidas | Where-Object { $_ -notin $nombresDeCaso })
@@ -891,14 +899,14 @@ foreach ($f in $todosLosPs1) {
   Assert ($rd.Count -eq 0) "$rel : no redefine ninguna función del helper (redefiniciones: $($rd.Count))"
 }
 
-$conHelper = 0
+$nombresConHelper = @()
 foreach ($s in $suites) {
   $usa = @((Get-AstDe $s.FullName).FindAll({
     param($n)
     $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'New-TestRunRoot'
   }, $true))
   if ($usa.Count -gt 0) {
-    $conHelper++
+    $nombresConHelper += $s.Name
     Assert (Test-ImportaElHelper $s.FullName 'lib\temp-workspace.ps1') `
       "$($s.Name): importa el helper con una de las dos formas admitidas"
     $rt = @(Get-RedefinicionesEnTools $s.FullName)
@@ -911,12 +919,27 @@ foreach ($s in $suites) {
   }
 }
 
-# Piso del set que se chequea, no sólo del set que se lee. Todo lo de arriba vive dentro del `if`,
-# así que una suite que deja de usar el helper sale del conjunto verificado EN SILENCIO.
-# NUEVE, no ocho: son las ocho migraciones MÁS esta misma suite, que también usa el helper. Con el
-# piso en ocho quedaba un lugar de sobra y revertir una migración pasaba en verde — el assert no
-# alcanzaba para lo que su propio comentario decía que existía.
-Assert ($conHelper -ge 9) "las 8 suites migradas + esta siguen usando el helper (usándolo: $conHelper)"
+# El set que se chequea, POR NOMBRE. Todo lo de arriba vive dentro del `if`, así que una suite que
+# deja de usar el helper sale del conjunto verificado EN SILENCIO. Un piso numérico queda corto con
+# cada suite nueva que se migra (pasó dos veces), y cada lugar de sobra deja revertir una migración
+# en verde. Una suite nueva que use el helper se agrega acá.
+$suitesConHelperEsperadas = @(
+  'alignment-gate.tests.ps1'
+  'apply-env.tests.ps1'
+  'copy-scaffold.tests.ps1'
+  'export-shareable.tests.ps1'
+  'gen-mcp-json.tests.ps1'
+  'normalized-hash.tests.ps1'
+  'review-loop-docs-gate.tests.ps1'
+  'review-loop-trigger.tests.ps1'
+  'review-marker.tests.ps1'
+  'skills-lock.tests.ps1'
+  'slice-review.tests.ps1'
+  'temp-hygiene.tests.ps1'
+)
+$dejaronElHelper = @($suitesConHelperEsperadas | Where-Object { $_ -notin $nombresConHelper })
+Assert ($dejaronElHelper.Count -eq 0) `
+  "las suites migradas siguen usando el helper (dejaron de usarlo: $($dejaronElHelper -join ', '))"
 
 # El helper es el único lugar donde resolver la raíz de %TEMP% es legítimo, y tiene que seguir
 # haciéndolo: si alguien lo vacía, el lint de arriba pasa en verde sobre un repo que ya no recolecta

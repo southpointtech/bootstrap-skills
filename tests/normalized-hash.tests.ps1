@@ -46,15 +46,17 @@ $ExpectedChecks = 34
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
 }
-. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
 
 # Directorio propio para los casos que necesitan disco, con el helper común de raíz por corrida
 # (tests/lib/temp-workspace.ps1): recolecta por edad, nunca por glob, y el trap la borra si la suite
-# aborta fuera del try de abajo.
+# aborta fuera del try de abajo. Va ANTES de cargar la herramienta, para que un error al cargarla
+# no lo tape el trap.
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "nh"
 trap { Remove-TestRunRoot $script:runRoot; break }
 $script:tmp = $script:runRoot
+
+. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
 
 # Escribe bytes crudos: ni Set-Content ni Out-File, que reescriben los fines de línea y el encoding
 # según la plataforma y arruinarían justamente lo que estos casos miden.

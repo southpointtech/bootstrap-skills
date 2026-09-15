@@ -22,21 +22,22 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 76
+$ExpectedChecks = 87
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
 }
-# El módulo M1, para poder comparar contra el hash canónico sin reimplementarlo acá: una segunda
-# implementación del hash en el test comprobaría que las dos coinciden entre sí, no que sellan bien.
-. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
-
 # Directorio propio, con el helper común de raíz por corrida (tests/lib/temp-workspace.ps1):
 # recolecta por edad, nunca por glob, y el trap la borra si la suite aborta fuera del try de abajo.
+# Va ANTES de cargar el módulo, para que un error al cargarlo no lo tape el trap.
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "sl"
 trap { Remove-TestRunRoot $script:runRoot; break }
 $script:tmp = $script:runRoot
+
+# El módulo M1, para poder comparar contra el hash canónico sin reimplementarlo acá: una segunda
+# implementación del hash en el test comprobaría que las dos coinciden entre sí, no que sellan bien.
+. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
 
 # Corre la herramienta como proceso aparte para observar EL EXIT CODE, que es la interfaz que usa la
 # suite. Dot-sourcearla la mediría por dentro y dejaría pasar un exit code equivocado.
@@ -305,6 +306,9 @@ try {
   Assert ($r.Code -eq 1) "sellar una base con status unresolved-commit sale con codigo 1 (salida: $($r.Out))"
   Assert ($r.Out -match "'viva'" -and $r.Out -match "unresolved-commit" -and $r.Out -match "no se sello nada") `
     "y nombra la skill y su status, sin sellar nada (salida: $($r.Out))"
+  # El remedio va con el rechazo: re-correr el productor da el mismo `unresolved-commit`.
+  Assert ($r.Out -match "no lo cambia" -and $r.Out -notmatch "volve a correr") `
+    "y no manda a re-correr el productor, que emitiria lo mismo (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC5 "skills-lock.json"))) "y no escribe el lockfile"
 
   $rootC6 = Join-Path $script:tmp "C6"
@@ -315,20 +319,25 @@ try {
   Assert ($r.Code -eq 1) "sellar una base empatada entre cuerpos distintos sale con codigo 1 (salida: $($r.Out))"
   Assert ($r.Out -match "'huerfana'" -and $r.Out -match "empate" -and $r.Out -match "no se sello nada") `
     "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
+  Assert ($r.Out -match "humano" -and $r.Out -notmatch "recover-skill-bases") `
+    "y lo deja en manos de un humano, sin mandar a re-correr el productor que emitio ese empate (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6 "skills-lock.json"))) "y no escribe el lockfile"
 
   # La guarda mira los HECHOS, no solo la etiqueta: `recovered` con el commit en null es exactamente
   # lo que el productor llama `unresolved-commit`, y un empate cuyo `tieOnIdenticalBodies` falta no
   # probó que los cuerpos sean iguales. Las dos formas solo llegan editando a mano el archivo generado.
-  $rootC5b = Join-Path $script:tmp "C5b"
-  New-Tree $rootC5b @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
-  $basesC5b = Join-Path $script:tmp "bases-C5b.json"
-  New-Bases $basesC5b { param($b) $b.skills[0].base.commit = $null }
-  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC5b, "-Bases", $basesC5b)
-  Assert ($r.Code -eq 1) "sellar una base recovered sin commit sale con codigo 1 (salida: $($r.Out))"
-  Assert ($r.Out -match "'viva'" -and $r.Out -match "sin commit" -and $r.Out -match "no se sello nada") `
-    "y nombra la skill sin commit, sin sellar nada (salida: $($r.Out))"
-  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC5b "skills-lock.json"))) "y no escribe el lockfile"
+  # Un caso por campo: con uno solo, sacar de la guarda cualquiera de los otros dos pasaba en verde.
+  foreach ($campo in @('blob', 'commit', 'commitDate')) {
+    $rootC5b = Join-Path $script:tmp "C5b-$campo"
+    New-Tree $rootC5b @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+    $basesC5b = Join-Path $script:tmp "bases-C5b-$campo.json"
+    New-Bases $basesC5b { param($b) $b.skills[0].base[$campo] = $null }
+    $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC5b, "-Bases", $basesC5b)
+    Assert ($r.Code -eq 1) "sellar una base recovered con $campo en null sale con codigo 1 (salida: $($r.Out))"
+    Assert ($r.Out -match "'viva'" -and $r.Out -match "sin commit, sin fecha o sin blob" -and $r.Out -match "no se sello nada") `
+      "y nombra la skill con $campo en null, sin sellar nada (salida: $($r.Out))"
+    Assert (-not (Test-Path -LiteralPath (Join-Path $rootC5b "skills-lock.json"))) "y con $campo en null no escribe el lockfile"
+  }
 
   $rootC6b = Join-Path $script:tmp "C6b"
   New-Tree $rootC6b @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
@@ -339,6 +348,20 @@ try {
   Assert ($r.Out -match "'viva'" -and $r.Out -match "empate" -and $r.Out -match "no se sello nada") `
     "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6b "skills-lock.json"))) "y no escribe el lockfile"
+
+  # El lado que acepta: un empate con `tieOnIdenticalBodies = true` es lo que el productor emite para
+  # cuerpos idénticos, y hay que sellarlo. Sin este caso, una guarda que rechace todo empate pasaba.
+  $rootC6c = Join-Path $script:tmp "C6c"
+  New-Tree $rootC6c @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC6c = Join-Path $script:tmp "bases-C6c.json"
+  New-Bases $basesC6c { param($b)
+    $b.skills[0].base.tiedCandidates = @(@{ blob = "cccc333"; upstreamPath = "otro/viva/SKILL.md" })
+    $b.skills[0].base.tieOnIdenticalBodies = $true }
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC6c, "-Bases", $basesC6c)
+  Assert ($r.Code -eq 0) "sellar un empate medido entre cuerpos identicos sale con codigo 0 (salida: $($r.Out))"
+  Assert (Test-Path -LiteralPath (Join-Path $rootC6c "skills-lock.json")) "y escribe el lockfile"
+  $blobC6c = if (Test-Path -LiteralPath (Join-Path $rootC6c "skills-lock.json")) { (Read-Lock $rootC6c).skills['viva'].base.blob }
+  Assert ($blobC6c -eq 'aaaa111') "y sella la base elegida, no un candidato del empate (sellado: $blobC6c)"
 
   # --- C7. La fecha canónica no depende de la cultura de la máquina que sella -------------------
   # Un formato personalizado sin InvariantCulture usa el calendario de la cultura: en th-TH el año sale

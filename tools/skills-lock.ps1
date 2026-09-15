@@ -125,18 +125,24 @@ function Import-Bases([string]$path) {
     # Además de la etiqueta, los hechos que la etiqueta resume: `recovered` sin commit es lo que el
     # productor llama `unresolved-commit`, y un empate solo se transcribe si el productor midió que
     # los cuerpos son idénticos. Las dos formas solo llegan editando a mano el archivo generado.
+    # Cada rechazo lleva su propio remedio: re-correr el productor solo arregla lo que el productor no
+    # emite. Lo que sí emite (una base sin resolver, un empate entre cuerpos distintos) sale igual.
     if (-not $resuelta) {
-      $rechazos += "la skill '$($s.name)' tiene status '$($s.status)' y relacion '$($s.upstreamRelation)': la recuperacion no resolvio su base"
+      $rechazos += "la skill '$($s.name)' tiene status '$($s.status)' y relacion '$($s.upstreamRelation)': la recuperacion no resolvio su base, y re-correr tools/recover-skill-bases.py no lo cambia (ver docs/agents/recuperar-base-de-skills.md)"
     } elseif ($s.status -eq "recovered" -and ($null -eq $s.base.blob -or $null -eq $s.base.commit -or $null -eq $s.base.commitDate)) {
-      $rechazos += "la skill '$($s.name)' figura recovered pero su base esta sin commit, sin fecha o sin blob"
+      $rechazos += "la skill '$($s.name)' figura recovered pero su base esta sin commit, sin fecha o sin blob: volve a correr tools/recover-skill-bases.py"
     } elseif ($null -ne $s.base -and ($null -ne $s.base.tiedCandidates -or $null -ne $s.base.tieOnIdenticalBodies) -and
               $s.base.tieOnIdenticalBodies -ne $true) {
-      $rechazos += "la skill '$($s.name)' tiene un empate que no se midio entre cuerpos identicos: su base la decide un humano"
+      if ($s.base.tieOnIdenticalBodies -is [bool]) {
+        $rechazos += "la skill '$($s.name)' tiene un empate entre cuerpos distintos: su base la decide un humano, y este sellado no tiene como transcribir esa decision"
+      } else {
+        $rechazos += "la skill '$($s.name)' tiene un empate sin tieOnIdenticalBodies=true: volve a correr tools/recover-skill-bases.py"
+      }
     }
   }
   if ($rechazos.Count -gt 0) {
     foreach ($m in $rechazos) { Write-Host "ERROR: $m" }
-    Write-Host "No se sello nada: $path no resuelve esas bases. Es salida generada y no se edita a mano: volve a correr tools/recover-skill-bases.py."
+    Write-Host "No se sello nada: $path no resuelve esas bases."
     exit 1
   }
   foreach ($s in $b.skills) {
