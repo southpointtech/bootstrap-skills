@@ -750,38 +750,75 @@ foreach ($pre in $capRoots) {
 # problema de lugar (uno invertia el caso emblematico). La convergencia de focos valida el HALLAZGO,
 # no el ARREGLO. Vivio como parche local (PATCH:prose-churn, 2026-09-06) y se perdio al revertirlo;
 # esto lo sube al canonico sin los marcadores del parche. Ver ADR-0010.
+#
+# Los anclajes son ORACIONES, no sustantivos sueltos: el turno 1 del review-loop midio que 4 de 8
+# mutantes sobrevivian porque una frase que NIEGA la regla contiene igual el sustantivo (la familia
+# "un Contains sobre prosa no expresa semantica"). Cada assert lleva la clausula que le da direccion
+# —el contraste, la obligacion o la consecuencia— y abajo hay guardas de negacion explicitas.
 foreach ($p in $slicePairs) {
   foreach ($f in $p.files) {
     $rel = Split-Path $f -Leaf
     if (-not (Test-Path -LiteralPath $f)) { continue }
     $txt = [IO.File]::ReadAllText($f)
     $s5  = Section $txt 'Step 5 — Confidence pass (filter false positives)'
+    $s6  = Section $txt 'Step 6 — Report'
 
-    # Las tres preguntas viven en Step 5 (donde corre el scorer), no sueltas en el archivo.
-    # 1 — el hecho se VERIFICA CORRIENDO algo, no leyendo (las afirmaciones sobre datos se miden).
-    Assert ($s5 -match '(?i)running a command against the real code') `
-      "$($p.label)/${rel}: Step 5 exige verificar el hecho corriendo un comando (no leyendo)"
-    # 2 — el REEMPLAZO propuesto se chequea igual que el hecho. Es el corazon de la regla: sin esto,
-    #     el scorer aprueba un arreglo falso adosado a un hallazgo verdadero.
-    Assert ($s5 -match '(?i)check the \*replacement\* the same way') `
-      "$($p.label)/${rel}: Step 5 chequea el reemplazo propuesto igual que el hecho"
-    # 3 — arreglar 1 de N ocurrencias identicas implica haber auditado las otras N-1.
-    Assert ($s5 -match '(?i)N-1') `
-      "$($p.label)/${rel}: Step 5 exige consistencia con las demas ocurrencias identicas"
+    # 1 — el hecho se verifica CORRIENDO algo, y read-only es literal: la suite de este repo
+    #     escribe archivos, asi que correrla no es herramienta de verificacion aca.
+    Assert ($s5 -match '(?is)Verify it by running a \*\*read-only\*\* command against the real code') `
+      "$($p.label)/${rel}: Step 5 verifica el hecho corriendo un comando READ-ONLY"
+    Assert ($s5 -match "(?is)this\s+repo's own suite writes files, so running it is not a verification tool here") `
+      "$($p.label)/${rel}: read-only es literal — correr la suite no cuenta como verificacion"
+    # El scorer corre comandos: tiene que llevar la prohibicion de escritura del Step 3, como el
+    # foco de coherencia. Sin esto el slice escala N agentes paralelos de leer a EJECUTAR sin guarda.
+    Assert ($s5 -match "(?is)dispatch carries Step 3's write prohibition") `
+      "$($p.label)/${rel}: el dispatch del scorer lleva la prohibicion de escritura del Step 3"
 
-    # El corte tiene DIENTES: fallar (2) o (3) baja el puntaje bajo 60 aunque (1) sea certero.
-    # Anclado al VINCULO entre el fallo y el corte: un texto que mencione ambos por separado no
-    # expresa la regla.
-    Assert ($s5 -match '(?is)fails \(2\) or \(3\).{0,160}below 60') `
-      "$($p.label)/${rel}: fallar (2) o (3) se descarta bajo 60 aunque (1) sea certero"
-    # ...y el descarte NO depende de la certeza del hecho.
-    Assert ($s5 -match '(?is)however certain \(1\) is') `
-      "$($p.label)/${rel}: el descarte por (2)/(3) es independiente de la certeza de (1)"
+    # 2 — el REEMPLAZO se chequea igual que el hecho, con la clausula que explica por que.
+    Assert ($s5 -match '(?is)Check the \*replacement\* the same way — a reviewer correcting a\s+false sentence routinely proposes another false sentence') `
+      "$($p.label)/${rel}: Step 5 chequea el reemplazo igual que el hecho (con su contraste)"
+    # ...y aplica al arreglo en CUALQUIER forma (string o accion); sin arreglo, se puntua (1) sola.
+    # Si no, un reviewer esquiva (2) con solo no citar un string de reemplazo.
+    Assert ($s5 -match '(?is)proposes a fix \*\*in any form\*\*.{0,120}when it proposes none, score\s+on \(1\) alone') `
+      "$($p.label)/${rel}: (2) aplica al arreglo en cualquier forma; sin arreglo se puntua (1) sola"
 
-    # Contra-argumento de alcance: defecto DEL delta vs. condicion preexistente que el delta ilumina.
-    # \s+ porque la frase esta envuelta a 100 columnas en el doc: el salto de linea cae justo ahi.
-    Assert ($s5 -match '(?is)pre-existing\s+condition the delta merely illuminated') `
-      "$($p.label)/${rel}: Step 5 le da al scorer el contra-argumento de alcance (delta vs. preexistente)"
+    # 3 — la OBLIGACION, no el token "N-1": auditar las otras N-1, y auditarlas no es ensanchar.
+    Assert ($s5 -match '(?is)occurrences implies the other N-1 were audited\. If they were not, the fix misleads') `
+      "$($p.label)/${rel}: (3) exige que las otras N-1 ocurrencias hayan sido auditadas"
+    Assert ($s5 -match '(?is)Auditing them\s+is not widening the fix') `
+      "$($p.label)/${rel}: auditar las otras N-1 no es ensanchar el arreglo (destraba (3) vs. alcance)"
+
+    # Una pregunta que NO APLICA no es un fallo: si no, un mutante sobreviviente o un "sin test"
+    # —que no traen reemplazo textual— caerian bajo 60 por no poder contestar (2)/(3).
+    Assert ($s5 -match '(?is)does not apply\*\* to a finding is not a failure — only an affirmative one is') `
+      "$($p.label)/${rel}: una pregunta que no aplica no cuenta como fallo"
+
+    # La consecuencia, anclada en UNA oracion cada una (sin ventana de distancia: la ventana dejaba
+    # que el 'Drop everything below 60' preexistente satisficiera el ancla — mutante medido).
+    Assert ($s5 -match '(?is)a \*\*Low\*\* finding that fails \(2\) or \(3\) is scored \*\*below 60 and dropped\*\*, however certain \(1\) is') `
+      "$($p.label)/${rel}: un Low que falla (2)/(3) se descarta bajo 60 aunque (1) sea certero"
+    Assert ($s5 -match '(?is)a \*\*Medium or High\*\* finding stays in the report with its suggested fix marked \*\*REJECTED\*\*') `
+      "$($p.label)/${rel}: un Medium/High sobrevive con el arreglo marcado REJECTED (no se borra el defecto)"
+    Assert ($s5 -match '(?is)still blocks the close') `
+      "$($p.label)/${rel}: el defecto con arreglo REJECTED conserva severidad y sigue bloqueando el cierre"
+    # El ORDEN es la mecanica: (2)/(3) se aplican DESPUES de clasificar, o no hay severidad que mirar.
+    Assert ($s5 -match '(?is)applied \*\*after\*\* the\s+classification above, never before it') `
+      "$($p.label)/${rel}: (2)/(3) se aplican despues de clasificar, nunca antes"
+    # Step 6 tiene que hacer legible el REJECTED, o el defecto sobrevive en silencio.
+    Assert ($s6 -match '(?is)\*\*REJECTED\*\* suggested fix') `
+      "$($p.label)/${rel}: Step 6 reporta cuales hallazgos llevan el arreglo REJECTED"
+
+    # Contra-argumento de alcance, con su consecuencia (la mitad que carga la regla).
+    Assert ($s5 -match '(?is)pre-existing\s+condition the delta merely illuminated\?"\* — the second is out of scope') `
+      "$($p.label)/${rel}: el contra-argumento de alcance declara que lo preexistente queda afuera"
+
+    # Guardas de NEGACION: cada mutante medido en el turno 1 nego una regla conservando el sustantivo
+    # anclado. Las oraciones de arriba ya no lo permiten, y estas guardas cazan la familia entera aunque
+    # alguien reescriba la oracion: ninguna rama legitima escribe "no need to check" ni "not by running".
+    foreach ($neg in @('no need (to|for)', 'need not (check|verify|run)', 'not by running', 'can be left as they are')) {
+      Assert ($s5 -notmatch "(?i)$neg") `
+        "$($p.label)/${rel}: Step 5 no contiene la negacion '$neg' (mutante medido en el turno 1)"
+    }
 
     # Es canonico, no un parche temporal: los marcadores del override local no viajan al scaffold.
     Assert ($txt -notmatch 'PATCH:prose-churn') `

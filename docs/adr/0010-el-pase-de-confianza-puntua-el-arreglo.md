@@ -20,8 +20,9 @@ Eso se midió dos veces:
 La convergencia de varios focos sobre un mismo hallazgo valida el **hallazgo**, no el **arreglo**: los
 focos se solapan en lo que miran, no en lo que proponen.
 
-La regla se escribió el 2026-09-06 como parche local (`PATCH:prose-churn`, `docs/agents/parche-review-loop-prosa.md`)
-en los repos donde dolía. ADR-0009 subió al scaffold las reglas de prosa de ese parche, pero no ésta. Al
+La regla se escribió el 2026-09-06 como parche local (bloque `PATCH:prose-churn`) en los repos donde dolía;
+su doc de respaldo vive fuera de este repo (`~/.claude/PARCHE-review-loop-prosa.md`, y una copia marcada
+REVERTIDO en `docs/agents/parche-review-loop-prosa.md` de Administracion May). ADR-0009 subió al scaffold las reglas de prosa de ese parche, pero no ésta. Al
 revertir el parche durante el rollout del 2026-09-15 —como el propio parche indica— la regla se perdió en
 los repos que la tenían, y el canónico nunca la tuvo.
 
@@ -29,26 +30,43 @@ los repos que la tenían, y el canónico nunca la tuvo.
 
 El scorer del pase de confianza responde **tres preguntas** y las declara en su veredicto:
 
-1. **¿El hecho afirmado es cierto?** Se verifica **corriendo un comando** contra el código real, no
-   leyendo.
+1. **¿El hecho afirmado es cierto?** Se verifica **corriendo un comando read-only** contra el código
+   real, no leyendo.
 2. **¿El arreglo propuesto se sostiene?** El *reemplazo* se chequea igual que el hecho: quien corrige una
    frase falsa propone rutinariamente otra frase falsa.
 3. **¿Arreglar este caso aislado es consistente con el resto del archivo?** Tocar 1 de N ocurrencias
    idénticas implica que las otras N-1 fueron auditadas; si no lo fueron, el arreglo engaña.
 
-Un hallazgo que falla (2) o (3) se puntúa **bajo 60 y se descarta**, por certero que sea (1). El corte de
-60 no cambia: cambia qué se puntúa.
+Una pregunta que **no aplica** no es un fallo: sólo cuenta un fallo afirmativo. Y lo que (2) y (3) deciden
+es la suerte de la **sugerencia**, no la del hallazgo, así que se aplican **después** de clasificar:
+
+- un hallazgo **Low** que falla (2) o (3) se puntúa **bajo 60 y se descarta**, por certero que sea (1):
+  toda su sustancia es la sugerencia, y rechazada la sugerencia no queda nada que reportar;
+- un hallazgo **Medium o High** queda en el reporte con su arreglo marcado **REJECTED** y el motivo del
+  scorer. Conserva su severidad y sigue bloqueando el cierre.
+
+El corte de 60 no cambia: cambia qué se puntúa. Esta separación es lo que el turno 1 del review-loop de
+este mismo slice corrigió: la versión que se commiteó primero descartaba el hallazgo entero, y tres
+reviewers independientes mostraron que un High certero con una sugerencia floja desaparecía del reporte y
+el loop cerraba **limpio** sobre él.
 
 Además, el scorer recibe por escrito el contra-argumento de alcance: *"¿esto es un defecto DEL delta, o
 una condición preexistente que el delta simplemente iluminó?"* — lo segundo queda fuera de alcance.
+
+La pregunta (1) exige un comando **read-only** (un grep, una lectura de archivo, una lectura de `git`);
+read-only es literal, porque la suite de este repo escribe archivos. Y el dispatch del scorer lleva la
+prohibición de escritura del Step 3, como ya hacía el foco de coherencia: la pregunta (1) convierte a los
+scorers paralelos en agentes que ejecutan, y sin esa guarda mutarían el árbol que los demás leen.
 
 La regla entra al canónico **sin los marcadores del parche**: no es un override temporal.
 
 ## Consecuencias
 
-- Se descartan hallazgos ciertos cuyo arreglo no se sostiene. El reporte los cuenta entre los descartados
-  por confianza, así que el silencio sigue siendo legible, pero el defecto que señalaban queda sin
-  reportar hasta que alguien proponga un arreglo que pase (2) y (3).
+- Se descartan hallazgos **Low** ciertos cuyo arreglo no se sostiene. Un Medium o High no se descarta: se
+  reporta con la sugerencia marcada REJECTED, y el Step 6 declara cuáles lo llevan, así que un defecto real
+  nunca sale del reporte por culpa de una sugerencia mala.
+- Un Medium o High con la sugerencia rechazada sigue bloqueando el cierre, así que un slice puede cerrar
+  por techo en vez de limpio. Un cierre por techo es cierto; un cierre limpio sobre un High vivo, no.
 - El pase de confianza hace más trabajo por hallazgo: la pregunta (1) exige correr un comando, no leer.
   Corre en el modelo más capaz, que es donde ya estaba el costo.
 - El parche local queda cubierto por el canónico en este punto; los repos que lo revirtieron recuperan la
