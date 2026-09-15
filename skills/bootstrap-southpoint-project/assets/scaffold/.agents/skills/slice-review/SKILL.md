@@ -217,6 +217,20 @@ is not where to save tokens. Give it this rubric verbatim:
 The scorer must check the claim against the real code, not just judge whether it sounds plausible.
 For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
 
+**Score the FIX, not only the finding.** A finding can be perfectly true and its suggested fix still
+make the code worse. Alongside the rubric above, the scorer must answer three questions and say so in
+its verdict:
+
+1. **Is the stated fact true?** Verify it by running a command against the real code, not by reading.
+2. **Does the proposed fix hold up?** Check the *replacement* the same way — a reviewer correcting a
+   false sentence routinely proposes another false sentence.
+3. **Is fixing this isolated case consistent with the rest of the file?** Touching one of N identical
+   occurrences implies the other N-1 were audited. If they were not, the fix misleads.
+
+A finding that fails (2) or (3) is scored **below 60 and dropped**, however certain (1) is. Also give
+the scorer this scope counter-argument in writing: *"is this a defect OF the delta, or a pre-existing
+condition the delta merely illuminated?"* — the second is out of scope for this review.
+
 **Drop everything below 60.** Findings that survive get classified:
 
 - **High** — data loss/corruption, security holes, credential exposure, or a broken golden path.

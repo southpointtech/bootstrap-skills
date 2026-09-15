@@ -744,6 +744,51 @@ foreach ($pre in $capRoots) {
 # premisa pasa mirror verde, y la copia repo-root ni figura ahi). AI_DEVELOPMENT_WORKFLOW.md es el unico
 # doc que 08b corrigio a mano y que se copia a TODOS los proyectos bootstrapeados, asi que el invariante
 # se blinda aca sobre las 4 copias (repo + 3 scaffolds), simetrico con el guard de $loopPairs.
+# --- Score the FIX: el pase de confianza puntua el ARREGLO, no solo el hallazgo ---
+# Medido dos veces (2026-09-05 y 2026-09-10): hallazgos certeros (92/92/80) cuyo arreglo igual
+# habria empeorado el codigo, y dos veces en que el arreglo que proponian los REVIEWERS movia el
+# problema de lugar (uno invertia el caso emblematico). La convergencia de focos valida el HALLAZGO,
+# no el ARREGLO. Vivio como parche local (PATCH:prose-churn, 2026-09-06) y se perdio al revertirlo;
+# esto lo sube al canonico sin los marcadores del parche. Ver ADR-0010.
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $s5  = Section $txt 'Step 5 — Confidence pass (filter false positives)'
+
+    # Las tres preguntas viven en Step 5 (donde corre el scorer), no sueltas en el archivo.
+    # 1 — el hecho se VERIFICA CORRIENDO algo, no leyendo (las afirmaciones sobre datos se miden).
+    Assert ($s5 -match '(?i)running a command against the real code') `
+      "$($p.label)/${rel}: Step 5 exige verificar el hecho corriendo un comando (no leyendo)"
+    # 2 — el REEMPLAZO propuesto se chequea igual que el hecho. Es el corazon de la regla: sin esto,
+    #     el scorer aprueba un arreglo falso adosado a un hallazgo verdadero.
+    Assert ($s5 -match '(?i)check the \*replacement\* the same way') `
+      "$($p.label)/${rel}: Step 5 chequea el reemplazo propuesto igual que el hecho"
+    # 3 — arreglar 1 de N ocurrencias identicas implica haber auditado las otras N-1.
+    Assert ($s5 -match '(?i)N-1') `
+      "$($p.label)/${rel}: Step 5 exige consistencia con las demas ocurrencias identicas"
+
+    # El corte tiene DIENTES: fallar (2) o (3) baja el puntaje bajo 60 aunque (1) sea certero.
+    # Anclado al VINCULO entre el fallo y el corte: un texto que mencione ambos por separado no
+    # expresa la regla.
+    Assert ($s5 -match '(?is)fails \(2\) or \(3\).{0,160}below 60') `
+      "$($p.label)/${rel}: fallar (2) o (3) se descarta bajo 60 aunque (1) sea certero"
+    # ...y el descarte NO depende de la certeza del hecho.
+    Assert ($s5 -match '(?is)however certain \(1\) is') `
+      "$($p.label)/${rel}: el descarte por (2)/(3) es independiente de la certeza de (1)"
+
+    # Contra-argumento de alcance: defecto DEL delta vs. condicion preexistente que el delta ilumina.
+    # \s+ porque la frase esta envuelta a 100 columnas en el doc: el salto de linea cae justo ahi.
+    Assert ($s5 -match '(?is)pre-existing\s+condition the delta merely illuminated') `
+      "$($p.label)/${rel}: Step 5 le da al scorer el contra-argumento de alcance (delta vs. preexistente)"
+
+    # Es canonico, no un parche temporal: los marcadores del override local no viajan al scaffold.
+    Assert ($txt -notmatch 'PATCH:prose-churn') `
+      "$($p.label)/${rel}: la regla entra como canonico, sin los marcadores del parche temporal"
+  }
+}
+
 $workflowDocs = @(@{ label = "repo"; file = (Join-Path $repo "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md") })
 foreach ($s in $skills) {
   $workflowDocs += @{ label = $s.Name; file = (Join-Path $s.FullName "assets\scaffold\docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md") }
