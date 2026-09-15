@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 87
+$ExpectedChecks = 95
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -321,6 +321,8 @@ try {
     "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
   Assert ($r.Out -match "humano" -and $r.Out -notmatch "recover-skill-bases") `
     "y lo deja en manos de un humano, sin mandar a re-correr el productor que emitio ese empate (salida: $($r.Out))"
+  Assert ($r.Out -match "no se edita a mano") `
+    "y advierte que las bases son salida generada: dar vuelta el flag a mano sellaria una base que nadie verifico (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6 "skills-lock.json"))) "y no escribe el lockfile"
 
   # La guarda mira los HECHOS, no solo la etiqueta: `recovered` con el commit en null es exactamente
@@ -337,6 +339,7 @@ try {
     Assert ($r.Out -match "'viva'" -and $r.Out -match "sin commit, sin fecha o sin blob" -and $r.Out -match "no se sello nada") `
       "y nombra la skill con $campo en null, sin sellar nada (salida: $($r.Out))"
     Assert (-not (Test-Path -LiteralPath (Join-Path $rootC5b "skills-lock.json"))) "y con $campo en null no escribe el lockfile"
+    Assert ($r.Out -match "volve a correr") "y con $campo en null manda a re-correr el productor, que nunca la emite asi (salida: $($r.Out))"
   }
 
   $rootC6b = Join-Path $script:tmp "C6b"
@@ -348,6 +351,22 @@ try {
   Assert ($r.Out -match "'viva'" -and $r.Out -match "empate" -and $r.Out -match "no se sello nada") `
     "y nombra la skill empatada, sin sellar nada (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6b "skills-lock.json"))) "y no escribe el lockfile"
+  Assert ($r.Out -match "volve a correr" -and $r.Out -notmatch "humano") `
+    "y sin el flag manda a re-correr el productor, no a un humano (salida: $($r.Out))"
+
+  # Un flag que no es booleano no midió nada aunque se lea "verdadero": `"true" -ne $true` es False en
+  # PowerShell, así que una guarda con `-ne $true` lo sellaba.
+  $rootC6d = Join-Path $script:tmp "C6d"
+  New-Tree $rootC6d @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+  $basesC6d = Join-Path $script:tmp "bases-C6d.json"
+  New-Bases $basesC6d { param($b)
+    $b.skills[0].base.tiedCandidates = @(@{ blob = "cccc333"; upstreamPath = "otro/viva/SKILL.md" })
+    $b.skills[0].base.tieOnIdenticalBodies = "true" }
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC6d, "-Bases", $basesC6d)
+  Assert ($r.Code -eq 1) "sellar un empate con tieOnIdenticalBodies en string ""true"" sale con codigo 1 (salida: $($r.Out))"
+  Assert ($r.Out -match "'viva'" -and $r.Out -match "volve a correr" -and $r.Out -notmatch "humano") `
+    "y manda a re-correr el productor, que emite el flag booleano (salida: $($r.Out))"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6d "skills-lock.json"))) "y con el flag en string no escribe el lockfile"
 
   # El lado que acepta: un empate con `tieOnIdenticalBodies = true` es lo que el productor emite para
   # cuerpos idénticos, y hay que sellarlo. Sin este caso, una guarda que rechace todo empate pasaba.

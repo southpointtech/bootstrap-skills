@@ -132,17 +132,17 @@ function Import-Bases([string]$path) {
     } elseif ($s.status -eq "recovered" -and ($null -eq $s.base.blob -or $null -eq $s.base.commit -or $null -eq $s.base.commitDate)) {
       $rechazos += "la skill '$($s.name)' figura recovered pero su base esta sin commit, sin fecha o sin blob: volve a correr tools/recover-skill-bases.py"
     } elseif ($null -ne $s.base -and ($null -ne $s.base.tiedCandidates -or $null -ne $s.base.tieOnIdenticalBodies) -and
-              $s.base.tieOnIdenticalBodies -ne $true) {
+              -not ($s.base.tieOnIdenticalBodies -is [bool] -and $s.base.tieOnIdenticalBodies)) {
       if ($s.base.tieOnIdenticalBodies -is [bool]) {
         $rechazos += "la skill '$($s.name)' tiene un empate entre cuerpos distintos: su base la decide un humano, y este sellado no tiene como transcribir esa decision"
       } else {
-        $rechazos += "la skill '$($s.name)' tiene un empate sin tieOnIdenticalBodies=true: volve a correr tools/recover-skill-bases.py"
+        $rechazos += "la skill '$($s.name)' tiene un empate sin un tieOnIdenticalBodies booleano: volve a correr tools/recover-skill-bases.py"
       }
     }
   }
   if ($rechazos.Count -gt 0) {
     foreach ($m in $rechazos) { Write-Host "ERROR: $m" }
-    Write-Host "No se sello nada: $path no resuelve esas bases."
+    Write-Host "No se sello nada: $path no resuelve esas bases. Es salida generada y no se edita a mano."
     exit 1
   }
   foreach ($s in $b.skills) {
