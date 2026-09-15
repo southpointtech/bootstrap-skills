@@ -1,3 +1,100 @@
+# Session Handoff — 2026-09-15 — **`main` MERGEADO a `bootstrap-v2`** (`fa51dc4`) + review-loop cerrado POR CAP en 2 turnos con pase de coherencia; `main` PUSHEADO. Decisiones 1 y 2 del handoff anterior tomadas por el usuario.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` = `origin/main` = `e0a273b` + este commit de handoff
+  (sin pushear). Untracked: el residuo de Codex de siempre (ajeno, no tocar).
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`3aef799`**,
+  árbol limpio, rama local sin push. Commits nuevos: `fa51dc4` (merge, `Slice-Close`), `9be6477` (turno 1),
+  `3aef799` (turno 2, cap).
+- **Marcador de review** en `9be6477` (avanzado tras el turno 2, antes de sus fixes) ⇒ **unreviewed delta = `3aef799`**.
+  **Ancla `slice-open` sigue en `102489d`** (la del 05a, nunca se limpió): cierre por cap ⇒ NO se corrió `-Action close`.
+  ⚠️ Esa ancla está vieja: el próximo pase de coherencia que la use arrastra el 05a entero. Anclar a mano o
+  limpiarla (`-Action close`) al abrir el próximo slice.
+
+## 1. Decisiones del usuario (2026-09-14/15)
+
+1. **Regla de conteo del cuerpo adoptado (AC del issue 05): DIFERIDA.** Marcada ⏸️ en
+   `.scratch/bootstrap-v2/issues/05-lockfile-sellado-y-verificado.md` (worktree v2; `.scratch/` está gitignoreado, el
+   cambio vive solo en disco). Motivo: "sí suma el lockfile" contradice `CLAUDE.md:78` ("lockfiles never count").
+   Si se retoma, slice propio con review-loop.
+2. **`bootstrap-v2` SIGUE** (no se congela) ⇒ se mergeó `main`.
+3. **Lint de temporales: "excepción acotada"** (elegida entre 3 opciones) — ver §2.
+
+## 2. El merge (`fa51dc4`) — qué se resolvió
+
+- 6 conflictos: `docs/SESSION_HANDOFF.md` (34 entradas intercaladas por fecha; conteo de líneas: 0 perdidas,
+  0 agregadas), 3 `.bootstrap-manifest.json` (regenerados con `tools/gen-manifest.ps1`), `tests/export-shareable.tests.ps1`
+  y `tests/gen-mcp-json.tests.ps1` (se adopta `tests/lib/temp-workspace.ps1` de main; gen-mcp-json pierde su
+  registro/barrido por runId — lo cubre la parte E de temp-hygiene —; se conservan los tests de Firebase de v2).
+- Rojos de integración: `normalized-hash` y `skills-lock` (suites de v2) usaban `GetTempPath` ⇒ migradas al helper.
+  `skills-lock.json` resellado (`pwsh -File tools/skills-lock.ps1 -Action Seal -Bases .scratch/bootstrap-v2/skill-bases.json`)
+  porque main cambió review-loop/slice-review/tdd; manifests regenerados de nuevo después.
+- **Forma 3** en `tests/temp-hygiene.tests.ps1` (`Test-ImportaElHelper`, `Get-RelativoDeTools`,
+  `Get-RedefinicionesEnTools`): una suite puede dot-sourcear `(Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")`
+  solo DESPUÉS del import canónico del helper; se rechaza si la herramienta redefine una función del helper o no existe.
+
+## 3. Review-loop (standard, cap 2) — cómo se corrió y qué arregló
+
+Desvíos declarados: rango acotado (el marcador daba `git diff 16c559a` = 68 archivos, casi todo los 43 commits de
+main ya revisados): turno 1 = `git diff 16c559a 9998cfe` + `git show --remerge-diff fa51dc4 -- tests/`.
+**Sin foco `/code-review`** (fork atado al cwd de la sesión). Coherencia anclada a mano en esas mismas piezas +
+`git diff fa51dc4`, no en `slice-base`. Confidence pass por lotes (4-6 agentes por ola), puntuando también el fix.
+Contextos y hallazgos en el scratchpad de la sesión (`...\4b51a1eb-...\scratchpad\rl\`, borrable).
+
+| Turno | Arreglado (Medium) | RED / mutantes |
+|---|---|---|
+| 1 (`9be6477`) | A: helper antes de la herramienta en las 2 suites + el lint rechaza forma 3 antes del canónico · C: C6c empate `true` se sella · D: C5b por blob/commit/commitDate · E: set de suites con helper por NOMBRE (12), no piso `-ge 9` · F: cada rechazo de skills-lock trae su remedio | RED 3; 6 mutantes mueren |
+| 2 (`3aef799`, cap) | T2-1: `tieOnIdenticalBodies` no booleano (`"true"`, `1`, `[]`) se sellaba ⇒ exige `[bool]` verdadero, caso C6d · T2-3: vuelve "Es salida generada y no se edita a mano" a la línea final · T2-4: C6b y C5b fijan su remedio | RED 4; 2 mutantes mueren |
+
+Descartados por confidence pass: G (gen-mcp-json perdió el assert de sobrevivientes: la parte E lo cubre), T2-2 y
+su re-planteo en coherencia (45: `missing-locally` no se produce por CLI), T2-5 (conteo de mutantes del commit: correcto).
+
+## 4. Verificación (corrida hoy)
+
+- Las **19** suites de `tests/` en exit 0 sobre `3aef799` (antes del commit). `skills-lock` **95/0**.
+- `3aef799` NO lo revisó ningún turno (cap).
+
+## 5. Abierto (Low, reportado, NO arreglado)
+
+- Forma 3 no documentada: `docs/TESTING.md:137-183` (`:153` "Todos los dot-sources... canónicos"),
+  `tests/temp-hygiene.tests.ps1:269`, `:291`, y el mensaje de assert `:911` "una de las dos formas admitidas".
+- "EL BORDE DECLARADO" (temp-hygiene ~`:421-457`) y TESTING.md no declaran que `Get-RedefinicionesEnTools` mira un
+  solo nivel (no sigue dot-sources de la herramienta ni aplica el lint de %TEMP% a tools/); dicen "cuatro" suites sin
+  red runtime (hoy 7).
+- Prosa vieja de export-shareable en temp-hygiene parte E (`:1146-1154`, `:1192-1210`, `:1573`, `:1594-1597`) y
+  `docs/TESTING.md:87-90`: dicen que escribe `LEAK-TEST.md` en el repo; ya usa fuente hermética. Assert de residuo redundante.
+- `-PathType Leaf` sin test; `Sort-Object` por offset equivalente; lista de 12 nombres sin inclusión inversa;
+  "Las dos formas solo llegan editando a mano" (skills-lock.ps1 y tests) sobreafirma; `$tool` y el literal duplican path;
+  rama `-not $resuelta` dice "no lo cambia" también para un status editado a mano.
+- Todos los `Status:` de `.scratch/bootstrap-v2/issues/*.md` siguen en `ready-for-agent`, incluidos los cerrados (01, 03, 04, 05, 17).
+
+## 6. Gotchas medidos en esta sesión
+
+- **Push de este repo**: `gh auth switch -h github.com -u southpointtech && git push; gh auth switch -h github.com -u MartinDele703`
+  (MartinDele703 da 403). Hecho así hoy: `2fc2131..e0a273b`.
+- **`grep -c $'\r'` en Git Bash cuenta 0 en archivos CRLF** (miente). El EOL se mide con Python sobre bytes.
+  `tests/temp-hygiene.tests.ps1` es CRLF en disco; `tools/skills-lock.ps1`, `tests/skills-lock.tests.ps1`,
+  `tests/normalized-hash.tests.ps1` y este handoff son LF.
+- Para ediciones con muchos backticks/`$`: script Python con pares exactos que abortan si no hay 1 match y
+  preservan el EOL medido (en el scratchpad: `eolrep.py`). `sed` con `\r` y el stdin de Python (cp1252) rompieron.
+- **RAM**: la máquina llegó a 0,2 GB libres (Edge WebView, Chrome, Node); el sistema mató una corrida de mutantes
+  y dejó `tools/skills-lock.ps1` mutado con el respaldo al lado. Respaldo de mutantes FUERA del repo.
+- `Split-Path -LiteralPath X -Parent` falla en PS7 (conjuntos de parámetros): usar `[IO.Path]::GetDirectoryName`.
+- Git solo lee trailers del ÚLTIMO párrafo: `Slice-Close:` va pegado a `Co-Authored-By` (se corrigió con `--amend` antes de revisar).
+
+## Pendientes, en orden
+
+1. **Elegir**: `upgrade-bootstrap` en los 14 repos (empezando por Forecasting App) desde `main`, o seguir v2 con el
+   próximo issue (02 runner en paralelo, 06-16, 18, 19 están ⬜). El rollout desde `main` no espera a v2 salvo que el
+   usuario lo decida.
+2. Si v2 sigue: slice chico de prosa para los Low de §5 (TESTING.md + cabecera del conjunto cerrado) y actualizar
+   los `Status:` de los issues. Limpiar el ancla `slice-open` vieja.
+3. Pushear el commit de este handoff (`gh auth switch` como en §6).
+4. Resto de pendientes viejos: gitignore del residuo de Codex, medir el loop nuevo.
+
+---
+
 # Session Handoff — 2026-09-13 — **El review-loop del 05b CERRÓ POR CAP (2 turnos) + pase de coherencia.** 3 commits nuevos en `feat/bootstrap-v2`; 6 Medium del turno 1 y 1 del turno 2 arreglados con RED verificado.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
