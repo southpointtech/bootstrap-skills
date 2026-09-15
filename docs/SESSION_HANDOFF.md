@@ -1,4 +1,4 @@
-# Session Handoff — 2026-09-15 (noche) — **Rollout del scaffold `2026-09-11` a los repos ELEGIDOS: 5 integrados, 2 esperando (sesiones activas); los otros 11 con nota en memoria**
+# Session Handoff — 2026-09-15 (noche) — **Rollout del scaffold `2026-09-11` a los repos ELEGIDOS: 7 de 7 integrados (Forecasting vía PR #122 sin mergear); los otros 11 con nota en memoria**
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
 
@@ -19,8 +19,8 @@
 | Call Center Stage One | ✅ ff sobre `feat/bulk-date-entered-filter` | `797230e` |
 | Gestor de Obras | ✅ ff sobre `main` | `ca0b2e8` |
 | claude-analytics | ✅ ff de `master` por ref (checkout sigue en `fix/migration-billable`) | `65b1788` |
-| **Profitability App** | ⏸️ **esperando**: `.git/index.lock` de una sesión abierta ahí (confirmado por el usuario) | `80688f2` en `chore/upgrade-bootstrap-2026-09-15`, worktree `C:\Repos\SOUTHPOINTLABS\_worktrees\profitability\upgrade-bootstrap`, sobre `docs/reunion-05-08-corte-en-gross-profit` |
-| **Administracion May** | ⏸️ **esperando**: otra sesión mergeó slice 17a a `main` a las 18:21; el usuario decidió esperar | `32a09d1` (rebaseado sobre `7d5c63f`), worktree `C:\Repos\PERSONAL\_worktrees\administracion-may\upgrade-bootstrap` |
+| Profitability App | ✅ ff sobre `docs/reunion-05-08-corte-en-gross-profit` (continuación: lock huérfano del 14/9 borrado tras frenar el usuario sus sesiones) | `80688f2` |
+| Administracion May | ✅ rebase sobre `c948635` + ff sobre `main` (continuación) | `20c7a48` |
 
 Los dos en espera tienen memoria de proyecto `upgrade-bootstrap-pendiente-de-integrar.md` con los comandos exactos
 (rebase si la base avanzó → `merge --ff-only` → `worktree remove` → `branch -d` → borrar la memoria). NO borrar el
@@ -73,7 +73,7 @@ antes (powershell 5.1) y después (pwsh). No se corrieron suites de tests de los
 
 1. **Usuario**: mergear PR #122 de forecasting-app; luego `git worktree remove ../_worktrees/forecasting/upgrade-bootstrap`
    y `git branch -D chore/upgrade-bootstrap-2026-09-15` desde `C:\Repos\SOUTHPOINTLABS\Forecasting App`.
-2. **Cuando terminen sus sesiones**: integrar Profitability y Administracion May (§1; las memorias de proyecto lo sugieren).
+2. ~~Integrar Profitability y Administracion May~~ — HECHO (continuación 2026-09-15): compare-scaffold 0/0/0 en ambos, AST OK, `review-marker range` exit 0; worktrees y ramas borrados, memorias `upgrade-bootstrap-pendiente-de-integrar` borradas. **Rollout de los 7 elegidos: completo salvo el merge del PR #122.**
 3. Evaluar subir **"Score the FIX"** al scaffold (texto en el git de Administracion May: `git show e9a7f3d:.claude/commands/slice-review.md`,
    bloque `PATCH:prose-churn` del Step 5). Es cambio de mecánica → las 3 skills espejadas + review-loop.
 4. v2 (§5 del handoff de 2026-09-13/15): Low de TESTING.md/temp-hygiene, `Status:` de issues, limpiar ancla `slice-open` vieja.
