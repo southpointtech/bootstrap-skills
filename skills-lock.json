@@ -60,7 +60,7 @@
       "upstreamHeadPath": null,
       "base": null,
       "files": {
-        "SKILL.md": "12ebdd6f8b570d3c1d0e799b9adc0aaf538954fb71f79a4235cf2c0d0ca9d86d"
+        "SKILL.md": "5f2b6c100ff05bb7be9cc5d9196f6a82f91d15e0995017e575840b57983e2009"
       }
     },
     "setup-matt-pocock-skills": {
@@ -88,7 +88,7 @@
       "upstreamHeadPath": null,
       "base": null,
       "files": {
-        "SKILL.md": "ab20d19ea8d02436c29885b811895462492bc8805c4ededc9355c4216d01d1be"
+        "SKILL.md": "2ca9ac8de86dffd417598d0bf8d306d381049d5286af880c8d2457218bc770ea"
       }
     },
     "tdd": {
@@ -102,7 +102,7 @@
         "commitDate": "2026-04-28T15:33:37Z"
       },
       "files": {
-        "SKILL.md": "39de6af6047a54fea596ad91ed93276d5b5ff26b81614937b92d8339d5392dc1",
+        "SKILL.md": "8ef095dc7bbf859d74c89d277cee992e225e88b9c7785e8f49a8dc777d746813",
         "deep-modules.md": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32",
         "interface-design.md": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d",
         "mocking.md": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef",

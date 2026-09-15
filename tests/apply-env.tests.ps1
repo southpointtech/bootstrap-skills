@@ -3,12 +3,17 @@ $ErrorActionPreference = "Stop"
 $repo   = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $repo "skills/setup-mcp-workstation/scripts/apply-env.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "wscfg"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
+# Los rastros de esta suite son ARCHIVOS, no directorios: por eso el primer intento de medir la
+# fuga, que contó con -Directory, no los vio (eran 34 al re-medirlo el 2026-09-01).
 function NewCfg([string]$json) {
-  $p = Join-Path ([IO.Path]::GetTempPath()) ("wscfg-" + [guid]::NewGuid().ToString('N') + ".json")
+  $p = New-TestTempPath $script:runRoot "wscfg" ".json"
   Set-Content -Path $p -Value $json -Encoding UTF8; $p
 }
 function Run($cfgPath) {
@@ -46,8 +51,12 @@ Assert ($LASTEXITCODE -ne 0) "faltante: exit != 0"
 Assert ("$rb" -match "zoho")  "faltante: el error menciona el campo zoho"
 
 # --- config inexistente ---
-& pwsh -NoProfile -File $script -ConfigPath (Join-Path ([IO.Path]::GetTempPath()) "no-existe-xyz.json") -DryRun 2>&1 | Out-Null
+# El path se arma con New-TestTempPath, que devuelve el path sin crear el archivo: es justo lo que
+# este caso necesita, y así no queda ni una mención suelta a la raíz de %TEMP% en la suite.
+& pwsh -NoProfile -File $script -ConfigPath (New-TestTempPath $script:runRoot "no-existe" ".json") -DryRun 2>&1 | Out-Null
 Assert ($LASTEXITCODE -ne 0) "inexistente: exit != 0"
+
+Remove-TestRunRoot $script:runRoot
 
 Write-Host ""
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

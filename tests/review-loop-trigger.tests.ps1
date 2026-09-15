@@ -6,13 +6,15 @@ $hook  = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.cla
 $canon = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/settings.json"
 $ms    = Join-Path $repo "skills/upgrade-bootstrap/scripts/merge-settings.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "rlt"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 function New-Repo {
-  $t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $t | Out-Null
+  $t = New-TestWorkspace $script:runRoot "rlt-test"
   git -C $t init -q -b master; git -C $t config user.email a@b.c; git -C $t config user.name a
   # Aislar el gitconfig global: con `commit.gpgsign=true` en la máquina, los commits del fixture no
   # se crean y TODOS los asserts de ausencia pasan en verde sin ejercitar nada.
@@ -70,8 +72,7 @@ Remove-Item -Recurse -Force $t
 # `release` via for-each-ref + merge-base --octopus. Mutante: revertir el bloque de delegacion (volver
 # al `exit 0`) deja este assert en rojo y el resto de la suite en verde.
 $mk = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/scripts/review-marker.ps1"
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-test-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
+$t = New-TestWorkspace $script:runRoot "rlt-test"
 git -C $t init -q -b trunk; git -C $t config user.email a@b.c; git -C $t config user.name a
 git -C $t config commit.gpgsign false; git -C $t config core.hooksPath ""; git -C $t config core.excludesFile ""
 git -C $t commit --allow-empty -q -m base
@@ -319,8 +320,7 @@ Remove-Item -Recurse -Force $t
 
 # Un repo bajo una ruta con corchetes: `Test-Path` sin -LiteralPath los toma como comodín y da
 # False, asi que el estado se lee como inexistente y el dedupe deja de existir en CADA corrida.
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-[test]-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
+$t = New-TestWorkspace $script:runRoot "rlt-[test]"
 git -C $t init -q -b master; git -C $t config user.email a@b.c; git -C $t config user.name a
 git -C $t config commit.gpgsign false
 git -C $t commit --allow-empty -q -m base
@@ -485,7 +485,10 @@ Remove-Item -Recurse -Force $t
 # la rama de ESTE repo (o el hardening lo saca con exit 0): en cualquier caso no aparece 'feat/x'.
 function Fire-File($repo, $cmd) {
   $enye2 = [string][char]0x00F1
-  $rt = Join-Path ([IO.Path]::GetTempPath()) ("rlt-test-" + $enye2 + "andu-" + [guid]::NewGuid().ToString('N'))
+  # Dentro de la raíz de la corrida, igual que $repo: Rename-Item con -NewName renombra en el mismo
+  # directorio padre, así que si $rt se armara en la raíz de %TEMP% el path resultante no existiría
+  # y el caso caería siempre al fallback de la línea de abajo, en verde y sin probar nada.
+  $rt = New-TestTempPath $script:runRoot ("rlt-test-" + $enye2 + "andu")
   Rename-Item -LiteralPath $repo -NewName (Split-Path $rt -Leaf) -ErrorAction SilentlyContinue
   if (-not (Test-Path -LiteralPath $rt)) { $rt = $repo }   # si el rename fallo, seguimos con el original
   $evt = @{ tool_input = @{ command = $cmd }; cwd = $rt } | ConvertTo-Json -Compress
@@ -601,8 +604,7 @@ Assert ($still -match 'marker:feat/x') "con la cuarentena bloqueada el hook NO p
 Remove-Item -Recurse -Force $t
 
 # --- Merge de settings (proyecto con settings.json propio, p. ej. enabledPlugins) ---
-$t = Join-Path ([IO.Path]::GetTempPath()) ("rlt-ms-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t | Out-Null
+$t = New-TestWorkspace $script:runRoot "rlt-ms"
 $sp = Join-Path $t "settings.json"
 '{ "enabledPlugins": { "domo-skills@martin-local": true } }' | Set-Content $sp -Encoding UTF8
 & pwsh -NoProfile -File $ms -ProjectSettings $sp -CanonicalSettings $canon | Out-Null
@@ -613,5 +615,7 @@ Assert ($txt -match "alignment-gate") "merge agrega tambien el hook alignment-ga
 $txt2 = Get-Content $sp -Raw
 Assert ((([regex]::Matches($txt2, "review-loop-trigger")).Count -eq 1) -and (([regex]::Matches($txt2, "alignment-gate")).Count -eq 1)) "merge es idempotente (no duplica ningun hook)"
 Remove-Item -Recurse -Force $t
+
+Remove-TestRunRoot $script:runRoot
 
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

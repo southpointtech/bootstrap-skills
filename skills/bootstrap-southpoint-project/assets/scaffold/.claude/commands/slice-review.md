@@ -45,6 +45,11 @@ range. Standalone, opt in with `/slice-review --code-review`. It additionally ad
 **`/code-review`** as an extra reviewer in Step 4's fan-out (see the **Code-review focus** section).
 Like `--mutation`, it is a turn-1-only focus.
 
+If `$ARGUMENTS` contains `--light`, strip the token and treat the rest as the range. `/review-loop`
+passes it for a slice that declares `Review-Rigor: light`; standalone, opt in with
+`/slice-review --light`. It narrows Step 4 to the **Bugs** and **Tests** focuses. `--light` wins over
+`--mutation` and `--code-review` (drop them), and `--coherence` wins over `--light`.
+
 Use `$ARGUMENTS` as the diff range when provided (e.g. `main...HEAD`, `abc123..HEAD`, or a **bare**
 ref such as `abc123`). Use it **exactly as given** — never append `..HEAD` to a bare ref. When it
 came from `/review-loop`'s marker it is a `git stash create` object whose first parent is HEAD, so
@@ -184,6 +189,10 @@ via the Skill tool (it runs as a background fork), at **medium** effort. It is n
 subagent like the others — it is Anthropic's own reviewer, added for reviewer diversity. See the
 **Code-review focus** section after Step 6.
 
+**If `--light` was passed**, dispatch only the **Bugs** and **Tests** focuses (1 and 5), with no
+Mutation or Code-review focus. The three it drops read rules, history and contracts, which is
+where a low-risk slice gains the least.
+
 ## Step 5 — Confidence pass (filter false positives)
 
 **First, de-duplicate.** When `--code-review` ran, the built-in `/code-review`'s findings overlap the
@@ -217,6 +226,17 @@ For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
 - **Medium** — real bug in an edge case, violated project rule, risky logic shipped untested,
   contract break for an existing caller.
 - **Low** — style, naming, nitpicks, speculative improvements.
+
+**Prose is Low unless someone downstream reads it.** A finding whose fix is only prose (a comment,
+docstring, commit message or internal doc) is **Low**, whichever rule it violates, the `CLAUDE.md`
+assertion rule included. It is Medium only when the text reaches an end user (UI copy, help output,
+a generated report, a persisted string) or contradicts the code in a way that would mislead whoever
+changes that code next. **Instructions are not prose**: in a file that governs the agent (the
+paths `CLAUDE.md` lists as never documentation: `CLAUDE.md` anywhere, `.claude/`, `.agents/`,
+`docs/ai-workflow/`, `docs/agents/`), a sentence that tells the agent what to do (a step, a
+condition, a flag, a threshold, an ordering or a stop rule) is behavior and is classified like code.
+Rationale and history in those files stay prose. Before this rule, loose comments scored Medium, their fixes were more prose
+for the next turn, and loops kept ending at the turn cap instead of clean.
 
 ## Step 6 — Report
 
@@ -353,7 +373,7 @@ focus, Step 5 first de-duplicates them against it so the report does not double-
 ## Coherence pass
 
 Steps 1–6 review the **unreviewed delta**, turn by turn. This pass is the counterpart: once, at the
-close of `/review-loop` (whether it closed clean or hit the 5-turn cap), the slice is read **as a
+close of `/review-loop` (whether it closed clean or hit the turn cap), the slice is read **as a
 whole** against its declared intent. Reviewing by parts lets through the defect that only shows in
 the whole — a slice whose pieces are each fine but that does not cohere as a unit against what it
 set out to do. Invoke it as `/slice-review --coherence`.

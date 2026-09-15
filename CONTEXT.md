@@ -13,7 +13,7 @@ La unidad de cambio que se implementa y se revisa como un todo, acotada para que
 _Avoid_: feature, tarea, ticket
 
 **Cierre de slice**:
-El momento en que un slice queda listo para revisión. Es un acto declarado, no una consecuencia de haber commiteado o pusheado. El loop distingue dos formas de cierre: **cierre limpio** (la última revisión no dejó hallazgos medium/high) y **cierre por cap** (se agotaron los 5 turnos con hallazgos abiertos); solo el limpio limpia el ancla `slice-open` del pase de coherencia (ADR-0002).
+El momento en que un slice queda listo para revisión. Es un acto declarado, no una consecuencia de haber commiteado o pusheado. El loop distingue tres formas de cierre: **cierre limpio** (la última revisión no dejó hallazgos medium/high; en `light`, ningún High), **cierre por prosa** (el delta sin revisar es sólo prosa fuera de los archivos que gobiernan al agente) y **cierre por cap** (se agotó el techo de turnos con hallazgos abiertos). Todo cierre que no sea por cap limpia el ancla `slice-open` del pase de coherencia (ADR-0002, ampliado por ADR-0009).
 _Avoid_: terminar, cerrar el commit
 
 **Corrida de review**:
@@ -23,6 +23,10 @@ _Avoid_: oleada, batch, pasada
 **Turno**:
 Una vuelta completa del loop: corrida de review → fixes → verificación. El loop tiene un techo de turnos.
 _Avoid_: iteración, ciclo, ronda
+
+**Rigor de review**:
+Cuánta revisión lleva un slice, declarada por el agente en el commit de cierre con el trailer `Review-Rigor:`. `light` es un turno con dos focos y sin pase de coherencia; `standard`, el default, son hasta dos turnos. Un High en un slice `light` lo promueve a `standard`.
+_Avoid_: nivel, modo, profundidad
 
 **Marcador de revisión**:
 La referencia que fija hasta dónde llegó la última revisión. Existe para que ningún cambio se revise dos veces ni quede sin revisar.

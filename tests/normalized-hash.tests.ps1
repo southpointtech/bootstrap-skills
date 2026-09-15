@@ -46,13 +46,15 @@ $ExpectedChecks = 34
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
 }
-. $tool
+. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
 
-# Directorio propio para los casos que necesitan disco. Se limpia SOLO el directorio propio, sin
-# barrer `$env:TEMP` por prefijo: barrer por glob es exactamente lo que hacía que dos suites
-# concurrentes se borraran los workspaces entre sí.
-$script:tmp = Join-Path ([IO.Path]::GetTempPath()) ("nh-run-$PID-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $script:tmp -Force | Out-Null
+# Directorio propio para los casos que necesitan disco, con el helper común de raíz por corrida
+# (tests/lib/temp-workspace.ps1): recolecta por edad, nunca por glob, y el trap la borra si la suite
+# aborta fuera del try de abajo.
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "nh"
+trap { Remove-TestRunRoot $script:runRoot; break }
+$script:tmp = $script:runRoot
 
 # Escribe bytes crudos: ni Set-Content ni Out-File, que reescriben los fines de línea y el encoding
 # según la plataforma y arruinarían justamente lo que estos casos miden.
@@ -227,8 +229,9 @@ try {
 
 }
 finally {
-  Remove-Item -LiteralPath $script:tmp -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-TestRunRoot $script:runRoot
 }
+Remove-TestRunRoot $script:runRoot
 
 # El conteo se captura ANTES de llamar al Assert que lo verifica: PowerShell evalua los argumentos
 # antes de entrar a la funcion, asi que `$script:checks` leido adentro de la llamada todavia no

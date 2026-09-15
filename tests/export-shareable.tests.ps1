@@ -5,12 +5,19 @@ $ErrorActionPreference = "Stop"
 $repo   = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $repo "tools/export-shareable.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+# La recolección de huérfanos de esta suite era un `Remove-Item` por glob INCONDICIONAL sobre la raíz
+# de %TEMP%: le borraba los fixtures en pleno uso a cualquier corrida concurrente, y en este repo las
+# corridas concurrentes son la norma (el review-loop lanza reviewers en paralelo). New-TestRunRoot
+# recolecta por edad y solo lo que tiene más de un día.
+$script:runRoot = New-TestRunRoot "export-test"
+trap { Remove-TestRunRoot $script:runRoot; break }
+
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 function NewClone {
-  $d = Join-Path ([IO.Path]::GetTempPath()) ("export-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $d | Out-Null
+  $d = New-TestWorkspace $script:runRoot "export-test"
   git -C $d init -b main --quiet
   # El remote del repo publico real: su URL lleva un marcador de fuga, asi que el clon queda con uno
   # dentro de .git. Es lo que da cobertura a la exclusion de .git del gate -- sin esto, borrarla deja
@@ -18,9 +25,6 @@ function NewClone {
   git -C $d remote add origin "https://github.com/MartinDele703/ai-project-bootstrap.git"
   $d
 }
-
-# Workspaces huérfanos de corridas anteriores abortadas
-Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "export-test-*" | Remove-Item -Recurse -Force
 
 # 1. Happy path: estructura completa en el clon
 $t = NewClone
@@ -44,11 +48,9 @@ Remove-Item -Recurse -Force $t
 #    La fuente se copia a temp y se corre ESA copia del script (el exportador deriva su raiz de la
 #    ubicacion del script), asi el senuelo nunca se planta dentro del arbol del repo: la suite corre
 #    sin ensuciar el working tree, con trabajo real en vuelo y en paralelo con los OTROS archivos de
-#    test (cada uno usa su prefijo en temp). Dos corridas de ESTE archivo siguen sin poder solaparse:
-#    la limpieza de arriba barre "export-test-*" incluso de una corrida viva.
+#    test (cada uno usa su prefijo en temp).
 $t2  = NewClone
-$src = Join-Path ([IO.Path]::GetTempPath()) ("export-test-src-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $src | Out-Null
+$src = New-TestWorkspace $script:runRoot "export-test-src"
 # Huella de un arbol: ruta relativa + tamano + mtime de cada archivo, en orden estable. El mtime es
 # lo que la vuelve sensible a la ESCRITURA y no solo al contenido: gen-manifest.ps1 estampa la fecha
 # del dia en "version", asi que una reescritura cambia los bytes solo si el sello es de otro dia o el
@@ -99,8 +101,8 @@ try {
 }
 
 # 4. No es un clon git -> aborta
-$t3 = Join-Path ([IO.Path]::GetTempPath()) ("export-test-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $t3 | Out-Null
+# Sin NewClone a propósito: este caso necesita el directorio SIN `git init`.
+$t3 = New-TestWorkspace $script:runRoot "export-test"
 $salida4 = & pwsh -NoProfile -File $script -PublicRepoDir $t3 2>&1 | Out-String
 Assert ($LASTEXITCODE -ne 0) "PublicRepoDir sin .git: aborta"
 Assert ($salida4 -match "not a git clone") "PublicRepoDir sin .git: aborta POR el guard, no por otra falla"
@@ -109,6 +111,8 @@ Remove-Item -Recurse -Force $t3
 # Guard contra una regresion de ESTE archivo, no del exportador: nada crea LEAK-TEST.md salvo el caso
 # 3. Detecta el senuelo que QUEDA en el repo; el que se plante y se limpie lo detecta el assert de 3b.
 Assert (-not (Test-Path (Join-Path $repo "skills\bootstrap-ai-project\LEAK-TEST.md"))) "ningun senuelo quedo dentro del arbol del repo"
+
+Remove-TestRunRoot $script:runRoot
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

@@ -12,6 +12,9 @@ $script:failures = 0
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "srv"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 Assert ($skills.Count -ge 3) "hay al menos 3 skills bootstrap-*-project ($($skills.Count))"
 
@@ -483,9 +486,9 @@ foreach ($p in $loopPairs) {
     Assert ($coh -match '/slice-review --coherence') `
       "$($p.label)/${rel}: el loop invoca el pase de coherencia (/slice-review --coherence)"
     # Corre en AMBOS cierres: limpio y por techo de turnos.
-    Assert ($coh -match '(?i)clean, or at the 5-turn cap') `
+    Assert ($coh -match '(?i)clean, prose-only delta, or at the turn cap') `
       "$($p.label)/${rel}: el loop corre el pase tanto por limpio como por techo de turnos"
-    Assert ($coh -match '(?i)run it on \*\*both\*\* exits') `
+    Assert ($coh -match '(?i)run it on \*\*every\*\* exit that closes the loop') `
       "$($p.label)/${rel}: el loop corre el pase en ambos cierres explicitamente"
     # No hay slice que leer si ningun reviewer corrio (rango vacio desde el primer turno).
     Assert ($coh -match '(?i)skip it only when no reviewer ever ran') `
@@ -516,6 +519,224 @@ foreach ($p in $loopPairs) {
   }
 }
 
+# --- Rigor por slice (ADR-0009) ------------------------------------------------------------------
+# La lista de rutas que gobiernan al agente vive en el CLAUDE.md, en el clasificador `$govern` del hook
+# y en dos lugares de las skills. Se compara como CONJUNTO de tokens: chequear un solo token dejaba
+# borrar cualquier otro en verde (turno 2 del loop).
+function Get-GovList([string]$txt) {
+  $m = [regex]::Match($txt, '`CLAUDE\.md` anywhere((?:,\s*`[^`]+`)+)')
+  if (-not $m.Success) { return '' }
+  $toks = @('CLAUDE.md') + @([regex]::Matches($m.Groups[1].Value, '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value })
+  (@($toks | Sort-Object) -join ',')
+}
+function Get-HookGov([string]$hookTxt) {
+  $m = [regex]::Match($hookTxt, "(?m)^\s*\`$govern\s*=\s*'([^']+)'")
+  if (-not $m.Success) { return '' }
+  $toks = @([regex]::Matches($m.Groups[1].Value, '\(\^\|/\)([^|]+)') | ForEach-Object { [regex]::Unescape($_.Groups[1].Value).TrimEnd('$') })
+  (@($toks | Sort-Object) -join ',')
+}
+# "X wins over A and B" -> aristas X>A, X>B. Una precedencia escrita de otra forma da aristas faltantes
+# y el assert falla: erra hacia el rojo.
+function Get-PrecEdges([string]$s1) {
+  $e = foreach ($m in [regex]::Matches($s1, '`(--[\w-]+)` wins? over((?:\s*(?:,|and)?\s*`--[\w-]+`)+)')) {
+    foreach ($l in [regex]::Matches($m.Groups[2].Value, '`(--[\w-]+)`')) { "$($m.Groups[1].Value)>$($l.Groups[1].Value)" } }
+  (@($e | Sort-Object) -join ',')
+}
+$expPrec = (@('--light>--mutation', '--light>--code-review', '--coherence>--light') | Sort-Object) -join ','
+$claudeGov = Get-GovList ([IO.File]::ReadAllText((Join-Path $repo "CLAUDE.md")))
+Assert ($claudeGov -ne '') "el CLAUDE.md declara la lista de rutas que gobiernan al agente ($claudeGov)"
+
+# Los tres slices de review-cost-split cerraron por el techo de 5 turnos: la prosa nacia Medium y cada
+# fix de prosa era delta nuevo para el turno siguiente. El loop pasa a techo de 2 turnos (1 en `light`),
+# la prosa es Low en el pase de confianza y el rigor se declara por slice con el trailer `Review-Rigor:`.
+# Las anclas son flags, filas de tabla y el trailer; las dos reglas de prosa no tienen otro ancla.
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $s1 = Section $txt 'Step 1 — Resolve what to review'
+    $s4 = Section $txt 'Step 4 — Fan out parallel reviewers'
+    $s5 = Section $txt 'Step 5 — Confidence pass (filter false positives)'
+    Assert ($s1 -match '--light') "$($p.label)/${rel}: Step 1 parsea --light"
+    Assert ($s4 -match '(?is)if `--light` was passed.*only the \*\*Bugs\*\* and \*\*Tests\*\* focuses') `
+      "$($p.label)/${rel}: Step 4 reduce --light a los focos de Bugs y Tests"
+    Assert ($s5 -match '(?is)only prose.*is \*\*Low\*\*') `
+      "$($p.label)/${rel}: Step 5 clasifica Low el hallazgo cuyo fix es solo prosa"
+    Assert ($txt -notmatch '(?i)5-turn cap') "$($p.label)/${rel}: no quedan menciones al techo de 5 turnos"
+    # Turno 1 del loop: la precedencia de --light y la excepcion de la regla de prosa no tenian ancla,
+    # y los mutantes que las invertian sobrevivian.
+    Assert ((Get-PrecEdges $s1) -eq $expPrec) `
+      "$($p.label)/${rel}: precedencia --light>{--mutation,--code-review} y --coherence>--light ($(Get-PrecEdges $s1))"
+    Assert ($s4 -match '(?is)if `--light` was passed.*no\s+Mutation or Code-review focus') `
+      "$($p.label)/${rel}: Step 4 no despacha mutacion ni code-review con --light"
+    Assert ($s5 -match '(?is)only prose.*is \*\*Low\*\*.*Medium only when.*end user') `
+      "$($p.label)/${rel}: la regla de prosa conserva su excepcion (Medium si llega a un usuario final)"
+    # Una instruccion en un archivo que gobierna al agente es comportamiento, no prosa.
+    Assert ((Get-GovList $s5) -eq $claudeGov) "$($p.label)/${rel}: la lista de gobierno del Step 5 es la del CLAUDE.md"
+    Assert ($s5 -match '(?is)\*\*Instructions are not prose\*\*.{0,500}?is behavior and is classified like code') `
+      "$($p.label)/${rel}: Step 5 clasifica como codigo las instrucciones de los archivos que gobiernan al agente"
+  }
+}
+# El snippet de PowerShell de la seccion Rigor es la definicion operativa de `light`: se EJECUTA contra
+# repos temporales, en cada una de las 8 copias. Leer su texto no alcanzaba: borrarle una guarda
+# (`$closes.Count -gt 0`) o volver a leer solo HEAD pasaba en verde (turno 2 del loop).
+function Init-RigRepo([string]$t) {
+  git -C $t init -q -b master
+  git -C $t config user.email a@b.c; git -C $t config user.name a
+  git -C $t config commit.gpgsign false; git -C $t config core.hooksPath ""; git -C $t config core.excludesFile ""
+  [IO.File]::WriteAllText((Join-Path $t "f.txt"), "base`n")
+  git -C $t add -A; git -C $t commit -q -m base
+}
+function Commit-Msg([string]$t, [string]$msg) {
+  $mf = New-TestTempPath $script:runRoot "msg" ".txt"
+  [IO.File]::WriteAllText($mf, $msg); git -C $t commit -q --allow-empty -F $mf
+}
+$LC = "feat: x`n`nSlice-Close: x`nReview-Rigor: light`n"
+$SC = "feat: y`n`nSlice-Close: y`n"
+$PL = "wip: z`n"
+$LW = "feat: v`n`nSlice-Close: v`nReview-Rigor: lightweight`n"
+$AT = "feat: w`n`nSlice-Close: w`nReview-Rigor: light`n`nCo-Authored-By: A <a@b.c>`nClaude-Session: https://x`n"
+$rigCases = @(
+  @{ n = 'cierre light';                                pre = @();    in = @($LC);      dirty = $false; exp = $true  },
+  @{ n = 'sin Slice-Close en el rango';                 pre = @();    in = @($PL);      dirty = $false; exp = $false },
+  @{ n = 'mixto: standard y luego light';               pre = @();    in = @($SC, $LC); dirty = $false; exp = $false },
+  @{ n = 'trailer arriba del parrafo de atribucion';    pre = @();    in = @($AT);      dirty = $false; exp = $true  },
+  @{ n = 'un standard ANTES del rango no cuenta';       pre = @($SC); in = @($LC);      dirty = $false; exp = $true  },
+  @{ n = 'light y despues un commit sin trailer';       pre = @();    in = @($LC, $PL); dirty = $false; exp = $false },
+  @{ n = 'light con cambios trackeados sin commitear';  pre = @();    in = @($LC);      dirty = $true;  exp = $false },
+  @{ n = 'Review-Rigor: lightweight no es light';       pre = @();    in = @($LW);      dirty = $false; exp = $false },
+  # Rango vacio con HEAD en un cierre light: sin la guarda de rango vacio el snippet decia light.
+  @{ n = 'rango vacio aunque HEAD sea un cierre light'; pre = @($LC); in = @();       dirty = $false; exp = $false }
+)
+foreach ($c in $rigCases) {
+  $t = New-TestWorkspace $script:runRoot "rig"; Init-RigRepo $t
+  foreach ($m in $c.pre) { Commit-Msg $t $m }
+  $c.base = (git -C $t rev-parse HEAD).Trim()
+  foreach ($m in $c.in) { Commit-Msg $t $m }
+  if ($c.dirty) { [IO.File]::WriteAllText((Join-Path $t "f.txt"), "cambio`n") }
+  $c.dir = $t
+}
+function Invoke-RigorSnippet([string]$rig, [string]$dir, [string]$base) {
+  $fences = [regex]::Matches($rig, '(?s)```powershell\r?\n(.*?)\r?\n```')
+  if ($fences.Count -ne 1) { return "fences=$($fences.Count)" }
+  if ($fences[0].Groups[1].Value -notmatch '<range>') { return 'sin <range>' }
+  Push-Location -LiteralPath $dir
+  # `&` y no dot-source: temp-hygiene exige que el unico dot-source del archivo sea el del helper.
+  try { return & ([scriptblock]::Create($fences[0].Groups[1].Value.Replace('<range>', $base) + "`n`$light")) }
+  finally { Pop-Location }
+}
+foreach ($p in $loopPairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $rig = Section $txt 'Rigor: light or standard'
+    $theLoop = Section $txt 'The loop'
+    $coh = Section $txt 'At close: the coherence pass'
+    Assert ($rig -match 'Review-Rigor: light') "$($p.label)/${rel}: el loop declara el trailer Review-Rigor"
+    Assert ($rig -match '\|\s*`light`\s*\|\s*1\s*\|') "$($p.label)/${rel}: light tiene techo de 1 turno"
+    Assert ($rig -match '\|\s*`standard` \(default\)\s*\|\s*2\s*\|') `
+      "$($p.label)/${rel}: standard es el default, con techo de 2 turnos"
+    Assert ($rig -match '(?i)promotes it to `standard`') "$($p.label)/${rel}: un High en light promueve el slice a standard"
+    Assert ($theLoop -match '--light') "$($p.label)/${rel}: el paso del loop pasa --light en un slice light"
+    Assert ($theLoop -match '(?i)delta is only prose') "$($p.label)/${rel}: el loop cierra si el delta sin revisar es solo prosa"
+    Assert ($theLoop -notmatch '(?i)5 turns have run') "$($p.label)/${rel}: el techo ya no es de 5 turnos"
+    Assert ($coh -match '(?i)a `light` loop skips it') "$($p.label)/${rel}: un loop light saltea el pase de coherencia"
+    Assert ($txt -notmatch '(?i)5-turn cap|cap of 5 turns') "$($p.label)/${rel}: no quedan menciones al techo de 5 turnos"
+    # El rigor se decide una vez, en el turno 1, sobre TODOS los commits del rango, y un rango sin
+    # Slice-Close: es standard (el push y la red de ~400 lineas no pueden caer en light).
+    Assert ($rig -match '(?i)once, on turn 1') "$($p.label)/${rel}: el rigor se decide una vez, en el turno 1"
+    Assert ($rig -match '(?is)newest commit in the unreviewed range \(HEAD\) carries a\s+`Slice-Close:` line, \*\*every\*\*') `
+      "$($p.label)/${rel}: light exige que HEAD sea un Slice-Close y que todos los del rango declaren light"
+    Assert ($rig -match '(?i)If `range` exited 2, the rigor is `standard`') "$($p.label)/${rel}: con el rango en exit 2 el rigor es standard"
+    foreach ($c in $rigCases) {
+      $got = Invoke-RigorSnippet $rig $c.dir $c.base
+      Assert (($got -is [bool]) -and $got -eq $c.exp) "$($p.label)/${rel}: rigor '$($c.n)' -> $($c.exp) (dio $got)"
+    }
+    # Un High que promueve el slice hace arreglar tambien los Medium de ese turno: el turno 2 los revisa.
+    Assert ($rig -match "(?is)fix the High and that turn's\s+real Medium findings") "$($p.label)/${rel}: la promocion arregla tambien los Medium del turno"
+    Assert ($theLoop -match "(?is)When a High promotes the slice, fix that turn's\s+real Medium findings too") `
+      "$($p.label)/${rel}: el paso 4 arregla los Medium de un slice promovido"
+    Assert ($rig -notmatch 'trailers:key') "$($p.label)/${rel}: el rigor no se lee con el parser de trailers de git (solo lee el ultimo parrafo)"
+    # El techo vive en un solo lugar, la tabla; la condicion de corte la cita en vez de repetir el numero.
+    Assert ($theLoop -match '(?i)turn cap in the \*\*Rigor\*\* table') "$($p.label)/${rel}: la condicion de corte cita la tabla de rigor"
+    Assert ($theLoop -notmatch '(?i)\b[2-9]\b\s+(turns?\s+)?in\s+`standard`') "$($p.label)/${rel}: la condicion de corte no repite un numero de turnos"
+    # Que se arregla y que no.
+    Assert ($theLoop -match '\*\*Medium or High\*\*') "$($p.label)/${rel}: standard arregla Medium y High"
+    Assert ($theLoop -match '(?i)in `light`, \*\*High only\*\*') "$($p.label)/${rel}: light arregla solo High (sus Medium se reportan)"
+    Assert ($theLoop -match '(?i)Low findings are reported, not fixed') "$($p.label)/${rel}: los Low se reportan y no se arreglan"
+    Assert ($theLoop -match '(?is)do not re-edit.*unless the new finding about it scored Medium or High') `
+      "$($p.label)/${rel}: la prohibicion de re-editar prosa de un turno previo cede ante un Medium"
+    # El cierre por prosa excluye los archivos que gobiernan al agente.
+    Assert ((Get-GovList $theLoop) -eq $claudeGov) "$($p.label)/${rel}: la condicion de corte por prosa excluye la lista del CLAUDE.md"
+    Assert ($theLoop -match '(?is)governing file is behavior,?\s+so it\s+keeps the next turn') `
+      "$($p.label)/${rel}: editar un archivo que gobierna al agente mantiene el turno siguiente"
+    # light tambien ancla el slice, y todo cierre que no sea por cap limpia el ancla.
+    Assert ($theLoop -match '(?i)A `light` loop runs\s+`open`') "$($p.label)/${rel}: un loop light tambien corre -Action open"
+    Assert ($coh -match '(?i)prose-only delta, or at the turn cap') "$($p.label)/${rel}: la coherencia corre tambien en el cierre por prosa"
+    # Cada cierre se nombra: limpio, por prosa o por cap. -Action close corre en los dos primeros; la
+    # parada bloqueada y el rango vacio del turno 1 no son cierres.
+    Assert ($coh -match '(?i)Name the close before acting on it') "$($p.label)/${rel}: el cierre se nombra antes de actuar"
+    Assert ($coh -match 'Run `-Action close` on a \*\*clean\*\* or \*\*prose-only\*\* close only') `
+      "$($p.label)/${rel}: -Action close corre en el cierre limpio o por prosa"
+    Assert ($coh -match '(?is)Do \*\*not\*\* run it\s+on a cap close, a blocked stop, or a first-turn empty range') `
+      "$($p.label)/${rel}: -Action close no corre en cap, parada bloqueada ni rango vacio del turno 1"
+    Assert ($coh -match '(?is)\*\*clean close\*\*.{0,200}?even when that review was the cap turn') `
+      "$($p.label)/${rel}: un turno limpio es cierre limpio aunque sea el del cap"
+    Assert ($coh -match '(?is)\*\*cap close\*\*.{0,300}?prose-only fix delta\s+left by that last turn is still a cap close') `
+      "$($p.label)/${rel}: un delta de prosa del ultimo turno sigue siendo cierre por cap"
+    Assert ($theLoop -match '(?is)empty \*\*with exit 0\*\*.{0,200}?that\s+is a \*\*clean close\*\*') `
+      "$($p.label)/${rel}: el rango vacio tras un turno revisado es cierre limpio"
+    Assert ($theLoop -match '(?is)close\s+it as the stop conditions and the At close section say') `
+      "$($p.label)/${rel}: el paso 1 remite el cierre a las condiciones de corte y a At close"
+  }
+}
+
+# El techo tambien vive en el hook, el CLAUDE.md, el AI_DEVELOPMENT_WORKFLOW y tdd. Ninguna suite los
+# leia: un revert simetrico a "5-turn cap" en las copias pasaba mirror en verde.
+$capRoots = @($repo) + @($skills | ForEach-Object { Join-Path $_.FullName "assets\scaffold" })
+$capDocs = @()
+foreach ($pre in $capRoots) {
+  $capDocs += @(
+    (Join-Path $pre ".claude\hooks\review-loop-trigger.ps1"),
+    (Join-Path $pre "CLAUDE.md"),
+    (Join-Path $pre "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md"),
+    (Join-Path $pre ".claude\commands\tdd.md"),
+    (Join-Path $pre ".agents\skills\tdd\SKILL.md")
+  )
+}
+Assert ($capDocs.Count -eq 20) "se arman 20 rutas (4 raices x 5 docs) ($($capDocs.Count))"
+foreach ($f in $capDocs) {
+  $rel = $f.Substring($repo.Length).TrimStart('\')
+  if (-not (Test-Path -LiteralPath $f)) { Assert $false "existe $rel"; continue }
+  $txt = [IO.File]::ReadAllText($f)
+  Assert ($txt -match '(?i)(turn cap|tope de turnos):\s*2\b[^.]{0,60}?\b1\b[^.]{0,60}?Review-Rigor: light') `
+    "${rel}: cita el techo nuevo (2, o 1 en light)"
+  Assert ($txt -notmatch '(?i)5-turn cap|cap of 5 turns|tope de 5 turnos|hard cap of 5|5 turns have run') `
+    "${rel}: no cita el techo de 5 turnos"
+}
+# El CLAUDE.md no reescribe la regla de prosa sin su excepcion: remite al Step 5.
+foreach ($pre in $capRoots) {
+  $f = Join-Path $pre "CLAUDE.md"
+  $rel = $f.Substring($repo.Length).TrimStart('\')
+  if (-not (Test-Path -LiteralPath $f)) { Assert $false "existe $rel"; continue }
+  $txt = [IO.File]::ReadAllText($f)
+  Assert ($txt -match 'scored per `/slice-review` Step 5') "${rel}: la regla de prosa remite al Step 5 de /slice-review"
+  Assert ($txt -notmatch '(?i)only prose is Low and never blocks') "${rel}: no afirma que toda prosa es Low sin excepcion"
+}
+# La lista de gobierno del CLAUDE.md es la que clasifica el hook, en cada raiz; y el hook no le dice al
+# agente que el rigor sale de "el commit": sale del slice, sobre todo el rango.
+foreach ($pre in $capRoots) {
+  $cF = Join-Path $pre "CLAUDE.md"; $hF = Join-Path $pre ".claude\hooks\review-loop-trigger.ps1"
+  if (-not (Test-Path -LiteralPath $cF) -or -not (Test-Path -LiteralPath $hF)) { Assert $false "existe CLAUDE.md/hook en $pre"; continue }
+  $hTxt = [IO.File]::ReadAllText($hF)
+  $cg = Get-GovList ([IO.File]::ReadAllText($cF))
+  Assert ($cg -ne '' -and $cg -eq (Get-HookGov $hTxt)) "${pre}: la lista de gobierno del CLAUDE.md coincide con `$govern del hook ($cg)"
+  Assert ($hTxt -match "(?i)(si el slice declara|if the slice declares) 'Review-Rigor: light'") "${pre}: el hook atribuye el rigor al slice"
+  Assert ($hTxt -notmatch "(?i)(si el commit declara|if the commit declares)") "${pre}: el hook no atribuye el rigor a un commit"
+}
+
 # --- 08b: framing en AI_DEVELOPMENT_WORKFLOW.md (el unico doc no-par que se copia al scaffold) ------
 # El AC de 08b ("ningun archivo del scaffold afirma que /code-review es human-only") descansaba, para
 # este archivo, en un chequeo a mano: el guard de framing de 08a solo cubre los pares slice/loop, y
@@ -540,5 +761,6 @@ foreach ($p in $workflowDocs) {
     "$($p.label)/${rel}: documenta que el turno 1 suma el built-in /code-review (ensemble)"
 }
 
+Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

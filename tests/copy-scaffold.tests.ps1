@@ -25,36 +25,15 @@ function Get-IfAny([string]$path) {
   }
   return ''
 }
-# Todos los workspaces de esta corrida cuelgan de un único directorio con PID + GUID. Antes se
-# borraba `cs-test-*` de todo el TEMP compartido, lo que mataba los fixtures de cualquier corrida
-# concurrente — pasó de verdad con los reviewers en paralelo del review-loop de este repo.
-$script:runRoot = Join-Path ([IO.Path]::GetTempPath()) ("cs-run-$PID-" + [guid]::NewGuid().ToString('N'))
-[IO.Directory]::CreateDirectory($script:runRoot) | Out-Null
-# La limpieza del final es una sentencia suelta: un error terminante fuera de un Assert la saltea
-# y el workspace queda filtrado para siempre. Este trap la garantiza en ese camino (`break`
-# re-lanza el error, así que el exit code no cambia). Sin esto los abortos filtraban su árbol para
-# siempre. No se anota cuántos: los conteos de esta suite dieron 4 (`1bf3318`, en su mensaje), 8
-# (`4ff2c9f`, en el código) y 9 (`4ff2c9f` en su mensaje, que `67f9585` después llevó al código), y
-# parte de esos huérfanos los habían creado las propias corridas de medición, no abortos reales. El
-# inventario de `e5e20d2` —62 rastros de al menos seis suites— es de TEMP entero, otra unidad. Sin un
-# número que signifique una sola cosa, la razón alcanza sin él.
-trap {
-  if ($script:runRoot -and (Test-Path -LiteralPath $script:runRoot)) {
-    Remove-Item -LiteralPath $script:runRoot -Recurse -Force -ErrorAction SilentlyContinue
-  }
-  break
-}
-# Huérfanos de corridas anteriores que abortaron antes de que existiera el trap: se barren POR
-# EDAD, nunca por glob incondicional. Un `cs-run-*` de hace más de un día no puede ser de una
-# corrida viva, y así la recolección no pisa a un reviewer paralelo — que es justo lo que hacía la
-# versión anterior.
-Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter "cs-run-*" -ErrorAction SilentlyContinue |
-  Where-Object { $_.FullName -ne $script:runRoot -and $_.CreationTime -lt (Get-Date).AddDays(-1) } |
-  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+# El patrón de la raíz por corrida nació acá y ahora vive en tests/lib/temp-workspace.ps1, que lo
+# comparten las ocho suites que crean temporales: la razón entera (raíz única + trap + recolección
+# por edad, y por qué las tres partes hacen falta) está documentada en ese archivo, y
+# tests/temp-hygiene.tests.ps1 verifica que ninguna suite lo esquive.
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "cs"
+trap { Remove-TestRunRoot $script:runRoot; break }
 function New-Proj([string]$suffix = "") {
-  $t = Join-Path $script:runRoot ("cs-test-" + [guid]::NewGuid().ToString('N') + $suffix)
-  [IO.Directory]::CreateDirectory($t) | Out-Null
-  return $t
+  return (New-TestWorkspace $script:runRoot ("cs-test" + $suffix))
 }
 function Invoke-Copy($proj) {
   & pwsh -NoProfile -File $scriptP -SkillDir $skillP -ProjectDir $proj | Out-Null
@@ -293,7 +272,7 @@ Assert ($hp -eq $hs) "copy-scaffold.ps1 espejado byte-idéntico (personal == sou
 Assert ($hp -eq $ha) "copy-scaffold.ps1 espejado byte-idéntico (personal == ai-project)"
 
 # Sin rastros de testeo (regla del repo): se borra SOLO lo de esta corrida, nunca el TEMP ajeno
-if (Test-Path -LiteralPath $script:runRoot) { Remove-Item -LiteralPath $script:runRoot -Recurse -Force -ErrorAction SilentlyContinue }
+Remove-TestRunRoot $script:runRoot
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

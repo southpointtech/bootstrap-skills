@@ -6,13 +6,15 @@ $repo  = Split-Path $PSScriptRoot -Parent
 $hookP = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/hooks/alignment-gate.ps1"
 $hookS = Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/hooks/alignment-gate.ps1"
 $script:failures = 0
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "ag"
+trap { Remove-TestRunRoot $script:runRoot; break }
 
 function Assert($cond, $msg) {
   if ($cond) { Write-Host "ok:   $msg" } else { Write-Host "FAIL: $msg"; $script:failures++ }
 }
 function New-Repo {
-  $t = Join-Path ([IO.Path]::GetTempPath()) ("ag-test-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $t | Out-Null
+  $t = New-TestWorkspace $script:runRoot "ag-test"
   git -C $t init -q -b master; git -C $t config user.email a@b.c; git -C $t config user.name a
   git -C $t commit --allow-empty -q -m base
   return $t
@@ -89,4 +91,5 @@ foreach ($s in @(
     Assert (($j.hooks.PostToolUse | ConvertTo-Json -Depth 8) -match 'review-loop-trigger') "settings.json conserva review-loop-trigger en PostToolUse: $s"
 }
 
+Remove-TestRunRoot $script:runRoot
 if ($script:failures -gt 0) { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 } else { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

@@ -37,6 +37,230 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - Si un run baseline corre `npm install`, borrar su `node_modules` antes de levantar el viewer (el escaneo recursivo se cuelga).
 - Borrar el workspace de evals al terminar (regla del repo).
 
+## Workspaces temporales de las suites (`tests/lib/temp-workspace.ps1`)
+
+Ninguna suite crea temporales por su cuenta: todas cuelgan de una raíz única por corrida que
+entrega el helper. `tests/temp-hygiene.tests.ps1` lo verifica y se pone rojo si alguna lo esquiva.
+
+Para una suite nueva, son tres líneas y una al final:
+
+```powershell
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "<prefijo>"
+trap { Remove-TestRunRoot $script:runRoot; break }
+# ... $t = New-TestWorkspace $script:runRoot "caso"   /   $p = New-TestTempPath $script:runRoot "cfg" ".json"
+Remove-TestRunRoot $script:runRoot
+```
+
+Lo que el lint exige del trap no es su grafía sino tres propiedades, verificadas por el AST: que
+sea **hijo directo del cuerpo del script** y el primero (uno dentro de una función sólo atrapa lo
+de esa función, uno metido en un `if`/`try`/loop no se dispara, y con dos traps sueltos corre el
+primero y su `break` relanza, así que uno vacío puesto antes deja al bueno muerto); que borre
+**`$script:runRoot`** desde una sentencia directa, como primer argumento posicional o como valor de
+`-Root`; y que **termine en `break`**, que es lo que relanza el error — con `continue` el trap se
+traga el aborto y la suite reporta `TODOS LOS TESTS PASARON` con exit 0. La limpieza final se verifica igual: por
+posición en el árbol, con `$script:runRoot` como argumento y fuera de todo `if`/`try`/`switch`/loop.
+
+El chequeo asume traps **sin tipo**, que es lo que usan las suites: con un `trap [TipoDeError]`
+primero, el que corre puede ser otro, y el lint lo reportaría en rojo.
+
+Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del lint **corre suites
+migradas de verdad** y cuenta lo que dejaron en la raíz de `%TEMP%`, filtrando por el PID del
+proceso hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios.
+
+Cubre **cinco de las ocho suites ejecutables**. El denominador es ocho y no nueve: nueve usan el
+helper, pero la novena es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio**
+—se llamaría a sí misma en recursión—, así que su exclusión es estructural, no económica.
+
+La elección de las cinco es por costo medido (2026-09-02, **una** corrida por suite): `apply-env`
+4,5 s, `export-shareable` 9,3, `gen-mcp-json` 9,5, `copy-scaffold` 19,9, `alignment-gate` 21,1 —
+contra `review-loop-docs-gate` 142,9, `review-loop-trigger` 258,2 y `review-marker` 258,8. Son
+**n=1 y dependen de la carga**: remedidas con otra sesión corriendo las mismas suites dieron hasta
+1,5×, y `copy-scaffold`/`alignment-gate` intercambian el orden. Los absolutos no se toman al pie de
+la letra; la decisión sí es robusta bajo las dos mediciones, porque entre los dos grupos hay un
+orden de magnitud. Las ocho suman 724 s y **tres son el 91 % del costo**: correr las ocho llevaría
+`temp-hygiene` por encima de los 10 minutos — que son el techo de la **tool** con la que se la
+corre, no un timeout configurado en el repo (acá no hay CI ni runner) — y una suite que no se corre
+no es una red. Las tres caras quedan cubiertas sólo por los chequeos estáticos, que es
+estrictamente menos.
+
+⚠️ Meter `export-shareable` en la parte E hace que correr `temp-hygiene` **escriba transitoriamente
+en el árbol del repo**: esa suite crea un `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo
+borra en un `finally` que no corre si el proceso muere antes. Queda declarado, y el residuo se
+verifica con un assert explícito después del foreach en vez de confiar en el `finally`.
+
+La parte E también mide el **camino no feliz**, sobre suites de juguete: una que falla (limpia y
+sale con `exit 1`) y una que aborta (`throw`, con el trap puesto). Las dos tienen que dejar cero
+rastros. Van con dos controles, y los dos hacen falta:
+
+- **Un control positivo**: la misma suite **sin** el trap, que tiene que filtrar.
+- **Una prueba de vida**: cada suite de juguete escribe una marca en cuanto creó su workspace, y se
+  verifica que exista. Sin ella el bloque tenía un agujero grande, medido: un control que difiere
+  del caso **sólo** en la línea del trap no puede detectar un defecto **en** esa línea. Con una
+  llave sin cerrar ahí, los dos casos con trap mueren en el *parse* — salen con 1, que es el exit
+  esperado, y dejan cero rastros, que es el conteo esperado — y los dos asserts pasaban en verde
+  sin que el trap se ejecutara nunca. El `ParserError` va a stderr, que ningún assert lee.
+
+El trap no puede vivir dentro del helper: un `trap` se aplica al bloque de script donde está
+escrito, así que uno declarado en el helper no cubre lo que pasa después en la suite que lo
+dot-sourcea.
+
+Por qué las tres partes hacen falta, y qué pasa si falta cada una:
+
+| parte | qué cubre | qué se filtra sin ella |
+|---|---|---|
+| raíz única por corrida | la salida normal | lo que un camino intermedio no alcanzó a borrar |
+| `trap` | el aborto por error terminante | **todo** el árbol, cada vez que un error saltea la limpieza final |
+| recolección **por edad** | lo que el trap no alcanza | lo que dejan un `exit` temprano, un Ctrl+C, un proceso matado y un borrado que falló |
+
+La tercera **no es opcional**: el `trap` sólo corre en errores terminantes, así que un `exit`
+temprano, un Ctrl+C o un `pwsh` matado dejan la raíz en disco, y la recolección por edad es lo
+único que la junta después. Y su filtro de fecha es igual de obligatorio: sin él es un glob
+incondicional que borra los fixtures **en uso** de las corridas concurrentes, que en este repo son
+la norma porque el review-loop lanza reviewers en paralelo. `export-shareable.tests.ps1` lo hacía.
+
+Usa `LastWriteTime`, no `CreationTime`. Medido: crear **o borrar** una entrada **directa** del run
+root actualiza su `LastWriteTime`; escribir más adentro, no. O sea que `LastWriteTime` marca la
+última vez que la corrida creó un workspace y `CreationTime` el momento en que arrancó. Bajo las
+operaciones que un run root sufre de verdad la primera nunca queda más vieja que la segunda (sólo
+la atrasaría un seteo explícito hacia atrás, que fuera de los fixtures no se hace), así que
+protege igual o mejor a una corrida larga. **No es autorrefresco**: una corrida que ya creó todos
+sus workspaces envejece igual.
+
+Los tres chequeos estructurales del lint van por el **AST**, no por tokens ni por regex: "el trap
+cuelga del cuerpo del script", "la limpieza de la raíz está al terminar y no dentro de un `if`" y
+"esto es un dot-source y no una mención" son propiedades de posición y de scope. Medido, la versión
+por tokens aceptaba un `trap` metido en una función (o sea muerto), un dot-source cuyo path venía
+en el comentario del final de la línea, y el borrado de la limpieza final en las suites que tenían
+una tercera invocación. Es el mismo salto que ya se había hecho de grep a tokens, un escalón arriba.
+
+### La importación del helper es un conjunto CERRADO
+
+El chequeo del dot-source **no busca algo que se parezca** a `lib/temp-workspace.ps1`: admite un
+conjunto cerrado de formas y rechaza todo lo demás.
+
+1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las ocho suites migradas.
+   El separador `/` también se acepta: es el mismo archivo.
+2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo `temp-hygiene`, que
+   necesita el path después. La variable tiene que asignarse **una sola vez fuera de toda función**,
+   sin condición y antes del dot-source. "Fuera de toda función" y no "en el cuerpo del script":
+   una asignación dentro de un `ForEach-Object {}` o un `Where-Object {}` **también cuenta**, porque
+   esos scriptblocks corren en el scope del llamador y pisan la variable del script (medido). Sólo
+   se ignoran las asignaciones dentro de una `function`. Un `& { $lib = … }` **sí** abre scope
+   propio y no pisa nada, pero acá cuenta igual, a propósito: sobre-aproximar hacia el rojo sobre
+   una grafía que nadie escribe es el lado correcto del error.
+
+**Todos** los dot-sources del archivo tienen que ser canónicos, no "al menos uno", y ninguno puede
+estar dentro de un `if`, `switch`, `try`, `trap`, loop, una función, **un scriptblock cualquiera**
+(`& { … }`, `ForEach-Object { … }`) ni a la derecha de un `&&`/`||`. El dot-source va en el cuerpo
+del script, suelto.
+
+El motivo es histórico: todo detector *abierto* de este archivo fue evadido dentro de un turno
+(grep → tokens → AST). Medidas contra el detector abierto el 2026-09-02, estas **cinco** pasaban en
+verde: un stub en `tests/fake/lib/temp-workspace.ps1` (la subcadena no estaba anclada), un
+dot-source canónico seguido de otro a un stub, el dot-source metido en un `if`, la variable
+reasignada a un stub, y la variable asignada a un literal ajeno.
+
+⚠️ **El conjunto cerrado NO elimina la evasión: la achica.** Una versión anterior de esta sección
+afirmaba que "no hay grafía nueva que enumerar" y es falso — un review encontró **seis grafías
+nuevas en un solo turno**, todas verificadas ejecutando el predicado. Están en la lista de abajo.
+La razón es de fondo: acá se aproxima **estáticamente** una pregunta de identidad ("¿lo que quedó en
+scope es el helper de verdad?"), y esa pregunta sólo se responde exacto en runtime.
+
+**Costo:** si cambiás cómo se importa el helper, el lint da rojo y hay que agregar la forma nueva a
+mano en `Test-ImportaElHelper`. Es el rojo que se quiere. Y ojo con el alcance: la regla es "**ningún**
+dot-source que no sea el canónico", así que si sumás un segundo helper bajo `tests/lib/`, cada suite
+que lo dot-sourcee da rojo — el chequeo es por archivo, así que sólo caen las que lo usen, no todas.
+Mover `lib/` de lugar sí rompe las nueve a la vez, porque cambia el path canónico para todas.
+
+El lint recorre **todos** los `.ps1`, `.psm1` y `.psd1` bajo `tests/`, recursivo y **con `-Force`**.
+Antes miraba la raíz más `tests/lib/**`, y ya existía un directorio afuera de eso
+(`tests/fixtures/`) donde un `.ps1` con una fuga era invisible; sin `-Force` tampoco bajaba a
+directorios ocultos, y sin `.psm1` un módulo con la fuga adentro no se miraba. Ningún archivo fuera
+del helper puede **definir** `New-TestRunRoot`, `Remove-TestRunRoot`, `New-TestWorkspace` ni
+`New-TestTempPath`: redefinirlas después de importar es la forma de filtrar sin escribir ninguna de
+las APIs vigiladas.
+
+### El borde declarado (medido, no imaginado)
+
+Lo que el lint **no** ve por el lado de `%TEMP%`: `[Environment]::GetEnvironmentVariable('TEMP')`,
+`Get-Item Env:TEMP`, un path armado desde `$env:LOCALAPPDATA`, y cualquier cosa dentro de un string
+sin interpolar — incluido el código que una suite le pasa a un `pwsh` hijo.
+
+Lo que **no** ve por el lado de la identidad del helper. Cada línea se ejecutó contra los predicados
+el 2026-09-02. Una versión anterior de esta lista nombraba `& { function ... }` como evasión y **no
+lo es** (el scriptblock corre en un scope hijo y la redefinición muere con él, verificado), mientras
+omitía las seis que sí lo son — un borde mal declarado manda a buscar donde no hay:
+
+| grafía | por qué pasa |
+|---|---|
+| `foreach ($lib in @('C:\stub.ps1')) { }` | deja la variable con el último valor y no es un `AssignmentStatementAst` |
+| `Set-Variable -Name lib -Value ...` | tampoco es una asignación en el AST |
+| `$script:lib = ...` | en el cuerpo del script **es** `$lib`, pero su `UserPath` es `script:lib` |
+| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las ocho |
+| `function global:New-TestRunRoot { }` | el `Name` del AST guarda el prefijo de scope |
+| `Import-Module <stub.psm1>` desde fuera de `tests/` | no es un dot-source |
+
+Más `Set-Item function:` y `New-Item -Path function:`, que no son `FunctionDefinitionAst`.
+
+No se persiguen una por una a propósito: perseguir grafías es el juego que este archivo ya perdió
+cinco veces. El **chequeo de identidad en runtime** de la **parte F** (2026-09-03) corre la suite en
+un runspace anidado y compara `(Get-Command X).ScriptBlock.File` contra el archivo del helper. Es
+inmune a la **forma** de la evasión porque mide la identidad real en vez de aproximarla: una
+redefinición deja el `.File` en otro archivo (o en null), y un import redirigido carga las funciones
+desde otro archivo. Así que caza cualquiera de estas grafías **que esté presente** en una suite que
+el probe corre.
+
+**El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
+que la parte E, por el mismo techo de 10 min; las tres caras miden 142,9 / 258,2 / 258,8 s, §2026-09-02
+arriba). Las **tres suites caras** y `temp-hygiene` misma siguen sólo con el chequeo estático de
+arriba, así que la tabla sigue describiendo su borde real sobre esas cuatro.
+
+Qué EJECUTA F2 como control y qué cubre por deducción, sin sobreafirmar:
+
+- **Ejecutadas con control propio** (una suite sintética por grafía, cada una afirma por función):
+  `function global:`, `function script:`, `function local:`, `Set-Item function:`,
+  `New-Item -Path function: -Force` (sin `-Force` no pisa un item existente, y hay un control positivo
+  que lo confirma), `Import-Module` de un `.psm1`, un **scriptblock fileless** (ejercita la rama del
+  `.File` null), un **import fallido** (dot-source de un inexistente: las cuatro funciones quedan sin
+  definir → la rama null las marca; es también lo que producen `$PSScriptRoot = 'C:\fake'` y un **parse
+  error**, todos NO terminantes desde `Invoke`, medido), y un **error terminante** (`throw`) que SÍ
+  propaga. `Test-IdentidadEnRuntime` no atrapa la excepción a propósito: un `throw` o un error bajo
+  `-ErrorAction Stop` aborta la corrida con su diagnóstico real en vez de relabelarse como "identidad
+  rota" (un control lo verifica exigiendo que la llamada tire).
+- **Cubierta por deducción** (un solo control-proxy, declarado): la familia de redirección del import
+  (`foreach`/`Set-Variable`/`$script:lib`) vía una suite que dot-sourcea un stub — se ejercita el
+  resultado observable (cargar desde otro archivo), no cada grafía literal.
+- **Controles positivos**: una suite limpia que no marca ninguna (sin la cual un predicado que marcara
+  siempre todo pasaría), y una `New-Item` sin `-Force` que tampoco marca (no logró redefinir).
+- **F3** corre además las cinco suites reales para confirmar que **ninguna reemplaza el helper hoy**
+  (no inyecta grafías: es la red contra una edición futura), con un piso propio que exige que las
+  cinco hayan corrido.
+
+**Verificación de aceptación** (2026-09-01, tras migrar las 8 suites): correr las 15 suites y contar
+**archivos y directorios** en la raíz de `%TEMP%` antes y después. Delta de rastros de suite = **0**.
+Contar solo directorios no sirve: `apply-env` deja archivos (`wscfg-*.json`, 34 medidos), y ese fue
+justamente el error que hizo fallar el primero de los tres intentos manuales de arreglar esto.
+
+Dos precisiones sobre esa medición, para quien la repita y crea que la rompió:
+
+- **Hay una ventana de borrado pendiente.** En Windows un `Remove-Item` sobre un árbol cuyo handle
+  todavía sostiene otro proceso queda pendiente: medido, `review-loop-docs-gate.tests.ps1` dejaba su
+  raíz en disco en 3 de 3 corridas verdes porque el proceso de fondo de git seguía con el `.git` del
+  fixture abierto, y el árbol desaparecía segundos después. `Remove-TestRunRoot` reintenta una vez y
+  avisa con un `Write-Warning` si aun así queda; contado inmediatamente después de esa suite, el
+  delta puede dar +1 sin que nada esté roto.
+- **Casi ningún rastro LEGACY se recolecta solo.** El colector busca `<prefijo>-run-*` y sólo
+  directorios, así que quedan fuera de su alcance: `mcp-test-*`, `export-test-<guid>`, `ag-test-*`,
+  `rlt-test-*`, `rlt-[test]-*`, `rlt-ms-*`, `rlg-test-*`, `rm-test-*`, `rm-nogit-*`, `rm-clone-*`,
+  `rm-push-*`, y los **archivos** `wscfg-*.json`. La excepción es `cs-run-*`, que `copy-scaffold`
+  ya usaba antes de este trabajo y el colector sí alcanza. Se barrieron a mano una vez en esta
+  máquina (112 el 2026-09-01); en otro clon siguen ahí. **No agregar un glob incondicional para
+  "arreglarlo"** — es el bug que este trabajo sacó. Barrelos a mano si molestan.
+- **Fuera del alcance del lint**, y preexistente: `.claude/hooks/alignment-gate.ps1` escribe su
+  `alignment-gate-state.json` en la raíz de `%TEMP%` cuando no hay repo git. No es una suite, así
+  que ni el lint lo mira ni el colector lo alcanza.
+
 ## El golden del Step 0b
 
 La mecánica del modo adopción está congelada en `tests/fixtures/step0b.golden.md`, y `mirror.tests.ps1`
@@ -198,7 +422,7 @@ A4 agregó un pase de coherencia: un foco **único de solo lectura** que mira el
 - **Invocación** — se dispara con `/slice-review --coherence`; Step 1 rutea `--coherence` a la sección del pase, no como un rango de diff.
 - **No saltea steps reusados** — el ruteo de `--coherence` no manda a saltear los steps que el pase reusa (Step 3 contexto compartido, Step 5 confianza, Step 6 reporte): un `skip Steps 1-5` haría que un agente literal saltee la confianza (AC6).
 - **Base irresoluble** — en exit 2 la base es justo lo irresoluble: la frase `do not reach for` vive DENTRO de la sección del pase, no solo en el Step 1.
-- **El loop lo invoca al cierre** — verificado en `/review-loop` (command + SKILL, 4 copias), sección `## At close: the coherence pass`: invoca `/slice-review --coherence` en **ambos** cierres (limpio o por el techo de 5 turnos) y lo saltea solo cuando ningún reviewer corrió (rango vacío desde el primer turno).
+- **El loop lo invoca al cierre** — verificado en `/review-loop` (command + SKILL, 4 copias), sección `## At close: the coherence pass`: invoca `/slice-review --coherence` en **ambos** cierres (limpio o por el techo de turnos) y lo saltea solo cuando ningún reviewer corrió (rango vacío desde el primer turno).
 
 ## Testeo del anclaje del pase de coherencia (A4b)
 

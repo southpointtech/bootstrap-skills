@@ -29,12 +29,14 @@ if (-not (Test-Path -LiteralPath $tool)) {
 }
 # El módulo M1, para poder comparar contra el hash canónico sin reimplementarlo acá: una segunda
 # implementación del hash en el test comprobaría que las dos coinciden entre sí, no que sellan bien.
-. (Join-Path $repo "tools/normalized-hash.ps1")
+. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
 
-# Directorio propio. Se limpia SOLO el directorio propio, sin barrer `$env:TEMP` por prefijo: barrer
-# por glob es lo que hacía que dos suites concurrentes se borraran los workspaces entre sí.
-$script:tmp = Join-Path ([IO.Path]::GetTempPath()) ("sl-run-$PID-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $script:tmp -Force | Out-Null
+# Directorio propio, con el helper común de raíz por corrida (tests/lib/temp-workspace.ps1):
+# recolecta por edad, nunca por glob, y el trap la borra si la suite aborta fuera del try de abajo.
+. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+$script:runRoot = New-TestRunRoot "sl"
+trap { Remove-TestRunRoot $script:runRoot; break }
+$script:tmp = $script:runRoot
 
 # Corre la herramienta como proceso aparte para observar EL EXIT CODE, que es la interfaz que usa la
 # suite. Dot-sourcearla la mediría por dentro y dejaría pasar un exit code equivocado.
@@ -475,8 +477,9 @@ try {
     "y verifica TODAS las copias que hay en el repo ($copias), no solo la de la raiz (salida: $($rReal.Out))"
 
 } finally {
-  Remove-Item -LiteralPath $script:tmp -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-TestRunRoot $script:runRoot
 }
+Remove-TestRunRoot $script:runRoot
 
 Write-Host ""
 if ($script:checks -ne $ExpectedChecks) {

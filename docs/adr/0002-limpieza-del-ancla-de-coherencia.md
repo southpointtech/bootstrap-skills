@@ -13,7 +13,7 @@ A4b lo persiste en la clave `slice-open:<branch>`: el verbo `-Action open` la es
 turno del loop (el marcador tal como quedó al cerrar el slice anterior), y `-Action slice-base` la lee.
 
 El review-loop de A4b destapó un hueco (hallazgo B, Medium, confianza 62): `open` escribía
-`slice-open` **incondicionalmente** y **ningún verbo la borraba**. Si el loop agota el cap de 5 turnos
+`slice-open` **incondicionalmente** y **ningún verbo la borraba**. Si el loop agota el cap de 5 turnos (hoy 2; ver ADR-0009)
 **sin cerrar limpio** y alguien **re-corre `/review-loop` sobre el mismo slice sin cerrar**, el `open`
 de la re-corrida re-snapshotea el marcador **ya avanzado** por la corrida anterior → `slice-open`
 apunta más adelante que el arranque real del slice → la coherencia ancla más tarde y lee **menos** que
@@ -44,7 +44,7 @@ Se limpia el ancla con un verbo nuevo, y se hace `open` idempotente dentro de un
    under-scope.
 3. **`/review-loop` llama `-Action close` únicamente en el cierre LIMPIO** (cero hallazgos
    medium/high), **después** del pase de coherencia — que lee `slice-open` vía `slice-base` —, y
-   **nunca en el cierre por cap**.
+   **nunca en el cierre por cap**. *(ADR-0009 lo amplía: también limpia en el cierre por prosa, que es un cierre real del slice.)*
 
 El punto no obvio es el 3: **borrar solo en limpio, no en cap.** Un cierre por cap significa "el slice
 no terminó, quizá se re-corra"; conservar `slice-open` ahí hace que la re-corrida (con `open`
@@ -104,4 +104,4 @@ aceptado, porque el modo de falla es under-scope (revisar de menos), el único i
 Usa los términos del glosario de `CONTEXT.md`: **slice**, **cierre de slice**, **corrida de review**,
 **turno**, **marcador de revisión**, **pase de coherencia**, **delta sin revisar**. Suma un matiz al
 **cierre de slice**: el loop distingue **cierre limpio** (cero hallazgos medium/high) de **cierre por
-cap** (5 turnos), y solo el primero limpia el ancla `slice-open`.
+cap** (5 turnos; hoy 2, ver ADR-0009), y solo el primero limpia el ancla `slice-open`.
