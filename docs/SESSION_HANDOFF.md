@@ -1,3 +1,85 @@
+# Session Handoff — 2026-09-15 (noche) — **Rollout del scaffold `2026-09-11` a los repos ELEGIDOS: 5 integrados, 2 esperando (sesiones activas); los otros 11 con nota en memoria**
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, `main`: este handoff + el de la tarde (`0c805d7`),
+  ver abajo si quedó pusheado. Sin cambios de código hoy. Untracked: residuo de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`) — ajeno, no tocar.
+- **Decisión del usuario sobre el alcance**: upgrade SOLO a Forecasting App (PR #122, sesión anterior), Profitability,
+  SouthPoint-Hub (**completo**), Call Center Stage One, Administracion May, Gestor de Obras, claude-analytics.
+  El resto **no se upgradea ahora**: se les dejó una nota en su memoria de proyecto para que la próxima sesión ahí
+  sugiera `/upgrade-bootstrap`. Integración elegida: **fast-forward local, sin push**.
+
+## 1. Resultado por repo
+
+| Repo | Estado | Commit / rama |
+|---|---|---|
+| Forecasting App | ⏸️ PR #122 abierto, lo mergea el usuario | `b7c45fe` (sesión de la tarde) |
+| SouthPoint-Hub | ✅ ff sobre `feat/zoho-project-migration` (sin push; esa rama ya iba 21 adelante) | `a1407c7` |
+| Call Center Stage One | ✅ ff sobre `feat/bulk-date-entered-filter` | `797230e` |
+| Gestor de Obras | ✅ ff sobre `main` | `ca0b2e8` |
+| claude-analytics | ✅ ff de `master` por ref (checkout sigue en `fix/migration-billable`) | `65b1788` |
+| **Profitability App** | ⏸️ **esperando**: `.git/index.lock` de una sesión abierta ahí (confirmado por el usuario) | `80688f2` en `chore/upgrade-bootstrap-2026-09-15`, worktree `C:\Repos\SOUTHPOINTLABS\_worktrees\profitability\upgrade-bootstrap`, sobre `docs/reunion-05-08-corte-en-gross-profit` |
+| **Administracion May** | ⏸️ **esperando**: otra sesión mergeó slice 17a a `main` a las 18:21; el usuario decidió esperar | `32a09d1` (rebaseado sobre `7d5c63f`), worktree `C:\Repos\PERSONAL\_worktrees\administracion-may\upgrade-bootstrap` |
+
+Los dos en espera tienen memoria de proyecto `upgrade-bootstrap-pendiente-de-integrar.md` con los comandos exactos
+(rebase si la base avanzó → `merge --ff-only` → `worktree remove` → `branch -d` → borrar la memoria). NO borrar el
+`index.lock` de Profitability.
+
+**Con nota `bootstrap-desactualizado.md`** (en `~/.claude/projects/<proyecto>/memory/`, + línea en `MEMORY.md`):
+Southpoint App Migration, Survey Clients, showcase claudio, Showcase Garra, PROJECT MANAGEMENT, Outsourcing Development
+(`C:\Repos\Outsourcing Development`, sí existe), Finanzas, Mate OS, MyTube, Personal Catalog, Santi demo. La nota
+incluye las salvedades de cada uno (runbook de Survey, `settings.json` de Outsourcing, etc.).
+
+## 2. Qué se aplicó (procedimiento del handoff de la tarde, §1) y decisiones
+
+- Delta canónico real desde 08-28: hook `review-loop-trigger.ps1`, `review-marker.ps1`, `review-loop`/`slice-review`/`tdd`
+  (SKILL + command), `AI_DEVELOPMENT_WORKFLOW.md`, y **una línea** del `CLAUDE.md` (bullet del review-loop).
+  `.gitignore`, `domain.md`, `QA_CHECKLIST.md`, `settings.json` NO cambiaron en el canónico → customizaciones intactas.
+- Los *customized* `.agents/skills/{review-loop,slice-review}/SKILL.md` y `.claude/commands/slice-review.md` eran el
+  canónico `f3ed1fe` sin editar (salvo EOL) → se pisaron. `CLAUDE.md` customizado → reemplazo exacto del bullet viejo
+  (`bf2ff41`) por el nuevo.
+- **Administracion May / Gestor**: el parche `PATCH:prose-churn` (2026-09-06) se **revirtió** como indica su propio doc.
+  En Administracion May: `review-loop.md` = canónico; `slice-review.md` = canónico + sección propia **"Parallel reviewers
+  share one machine"** reinjertada (commit `a42c003`, no era del parche); bullet del parche quitado del `CLAUDE.md`;
+  `docs/agents/parche-review-loop-prosa.md` marcado **REVERTIDO** (no borrado: lo citan bitácoras). En Gestor el parche
+  estaba **sin commitear** en `main`: se descartó con respaldo en el scratchpad de la sesión (`backup-gestor/`, efímero).
+  ⚠️ Se perdió la regla **"Score the FIX"** (3 preguntas del confidence pass): el canónico no la tiene.
+- **SouthPoint-Hub (completo)**: 18 de los 19 *outdated* del checkout principal eran solo EOL (en worktree fresco no
+  aparecían). Entró el ciclo de review + `docs/agents/issue-tracker.md` (traducción EN) + hook canónico con el `$govern`
+  local (`docs/ONBOARDING-AGENT.md`) reinjertado + bullet del `CLAUDE.md` **adaptado a mano en español** (cap 2 turnos,
+  `Review-Rigor: light`, prosa Low). `merge-settings`: nada que hacer. **Manifest resellado a `2026-09-11+441e753`**.
+  Customized intencionales: `handoff.md`, hook, `settings.json`, `.gitignore`, `CLAUDE.md`.
+- **Profitability y Call Center**: el scaffold vive en la feature branch, no en la base (`master` de Profitability no
+  tiene scaffold; `main` de Call Center está en `06-14`) → upgrade apilado sobre la feature branch. En Call Center
+  `.claude/settings.json` está gitignoreado (token DOMO); el checkout real ya tiene los dos hooks.
+
+## 3. Verificación corrida
+
+Por repo (en el worktree, antes de commitear): `reseal-manifest.ps1` → `compare-scaffold.ps1` = 0 missing / 0 outdated /
+0 orphan (salvo `settings.json` gitignoreado en Call Center); parse AST de `review-loop-trigger.ps1`, `review-marker.ps1`,
+`alignment-gate.ps1` OK; `review-marker.ps1 -Action range` exit 0. Hub: `review-loop-trigger.probes.ps1` **TODAS OK**
+antes (powershell 5.1) y después (pwsh). No se corrieron suites de tests de los proyectos (solo archivos de scaffold).
+
+## 4. Gotchas nuevos (también en memoria `forecasting-app-mitigacion-interina-review.md`)
+
+- `git -C <repo> worktree add <ruta relativa>` resuelve la ruta **desde el repo** → anida el worktree adentro. Rutas absolutas.
+- `compare-scaffold.ps1` emite `customized` como objetos `{file, threeWay}`, no strings.
+- El heredoc de la Bash tool se come backslashes en scripts Python (`\n`, `\.`) → escribir el script con Write.
+- El inventario sale de enumerar `.bootstrap-manifest.json` bajo `C:\Repos` (maxdepth 4), no de la memoria:
+  eran 17 candidatos, no 13 (Administracion May y Gestor de Obras nacieron el 09-01; Outsourcing existe en `C:\Repos\`).
+
+## Pendientes, en orden
+
+1. **Usuario**: mergear PR #122 de forecasting-app; luego `git worktree remove ../_worktrees/forecasting/upgrade-bootstrap`
+   y `git branch -D chore/upgrade-bootstrap-2026-09-15` desde `C:\Repos\SOUTHPOINTLABS\Forecasting App`.
+2. **Cuando terminen sus sesiones**: integrar Profitability y Administracion May (§1; las memorias de proyecto lo sugieren).
+3. Evaluar subir **"Score the FIX"** al scaffold (texto en el git de Administracion May: `git show e9a7f3d:.claude/commands/slice-review.md`,
+   bloque `PATCH:prose-churn` del Step 5). Es cambio de mecánica → las 3 skills espejadas + review-loop.
+4. v2 (§5 del handoff de 2026-09-13/15): Low de TESTING.md/temp-hygiene, `Status:` de issues, limpiar ancla `slice-open` vieja.
+
+---
+
 # Session Handoff — 2026-09-15 (tarde) — **Rollout del scaffold: Forecasting App hecho (PR #122 abierto, SIN mergear)** + fix del hook `--base` ajeno **commiteado, revisado y REVERTIDO** por decisión del usuario.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
