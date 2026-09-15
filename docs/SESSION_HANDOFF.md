@@ -1,3 +1,77 @@
+# Session Handoff — 2026-09-15 (tarde) — **Rollout del scaffold: Forecasting App hecho (PR #122 abierto, SIN mergear)** + fix del hook `--base` ajeno **commiteado, revisado y REVERTIDO** por decisión del usuario.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` = `origin/main` = `2e2e763` + este commit de handoff
+  (sin pushear). Untracked: residuo de Codex (ajeno, no tocar). La rama `fix/hook-base-ajena` fue BORRADA
+  (commit `166239f` solo en el reflog, no recuperar: ver §2).
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` (`feat/bootstrap-v2`, `3aef799`): sin tocar hoy.
+- **Forecasting App**: PR https://github.com/southpointtech/forecasting-app/pull/122 **OPEN**, `CLEAN`/`MERGEABLE`,
+  sin checks. Rama `chore/upgrade-bootstrap-2026-09-15` (commit `b7c45fe`, desde `origin/master` `034eb15`), pusheada.
+  Worktree local `C:\Repos\SOUTHPOINTLABS\_worktrees\forecasting\upgrade-bootstrap` **sigue existiendo**.
+  El checkout principal de Forecasting está en `fix/ag-01-ag-02-pairing` (11 commits sin mergear + PDFs del
+  cliente sin trackear): NO tocarlo.
+
+## 1. Rollout del scaffold (paso "upgrade-bootstrap en los 14 repos")
+
+Procedimiento usado en Forecasting App (repetible para los 13 restantes):
+
+1. Worktree/rama desde la base remota (en Forecasting: `_worktrees/forecasting/<nombre>`, patrón existente).
+   `git fetch` de repos de southpointtech exige `gh auth switch -h github.com -u southpointtech` (con
+   MartinDele703 da "Repository not found"); volver a MartinDele703 después.
+2. `pwsh -File ~/.claude/skills/upgrade-bootstrap/scripts/compare-scaffold.ps1 -ProjectDir <p> -CanonicalScaffold ~/.claude/skills/<generatedFrom>/assets/scaffold`.
+3. **Los "customized" hay que desempatarlos por hash**: la `version` del manifest (`2026-08-28+0cf064e`) NO es un
+   commit (es hash del conjunto). Buscar la base de cada archivo recorriendo `git log --all -- skills/<skill>/assets/scaffold/<f>`
+   en bootstrap-skills y comparando SHA256 (crudo, LF y CRLF) con el hash del manifest del proyecto. En Forecasting,
+   3 "customized" (`.agents/skills/review-loop/SKILL.md`, `.agents/skills/slice-review/SKILL.md`,
+   `.claude/commands/slice-review.md`) eran idénticos a su base `f3ed1fe` salvo EOL ⇒ se pisaron.
+4. `settings.json`: comparar como JSON (en Forecasting solo cambiaba el orden de claves ⇒ no se tocó).
+   `.gitignore`: el proyecto solo agregó reglas ⇒ se conserva. `CLAUDE.md`: merge asistido del bullet del
+   review-loop únicamente (preservando CRLF y lo propio del proyecto).
+5. `reseal-manifest.ps1`, re-comparar (esperado: 0 missing/outdated/orphan; customized solo los intencionales),
+   parse-check de `review-loop-trigger.ps1` y `review-marker.ps1`, `review-marker -Action range` exit 0.
+6. Commit sin `Slice-Close:` (copia de archivos ya revisados en bootstrap-skills; <400 líneas), identidad del repo
+   (en Forecasting `martodele703 <mdeleon@agtium.com>`), push + `gh pr create` con southpointtech.
+
+Resultado Forecasting: scaffold `2026-08-28+0cf064e` → `2026-09-11+441e753`, 11 archivos (+248/−56).
+
+**Merge del #122 BLOQUEADO por el clasificador de auto mode** ("Merge Without Review"). El usuario lo mergea a
+mano (o agrega regla de permiso). Después: `git worktree remove ../_worktrees/forecasting/upgrade-bootstrap` y
+`git branch -D chore/upgrade-bootstrap-2026-09-15` desde `C:\Repos\SOUTHPOINTLABS\Forecasting App`, y borrar la
+rama remota si GitHub no lo hizo.
+
+## 2. Fix del hook `review-loop-trigger` por `--base` ajeno — REVERTIDO (decisión del usuario)
+
+- Síntoma: `gh pr create --base master` corrido en forecasting-app disparó el hook de bootstrap-skills (sesión en
+  `main`): el hook toma el `--base` del comando sin validar y la guarda "rama == base" comparó `main` vs `master`.
+- Se implementó TDD (1 RED + 2 controles, mutantes muertos, 15 suites verdes) y se corrió el review-loop turno 1
+  (standard, 7 revisores). El foco de **historia** mostró que reintroduce la deducción de "otro repo" que el usuario
+  borró el 2026-08-14 (costo aceptado: disparo de más en push **y PR**, `docs/TESTING.md:477`); además abría un
+  falso negativo (PR real desde la base hacia rama no fetcheada) y no cubría bases resueltas por el marcador (SHA).
+- **Decisión: revertir y mantener el costo aceptado.** No hubo commit de revert (rama nunca pusheada): se borró.
+  Loop detenido en turno 1 sin confidence pass ni coherencia (sin objeto tras la decisión). Marcador de esa rama
+  quedó en `166239f` en `.git/review-loop-state.json` (inofensivo).
+- **Regla para la próxima**: ante un disparo de más del hook, primero verificar si es el costo aceptado
+  (`review-marker -Action range` devuelve vacío/HEAD en la base) antes de proponer arreglarlo. Memoria actualizada:
+  `parseo-de-bash-con-regex-es-un-pozo.md`.
+
+## 3. Verificación corrida hoy
+
+- Bootstrap Skills (sobre el fix, ya revertido): 15 suites exit 0 tras parchar la 4ª copia del hook. Tras el revert
+  `main` no cambió, así que el estado verificado de `main` es el de `2e2e763`.
+- Forecasting (worktree): compare-scaffold post-upgrade 0/0/0, 48 uptodate; parse OK; marker exit 0.
+
+## Pendientes, en orden
+
+1. **Usuario**: mergear PR #122 de forecasting-app; luego limpiar worktree + rama (§1).
+2. **Próxima terminal**: rollout a los 13 repos restantes con el procedimiento de §1 — el usuario anunció
+   **"un par de ajustes"** al plan: preguntarlos ANTES de arrancar. Inventario: memoria
+   `forecasting-app-mitigacion-interina-review.md` (cruzar manifest + hash del hook + gate).
+3. Pushear este handoff (`gh auth switch` a southpointtech, ver handoff anterior §6).
+4. v2 (§5 del handoff anterior): Low de TESTING.md/temp-hygiene, `Status:` de issues, limpiar ancla `slice-open` vieja.
+
+---
+
 # Session Handoff — 2026-09-15 — **`main` MERGEADO a `bootstrap-v2`** (`fa51dc4`) + review-loop cerrado POR CAP en 2 turnos con pase de coherencia; `main` PUSHEADO. Decisiones 1 y 2 del handoff anterior tomadas por el usuario.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
