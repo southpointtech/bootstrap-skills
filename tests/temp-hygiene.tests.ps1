@@ -946,6 +946,7 @@ $suitesConHelperEsperadas = @(
   'review-loop-docs-gate.tests.ps1'
   'review-loop-trigger.tests.ps1'
   'review-marker.tests.ps1'
+  'run-all.tests.ps1'
   'skills-lock.tests.ps1'
   'slice-review.tests.ps1'
   'temp-hygiene.tests.ps1'

@@ -37,6 +37,28 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - Si un run baseline corre `npm install`, borrar su `node_modules` antes de levantar el viewer (el escaneo recursivo se cuelga).
 - Borrar el workspace de evals al terminar (regla del repo).
 
+## Correr la suite del repo (`tests/run-all.ps1`)
+
+```powershell
+pwsh -NoProfile -File tests/run-all.ps1                    # todas, de a 4 en paralelo
+pwsh -NoProfile -File tests/run-all.ps1 -ThrottleLimit 6   # más carriles
+```
+
+Corre cada `tests/*.tests.ps1` en su propio `pwsh`, imprime un renglón `PASS`/`FAIL` por archivo a
+medida que terminan y, de cada suite roja, su salida completa (stdout y stderr) entre
+`===== <archivo> (exit N) =====` y `===== fin <archivo> =====`. Sale con 1 si alguna suite sale con
+exit distinto de cero, si no encuentra ninguna suite, o si el árbol de trabajo no quedó como estaba.
+
+El árbol se **compara**, no se exige limpio: se toma `git status` (con los untracked) y el hash de
+cada archivo que figura ahí antes y después, así que un residuo ajeno que nadie toca no lo pone
+rojo, y un archivo ya sucio que una suite vuelve a escribir sí. Lo ignorado por `.gitignore` no se
+mira. No hay timeout por suite.
+
+El default es 4 carriles por el techo de concurrencia medido en este repo (4-6; más ancho no
+acelera). Una suite individual se sigue corriendo sola con `pwsh -NoProfile -File tests/<suite>.tests.ps1`.
+El runner se prueba con suites de juguete en `tests/run-all.tests.ps1`; los mutantes que esa suite
+mata están en `tests/mutantes/run-all.py`.
+
 ## Workspaces temporales de las suites (`tests/lib/temp-workspace.ps1`)
 
 Ninguna suite crea temporales por su cuenta: todas cuelgan de una raíz única por corrida que
@@ -68,10 +90,10 @@ Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del l
 migradas de verdad** y cuenta lo que dejaron en la raíz de `%TEMP%`, filtrando por el PID del
 proceso hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios.
 
-Cubre **cinco de las once suites ejecutables**. Doce usan el helper (contadas el 2026-09-16), pero
+Cubre **cinco de las doce suites ejecutables**. Trece usan el helper (contadas el 2026-09-16, con `run-all`), pero
 una es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio** —se llamaría a sí
 misma en recursión—, así que su exclusión es estructural, no económica. Cuando se eligieron las
-cinco eran nueve y ocho ejecutables; `normalized-hash`, `skills-lock` y `slice-review` llegaron
+cinco eran nueve y ocho ejecutables; `normalized-hash`, `run-all`, `skills-lock` y `slice-review` llegaron
 después y no están en la medición de abajo.
 
 La elección de las cinco es por costo medido (2026-09-02, **una** corrida por suite): `apply-env`
@@ -82,7 +104,7 @@ contra `review-loop-docs-gate` 142,9, `review-loop-trigger` 258,2 y `review-mark
 la letra; la decisión sí es robusta bajo las dos mediciones, porque entre los dos grupos hay un
 orden de magnitud. Las ocho suman 724 s y **tres son el 91 % del costo**: correr las ocho llevaría
 `temp-hygiene` por encima de los 10 minutos — que son el techo de la **tool** con la que se la
-corre, no un timeout configurado en el repo (acá no hay CI ni runner) — y una suite que no se corre
+corre, no un timeout configurado en el repo (acá no hay CI, y `tests/run-all.ps1` no pone timeout) — y una suite que no se corre
 no es una red. Las tres caras quedan cubiertas sólo por los chequeos estáticos, que es
 estrictamente menos.
 
