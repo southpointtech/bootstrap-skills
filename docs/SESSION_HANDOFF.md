@@ -1,4 +1,4 @@
-# Session Handoff — 2026-09-15/16 (continuación) — **Rollout cerrado (7 de 7 integrados)** + slice **"Score the FIX"** en el scaffold, review-loop cerrado **por techo** en 2 turnos
+# Session Handoff — 2026-09-15/16 (continuación) — **Rollout CERRADO Y VERIFICADO (7 de 7, PR #122 mergeado)** + slice **"Score the FIX"** en el scaffold, review-loop cerrado **por techo** en 2 turnos
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
 
@@ -9,9 +9,11 @@
   aviso", 2026-09-16). O sea: `~/.claude/skills` sigue con el scaffold **2026-09-11**, y lo que está en `main`
   es **2026-09-16**. Hasta que se corra `tools/sync-skills.ps1`, ningún proyecto nuevo ni ningún
   `upgrade-bootstrap` va a ver "Score the FIX". **No deployar sin que el usuario lo pida.**
-- **BLOQUEADO POR EL CLASIFICADOR, no por falta de permiso del usuario**: el merge del PR #122 de Forecasting App y
-  el `git push` de este repo. El usuario dio permiso explícito; el clasificador de auto-mode los frena igual
-  ("Merge Without Review"). Los comandos exactos, para correr con `!` desde la terminal, están en §4.
+- **BLOQUEADO POR EL CLASIFICADOR, no por falta de permiso del usuario**: el `git push` de este repo (y antes,
+  el merge del PR #122, que **el usuario ya corrió a mano**). El clasificador de auto-mode los frena igual
+  ("Merge Without Review") aunque el permiso esté dado. El comando exacto, para correr con `!`, está en §4.
+- ⚠️ **La cuenta de `gh` quedó en `southpointtech`** (el comando del PR la cambia y no la devuelve). El comando
+  del push la deja de nuevo en `MartinDele703`; si no se corre, conviene devolverla a mano.
 - Untracked: residuo de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`) — ajeno, no tocar.
 
 ## 1. Rollout del scaffold `2026-09-11`: CERRADO
@@ -20,7 +22,11 @@ Profitability App (`80688f2`, ff sobre `docs/reunion-05-08-corte-en-gross-profit
 rebase sobre `c948635` + ff sobre `main`) quedaron integrados. En Profitability se borró el `.git/index.lock`
 huérfano del 14/9 18:12 (ningún proceso git vivo había arrancado a esa hora). En los dos: `compare-scaffold` 0
 missing / 0 outdated / 0 orphan, AST de los 3 hooks OK, `review-marker -Action range` exit 0; worktrees y ramas
-borrados y memorias `upgrade-bootstrap-pendiente-de-integrar` eliminadas. **Falta sólo el merge del PR #122.**
+borrados y memorias `upgrade-bootstrap-pendiente-de-integrar` eliminadas. **El PR #122 lo mergeó el usuario a mano el 2026-09-16** (el clasificador me lo bloqueaba). Verificado en el
+sink, no en el 2xx: `git fetch` + `merge-base --is-ancestor b7c45fe origin/master` → **es ancestro**, merge
+`8f0d93b` sobre `034eb15`. Su worktree y su rama local ya no existían (alguien los había limpiado), así que los
+dos errores de esa corrida —`is not a working tree` y `branch not found`— son correctos y no dejaron nada colgado.
+**El rollout queda cerrado: 7 de 7.**
 
 ## 2. Slice "Score the FIX" (`ef136aa..HEAD`, 24 archivos, 742 inserciones)
 
@@ -72,16 +78,18 @@ Los dos primeros los **bloquea el clasificador de auto-mode** ("Merge Without Re
 el usuario ya lo dio. Se corren desde la terminal con el prefijo `!`, y **desde cualquier directorio** (llevan
 `-R` / `-C`, así que no dependen del cwd).
 
-1. **Mergear el PR #122 de Forecasting App** y limpiar su worktree:
+1. ~~**Mergear el PR #122 de Forecasting App**~~ — **HECHO por el usuario el 2026-09-16** y verificado contra
+   `origin/master` (ver §1). Queda acá el comando sólo como registro de lo que se corrió:
 
    ```
    !gh auth switch -h github.com -u southpointtech; gh pr merge 122 -R southpointtech/forecasting-app --merge --delete-branch; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" worktree remove C:/Repos/SOUTHPOINTLABS/_worktrees/forecasting/upgrade-bootstrap; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" branch -D chore/upgrade-bootstrap-2026-09-15
    ```
 
    El repo usa **merge commits** (`--merge`, verificado en `origin/master`). El checkout principal de Forecasting
-   está en `fix/ag-01-ag-02-pairing` con trabajo sin mergear: **no tocarlo**.
+   sigue en `fix/ag-01-ag-02-pairing` con trabajo sin mergear: **no tocarlo**. Los cuatro worktrees vivos de ese
+   repo (`a9-docs`, `br08`, `master-qa`, `stage2`) son de otras sesiones: tampoco.
 
-2. **Pushear `main` de este repo** (7 commits). `MartinDele703` da 403 en este remoto:
+2. **Pushear `main` de este repo** (9 commits) — **es el único pendiente real**. `MartinDele703` da 403 acá:
 
    ```
    !gh auth switch -h github.com -u southpointtech; git -C "C:/Repos/PERSONAL/Bootstrap Skills" push origin main; gh auth switch -h github.com -u MartinDele703
