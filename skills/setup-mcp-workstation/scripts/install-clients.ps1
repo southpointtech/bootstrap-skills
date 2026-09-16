@@ -2,12 +2,15 @@
 # DOMO: el repo oficial (DomoApps/domo-mcp-server) NO es un paquete pip — es clonar-y-ejecutar.
 #       Se clona a $DomoHome, se instalan sus dependencias (pip install -r requirements.txt) y se
 #       setea DOMO_MCP_HOME=$DomoHome (env var de usuario) para que el catalogo MCP resuelva PYTHONPATH.
+#       La URL default puede no resolver (el repo no siempre es publico) — en ese caso usar
+#       -DomoLocalSource con una copia ya existente en disco en vez de clonar.
 # Playwright: solo los browsers (chromium) a nivel maquina.
-# Uso: pwsh -NoProfile -File install-clients.ps1 [-DomoRepoUrl <url>] [-DomoHome <dir>] [-GitCmd git] [-PythonCmd python] [-NpxCmd npx] [-DryRun]
+# Uso: pwsh -NoProfile -File install-clients.ps1 [-DomoRepoUrl <url>] [-DomoHome <dir>] [-DomoLocalSource <dir>] [-GitCmd git] [-PythonCmd python] [-NpxCmd npx] [-DryRun]
 [CmdletBinding()]
 param(
   [string]$DomoRepoUrl = "https://github.com/DomoApps/domo-mcp-server.git",
   [string]$DomoHome    = (Join-Path $env:USERPROFILE ".claude\domo-mcp-server"),
+  [string]$DomoLocalSource = "",
   [string]$GitCmd = "git",
   [string]$PythonCmd = "python",
   [string]$NpxCmd = "npx",
@@ -24,37 +27,66 @@ $commands        = New-Object System.Collections.Generic.List[string]
 function Have($cmd) { [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
 # --- DOMO: clonar el repo oficial (no es un paquete pip) + instalar sus dependencias ---
-$haveGit = Have $GitCmd
 $havePy  = Have $PythonCmd
-if ($haveGit -and $havePy) {
-  $req = Join-Path $DomoHome "requirements.txt"
-  if (Test-Path $DomoHome) { $cloneCmd = "$GitCmd -C `"$DomoHome`" pull --ff-only" }
-  else                     { $cloneCmd = "$GitCmd clone $DomoRepoUrl `"$DomoHome`"" }
-  $pipCmd = "$PythonCmd -m pip install --upgrade -r `"$req`""
-  $commands.Add($cloneCmd)
-  $commands.Add($pipCmd)
-  if (-not $DryRun) {
-    if (Test-Path $DomoHome) { & $GitCmd -C $DomoHome pull --ff-only } else { & $GitCmd clone $DomoRepoUrl $DomoHome }
-    $gitExit = $LASTEXITCODE
-    if ($gitExit -ne 0 -and -not (Test-Path $req)) {
-      $prereqsMissing.Add("clone de domo-mcp-server fallo: $cloneCmd")
-    } else {
-      if ($gitExit -ne 0) { $prereqsMissing.Add("aviso: '$cloneCmd' fallo (exit $gitExit) pero el clone existente sigue usable; se usan las dependencias actuales sin actualizar.") }
+
+if ($DomoLocalSource) {
+  # Fuente local ya existente (p.ej. el repo no es publico / 404 en la URL default) — no clonar, usar tal cual.
+  if (-not $havePy) {
+    $skipped.Add("domo")
+    $prereqsMissing.Add("Python no encontrado en PATH (comando '$PythonCmd'): instalalo y re-corre la skill.")
+  } elseif (-not (Test-Path $DomoLocalSource)) {
+    $skipped.Add("domo")
+    $prereqsMissing.Add("DomoLocalSource especificado pero no existe: $DomoLocalSource")
+  } else {
+    $DomoHome = $DomoLocalSource
+    $req = Join-Path $DomoHome "requirements.txt"
+    $pipCmd = "$PythonCmd -m pip install --upgrade -r `"$req`""
+    $commands.Add("usar copia local existente (sin clonar): $DomoLocalSource")
+    $commands.Add($pipCmd)
+    if (-not $DryRun) {
       & $PythonCmd -m pip install --upgrade -r $req
       if ($LASTEXITCODE -ne 0) {
         $prereqsMissing.Add("pip install de las dependencias de domo fallo: $pipCmd")
       } else {
         [Environment]::SetEnvironmentVariable("DOMO_MCP_HOME", $DomoHome, 'User')
-        $installed.Add("domo (clone + deps; DOMO_MCP_HOME seteado)")
+        $installed.Add("domo (fuente local; DOMO_MCP_HOME seteado)")
       }
+    } else {
+      $installed.Add("domo (fuente local)")
     }
-  } else {
-    $installed.Add("domo (clone + deps)")
   }
 } else {
-  $skipped.Add("domo")
-  if (-not $haveGit) { $prereqsMissing.Add("Git no encontrado en PATH (comando '$GitCmd'): instala Git y re-corre la skill.") }
-  if (-not $havePy)  { $prereqsMissing.Add("Python no encontrado en PATH (comando '$PythonCmd'): instalalo y re-corre la skill.") }
+  $haveGit = Have $GitCmd
+  if ($haveGit -and $havePy) {
+    $req = Join-Path $DomoHome "requirements.txt"
+    if (Test-Path $DomoHome) { $cloneCmd = "$GitCmd -C `"$DomoHome`" pull --ff-only" }
+    else                     { $cloneCmd = "$GitCmd clone $DomoRepoUrl `"$DomoHome`"" }
+    $pipCmd = "$PythonCmd -m pip install --upgrade -r `"$req`""
+    $commands.Add($cloneCmd)
+    $commands.Add($pipCmd)
+    if (-not $DryRun) {
+      if (Test-Path $DomoHome) { & $GitCmd -C $DomoHome pull --ff-only } else { & $GitCmd clone $DomoRepoUrl $DomoHome }
+      $gitExit = $LASTEXITCODE
+      if ($gitExit -ne 0 -and -not (Test-Path $req)) {
+        $prereqsMissing.Add("clone de domo-mcp-server fallo ('$cloneCmd', exit $gitExit) - si el repo no es publico, re-corre con -DomoLocalSource <dir> apuntando a una copia ya existente en disco.")
+      } else {
+        if ($gitExit -ne 0) { $prereqsMissing.Add("aviso: '$cloneCmd' fallo (exit $gitExit) pero el clone existente sigue usable; se usan las dependencias actuales sin actualizar.") }
+        & $PythonCmd -m pip install --upgrade -r $req
+        if ($LASTEXITCODE -ne 0) {
+          $prereqsMissing.Add("pip install de las dependencias de domo fallo: $pipCmd")
+        } else {
+          [Environment]::SetEnvironmentVariable("DOMO_MCP_HOME", $DomoHome, 'User')
+          $installed.Add("domo (clone + deps; DOMO_MCP_HOME seteado)")
+        }
+      }
+    } else {
+      $installed.Add("domo (clone + deps)")
+    }
+  } else {
+    $skipped.Add("domo")
+    if (-not $haveGit) { $prereqsMissing.Add("Git no encontrado en PATH (comando '$GitCmd'): instala Git y re-corre la skill.") }
+    if (-not $havePy)  { $prereqsMissing.Add("Python no encontrado en PATH (comando '$PythonCmd'): instalalo y re-corre la skill.") }
+  }
 }
 
 # --- Playwright browsers (chromium) ---
