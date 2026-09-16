@@ -152,8 +152,9 @@ conjunto cerrado de formas y rechaza todo lo demás.
    propio y no pisa nada, pero acá cuenta igual, a propósito: sobre-aproximar hacia el rojo sobre
    una grafía que nadie escribe es el lado correcto del error.
 
-3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — **no** importa el helper: carga la
-   herramienta que la suite prueba (hoy `normalized-hash` y `skills-lock`). Mismo molde que la
+3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — **no** importa el helper: carga una
+   herramienta de `tools/` (hoy `normalized-hash.tests` y `skills-lock.tests`, las dos
+   `tools/normalized-hash.ps1`; `skills-lock.ps1` se corre como subproceso). Mismo molde que la
    forma 1, con el relativo anclado: un solo `..`, directo en `tools`. Sólo se admite **después** del
    import del helper, y se rechaza si la herramienta no existe o redefine una función del helper
    (`Get-RedefinicionesEnTools`).

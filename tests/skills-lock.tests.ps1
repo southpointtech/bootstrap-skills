@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 95
+$ExpectedChecks = 107
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -322,7 +322,7 @@ try {
   Assert ($r.Out -match "humano" -and $r.Out -notmatch "recover-skill-bases") `
     "y lo deja en manos de un humano, sin mandar a re-correr el productor que emitio ese empate (salida: $($r.Out))"
   Assert ($r.Out -match "no se edita a mano") `
-    "y advierte que las bases son salida generada: dar vuelta el flag a mano sellaria una base que nadie verifico (salida: $($r.Out))"
+    "y el pie comun de todo rechazo advierte que las bases son salida generada, que no se editan a mano (salida: $($r.Out))"
   Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6 "skills-lock.json"))) "y no escribe el lockfile"
 
   # La guarda mira los HECHOS, no solo la etiqueta: `recovered` con el commit en null es exactamente
@@ -355,18 +355,32 @@ try {
     "y sin el flag manda a re-correr el productor, no a un humano (salida: $($r.Out))"
 
   # Un flag que no es booleano no midió nada aunque se lea "verdadero": `"true" -ne $true` es False en
-  # PowerShell, así que una guarda con `-ne $true` lo sellaba.
-  $rootC6d = Join-Path $script:tmp "C6d"
-  New-Tree $rootC6d @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
-  $basesC6d = Join-Path $script:tmp "bases-C6d.json"
-  New-Bases $basesC6d { param($b)
-    $b.skills[0].base.tiedCandidates = @(@{ blob = "cccc333"; upstreamPath = "otro/viva/SKILL.md" })
-    $b.skills[0].base.tieOnIdenticalBodies = "true" }
-  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC6d, "-Bases", $basesC6d)
-  Assert ($r.Code -eq 1) "sellar un empate con tieOnIdenticalBodies en string ""true"" sale con codigo 1 (salida: $($r.Out))"
-  Assert ($r.Out -match "'viva'" -and $r.Out -match "volve a correr" -and $r.Out -notmatch "humano") `
-    "y manda a re-correr el productor, que emite el flag booleano (salida: $($r.Out))"
-  Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6d "skills-lock.json"))) "y con el flag en string no escribe el lockfile"
+  # PowerShell, así que una guarda con `-ne $true` lo sellaba. Un valor no basta: el entero 1 pasa
+  # `-eq $true` aunque la guarda excluya los strings, y "false" y 0 pasan `-eq $false`, así que una
+  # guarda que eligiera el remedio con `-eq $false` los mandaba a un humano. `@()` es falsy con
+  # cualquiera de esas guardas: queda como regresión, no discrimina ninguna.
+  $noBooleanos = @(
+    @{ etiqueta = 'string "true"';  valor = "true" },
+    @{ etiqueta = 'entero 1';       valor = 1 },
+    @{ etiqueta = 'array vacio';    valor = @() },
+    @{ etiqueta = 'string "false"'; valor = "false" },
+    @{ etiqueta = 'entero 0';       valor = 0 }
+  )
+  for ($i = 0; $i -lt $noBooleanos.Count; $i++) {
+    $caso = $noBooleanos[$i]
+    $rootC6d = Join-Path $script:tmp "C6d-$i"
+    New-Tree $rootC6d @{ viva = @{ "SKILL.md" = "v`n" }; huerfana = @{ "SKILL.md" = "h`n" }; propia = @{ "SKILL.md" = "p`n" } }
+    $basesC6d = Join-Path $script:tmp "bases-C6d-$i.json"
+    New-Bases $basesC6d { param($b)
+      $b.skills[0].base.tiedCandidates = @(@{ blob = "cccc333"; upstreamPath = "otro/viva/SKILL.md" })
+      $b.skills[0].base.tieOnIdenticalBodies = $caso.valor }
+    $r = Run-Tool @("-Action", "Seal", "-Repo", $rootC6d, "-Bases", $basesC6d)
+    Assert ($r.Code -eq 1) "sellar un empate con tieOnIdenticalBodies en $($caso.etiqueta) sale con codigo 1 (salida: $($r.Out))"
+    # "booleano" solo lo emite el rechazo del flag: "volve a correr" sale también de la base sin commit.
+    Assert ($r.Out -match "'viva'" -and $r.Out -match "booleano" -and $r.Out -match "volve a correr" -and $r.Out -notmatch "humano") `
+      "y con $($caso.etiqueta) lo rechaza por el flag no booleano y manda a re-correr el productor, no a un humano (salida: $($r.Out))"
+    Assert (-not (Test-Path -LiteralPath (Join-Path $rootC6d "skills-lock.json"))) "y con $($caso.etiqueta) no escribe el lockfile"
+  }
 
   # El lado que acepta: un empate con `tieOnIdenticalBodies = true` es lo que el productor emite para
   # cuerpos idénticos, y hay que sellarlo. Sin este caso, una guarda que rechace todo empate pasaba.

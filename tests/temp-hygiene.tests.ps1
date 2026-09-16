@@ -295,8 +295,9 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
 #   2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo esta suite, que
 #      necesita el path después para el probe de la parte C.
 # Y una tercera que NO importa el helper (entró con el merge de `main`, 2026-09-15):
-#   3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — carga la herramienta que la suite
-#      prueba (hoy `normalized-hash` y `skills-lock`). Sólo se admite DESPUÉS del import del helper,
+#   3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — carga una herramienta de `tools/`
+#      (hoy `normalized-hash.tests` y `skills-lock.tests`, las dos `tools/normalized-hash.ps1`; a
+#      `skills-lock.ps1` la suite la corre como subproceso). Sólo se admite DESPUÉS del import del helper,
 #      y se rechaza si la herramienta no existe o redefine una función del helper
 #      (`Get-RedefinicionesEnTools`, más abajo).
 #
@@ -1191,7 +1192,7 @@ Assert ($suitesBaratas.Count -eq 5) "E: la lista de suites a ejecutar tiene las 
 Assert (@($suitesBaratas | Sort-Object -Unique).Count -eq 5) "E: y las cinco son distintas entre sí"
 # Unicidad cierra el duplicado, no la SUSTITUCIÓN: cambiar 'export-shareable' por otra suite real
 # mantiene el 5 y la unicidad, y pierde justamente la que motiva la lista (es la que tenía el glob
-# incondicional, y la única de las cinco que toca el árbol). Membresía por nombre.
+# incondicional, y la que tocaba el árbol). Membresía por nombre.
 $baratasFaltantes = @(@('export-shareable', 'apply-env') | Where-Object { $_ -notin $suitesBaratas })
 Assert ($baratasFaltantes.Count -eq 0) `
   "E: están las dos que motivan la lista — export-shareable (tenía el glob) y apply-env (fugaba archivos sueltos). Faltan: $($baratasFaltantes -join ', ')"
