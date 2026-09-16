@@ -14,13 +14,13 @@ function Assert($cond, $msg) {
 }
 
 # Un caso = un directorio de suites + un repo git limpio donde el runner mide si algo lo ensució.
-function New-Caso([string]$nombre) {
+function New-Caso([string]$nombre, [switch]$SinRepo) {
   $raiz = New-TestWorkspace $script:runRoot $nombre
   $suites = Join-Path $raiz "suites"
   $repo = Join-Path $raiz "repo"
   [IO.Directory]::CreateDirectory($suites) | Out-Null
   [IO.Directory]::CreateDirectory($repo) | Out-Null
-  git -C $repo init -q 2>&1 | Out-Null
+  if (-not $SinRepo) { git -C $repo init -q 2>&1 | Out-Null }
   @{ suites = $suites; repo = $repo }
 }
 function Add-Suite($caso, [string]$nombre, [string]$codigo) {
@@ -141,6 +141,75 @@ Get-ChildItem -LiteralPath $marcas -File | Remove-Item -Force
 $r = Invoke-Runner $c @('-ThrottleLimit', '1')
 Assert ($r.exit -ne 0) "H: con -ThrottleLimit 1 el mismo par falla (dio $($r.exit))"
 Assert ($r.out -match 'NO-VI-A-') "H: y falla por no ver a la otra suite, no por otra cosa"
+
+# --- I. una suite que BORRA un archivo que ya estaba sucio: rojo por "desapareció" ---
+# Es la única de las tres ramas de la comparación que no produce una clave nueva ni un hash nuevo.
+$c = New-Caso "borra"
+$previo = Join-Path $c.repo 'ya-estaba.txt'
+Set-Content -LiteralPath $previo -Value 'residuo'
+Add-Suite $c "borradora" "Remove-Item -LiteralPath '$previo'`nexit 0"
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "I: borrar un archivo ya sucio da exit != 0 (dio $($r.exit))"
+# `\S*` y no la letra acentuada: la salida del hijo se decodifica con la codificación de la consola.
+Assert ($r.out -match '(?m)^\s+desapareci\S*:\s+\?\? ya-estaba\.txt') "I: el reporte lo da como desaparecido"
+
+# --- J. un repo que no es repo: rojo, no un chequeo de árbol que compara dos vacíos ---
+$c = New-Caso "sin-repo" -SinRepo
+Add-Suite $c "quieta" $suiteVerde
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "J: un -RepoRoot que no es repo git da exit != 0 (dio $($r.exit))"
+Assert ($r.out -match 'git status fall') "J: y dice que falló git status"
+
+# --- K. un archivo nuevo DENTRO de un directorio que ya estaba sin trackear ---
+# Sin --untracked-files=all, git lista sólo `?? sucio/`, que no es un archivo, y el agregado no se ve.
+$c = New-Caso "dir-sucio"
+[IO.Directory]::CreateDirectory((Join-Path $c.repo 'sucio')) | Out-Null
+Set-Content -LiteralPath (Join-Path $c.repo 'sucio\viejo.txt') -Value 'residuo'
+Add-Suite $c "agrega" "Set-Content -LiteralPath '$(Join-Path $c.repo 'sucio\nuevo.txt')' -Value 'x'`nexit 0"
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "K: un archivo nuevo en un directorio ya sucio da exit != 0 (dio $($r.exit))"
+Assert ($r.out -match 'sucio/nuevo\.txt') "K: el reporte nombra sucio/nuevo.txt"
+
+# --- L. re-escribir un archivo ya sucio cuyo nombre lleva espacio y acento, entre dos sucios ---
+# El espacio lo entrecomilla git sin -z; el acento llega deformado si la salida de git se decodifica
+# con la codificación de la consola (en esta máquina, ibm850). En los dos casos el hash queda '-'
+# antes y después, y la re-escritura pasa en verde. El segundo archivo sucio existe para que haya
+# más de una entrada que separar.
+$c = New-Caso "acento"
+$previo = Join-Path $c.repo 'decisión final.md'
+Set-Content -LiteralPath $previo -Value 'antes'
+Set-Content -LiteralPath (Join-Path $c.repo 'otro.txt') -Value 'quieto'
+Add-Suite $c "retoca" "Set-Content -LiteralPath '$previo' -Value 'despues'`nexit 0"
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "L: re-escribir un archivo ya sucio con espacio y acento da exit != 0 (dio $($r.exit))"
+Assert ($r.out -match 'final\.md') "L: el reporte nombra el archivo"
+Assert ($r.out -notmatch 'otro\.txt') "L: y no culpa al otro archivo sucio, que nadie tocó"
+
+# --- M. un exit NEGATIVO también es rojo (un crash nativo sale así) ---
+$c = New-Caso "exit-negativo"
+Add-Suite $c "crash" "exit -1"
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "M: una suite con exit -1 da exit != 0 (dio $($r.exit))"
+Assert ($r.out -match '1 suites, 1 rojas') "M: y la cuenta como roja"
+
+# --- N. sólo corren los *.tests.ps1: un .ps1 cualquiera al lado no es una suite ---
+# En el repo real el propio runner vive al lado de las suites.
+$c = New-Caso "filtro"
+Add-Suite $c "unica" $suiteVerde
+"Write-Host 'NO-SOY-SUITE'`nexit 1" | Set-Content -LiteralPath (Join-Path $c.suites 'helper.ps1') -Encoding UTF8
+$r = Invoke-Runner $c
+Assert ($r.exit -eq 0) "N: un .ps1 que no es suite no se corre (dio $($r.exit))"
+Assert ($r.out -match '1 suites, 0 rojas') "N: la cuenta tiene una sola suite"
+
+# --- O. cambiar el ESTADO git de un archivo sin cambiar su contenido: rojo ---
+# `?? f` pasa a `A  f` con el mismo hash; sólo la parte XY de la clave lo delata.
+$c = New-Caso "stagea"
+$previo = Join-Path $c.repo 'para-stagear.txt'
+Set-Content -LiteralPath $previo -Value 'igual'
+Add-Suite $c "stageadora" "git -C '$($c.repo)' add para-stagear.txt`nexit 0"
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "O: stagear un archivo ya sucio da exit != 0 (dio $($r.exit))"
+Assert ($r.out -match '(?m)^\s+apareci\S*:\s+A\s+para-stagear\.txt') "O: el reporte muestra la entrada nueva"
 
 Remove-TestRunRoot $script:runRoot
 

@@ -14,18 +14,40 @@
 param(
   [string]$Path = $PSScriptRoot,
   [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent),
-  # 4 por el techo de concurrencia medido en este repo (4-6 unidades; más ancho no acelera).
+  # 4 por prudencia, no por una medición de estas suites: el techo de 4-6 que cita el issue 02 se
+  # midió con olas de agentes de review. Con estas suites, el 2026-09-16, una corrida con 6 carriles
+  # tardó 219 s y una con 4, 296 s (una corrida de cada una).
   [ValidateRange(1, 64)][int]$ThrottleLimit = 4
 )
 $ErrorActionPreference = "Stop"
 
+# La salida cruda de `git status -z`, decodificada como UTF-8 por un Process propio. Con `& git`
+# pwsh la decodifica con [Console]::OutputEncoding, que en esta máquina es ibm850 (medido el
+# 2026-09-16): una ruta con acento llegaba deformada, Test-Path daba falso, el hash quedaba "-"
+# antes y después, y re-escribir ese archivo pasaba en verde (caso L del test).
+function Get-GitStatusZ([string]$repo) {
+  $psi = [Diagnostics.ProcessStartInfo]::new('git')
+  # -z: rutas sin comillas ni escapes, aunque tengan espacios.
+  foreach ($a in '-C', $repo, 'status', '--porcelain=v1', '--untracked-files=all', '-z') {
+    $psi.ArgumentList.Add($a)
+  }
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $p = [Diagnostics.Process]::Start($psi)
+  # stderr en paralelo: leer los dos canales en serie puede trabar al hijo si llena el otro buffer.
+  $err = $p.StandardError.ReadToEndAsync()
+  $salida = $p.StandardOutput.ReadToEnd()
+  $p.WaitForExit()
+  if ($p.ExitCode -ne 0) { throw "git status falló en $repo : $($err.Result.Trim())" }
+  $salida
+}
+
 # Mapa "XY ruta" -> hash del archivo ("-" si no existe, p. ej. un borrado).
 function Get-EstadoDelArbol([string]$repo) {
-  # -z: rutas sin comillas ni escapes, aunque tengan espacios o acentos.
-  $crudo = git -C $repo status --porcelain=v1 --untracked-files=all -z
-  if ($LASTEXITCODE -ne 0) { throw "git status falló en $repo" }
   $estado = @{}
-  $partes = @(("$crudo" -split "`0") | Where-Object { $_ })
+  $partes = @(((Get-GitStatusZ $repo) -split "`0") | Where-Object { $_ })
   for ($i = 0; $i -lt $partes.Count; $i++) {
     $xy = $partes[$i].Substring(0, 2)
     $ruta = $partes[$i].Substring(3)

@@ -54,8 +54,9 @@ cada archivo que figura ahí antes y después, así que un residuo ajeno que nad
 rojo, y un archivo ya sucio que una suite vuelve a escribir sí. Lo ignorado por `.gitignore` no se
 mira. No hay timeout por suite.
 
-El default es 4 carriles por el techo de concurrencia medido en este repo (4-6; más ancho no
-acelera). Una suite individual se sigue corriendo sola con `pwsh -NoProfile -File tests/<suite>.tests.ps1`.
+El default es 4 carriles por prudencia, no por una medición de estas suites: el techo de 4-6 que
+cita el issue 02 se midió con olas de agentes de review. Con estas suites, el 2026-09-16, una
+corrida con 6 carriles tardó 219 s y una con 4, 296 s (una corrida de cada una). Una suite individual se sigue corriendo sola con `pwsh -NoProfile -File tests/<suite>.tests.ps1`.
 El runner se prueba con suites de juguete en `tests/run-all.tests.ps1`; los mutantes que esa suite
 mata están en `tests/mutantes/run-all.py`.
 
