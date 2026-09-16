@@ -2,8 +2,13 @@
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
 
-- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, rama **`feat/score-the-fix`** (3 commits: `08ecb2e`,
-  `ca72c67`, `7b1f832`), **sin mergear a `main`**. `main` va **3 commits adelante de `origin/main`** y **sin pushear**.
+- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, rama **`main`**. La slice ya está **mergeada** (ff:
+  `08ecb2e`, `ca72c67`, `7b1f832` + handoff `8ce1b1c`) y la rama `feat/score-the-fix` fue borrada. `main` va
+  **7 commits adelante de `origin/main`** y **SIN PUSHEAR**.
+- **DEPLOY DE LAS SKILLS: NO SE HIZO, POR DECISIÓN DEL USUARIO** ("aún no hagamos el deploy de skills, yo te
+  aviso", 2026-09-16). O sea: `~/.claude/skills` sigue con el scaffold **2026-09-11**, y lo que está en `main`
+  es **2026-09-16**. Hasta que se corra `tools/sync-skills.ps1`, ningún proyecto nuevo ni ningún
+  `upgrade-bootstrap` va a ver "Score the FIX". **No deployar sin que el usuario lo pida.**
 - **BLOQUEADO POR EL CLASIFICADOR, no por falta de permiso del usuario**: el merge del PR #122 de Forecasting App y
   el `git push` de este repo. El usuario dio permiso explícito; el clasificador de auto-mode los frena igual
   ("Merge Without Review"). Los comandos exactos, para correr con `!` desde la terminal, están en §4.
@@ -63,15 +68,32 @@ limpió (`-Action close` no corre en cierre por techo), así que una re-corrida 
 
 ## 4. Pendientes, en orden
 
-1. **Usuario / con `!`** — mergear el PR #122 y limpiar su worktree:
-   `gh auth switch -h github.com -u southpointtech; gh pr merge 122 -R southpointtech/forecasting-app --merge --delete-branch; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" worktree remove C:/Repos/SOUTHPOINTLABS/_worktrees/forecasting/upgrade-bootstrap; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" branch -D chore/upgrade-bootstrap-2026-09-15`
-2. **Usuario / con `!`** — pushear `main` de este repo:
-   `gh auth switch -h github.com -u southpointtech; git push origin main; gh auth switch -h github.com -u MartinDele703`
-3. **Mergear `feat/score-the-fix` a `main`** y deployar el scaffold (`tools/sync-skills.ps1`), que regenera los
-   manifests. Los 7 repos con el scaffold 2026-09-11 quedan otra vez desactualizados: decidir si se re-rollea.
+Los dos primeros los **bloquea el clasificador de auto-mode** ("Merge Without Review"), no la falta de permiso:
+el usuario ya lo dio. Se corren desde la terminal con el prefijo `!`, y **desde cualquier directorio** (llevan
+`-R` / `-C`, así que no dependen del cwd).
+
+1. **Mergear el PR #122 de Forecasting App** y limpiar su worktree:
+
+   ```
+   !gh auth switch -h github.com -u southpointtech; gh pr merge 122 -R southpointtech/forecasting-app --merge --delete-branch; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" worktree remove C:/Repos/SOUTHPOINTLABS/_worktrees/forecasting/upgrade-bootstrap; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" branch -D chore/upgrade-bootstrap-2026-09-15
+   ```
+
+   El repo usa **merge commits** (`--merge`, verificado en `origin/master`). El checkout principal de Forecasting
+   está en `fix/ag-01-ag-02-pairing` con trabajo sin mergear: **no tocarlo**.
+
+2. **Pushear `main` de este repo** (7 commits). `MartinDele703` da 403 en este remoto:
+
+   ```
+   !gh auth switch -h github.com -u southpointtech; git -C "C:/Repos/PERSONAL/Bootstrap Skills" push origin main; gh auth switch -h github.com -u MartinDele703
+   ```
+
+3. **Deploy de las skills — ESPERANDO AL USUARIO.** Cuando avise, desde `C:\Repos\PERSONAL\Bootstrap Skills`:
+   `pwsh -NoProfile -File tools/sync-skills.ps1` (regenera los manifests y copia a `~/.claude/skills`). Dos cosas
+   a decidir en ese momento: que no haya sesiones a mitad de una slice (tomarían las skills cambiadas en caliente),
+   y si se re-rollea a los 7 repos que quedaron en `2026-09-11`.
+
 4. v2 (§5 del handoff de 2026-09-13/15): Low de TESTING.md/temp-hygiene, `Status:` de issues, limpiar ancla
    `slice-open` vieja.
-
 ### Low reportados y NO arreglados (deliberado, el loop sólo arregla Medium/High)
 
 - El guard `PATCH:prose-churn` es vacuo: ninguna rama escribe esa cadena en los 8 archivos (verificado con
