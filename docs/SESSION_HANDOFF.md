@@ -1,3 +1,70 @@
+# Session Handoff — 2026-09-16 (cierre) — **Merge de main en v2 HECHO; issue v2 02 (runner en paralelo) en REVIEW-LOOP, turno 1 aplicado, falta el TURNO 2**
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`, en sync con `origin/main` en `2245efd` (push hecho y
+  verificado `0 0`) + el commit de ESTE handoff, **sin pushear**. Untracked de Codex: ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`056858b`**, árbol limpio.
+  - `260022b` merge de main (13 commits). Conflictos solo en los 3 manifests (regenerados); `skills-lock.json` re-sellado
+    (main cambió review-loop y slice-review → 8 hashes viejos). 19 suites verdes tras el reseal.
+  - `81a1adf` slice issue 02 (trailer `Slice-Close:`, rigor **standard**): `tests/run-all.ps1` (runner),
+    `tests/run-all.tests.ps1`, `tests/mutantes/run-all.py`, sección nueva en `docs/TESTING.md`, lista de temp-hygiene.
+    Suite completa con el runner: 20/20 verdes, 296 s (4 carriles) y 219 s (6); en serie eran ~660 s.
+  - `056858b` fixes del **turno 1** del review-loop (sin trailer).
+- **Review-loop EN CURSO** (standard, cap 2). Turno 1 CORRIDO (6 focos + 4 scorers). Marcador **avanzado a `81a1adf`**
+  (antes de los fixes, correcto) → el rango del turno 2 es `81a1adf..` = el commit `056858b`. Ancla `slice-open`
+  registrada en `d8e228a` (no limpiar hasta el close).
+
+## ▶ QUÉ HACER AL RETOMAR, EN ORDEN
+
+1. En el worktree v2: `PYTHONIOENCODING=utf-8 python tests/mutantes/run-all.py` (~12 min, 16 mutantes). Esperado:
+   16 de 16 muertos. M9-M16 son los sobrevivientes del turno 1 (sin throw de git status, sin "desapareció", sin
+   `--untracked-files=all`, sin `-z`, exit negativo, filtro `*.ps1`, clave sin XY, git en cp850). Si alguno sobrevive,
+   es un hallazgo del turno 2.
+2. `pwsh -NoProfile -File tests/run-all.ps1` (suite completa) → tiene que dar 20/20.
+3. **Turno 2** del review-loop: `/slice-review 81a1adf` (5 focos, SIN `--mutation` ni `--code-review`), con rutas
+   absolutas y `git -C` (el cwd de la sesión es el repo principal). Luego `-Action advance`, fixes Medium/High si hay,
+   después **pase de coherencia** (`/slice-review --coherence`, ancla `slice-base` = `d8e228a`, incluye el merge: decirle
+   que el contenido de main ya fue revisado). `-Action close` solo si cierra limpio.
+4. Marcar el issue 02 como closed en `.scratch/bootstrap-v2/issues/02-...md` (los 6 criterios ya están tildados;
+   `.scratch/` está gitignoreado).
+5. Después: próximo issue v2 (06-16, 18, 19 ⬜) o la slice light de los Low de C6d.
+
+## Turno 1: qué se arregló (056858b)
+
+- **Bug real (Medium, 92)**: `& git status -z` se decodificaba con `[Console]::OutputEncoding` = **ibm850** (medido:
+  `refs/heads/árbol` da largo 17). Una ruta con acento llegaba deformada → hash `-` antes y después → re-escribir un
+  archivo ya sucio con acento pasaba en verde. Fix: `Get-GitStatusZ` con `Diagnostics.Process` y
+  `StandardOutputEncoding` UTF-8 (NO se cambió `[Console]::OutputEncoding`: un scorer midió que el cambio persiste en la
+  consola al salir — no lo verifiqué yo). RED visto (caso L, 2 FAIL) → verde.
+- **Mutantes sobrevivientes (Medium)**: casos nuevos I-O en el test.
+- **Prosa que engañaba (Medium, 80)**: el default 4 se justificaba con el techo 4-6, que se midió con olas de agentes,
+  no con suites. Reescrito en `run-all.ps1` y `TESTING.md`.
+- **Regla de rastros**: `try/finally` en `tests/mutantes/run-all.py`.
+
+## Low reportados y NO arreglados (deliberado)
+
+- C1 (35): el chequeo no mira HEAD/refs; arreglo con `for-each-ref` RECHAZADO (refs compartidos entre worktrees → rojos
+  falsos). Alternativa si se quiere: solo `rev-parse HEAD` + `symbolic-ref`, o declararlo en TESTING.md.
+- C3 (60): el mensaje "las suites ensuciaron el árbol" culpa a las suites aunque el cambio venga de otro proceso.
+- C4 (88): `docs/TESTING.md:~168` dice "las otras once suites"; son doce.
+- C5 (55): "Es determinista, no una carrera de relojes" (caso H) exagera: depende de un límite de 20 s.
+- S3 (62): el salto de rename `[RC]` sin test; lo mata un `git mv` staged con origen de 1-2 caracteres y suite quieta → verde.
+- L1b (60): el script de mutantes cuenta como MUERTO cualquier exit ≠ 0, aun con 0 FAIL (un mutante que no parsea).
+- L2 (70): E y F no anclan la etiqueta (`apareci\S*:` / `cambi\S*:`).
+- L4 (45): `Get-FileHash` sobre un archivo bloqueado aborta el runner. L6 (45): el default 4 no está anclado por test.
+- La salida de las suites rojas se sigue decodificando en cp850 (los caracteres fuera de cp850 salen `?`).
+- `temp-hygiene.tests.ps1:~850` "(15 y 15, medido)" viejo desde antes de este slice.
+
+## Gotchas
+
+- `.scratch/` está **gitignoreado**: lo que se quiera versionar (scripts de mutantes) va en `tests/mutantes/`.
+- Los archivos nuevos quedaron LF en disco (git avisa CRLF en el próximo checkout; el script de mutantes lee con
+  universal newlines, así que las anclas con `\n` siguen andando).
+- Los 6 focos y los scorers de solo lectura no tocaron el árbol (verificado `git status` antes de avanzar el marcador).
+
+---
+
 # Session Handoff — 2026-09-16 (noche) — **Slice "C6d con dientes" CERRADA en `feat/bootstrap-v2` (`6badc92` + `d8e228a`)**, review-loop `standard` cerró LIMPIO en el turno 2. `main` pusheado. Sin trabajo en vuelo.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
