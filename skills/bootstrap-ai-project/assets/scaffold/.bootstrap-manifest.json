@@ -1,21 +1,21 @@
 {
   "variant": "ai",
   "generatedFrom": "bootstrap-ai-project",
-  "version": "2026-09-15+a543ad5",
+  "version": "2026-09-16+3b28228",
   "files": {
     ".agents/skills/grill-me/SKILL.md": "a7702330d2cabdca7071e15f9a4c7e01c4887c685f533d72cc116357e9a9a650",
     ".agents/skills/grill-with-docs/ADR-FORMAT.md": "dba54707c3251660ecf7ee6ff154a816a62badddd4ef403062f3a34e23509636",
     ".agents/skills/grill-with-docs/CONTEXT-FORMAT.md": "6e92fccd425b3c7f3474ffb50eae5ebb8a8f80c71ec57f167b007daccd3a81cc",
     ".agents/skills/grill-with-docs/SKILL.md": "2e3bb3803a25cb7da081ea93478914b6875afe6e0a32bd17ef33efa20cd119ef",
     ".agents/skills/handoff/SKILL.md": "aad46884ff9c3ee3563dfbbfa5b3f13cbc5c48efec1d73bfe9e4741cbc9e0f0a",
-    ".agents/skills/review-loop/SKILL.md": "108acca5e11cfe82c95030525a51caa123df215ca0b9e34434f2da2fec28c8d4",
+    ".agents/skills/review-loop/SKILL.md": "b2be1b916508a2606db5c789421d0826fb2219fe8239c39d7bec248f6cc07c33",
     ".agents/skills/setup-matt-pocock-skills/domain.md": "f19d612a355908fb648213221e3d70d5732c1b37fe8c680bb2f3fe6fc9f4a953",
     ".agents/skills/setup-matt-pocock-skills/issue-tracker-github.md": "4c26c2bfb4776acd975cbdbbd27bad623e3522eb53e388129e6e170aaf3c9bd4",
     ".agents/skills/setup-matt-pocock-skills/issue-tracker-gitlab.md": "a87500572b9bc8c86f54ee448e9e651278fb9e9c8edfd63797a6783ed71860a9",
     ".agents/skills/setup-matt-pocock-skills/issue-tracker-local.md": "5f7f87f14a6f391f9b44ee61b1c2fc3d78faa35a51f678112c4f5e3170785674",
     ".agents/skills/setup-matt-pocock-skills/SKILL.md": "27ec3d9dcb2ba611974de2df015f7c958c663c7d0cbeb776ecd7fbdfb0f726a1",
     ".agents/skills/setup-matt-pocock-skills/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
-    ".agents/skills/slice-review/SKILL.md": "055c4581d7bad01d3522d05b9e1fc752d1d3d856cb3ec4afaf22c1845eaf9742",
+    ".agents/skills/slice-review/SKILL.md": "33c8668aaa56066398600d4539bb8926769c113e87b5beb39fbd9b7616283f32",
     ".agents/skills/tdd/deep-modules.md": "76a813f34910d2431478652a92080d74e325b0f09e6ca3df39cf4d7b170576b7",
     ".agents/skills/tdd/interface-design.md": "560c35db2cae66ebfa1b0f120d287666d7a12039ddda4b59613207ddf290fed4",
     ".agents/skills/tdd/mocking.md": "73a10b6a26b56197c738a764c1e4205af98c74553f4a713795997f6bc35b917d",
@@ -31,9 +31,9 @@
     ".claude/commands/grill-me.md": "c9df326c4ab635765ea884471d21f4e21d5b0ec85aec43a06c238307841eb4bc",
     ".claude/commands/grill-with-docs.md": "cbc6e870fc0293d1d3c8d7605144d5f4d1f1ba8d85d8027a821f2c56a2e2ae42",
     ".claude/commands/handoff.md": "4292d4cf171abc00882d115b985a3945fb2b9bb67ebacd5e251bd7e5439ec106",
-    ".claude/commands/review-loop.md": "5e14d9db2a7a4c95559bf2e6eeac0fc6b3a52e340acdde8938cef2f9ec8eba14",
+    ".claude/commands/review-loop.md": "886247c3066c74a8f191aa64824f92cf98eaf6794dff6d530bc47b580a389e76",
     ".claude/commands/setup-matt-pocock-skills.md": "c38ea757d33d7b6aad5c51d90d8a0e9a91ffb50a0fd2792a1361eb828b51045a",
-    ".claude/commands/slice-review.md": "32b9f70583dbf18ea8c8141b7ba7ad81951a12cb64c691c61bc8c2ac8156fd78",
+    ".claude/commands/slice-review.md": "aed437b2a125f6306d8e8f5527201c680b571d0b7b9a60e497b7a8b3fdc5319f",
     ".claude/commands/tdd.md": "cc98b5095638fb15f4db08124a8d5c96ff5accd55e9a40429b28e2f8fd791b7b",
     ".claude/commands/to-issues.md": "666fee6aabef2d1e00e3ff4ea91af68ebb03b2d8a1fd30a79f408e5e8f31fb7c",
     ".claude/commands/to-prd.md": "9453d5caaa191ff8ce5529e38608b1255c68e738e4aa7bb2b23ca0dd4d2c4138",
@@ -55,6 +55,6 @@
     "docs/ai-workflow/QA_CHECKLIST.md": "f40eacead44a17d025077beaab201bf935935a4138c456cf4ad5364bba66443f",
     "docs/ai-workflow/RUNBOOK_TEMPLATE.md": "7584db252b3a770d456a54e1931094172d72fdd05867abd16453b48509e9ac38",
     "docs/ai-workflow/TASK_TEMPLATE.md": "514240dc083fb3f34b716737ee9491e3afa4f4b18911d589bca72237376db93f",
-    "skills-lock.json": "315057c29d1b7ac1c0408e7565671c7211f8dea13385321f23bb9f052d1bbf8c"
+    "skills-lock.json": "c209147f5d243d1fc2aa62f65da7c819643491ea0e643de18ba6d7196c5d19f4"
   }
 }

@@ -220,6 +220,30 @@ is not where to save tokens. Give it this rubric verbatim:
 The scorer must check the claim against the real code, not just judge whether it sounds plausible.
 For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
 
+**Score the FIX, not only the finding.** A finding can be perfectly true and its suggested fix still
+make the code worse. Alongside the rubric above, the scorer must answer three questions and say so in
+its verdict. **The 0-100 score answers (1) alone**: (2) and (3) come back as separate verdicts and are
+never subtracted from the number, or the finding dies at the 60 cutoff before it is ever classified —
+which is the failure this whole block exists to prevent.
+
+1. **Is the stated fact true?** Verify it by running a **read-only** command against the real code —
+   a grep, a file read, a `git` read — never by reading the diff alone. Read-only is literal: a suite
+   that writes files is not a read-only tool, so check what a command does to the tree before using
+   it to verify. The scorer's dispatch carries Step 3's write prohibition, the same way the coherence
+   focus does.
+2. **Does the proposed fix hold up?** Check the *replacement* the same way — a reviewer correcting a
+   false sentence routinely proposes another false sentence. This applies whenever the finding
+   proposes a fix **in any form**, a replacement string or an action; when it proposes none, score
+   on (1) alone.
+3. **Is fixing this isolated case consistent with the rest of the file?** Touching one of N identical
+   occurrences implies the other N-1 were audited. If they were not, the fix misleads. Auditing them
+   is not widening the fix: occurrences that are pre-existing stay out of scope.
+
+A question that **does not apply** to a finding is not a failure — only an affirmative one is: a fix
+that would make the code worse, or a fix that silently implies an audit that did not happen. Also
+give the scorer this scope counter-argument in writing: *"is this a defect OF the delta, or a
+pre-existing condition the delta merely illuminated?"* — the second is out of scope for this review.
+
 **Drop everything below 60.** Findings that survive get classified:
 
 - **High** — data loss/corruption, security holes, credential exposure, or a broken golden path.
@@ -238,12 +262,31 @@ condition, a flag, a threshold, an ordering or a stop rule) is behavior and is c
 Rationale and history in those files stay prose. Before this rule, loose comments scored Medium, their fixes were more prose
 for the next turn, and loops kept ending at the turn cap instead of clean.
 
+**A rejected fix does not delete a real defect.** (2) and (3) are applied **after** the
+classification above, never before it, and what they decide is the fate of the *suggestion*, not of
+the finding:
+
+- a **Low** finding that fails (2) or (3) is **dropped**, however certain (1) is — its whole
+  substance is the suggestion, so a rejected suggestion leaves nothing worth reporting;
+- a **Medium or High** finding stays in the report with its suggested fix marked **REJECTED** and
+  the scorer's reason stated. The defect **keeps its severity** and still blocks the close exactly as
+  it would with a sound fix — under `light`, where only a High blocks, a Medium with a rejected fix is
+  reported unfixed like any other Medium.
+
+Scoring the fix exists to stop the loop from applying a suggestion that moves the problem elsewhere
+— not to let a certain defect leave the report on the strength of a bad suggestion. The caller
+judges findings and writes its own fix behind a RED test, so a rejected suggestion plus the reason
+is more useful to it than silence.
+
 ## Step 6 — Report
 
 Report findings grouped by severity, each as: `file:line` — the problem — why it matters — the
 suggested fix. Then state explicitly:
 
 - How many findings were dropped by the confidence pass (so the review's silence is legible).
+- Which surviving findings carry a **REJECTED** suggested fix, and why the scorer rejected it. State
+  them one by one, never as a bare count: the defect stands, counts **against** clean at its own
+  severity, and only the suggestion was thrown out.
 - The diff range that was actually reviewed.
 - **Clean** or **not clean**: clean means zero High and zero Medium findings.
 

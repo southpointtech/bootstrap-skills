@@ -60,7 +60,7 @@
       "upstreamHeadPath": null,
       "base": null,
       "files": {
-        "SKILL.md": "5f2b6c100ff05bb7be9cc5d9196f6a82f91d15e0995017e575840b57983e2009"
+        "SKILL.md": "0c79014e6282542a55eb8de5ff2fa5d2c2b9ef85d6eee7a660e00e32c7e96356"
       }
     },
     "setup-matt-pocock-skills": {
@@ -88,7 +88,7 @@
       "upstreamHeadPath": null,
       "base": null,
       "files": {
-        "SKILL.md": "2ca9ac8de86dffd417598d0bf8d306d381049d5286af880c8d2457218bc770ea"
+        "SKILL.md": "5d1b3c49e88a2d070998e55045cd09c6ac69a64b89791d05afc4383921c8e266"
       }
     },
     "tdd": {

@@ -744,6 +744,135 @@ foreach ($pre in $capRoots) {
 # premisa pasa mirror verde, y la copia repo-root ni figura ahi). AI_DEVELOPMENT_WORKFLOW.md es el unico
 # doc que 08b corrigio a mano y que se copia a TODOS los proyectos bootstrapeados, asi que el invariante
 # se blinda aca sobre las 4 copias (repo + 3 scaffolds), simetrico con el guard de $loopPairs.
+# --- Score the FIX: el pase de confianza puntua el ARREGLO, no solo el hallazgo ---
+# Medido dos veces (2026-09-05 y 2026-09-10): hallazgos certeros (92/92/80) cuyo arreglo igual
+# habria empeorado el codigo, y dos veces en que el arreglo que proponian los REVIEWERS movia el
+# problema de lugar (uno invertia el caso emblematico). La convergencia de focos valida el HALLAZGO,
+# no el ARREGLO. Vivio como parche local (PATCH:prose-churn, 2026-09-06) y se perdio al revertirlo;
+# esto lo sube al canonico sin los marcadores del parche. Ver ADR-0010.
+#
+# Los anclajes son ORACIONES con su clausula de direccion, no sustantivos sueltos: en el turno 1 del
+# review-loop 4 de 8 mutantes sobrevivian porque negar la regla conserva el sustantivo anclado. El
+# turno 2 midio la otra mitad: 11 de 11 mutantes por AÑADIDO sobrevivian (una clausula de excepcion
+# agregada al final deja intactas las oraciones ancladas), asi que lo que ata la regla es la MODALIDAD
+# ("must answer ... never subtracted") y el ORDEN verificado POR POSICION, no por presencia. Las cuatro
+# guardas de palabras del turno 2 se sacaron: se midio que 'not by running' y 'no need (to|for)' dan
+# rojo sobre prosa legitima ("confirm it with a grep, not by running the suite") y que un sinonimo
+# ('needn't', 'no need of', 'without running') las esquiva — bloquean sin morder.
+foreach ($p in $slicePairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    $s5  = Section $txt 'Step 5 — Confidence pass (filter false positives)'
+    $s6  = Section $txt 'Step 6 — Report'
+
+    # MODALIDAD — las tres preguntas son obligatorias y se declaran. Sin esto, "may optionally
+    # consider three questions when it has time" deja verdes todos los anclajes de contenido.
+    Assert ($s5 -match '(?is)the scorer must answer three questions and say so in\s+its verdict') `
+      "$($p.label)/${rel}: las tres preguntas son obligatorias y se declaran en el veredicto"
+    # ...y el NUMERO contesta (1) sola: si (2)/(3) se le restan, el hallazgo muere en el corte de 60
+    # ANTES de clasificarse, que es exactamente el agujero que este bloque cierra.
+    Assert ($s5 -match '(?is)The 0-100 score answers \(1\) alone\*\*: \(2\) and \(3\) come back as separate verdicts and are\s+never subtracted from the number') `
+      "$($p.label)/${rel}: el puntaje contesta (1) sola; (2)/(3) no se le restan"
+
+    # 1 — el hecho se verifica CORRIENDO algo read-only, con su contraste completo.
+    Assert ($s5 -match '(?is)Verify it by running a \*\*read-only\*\* command against the real code —\s+a grep, a file read, a `git` read — never by reading the diff alone') `
+      "$($p.label)/${rel}: Step 5 verifica el hecho con un comando read-only (no leyendo el diff)"
+    # read-only es literal, pero como REGLA general: la frase viaja verbatim a cada proyecto que el
+    # scaffold bootstrapea, asi que no puede afirmar nada sobre la suite de "este repo".
+    Assert ($s5 -match '(?is)a suite\s+that writes files is not a read-only tool, so check what a command does to the tree before using\s+it to verify') `
+      "$($p.label)/${rel}: read-only es una regla general, no una afirmacion sobre la suite de este repo"
+    Assert ($s5 -notmatch "(?i)this\s+repo's own suite writes files") `
+      "$($p.label)/${rel}: no afirma nada sobre la suite del repo destino (viaja al scaffold)"
+    # El scorer corre comandos: lleva la prohibicion de escritura del Step 3, como el foco de coherencia.
+    Assert ($s5 -match "(?is)dispatch carries Step 3's write prohibition, the same way the coherence\s+focus does") `
+      "$($p.label)/${rel}: el dispatch del scorer lleva la prohibicion de escritura del Step 3"
+
+    # 2 — el REEMPLAZO se chequea igual que el hecho, con la clausula que explica por que.
+    Assert ($s5 -match '(?is)Check the \*replacement\* the same way — a reviewer correcting a\s+false sentence routinely proposes another false sentence') `
+      "$($p.label)/${rel}: Step 5 chequea el reemplazo igual que el hecho (con su contraste)"
+    # ...y aplica al arreglo en CUALQUIER forma. Anclado como oracion contigua (sin ventana de
+    # distancia: el turno 2 midio que 84 caracteres libres alcanzan para colar "but only if a literal
+    # replacement string is quoted").
+    Assert ($s5 -match '(?is)proposes a fix \*\*in any form\*\*, a replacement string or an action; when it proposes none, score\s+on \(1\) alone') `
+      "$($p.label)/${rel}: (2) aplica al arreglo en cualquier forma; sin arreglo se puntua (1) sola"
+
+    # 3 — la OBLIGACION, no el token "N-1": auditar las otras N-1, y auditarlas no es ensanchar.
+    Assert ($s5 -match '(?is)occurrences implies the other N-1 were audited\. If they were not, the fix misleads') `
+      "$($p.label)/${rel}: (3) exige que las otras N-1 ocurrencias hayan sido auditadas"
+    Assert ($s5 -match '(?is)Auditing them\s+is not widening the fix: occurrences that are pre-existing stay out of scope') `
+      "$($p.label)/${rel}: auditar las otras N-1 no es ensanchar el arreglo (destraba (3) vs. alcance)"
+
+    # Una pregunta que NO APLICA no es un fallo: si no, un mutante sobreviviente o un "sin test"
+    # —que no traen reemplazo textual— caerian bajo 60 por no poder contestar (2)/(3).
+    Assert ($s5 -match '(?is)does not apply\*\* to a finding is not a failure — only an affirmative one is') `
+      "$($p.label)/${rel}: una pregunta que no aplica no cuenta como fallo"
+
+    # La consecuencia, cada una anclada en su oracion COMPLETA.
+    Assert ($s5 -match '(?is)a \*\*Low\*\* finding that fails \(2\) or \(3\) is \*\*dropped\*\*, however certain \(1\) is') `
+      "$($p.label)/${rel}: un Low que falla (2)/(3) se descarta aunque (1) sea certero"
+    Assert ($s5 -match '(?is)a \*\*Medium or High\*\* finding stays in the report with its suggested fix marked \*\*REJECTED\*\*') `
+      "$($p.label)/${rel}: un Medium/High sobrevive con el arreglo marcado REJECTED (no se borra el defecto)"
+    # La severidad se CONSERVA — sin esto, "the defect is downgraded to Low; only an untouched High
+    # still blocks the close" pasaba verde (mutante medido en el turno 2).
+    Assert ($s5 -match '(?is)The defect \*\*keeps its severity\*\* and still blocks the close exactly as\s+it would with a sound fix') `
+      "$($p.label)/${rel}: el defecto con arreglo REJECTED conserva su severidad y bloquea igual"
+    # El ORDEN es la mecanica, y se verifica POR POSICION: la clasificacion tiene que estar ARRIBA del
+    # parrafo que dice "after the classification above" (por presencia, mover la lista deja verde).
+    Assert ($s5 -match '(?is)applied \*\*after\*\* the\s+classification above, never before it') `
+      "$($p.label)/${rel}: (2)/(3) se aplican despues de clasificar, nunca antes"
+    $iClas = $s5.IndexOf('**Drop everything below 60.**')
+    $iRej  = $s5.IndexOf('**A rejected fix does not delete a real defect.**')
+    Assert ($iClas -ge 0 -and $iRej -gt $iClas) `
+      "$($p.label)/${rel}: la clasificacion esta fisicamente ARRIBA del parrafo del REJECTED (clas=$iClas rej=$iRej)"
+
+    # Step 6 tiene que DECLARARLOS uno por uno: el ancla es la directiva, no el sustantivo REJECTED
+    # (el turno 2 midio que una frase diciendo lo contrario contenia igual "**REJECTED** suggested fix").
+    Assert ($s6 -match '(?is)State\s+them one by one, never as a bare count: the defect stands, counts \*\*against\*\* clean at its own\s+severity') `
+      "$($p.label)/${rel}: Step 6 declara uno por uno los hallazgos con arreglo REJECTED, y cuentan CONTRA clean"
+
+    # Contra-argumento de alcance, con su consecuencia (la mitad que carga la regla).
+    Assert ($s5 -match '(?is)pre-existing\s+condition the delta merely illuminated\?"\* — the second is out of scope') `
+      "$($p.label)/${rel}: el contra-argumento de alcance declara que lo preexistente queda afuera"
+
+    # Es canonico, no un parche temporal: los marcadores del override local no viajan al scaffold.
+    Assert ($txt -notmatch 'PATCH:prose-churn') `
+      "$($p.label)/${rel}: la regla entra como canonico, sin los marcadores del parche temporal"
+  }
+}
+
+# GOLDEN POR HASH del bloque — la unica red que ataja un mutante por AÑADIDO.
+# Los asserts de arriba muerden lo que EDITA o BORRA una oracion anclada; el turno 2 del review-loop
+# midio que son ciegos a lo que AGREGA: "In practice the scorer skips (2) and (3) whenever (1) scores 90
+# or above" deja las oraciones ancladas intactas y desarma la regla, con la suite en verde. Ningun regex
+# existencial ataja eso. El golden no impide reescribir el bloque: lo hace VISIBLE — si cambia, esto se
+# pone rojo, se mira el diff y se resella A PROPOSITO con tools/reseal-step5.ps1.
+# Se invoca el MISMO script que sella (modo -Check) para que sello y verificacion no puedan divergir, y
+# para no dot-sourcear un helper propio (tests/temp-hygiene.tests.ps1 lo prohibe: por ahi se cuela un stub).
+$reseal = Join-Path $repo "tools\reseal-step5.ps1"
+if (-not (Test-Path -LiteralPath $reseal)) {
+  Assert $false "existe tools/reseal-step5.ps1 (sella y verifica el golden del bloque)"
+} else {
+  $goldenOut = & pwsh -NoProfile -File $reseal -Check 2>&1
+  Assert ($LASTEXITCODE -eq 0) "golden del bloque Score the FIX: las 8 copias coinciden con el sello -> $($goldenOut -join ' / ')"
+}
+# El CALLER tiene que saber que existe REJECTED, o lee "el reviewer lo descarto" -> no arregla nada ->
+# rango vacio -> CLEAN CLOSE sobre un High vivo (el mismo defecto del turno 1, un nivel mas arriba).
+foreach ($p in $loopPairs) {
+  foreach ($f in $p.files) {
+    $rel = Split-Path $f -Leaf
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $txt = [IO.File]::ReadAllText($f)
+    Assert ($txt -match '(?is)marked \*\*REJECTED\*\* by the confidence pass\s+is a \*\*real finding with a bad suggestion\*\*') `
+      "$($p.label)/${rel}: el loop sabe que REJECTED marca la SUGERENCIA, no descarta el hallazgo"
+    Assert ($txt -match '(?is)unless the last review reported a Medium/High you judged \*\*real\*\* and left\s+unfixed') `
+      "$($p.label)/${rel}: el rango vacio NO es cierre limpio si quedo un Medium/High real sin arreglar"
+    Assert ($txt -match '(?is)Then it is a\s+cap or blocked close, never a clean one') `
+      "$($p.label)/${rel}: ese caso se declara cierre por techo o bloqueado, no limpio"
+  }
+}
+
 $workflowDocs = @(@{ label = "repo"; file = (Join-Path $repo "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md") })
 foreach ($s in $skills) {
   $workflowDocs += @{ label = $s.Name; file = (Join-Path $s.FullName "assets\scaffold\docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md") }
