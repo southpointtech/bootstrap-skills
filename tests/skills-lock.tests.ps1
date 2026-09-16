@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 107
+$ExpectedChecks = 113
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -355,13 +355,18 @@ try {
     "y sin el flag manda a re-correr el productor, no a un humano (salida: $($r.Out))"
 
   # Un flag que no es booleano no midió nada aunque se lea "verdadero": `"true" -ne $true` es False en
-  # PowerShell, así que una guarda con `-ne $true` lo sellaba. Un valor no basta: el entero 1 pasa
-  # `-eq $true` aunque la guarda excluya los strings, y "false" y 0 pasan `-eq $false`, así que una
-  # guarda que eligiera el remedio con `-eq $false` los mandaba a un humano. `@()` es falsy con
-  # cualquiera de esas guardas: queda como regresión, no discrimina ninguna.
+  # PowerShell, así que una guarda con `-ne $true` lo sellaba. Un valor no basta, porque una guarda
+  # que pruebe "es verdadero" comparando en vez de mirar el tipo se parcha contra cada contraejemplo:
+  # el entero 1 pasa `-eq $true` aunque la guarda excluya los strings, el real 1.0 (vuelve del JSON
+  # como Double) la pasa aunque además excluya los enteros, y `@($true) -eq $true` devuelve un array
+  # no vacío, que cuenta como verdadero. Del lado del remedio, "false" y 0 pasan `-eq $false`, así
+  # que una guarda que lo eligiera así los mandaba a un humano; y `@()` no es redundante: una guarda
+  # de remedio que excluya strings, enteros y `$null` lo manda a un humano.
   $noBooleanos = @(
     @{ etiqueta = 'string "true"';  valor = "true" },
     @{ etiqueta = 'entero 1';       valor = 1 },
+    @{ etiqueta = 'real 1.0';       valor = 1.0 },
+    @{ etiqueta = 'array [true]';   valor = @($true) },
     @{ etiqueta = 'array vacio';    valor = @() },
     @{ etiqueta = 'string "false"'; valor = "false" },
     @{ etiqueta = 'entero 0';       valor = 0 }
