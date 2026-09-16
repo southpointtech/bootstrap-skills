@@ -266,7 +266,8 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
   return $false
 }
 
-# ¿El archivo importa el helper, y SÓLO de una de las dos formas que el repo usa?
+# ¿El archivo importa el helper, y SÓLO de una de las dos formas que el repo usa? (Más la forma 3,
+# que no importa el helper sino una herramienta de `tools/`, y sólo se admite DESPUÉS de él.)
 #
 # Esto es un conjunto CERRADO a propósito, y es el cambio de instrumento del 2026-09-02. La versión
 # anterior era un detector ABIERTO —"¿hay algún dot-source cuyo objeto se PAREZCA a
@@ -288,14 +289,20 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
 # ESTÁTICAMENTE una pregunta de identidad —"¿lo que quedó en scope es el helper de verdad?"— y esa
 # pregunta sólo se responde exacto en runtime. La respuesta exacta va en un slice aparte.
 #
-# Las dos formas, verificadas por AST sobre el árbol el 2026-09-02:
-#   1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")`            — las 8 suites migradas
+# Las dos formas del helper, verificadas por AST sobre el árbol el 2026-09-02 (la 1 la usan hoy
+# once suites, contadas sobre el árbol el 2026-09-16):
+#   1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")`            — todas menos esta
 #   2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo esta suite, que
 #      necesita el path después para el probe de la parte C.
+# Y una tercera que NO importa el helper (entró con el merge de `main`, 2026-09-15):
+#   3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — carga la herramienta que la suite
+#      prueba (hoy `normalized-hash` y `skills-lock`). Sólo se admite DESPUÉS del import del helper,
+#      y se rechaza si la herramienta no existe o redefine una función del helper
+#      (`Get-RedefinicionesEnTools`, más abajo).
 #
 # Costo aceptado: una forma nueva legítima da rojo y hay que agregarla acá a mano. Es exactamente el
 # rojo que se quiere cuando alguien cambia cómo se importa el helper. Contra conocido: mover `lib/`
-# de lugar rompe las nueve suites a la vez.
+# de lugar rompe las doce suites que importan el helper a la vez.
 
 # `Join-Path $PSScriptRoot "<relativo>"`, exacto: tres elementos, la raíz es $PSScriptRoot y el
 # relativo es un literal que iguala. Nada de matchear el texto del Extent — matchear es justo lo que
@@ -439,7 +446,7 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
 #
 # Reemplazan la RAÍZ del path (pasa en verde):
 #   - `$PSScriptRoot = 'C:\fake'` antes del dot-source. `$PSScriptRoot` no es de sólo lectura, y el
-#     predicado sólo mira que el nodo se LLAME así. Rompe la forma 1, que es la que usan las ocho.
+#     predicado sólo mira que el nodo se LLAME así. Rompe la forma 1, que es la que usan las once.
 #
 # Reemplazan las FUNCIONES después de importarlas:
 #   - `function global:New-TestRunRoot { }` / `script:` / `local:` — el `Name` del AST se guarda con
@@ -454,8 +461,8 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
 # `(Get-Command X).ScriptBlock.File` contra el archivo del helper— es inmune a la FORMA de la evasión
 # (mide la identidad real en vez de aproximarla), así que caza cualquiera de estas grafías que esté
 # PRESENTE en una suite que el probe corre. Pero cubre las cinco suites baratas (la misma lista que la
-# parte E); las tres caras y esta misma suite siguen sólo con el estático de acá por costo, así que el
-# estático de abajo NO es redundante: es la única red sobre esas cuatro. El borde de estas grafías se
+# parte E); las otras seis que importan el helper y esta misma suite siguen sólo con el estático de
+# acá, así que el estático de abajo NO es redundante: es la única red sobre esas siete. El borde de estas grafías se
 # ACHICA —de "escapan a toda detección" a "escapan sólo al estático, y la parte F las caza sobre las
 # cinco baratas"—, no desaparece. Qué grafías EJECUTA F como control y cuáles cubre por deducción está
 # detallado en la parte F (F2), sin afirmar "las seis por ejecución".
@@ -470,6 +477,11 @@ function Get-RedefinicionesDelHelper([string]$path) {
 
 # Cada dot-source de forma 3, resuelto contra la carpeta de la suite, con las redefiniciones del
 # helper que tiene adentro: "<archivo>: <función>", o "<archivo>: no existe".
+#
+# BORDE DECLARADO: mira UN solo nivel. No sigue los dot-sources que la herramienta haga a su vez, y
+# a los archivos de `tools/` no les aplica el lint de %TEMP% (ese barre sólo `tests/`). Una
+# herramienta que dot-sourcee otra que redefine el helper, o que escriba en la raíz de %TEMP%, pasa
+# este chequeo.
 function Get-RedefinicionesEnTools([string]$path) {
   $ast = Get-AstDe $path
   $dir = [IO.Path]::GetDirectoryName($path)
@@ -725,7 +737,7 @@ Assert ($enTools2.Count -eq 1 -and $enTools2[0] -like '*no-existe.ps1*no existe*
 
 # A0c. `Test-TrapDeScript` y `Test-LimpiezaAlTerminar` contra fixtures sintéticos.
 #
-# Hasta acá estos dos predicados sólo se invocaban contra las nueve suites reales, que son
+# Hasta acá estos dos predicados sólo se invocaban contra las suites reales, que son
 # correctas, así que **sólo podían dar verde**: medido, nueve mutaciones distintas sobre ellos
 # sobrevivían la suite entera. Un chequeo cuya única forma de fallar es que alguien escriba una
 # suite mala no es una red, es una nota.
@@ -760,7 +772,7 @@ $casosDeTrap = @(
 )
 # Piso y membresía, igual que las otras cinco listas del archivo. Sin esto, vaciar `$casosDeTrap`
 # deja el `foreach` sin iteraciones, cero asserts y la suite verde — con lo cual un
-# `Test-TrapDeScript` que devuelva siempre `$true` pasaría A0c Y las nueve suites reales. Sería la
+# `Test-TrapDeScript` que devuelva siempre `$true` pasaría A0c Y las suites reales. Sería la
 # misma propiedad que este bloque existe para eliminar, reintroducida en el bloque mismo.
 Assert ($casosDeTrap.Count -ge 7) "A0c: están los casos de trap (hay: $($casosDeTrap.Count))"
 Assert (@($casosDeTrap | Where-Object { -not $_.ok }).Count -ge 6) "A0c: y la mayoría son de RECHAZO"
@@ -908,7 +920,7 @@ foreach ($s in $suites) {
   if ($usa.Count -gt 0) {
     $nombresConHelper += $s.Name
     Assert (Test-ImportaElHelper $s.FullName 'lib\temp-workspace.ps1') `
-      "$($s.Name): importa el helper con una de las dos formas admitidas"
+      "$($s.Name): importa el helper con una de las dos formas admitidas (y la forma 3 sólo después)"
     $rt = @(Get-RedefinicionesEnTools $s.FullName)
     Assert ($rt.Count -eq 0) `
       "$($s.Name): las herramientas que dot-sourcea desde tools/ no redefinen el helper (hallazgos: $($rt -join ' | '))"
@@ -1141,15 +1153,15 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo, [string[]]$Extr
   return @{ nuevos = $mios; exit = $p.ExitCode; salida = $salida; salidaErr = $salidaErr }
 }
 
-# CINCO de las OCHO suites ejecutables, no una.
+# CINCO de las ONCE suites ejecutables, no una.
 #
-# El denominador es ocho, no nueve. Nueve suites usan el helper, pero la novena es ESTA, y la parte
-# E no puede ejecutarla a ningún precio: se llamaría a sí misma en recursión. Su exclusión es
-# estructural, no económica — la primera versión de este comentario decía "las nueve" y atribuía su
-# exclusión al costo, que es falso.
+# Doce suites usan el helper (contadas el 2026-09-16), pero una es ESTA, y la parte E no puede
+# ejecutarla a ningún precio: se llamaría a sí misma en recursión. Su exclusión es estructural, no
+# económica. Cuando se escribió la lista eran nueve y ocho ejecutables; `normalized-hash`,
+# `skills-lock` y `slice-review` llegaron después y no están en la medición de abajo.
 #
-# De las ocho ejecutables, la lista es la mitad barata de una medición de duración hecha el
-# 2026-09-02, UNA corrida por suite:
+# De las ocho ejecutables de entonces, la lista es la mitad barata de una medición de duración hecha
+# el 2026-09-02, UNA corrida por suite:
 #
 #   apply-env 4,5 s | export-shareable 9,3 | gen-mcp-json 9,5 | copy-scaffold 19,9 | alignment-gate 21,1
 #   review-loop-docs-gate 142,9 | review-loop-trigger 258,2 | review-marker 258,8
@@ -1162,19 +1174,16 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo, [string[]]$Extr
 # Las ocho suman 724 s y TRES son el 91 % del costo. Correr las ocho llevaría esta suite por encima
 # de los 10 minutos — que es el techo de la tool con la que se la corre, no un timeout configurado
 # en el repo: acá no hay CI ni runner con timeout — y dejaría de poder correrse de una. Una suite
-# que no se corre no es una red. Las cinco baratas suman ~64 s y llevan la cobertura de 1/8 a 5/8.
-# Entra `export-shareable`, que es justamente la que tenía el glob incondicional.
+# que no se corre no es una red. Las cinco baratas suman ~64 s y llevaron la cobertura de 1/8 a 5/8
+# (hoy 5/11). Entra `export-shareable`, que es justamente la que tenía el glob incondicional.
 #
 # Las tres caras quedan afuera a sabiendas: su higiene la cubren los chequeos estáticos de la parte
 # A, que es estrictamente menos que ejecutarlas.
 #
-# ⚠️ `export-shareable` MUTA EL ÁRBOL DEL REPO mientras corre: escribe un
-# `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo borra en un `finally`. Correr esta
-# suite ahora arrastra esa escritura, y si el hijo muere entre el `Set-Content` y el `finally` el
-# archivo queda. Se declara acá porque contradice de frente el argumento que este mismo archivo usa
-# en la parte "E (no feliz)" para justificar las suites de juguete ("mutar el árbol contamina a los
-# reviewers en paralelo, ya pasó"), y porque el residuo se verifica explícitamente después del
-# foreach en vez de confiar en el `finally`.
+# Historia: `export-shareable` MUTABA EL ÁRBOL DEL REPO mientras corría (escribía un
+# `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo borraba en un `finally`). Ya no: planta
+# el señuelo en una copia hermética de la fuente y afirma ella misma que no quedó ninguno en el
+# repo. El assert de residuo de más abajo quedó como red redundante.
 $suitesBaratas = @('apply-env', 'export-shareable', 'gen-mcp-json', 'copy-scaffold', 'alignment-gate')
 # Cantidad Y unicidad: con sólo la cantidad, duplicar un nombre mantiene el 5 y baja la cobertura
 # real a cuatro suites en silencio. Contar no atribuye.
@@ -1210,17 +1219,10 @@ foreach ($nombreSuite in $suitesBaratas) {
   # (evita falsos rojos por concurrencia); lo que no se puede es afirmar más de lo que mide.
   Assert ($r.nuevos.Count -eq 0) "E: $nombreSuite no deja su raíz de corrida en %TEMP% (nuevas: $($r.nuevos.Count))"
 }
-# El residuo del fixture de fuga de `export-shareable`, verificado y no asumido: su `finally` no
-# corre si el proceso muere antes.
-#
-# Dos límites de este assert, declarados porque no se pueden cerrar desde acá:
-# 1. DETECTA, no remedia. Borrarlo sería peor: el path del fixture es FIJO (sin PID ni GUID), así
-#    que una corrida concurrente podría estar usándolo en ese momento.
-# 2. Por lo mismo, puede dar un rojo espurio: dos corridas simultáneas de esta suite —o una de
-#    `export-shareable` sola— comparten ese path, y el muestreo puede caer en la ventana entre el
-#    `Set-Content` de una y el `finally` de la otra. Es la única medición de este archivo que NO
-#    puede filtrarse por PID, justamente porque el path es compartido. La solución de fondo es que
-#    `export-shareable` arme su fixture de fuga en un clon temporal; queda fuera de este slice.
+# El residuo del viejo fixture de fuga de `export-shareable`. REDUNDANTE desde que esa suite arma el
+# señuelo en su fuente hermética (`New-TestWorkspace`) y afirma ella misma que no quedó en el repo;
+# se conserva como red barata. Lo que SÍ sigue valiendo: DETECTA, no remedia (un residuo de una
+# corrida vieja se borra a mano).
 # El path va en el mensaje: si aparece, hay que borrarlo a mano, y además pone en rojo a
 # `shareable-leaks` porque el contenido del fixture es un marcador de fuga dentro del payload
 # exportable.
@@ -1593,8 +1595,7 @@ Assert ((Get-LiteralDePath "C:\O'Brien\lib.ps1") -eq "'C:\O''Brien\lib.ps1'") `
 # reemplaza el helper. Es la red contra un agente futuro que edite una de estas cinco con una grafía
 # invisible al estático. Corre en runspace anidado, no como subproceso.
 # ⚠️ COSTO DECLARADO: esto vuelve a ejecutar las cinco (la parte E ya las corrió como subprocesos),
-# ~64 s extra por corrida de temp-hygiene, y export-shareable muta el árbol del repo una SEGUNDA vez
-# (su residuo se re-verifica más abajo, no se asume). Sigue holgadamente bajo el techo de 10 min. Los
+# ~64 s extra por corrida de temp-hygiene. Sigue holgadamente bajo el techo de 10 min. Los
 # modelos de ejecución difieren (E: subproceso + medición de %TEMP% por PID; F: in-process +
 # Get-Command), así que no se fusionan trivialmente en una sola corrida.
 $cubiertas = 0
@@ -1614,8 +1615,8 @@ foreach ($nombreSuite in $suitesBaratas) {
 Assert ($cubiertas -eq $suitesBaratas.Count) `
   "F: el probe de identidad corrió sobre las $($suitesBaratas.Count) suites baratas (corrió: $cubiertas)"
 
-# export-shareable corrió de nuevo acá dentro; su residuo se re-verifica, no se asume (su finally no
-# corre si el proceso muere).
+# export-shareable corrió de nuevo acá dentro; la re-verificación del residuo es redundante (ver la
+# parte E) y se conserva como red barata.
 Assert (-not (Test-Path -LiteralPath $residuoFuga)) `
   "F: no quedó residuo del fixture de fuga de export-shareable tras la pasada de identidad ($residuoFuga)"
 

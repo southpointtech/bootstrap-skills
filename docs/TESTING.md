@@ -68,9 +68,11 @@ Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del l
 migradas de verdad** y cuenta lo que dejaron en la raíz de `%TEMP%`, filtrando por el PID del
 proceso hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios.
 
-Cubre **cinco de las ocho suites ejecutables**. El denominador es ocho y no nueve: nueve usan el
-helper, pero la novena es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio**
-—se llamaría a sí misma en recursión—, así que su exclusión es estructural, no económica.
+Cubre **cinco de las once suites ejecutables**. Doce usan el helper (contadas el 2026-09-16), pero
+una es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio** —se llamaría a sí
+misma en recursión—, así que su exclusión es estructural, no económica. Cuando se eligieron las
+cinco eran nueve y ocho ejecutables; `normalized-hash`, `skills-lock` y `slice-review` llegaron
+después y no están en la medición de abajo.
 
 La elección de las cinco es por costo medido (2026-09-02, **una** corrida por suite): `apply-env`
 4,5 s, `export-shareable` 9,3, `gen-mcp-json` 9,5, `copy-scaffold` 19,9, `alignment-gate` 21,1 —
@@ -84,10 +86,10 @@ corre, no un timeout configurado en el repo (acá no hay CI ni runner) — y una
 no es una red. Las tres caras quedan cubiertas sólo por los chequeos estáticos, que es
 estrictamente menos.
 
-⚠️ Meter `export-shareable` en la parte E hace que correr `temp-hygiene` **escriba transitoriamente
-en el árbol del repo**: esa suite crea un `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo
-borra en un `finally` que no corre si el proceso muere antes. Queda declarado, y el residuo se
-verifica con un assert explícito después del foreach en vez de confiar en el `finally`.
+Historia: `export-shareable` escribía un `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture en
+el árbol del repo. Ya no: arma el señuelo en una copia hermética de la fuente y afirma ella misma
+que no quedó ninguno en el repo. El assert de residuo que `temp-hygiene` corre después del foreach
+quedó como red redundante.
 
 La parte E también mide el **camino no feliz**, sobre suites de juguete: una que falla (limpia y
 sale con `exit 1`) y una que aborta (`throw`, con el trap puesto). Las dos tienen que dejar cero
@@ -139,7 +141,7 @@ una tercera invocación. Es el mismo salto que ya se había hecho de grep a toke
 El chequeo del dot-source **no busca algo que se parezca** a `lib/temp-workspace.ps1`: admite un
 conjunto cerrado de formas y rechaza todo lo demás.
 
-1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las ocho suites migradas.
+1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las otras once suites.
    El separador `/` también se acepta: es el mismo archivo.
 2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo `temp-hygiene`, que
    necesita el path después. La variable tiene que asignarse **una sola vez fuera de toda función**,
@@ -150,7 +152,13 @@ conjunto cerrado de formas y rechaza todo lo demás.
    propio y no pisa nada, pero acá cuenta igual, a propósito: sobre-aproximar hacia el rojo sobre
    una grafía que nadie escribe es el lado correcto del error.
 
-**Todos** los dot-sources del archivo tienen que ser canónicos, no "al menos uno", y ninguno puede
+3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — **no** importa el helper: carga la
+   herramienta que la suite prueba (hoy `normalized-hash` y `skills-lock`). Mismo molde que la
+   forma 1, con el relativo anclado: un solo `..`, directo en `tools`. Sólo se admite **después** del
+   import del helper, y se rechaza si la herramienta no existe o redefine una función del helper
+   (`Get-RedefinicionesEnTools`).
+
+**Todos** los dot-sources del archivo tienen que ser de una de estas formas, no "al menos uno", y ninguno puede
 estar dentro de un `if`, `switch`, `try`, `trap`, loop, una función, **un scriptblock cualquiera**
 (`& { … }`, `ForEach-Object { … }`) ni a la derecha de un `&&`/`||`. El dot-source va en el cuerpo
 del script, suelto.
@@ -171,7 +179,7 @@ scope es el helper de verdad?"), y esa pregunta sólo se responde exacto en runt
 mano en `Test-ImportaElHelper`. Es el rojo que se quiere. Y ojo con el alcance: la regla es "**ningún**
 dot-source que no sea el canónico", así que si sumás un segundo helper bajo `tests/lib/`, cada suite
 que lo dot-sourcee da rojo — el chequeo es por archivo, así que sólo caen las que lo usen, no todas.
-Mover `lib/` de lugar sí rompe las nueve a la vez, porque cambia el path canónico para todas.
+Mover `lib/` de lugar sí rompe las doce a la vez, porque cambia el path canónico para todas.
 
 El lint recorre **todos** los `.ps1`, `.psm1` y `.psd1` bajo `tests/`, recursivo y **con `-Force`**.
 Antes miraba la raíz más `tests/lib/**`, y ya existía un directorio afuera de eso
@@ -197,7 +205,7 @@ omitía las seis que sí lo son — un borde mal declarado manda a buscar donde 
 | `foreach ($lib in @('C:\stub.ps1')) { }` | deja la variable con el último valor y no es un `AssignmentStatementAst` |
 | `Set-Variable -Name lib -Value ...` | tampoco es una asignación en el AST |
 | `$script:lib = ...` | en el cuerpo del script **es** `$lib`, pero su `UserPath` es `script:lib` |
-| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las ocho |
+| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las once |
 | `function global:New-TestRunRoot { }` | el `Name` del AST guarda el prefijo de scope |
 | `Import-Module <stub.psm1>` desde fuera de `tests/` | no es un dot-source |
 
@@ -213,8 +221,12 @@ el probe corre.
 
 **El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
 que la parte E, por el mismo techo de 10 min; las tres caras miden 142,9 / 258,2 / 258,8 s, §2026-09-02
-arriba). Las **tres suites caras** y `temp-hygiene` misma siguen sólo con el chequeo estático de
-arriba, así que la tabla sigue describiendo su borde real sobre esas cuatro.
+arriba). Las **otras seis** que importan el helper y `temp-hygiene` misma siguen sólo con el chequeo
+estático de arriba, así que la tabla sigue describiendo su borde real sobre esas siete.
+
+`Get-RedefinicionesEnTools` (la guarda de la forma 3) mira **un solo nivel**: no sigue los
+dot-sources que la herramienta haga a su vez, y a `tools/` no le aplica el lint de `%TEMP%`, que
+barre sólo `tests/`.
 
 Qué EJECUTA F2 como control y qué cubre por deducción, sin sobreafirmar:
 
