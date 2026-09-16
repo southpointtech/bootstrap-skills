@@ -219,12 +219,15 @@ For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
 
 **Score the FIX, not only the finding.** A finding can be perfectly true and its suggested fix still
 make the code worse. Alongside the rubric above, the scorer must answer three questions and say so in
-its verdict:
+its verdict. **The 0-100 score answers (1) alone**: (2) and (3) come back as separate verdicts and are
+never subtracted from the number, or the finding dies at the 60 cutoff before it is ever classified —
+which is the failure this whole block exists to prevent.
 
 1. **Is the stated fact true?** Verify it by running a **read-only** command against the real code —
-   a grep, a file read, a `git` read — never by reading the diff alone. Read-only is literal: this
-   repo's own suite writes files, so running it is not a verification tool here. The scorer's
-   dispatch carries Step 3's write prohibition, the same way the coherence focus does.
+   a grep, a file read, a `git` read — never by reading the diff alone. Read-only is literal: a suite
+   that writes files is not a read-only tool, so check what a command does to the tree before using
+   it to verify. The scorer's dispatch carries Step 3's write prohibition, the same way the coherence
+   focus does.
 2. **Does the proposed fix hold up?** Check the *replacement* the same way — a reviewer correcting a
    false sentence routinely proposes another false sentence. This applies whenever the finding
    proposes a fix **in any form**, a replacement string or an action; when it proposes none, score
@@ -260,10 +263,12 @@ for the next turn, and loops kept ending at the turn cap instead of clean.
 classification above, never before it, and what they decide is the fate of the *suggestion*, not of
 the finding:
 
-- a **Low** finding that fails (2) or (3) is scored **below 60 and dropped**, however certain (1) is
-  — its whole substance is the suggestion, so a rejected suggestion leaves nothing worth reporting;
+- a **Low** finding that fails (2) or (3) is **dropped**, however certain (1) is — its whole
+  substance is the suggestion, so a rejected suggestion leaves nothing worth reporting;
 - a **Medium or High** finding stays in the report with its suggested fix marked **REJECTED** and
-  the scorer's reason stated. The defect keeps its severity and still blocks the close.
+  the scorer's reason stated. The defect **keeps its severity** and still blocks the close exactly as
+  it would with a sound fix — under `light`, where only a High blocks, a Medium with a rejected fix is
+  reported unfixed like any other Medium.
 
 Scoring the fix exists to stop the loop from applying a suggestion that moves the problem elsewhere
 — not to let a certain defect leave the report on the strength of a bad suggestion. The caller
@@ -276,8 +281,9 @@ Report findings grouped by severity, each as: `file:line` — the problem — wh
 suggested fix. Then state explicitly:
 
 - How many findings were dropped by the confidence pass (so the review's silence is legible).
-- Which surviving findings carry a **REJECTED** suggested fix, and why the scorer rejected it — the
-  defect stands and still counts toward clean; only the suggestion was thrown out.
+- Which surviving findings carry a **REJECTED** suggested fix, and why the scorer rejected it. State
+  them one by one, never as a bare count: the defect stands, counts **against** clean at its own
+  severity, and only the suggestion was thrown out.
 - The diff range that was actually reviewed.
 - **Clean** or **not clean**: clean means zero High and zero Medium findings.
 

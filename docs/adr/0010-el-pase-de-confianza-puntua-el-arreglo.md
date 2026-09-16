@@ -40,10 +40,16 @@ El scorer del pase de confianza responde **tres preguntas** y las declara en su 
 Una pregunta que **no aplica** no es un fallo: sólo cuenta un fallo afirmativo. Y lo que (2) y (3) deciden
 es la suerte de la **sugerencia**, no la del hallazgo, así que se aplican **después** de clasificar:
 
-- un hallazgo **Low** que falla (2) o (3) se puntúa **bajo 60 y se descarta**, por certero que sea (1):
-  toda su sustancia es la sugerencia, y rechazada la sugerencia no queda nada que reportar;
+- un hallazgo **Low** que falla (2) o (3) se **descarta**, por certero que sea (1): toda su sustancia es
+  la sugerencia, y rechazada la sugerencia no queda nada que reportar;
 - un hallazgo **Medium o High** queda en el reporte con su arreglo marcado **REJECTED** y el motivo del
-  scorer. Conserva su severidad y sigue bloqueando el cierre.
+  scorer. Conserva su severidad, bloquea el cierre igual que con un arreglo sano, y el Step 6 lo declara
+  uno por uno. El `/review-loop` lo sabe: un hallazgo con la sugerencia rechazada es real, y un rango
+  vacío por no haberlo arreglado es cierre por techo o bloqueado, nunca limpio.
+
+El **número 0-100 contesta (1) sola**: (2) y (3) vuelven como veredictos aparte y no se le restan. Si se
+le restaran, el hallazgo moriría en el corte de 60 antes de clasificarse — que es justo el agujero que
+esta decisión cierra.
 
 El corte de 60 no cambia: cambia qué se puntúa. Esta separación es lo que el turno 1 del review-loop de
 este mismo slice corrigió: la versión que se commiteó primero descartaba el hallazgo entero, y tres
@@ -54,7 +60,8 @@ Además, el scorer recibe por escrito el contra-argumento de alcance: *"¿esto e
 una condición preexistente que el delta simplemente iluminó?"* — lo segundo queda fuera de alcance.
 
 La pregunta (1) exige un comando **read-only** (un grep, una lectura de archivo, una lectura de `git`);
-read-only es literal, porque la suite de este repo escribe archivos. Y el dispatch del scorer lleva la
+read-only es literal: una suite que escribe archivos no es read-only. La regla viaja verbatim a cada
+proyecto que el scaffold bootstrapea, así que no afirma nada sobre la suite de ninguno en particular. Y el dispatch del scorer lleva la
 prohibición de escritura del Step 3, como ya hacía el foco de coherencia: la pregunta (1) convierte a los
 scorers paralelos en agentes que ejecutan, y sin esa guarda mutarían el árbol que los demás leen.
 
@@ -73,3 +80,7 @@ La regla entra al canónico **sin los marcadores del parche**: no es un override
   regla vía `upgrade-bootstrap`.
 - Falta medirlo: la señal a mirar es cuántos hallazgos se descartan por (2) o (3) en los próximos slices,
   y si alguno de esos defectos vuelve a aparecer después.
+- La mecánica del bloque queda congelada por un **golden por hash** (`tests/fixtures/step5-score-the-fix.golden.sha256`,
+  resellable con `tools/reseal-step5.ps1`). En el turno 2 se midió que los asserts semánticos muerden lo que
+  edita o borra una oración y son ciegos a lo que **agrega**: una cláusula de excepción al final desarma la
+  regla con la suite en verde. El golden no impide reescribir el bloque; lo hace visible.

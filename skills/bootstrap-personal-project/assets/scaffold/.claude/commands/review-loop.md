@@ -221,7 +221,10 @@ One turn = one complete pass through these steps:
    up to this point, and the fixes you are about to write become the next turn's unreviewed delta.
    Advancing after fixing would hand the next turn an empty range and the fixes would never be
    reviewed by anyone — which is the exact failure this loop exists to prevent.
-4. Read the findings. Fix ONLY findings that are real, relevant to this change, and **Medium or High**
+4. Read the findings. A finding whose suggested fix comes marked **REJECTED** by the confidence pass
+   is a **real finding with a bad suggestion** — the defect stands at its own severity; only the
+   suggestion was thrown out, and writing a better one is your job.
+   Fix ONLY findings that are real, relevant to this change, and **Medium or High**
    — in `light`, **High only**: a `light` slice reports its Medium findings as deliberately not
    fixed, because no turn would review their fix. When a High promotes the slice, fix that turn's
    real Medium findings too: turn 2 reviews them. Low findings are reported, not fixed. Do not
@@ -237,8 +240,10 @@ After step 5, begin the next turn back at step 1 — which now reviews only the 
   no High).
 - `range` came back empty **with exit 0** (exit 2 is not a stop condition). After a turn whose
   reviewer ran, this means you fixed nothing because you judged every Medium/High not real: that
-  is a **clean close**. On the first turn no reviewer ran this loop: stop, with no coherence pass
-  and no `-Action close`.
+  is a **clean close** — unless the last review reported a Medium/High you judged **real** and left
+  unfixed (a rejected suggestion you could not replace, or a call that needs a human). Then it is a
+  cap or blocked close, never a clean one. On the first turn no reviewer ran this loop: stop, with
+  no coherence pass and no `-Action close`.
 - The unreviewed delta is only prose with no behavior change: comments, docstrings, or `.md` files
   **outside** the paths `CLAUDE.md` says govern the agent (`CLAUDE.md` anywhere, `.claude/`,
   `.agents/`, `docs/ai-workflow/`, `docs/agents/`). An edit to a governing file is behavior, so it
@@ -276,7 +281,9 @@ whole-slice re-read buys the least.
 Name the close before acting on it; the final report states it:
 
 - **clean close** — the last review left no Medium/High you judged real (in `light`: no High). This
-  holds even when that review was the cap turn, and covers an empty range after a reviewed turn.
+  holds even when that review was the cap turn, and covers an empty range after a reviewed turn. A
+  Medium/High carrying a **REJECTED** suggestion is real unless you can say why the defect itself is
+  not, so a close over one is not clean.
 - **prose-only close** — the prose-only stop condition fired **before** the cap ran.
 - **cap close** — the cap ran and its last review reported a Medium/High (a High in `light`
   promotes, so in practice `standard`). Its fixes were never reviewed, so a prose-only fix delta
