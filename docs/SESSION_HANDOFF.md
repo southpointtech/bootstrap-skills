@@ -1,3 +1,87 @@
+# Session Handoff — 2026-09-15/16 (continuación) — **Rollout cerrado (7 de 7 integrados)** + slice **"Score the FIX"** en el scaffold, review-loop cerrado **por techo** en 2 turnos
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo de sesión** `C:\Repos\PERSONAL\Bootstrap Skills`, rama **`feat/score-the-fix`** (3 commits: `08ecb2e`,
+  `ca72c67`, `7b1f832`), **sin mergear a `main`**. `main` va **3 commits adelante de `origin/main`** y **sin pushear**.
+- **BLOQUEADO POR EL CLASIFICADOR, no por falta de permiso del usuario**: el merge del PR #122 de Forecasting App y
+  el `git push` de este repo. El usuario dio permiso explícito; el clasificador de auto-mode los frena igual
+  ("Merge Without Review"). Los comandos exactos, para correr con `!` desde la terminal, están en §4.
+- Untracked: residuo de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`) — ajeno, no tocar.
+
+## 1. Rollout del scaffold `2026-09-11`: CERRADO
+
+Profitability App (`80688f2`, ff sobre `docs/reunion-05-08-corte-en-gross-profit`) y Administracion May (`20c7a48`,
+rebase sobre `c948635` + ff sobre `main`) quedaron integrados. En Profitability se borró el `.git/index.lock`
+huérfano del 14/9 18:12 (ningún proceso git vivo había arrancado a esa hora). En los dos: `compare-scaffold` 0
+missing / 0 outdated / 0 orphan, AST de los 3 hooks OK, `review-marker -Action range` exit 0; worktrees y ramas
+borrados y memorias `upgrade-bootstrap-pendiente-de-integrar` eliminadas. **Falta sólo el merge del PR #122.**
+
+## 2. Slice "Score the FIX" (`ef136aa..HEAD`, 24 archivos, 742 inserciones)
+
+Sube al canónico la regla que el pase de confianza había perdido al revertirse el parche `PATCH:prose-churn`.
+**El review-loop la reescribió dos veces**, y eso es lo que hay que leer antes de tocarla:
+
+- **Turno 1** (7 reviewers: 5 focos + mutación + `/code-review`) encontró que la regla portada **borraba hallazgos
+  ciertos**: un Medium/High con una sugerencia floja caía bajo 60, no llegaba a clasificarse, el reporte decía
+  *clean* y el loop cerraba sobre él. Fix: (2) y (3) se aplican **después** de clasificar y deciden la suerte de la
+  **sugerencia** — Low que falla se descarta, Medium/High queda con el arreglo marcado **REJECTED**, conserva
+  severidad y bloquea el cierre; Step 6 los declara uno por uno.
+- **Turno 2** (5 focos) encontró que el fix **no alcanzaba**: el título seguía autorizando al scorer a bajarle el
+  número por un arreglo flojo, y el corte de 60 lo mataba igual. Fix: **el 0-100 contesta (1) sola**; (2) y (3)
+  vuelven como veredictos aparte y no se le restan. Además el **caller** (`/review-loop`, 8 copias) ahora sabe qué
+  es REJECTED y declara que un rango vacío con un Medium/High real sin arreglar es cierre **por techo o bloqueado,
+  nunca limpio**.
+- **Cierre: POR TECHO** (2 turnos, rigor `standard`). El pase de coherencia corrió al final: **coherente, sin
+  hallazgos**. Los fixes del turno 2 **no los revisó ningún turno** — el costo aceptado del techo (ADR-0009).
+
+### Lo que se midió sobre los tests (vale más que el texto de la regla)
+
+1. Los 6 asserts del turno 1 **no mordían**: 4 de 8 mutantes sobrevivieron porque **negar la regla conserva el
+   sustantivo anclado**. Se reescribieron por **oración completa** (con su contraste, obligación o consecuencia).
+2. El turno 2 midió la otra mitad: **11 de 11 mutantes por AÑADIDO sobrevivían** — una cláusula de excepción al
+   final (`In practice the scorer skips (2) and (3) whenever (1) scores 90 or above`) deja todas las oraciones
+   intactas y desarma la regla. **Ningún regex existencial ataja eso.**
+3. Lo que sí lo ataja: **golden por hash** del bloque (`tests/fixtures/step5-score-the-fix.golden.sha256`), sellado
+   y verificado por el **mismo** script (`tools/reseal-step5.ps1`, modo `-Check`) para que sello y verificación no
+   diverjan. Verificado: 5 de 6 mutantes mueren por los asserts, el de añadido muere por el golden.
+4. Las 4 **guardas de palabras** que había puesto se **sacaron**: se midió que dan rojo sobre prosa legítima
+   ("confirm it with a grep, not by running the suite") y que un sinónimo (`needn't`, `no need of`) las esquiva.
+5. **Un reviewer mutó el árbol real** pese a la prohibición (dejó una línea de mutante en
+   `.claude/commands/slice-review.md`). Lo cazó el guard del golden al no coincidir las 8 copias. Chequear
+   `git status` antes de creerle a un hallazgo.
+
+**Corrección de una afirmación propia**: el commit `ca72c67` dice "96 asserts en RED"; el foco de contratos lo
+midió y son **88** — los 8 restantes eran un escape roto en mi propio regex, no la regla ausente.
+
+## 3. Estado del marcador (leer antes del próximo review)
+
+`-Action advance` se corrió **después** del turno 1, y **NO** después del turno 2 (la regla es antes de los fixes).
+Queda en `08ecb2e`: el próximo review va a **re-revisar** el delta del turno 2. Erra hacia revisar de más, que es
+el lado seguro; **no se compensa hacia adelante** (`advance` sólo corta en HEAD). El ancla `slice-open` **no** se
+limpió (`-Action close` no corre en cierre por techo), así que una re-corrida de este slice sigue bien acotada.
+
+## 4. Pendientes, en orden
+
+1. **Usuario / con `!`** — mergear el PR #122 y limpiar su worktree:
+   `gh auth switch -h github.com -u southpointtech; gh pr merge 122 -R southpointtech/forecasting-app --merge --delete-branch; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" worktree remove C:/Repos/SOUTHPOINTLABS/_worktrees/forecasting/upgrade-bootstrap; git -C "C:/Repos/SOUTHPOINTLABS/Forecasting App" branch -D chore/upgrade-bootstrap-2026-09-15`
+2. **Usuario / con `!`** — pushear `main` de este repo:
+   `gh auth switch -h github.com -u southpointtech; git push origin main; gh auth switch -h github.com -u MartinDele703`
+3. **Mergear `feat/score-the-fix` a `main`** y deployar el scaffold (`tools/sync-skills.ps1`), que regenera los
+   manifests. Los 7 repos con el scaffold 2026-09-11 quedan otra vez desactualizados: decidir si se re-rollea.
+4. v2 (§5 del handoff de 2026-09-13/15): Low de TESTING.md/temp-hygiene, `Status:` de issues, limpiar ancla
+   `slice-open` vieja.
+
+### Low reportados y NO arreglados (deliberado, el loop sólo arregla Medium/High)
+
+- El guard `PATCH:prose-churn` es vacuo: ninguna rama escribe esa cadena en los 8 archivos (verificado con
+  `git log -S` por dos reviewers). Se dejó: es ruido, no un agujero.
+- El bloque nuevo de tests quedó **entre** el comentario del guard 08b y el código que ese comentario explica
+  (`$workflowDocs`), así que se lee como su encabezado.
+- `docs/adr/0010` justifica descartar los Low diciendo que "toda su sustancia es la sugerencia": no es cierto del
+  Low más común acá (un número falso en un comentario), donde la sustancia es el hecho.
+
+---
 # Session Handoff — 2026-09-15 (noche) — **Rollout del scaffold `2026-09-11` a los repos ELEGIDOS: 7 de 7 integrados (Forecasting vía PR #122 sin mergear); los otros 11 con nota en memoria**
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
