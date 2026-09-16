@@ -1,3 +1,96 @@
+# Session Handoff — 2026-09-16 (noche) — **Slice "C6d con dientes" CERRADA en `feat/bootstrap-v2` (`6badc92` + `d8e228a`)**, review-loop `standard` cerró LIMPIO en el turno 2. `main` pusheado. Sin trabajo en vuelo.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: en sync con `origin/main` en `54a4d6e` (push hecho por el
+  usuario con `!` y verificado con `git fetch` + `rev-list --left-right --count` = `0 0`) + el commit de ESTE handoff,
+  que **NO está pusheado** (comando en §5). Untracked: residuo de Codex (`.agents/skills/source-command-*`, `.codex/`,
+  `AGENTS.md`) — ajeno, **no tocar**.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`d8e228a`**,
+  árbol limpio. Rama local (no hace falta push). `main` va 12 commits adelante de v2 (sin merge todavía).
+- **Marcador de revisión v2**: `d8e228a` (== HEAD; `range` vacío, exit 0). Ancla `slice-open:feat/bootstrap-v2`
+  **limpia** (`-Action close` tras el clean close + coherencia).
+- **NO HAY TRABAJO EN VUELO.**
+
+## 1. Lo hecho (slice `81016b4..d8e228a`, sólo tests y prosa; `tools/` intacto)
+
+- `6badc92` (trailer `Slice-Close:`, rigor standard): C6d de `tests/skills-lock.tests.ps1` itera flags no booleanos y
+  ancla `-match "booleano"` (T1+T2+T3); B1 (forma 3 del import: "carga una herramienta de `tools/` … las dos
+  `tools/normalized-hash.ps1`") en `docs/TESTING.md:155-157` y `tests/temp-hygiene.tests.ps1:298-300`; B2
+  (`temp-hygiene:1194` → "la que tocaba el árbol"); T4 (mensaje del assert C6 → "el pie comun de todo rechazo").
+- `d8e228a` (fix del turno 1): suma `1.0` y `@($true)`; reescribe el comentario de C6d. `$ExpectedChecks` = **113**.
+- Tabla final `$noBooleanos`: `"true"`, `1`, `1.0`, `@($true)`, `@()`, `"false"`, `0`.
+
+**RED verificado** (mutantes aplicados de a uno a `tools/skills-lock.ps1` y revertidos; scripts en el scratchpad, NO
+commiteados):
+| mutante | suite vieja | suite final |
+|---|---|---|
+| M1 guarda `-not ($x -eq $true -and $x -isnot [string])` | 95/95 verde | 9 FAIL |
+| M2 remedio `if ($x -eq $false)` | 95/95 verde | 2 FAIL |
+| MG guarda `… -isnot [string] -and $x -isnot [long]` | 107/107 verde (tras 6badc92) | 6 FAIL |
+| MR remedio `if ($x -isnot [string] -and $null -ne $x -and $x -isnot [long])` | — | 3 FAIL (1.0, [true], []) |
+
+Tests finales: `skills-lock` **113 ok / 0 FAIL**; `temp-hygiene` **279 ok / 0 FAIL** (corrida sobre `6badc92`; `d8e228a`
+no toca ese archivo). Otras suites no corridas (el diff no las toca).
+
+## 2. Review-loop (standard, 2 turnos) — CLEAN CLOSE
+
+- Turno 1: 5 focos + mutación (8 mutantes extra, todos muertos). **Sin foco `/code-review`** (fork atado al cwd de la
+  sesión = repo principal). Medium arreglados: MG sobrevivía; comentario "`@()` no discrimina ninguna" era falso.
+- Turno 2: 5 focos, cero Medium/High tras el pase de confianza. Coherencia (sonnet): sin hallazgos bloqueantes.
+
+**Low reportados y NO arreglados** (deliberado):
+- Remedio `[bool]($x -eq $false -and -isnot [string] -and -isnot [long])` sobrevive; lo mataría `0.0` (+3 checks).
+- `tests/temp-hygiene.tests.ps1:589` sigue diciendo "las suites que además cargan la herramienta que prueban" (misma
+  falsedad que B1; se corrigieron 2 de 3). Arreglo: "…que además cargan una herramienta de `tools/`:".
+- Falta el verbo en B1 (`TESTING.md:156` y `temp-hygiene:299`): "las dos **cargan** `tools/normalized-hash.ps1`".
+- `skills-lock.tests:325` "todo rechazo" sobregeneraliza: el pie sólo cierra los rechazos de `Import-Bases`
+  (→ "todo rechazo de las bases").
+- Comentario C6d (`skills-lock.tests:~363`): "`@()` no es redundante" cita un mutante que también matan 1.0 y [true].
+  Mutante que sólo mata `@()` (verificado por el scorer, aun con `{}`):
+  `if ($x -is [bool] -or ($null -ne $x -and -not $x -and $x -isnot [ValueType]))`.
+- `skills-lock.tests:~359`: "array no vacío, que cuenta como verdadero" — un array de 1 elemento vale su elemento.
+- Guarda `-not ([bool]$x -and -isnot string/long/double/array)` sella un objeto `{}`; arreglo: `@{ etiqueta = 'objeto {}'; valor = @{} }`, `$ExpectedChecks` 116.
+- Los números del mensaje de `d8e228a` salen de corridas no versionadas (medidas, pero no reproducibles).
+
+## 3. Próximos pasos recomendados
+
+1. **Push de `main`** (este handoff), usuario con `!` (§5).
+2. **Decisión del usuario, sigue diferida**: re-rollout del scaffold `2026-09-16` a los 7 repos (ver §3 del handoff
+   de la mañana, abajo). Recomendado: juntarlo con el próximo cambio del scaffold. **Preguntar antes de arrancar.**
+3. **Slice chica opcional (rigor `light`)** con los Low de §2 si se quiere cerrar C6d del todo: `0.0` + `{}` (checks
+   113 → 119) y la prosa de `:589`, el verbo de B1 y "todo rechazo de las bases". Versionar los mutantes en un script
+   (p. ej. `.scratch/`) para que los números sean reproducibles.
+4. Resto abierto sin cambios: issues v2 02, 06-16, 18, 19 ⬜; merge de `main` en v2; gitignore del residuo de Codex;
+   ancla `slice-open:fix/copy-scaffold-respalda` (`4ff2c9f`) en `.git/review-loop-state.json` del repo principal;
+   Low viejos del 2026-09-15 y de "Score the FIX".
+
+## 4. Gotchas de esta sesión
+
+- `tests/skills-lock.tests.ps1` y `tools/skills-lock.ps1` están en **LF** en disco (medido); `docs/TESTING.md`,
+  `tests/temp-hygiene.tests.ps1` y este handoff en **CRLF**. Un `git checkout -- tools/skills-lock.ps1` lo reescribió
+  en CRLF (autocrlf; sin diff de contenido).
+- El heredoc de la Bash tool se comió backslashes (`..\\tools` → tab). Pares con `\` se escriben con Write, con
+  raw strings de Python.
+- Revertir un mutante por reemplazo inverso falla si el texto mutado ya existe en el archivo (el mensaje de m3
+  coincidía con otra rama) → verificar `git diff` y restaurar sólo ese archivo.
+- `alignment-gate` frenó la primera Write (aun en scratchpad); reintentar tras declarar la alineación.
+- Los mutantes de "lista de exclusión de tipos" son regresión infinita: cada valor nuevo mata una exclusión y la
+  siguiente sobrevive. El pase de confianza los bajó a Low; no perseguirlos más allá de los tipos JSON.
+
+## 5. Comandos
+
+```powershell
+# Push de este repo (MartinDele703 da 403). Correr con `!`:
+! gh auth switch -h github.com -u southpointtech; git -C "C:/Repos/PERSONAL/Bootstrap Skills" push origin main; gh auth switch -h github.com -u MartinDele703
+
+# Estado v2 y suites tocadas
+git -C "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2" log --oneline -3
+pwsh -NoProfile -File "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2/.claude/scripts/review-marker.ps1" -Action range -RepoDir "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2"
+pwsh -NoProfile -File "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2/tests/skills-lock.tests.ps1"
+```
+
+---
 # Session Handoff — 2026-09-16 (tarde) — **Slice v2 de prosa CERRADA en `feat/bootstrap-v2` (`81016b4`)**, review-loop `light` cerró limpio en 1 turno con **2 Medium de tests reportados sin arreglar**. Push de `main` todavía PENDIENTE.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
