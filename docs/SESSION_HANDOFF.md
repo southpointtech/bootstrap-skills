@@ -1,3 +1,91 @@
+# Session Handoff — 2026-09-16 (tarde) — **Slice v2 de prosa CERRADA en `feat/bootstrap-v2` (`81016b4`)**, review-loop `light` cerró limpio en 1 turno con **2 Medium de tests reportados sin arreglar**. Push de `main` todavía PENDIENTE.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: **1 commit adelante de `origin/main`** (`c75713c`,
+  handoff anterior) + el commit de ESTE handoff = 2. Verificado con `git fetch` + `rev-list --left-right --count`.
+  **El push NO se hizo**: el clasificador de auto-mode lo frena; lo corre el usuario con `!` (comando en §5).
+  Untracked: residuo de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`) — ajeno, **no tocar**.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`81016b4`**,
+  árbol limpio. Es rama local (no hace falta push). `main` va 11 commits adelante de v2 (Score the FIX, handoffs)
+  — no se mergeó `main` en esta sesión.
+- **Marcador de revisión v2**: `81016b4` (== HEAD; `range` da vacío, exit 0). Ancla `slice-open:feat/bootstrap-v2`
+  **limpia** (`-Action close` tras el cierre limpio). La vieja `102489d` (snapshot "WIP on", no ancestro) se borró.
+- **NO HAY TRABAJO EN VUELO.**
+
+## 1. Lo hecho en esta sesión (slice v2, `9be6477..81016b4`)
+
+Commit `81016b4` (trailers `Slice-Close:` + `Review-Rigor: light`), sólo `docs/TESTING.md` y
+`tests/temp-hygiene.tests.ps1` (ambos **CRLF** en disco; editados con `eolrep.py`, pares exactos):
+- Documenta la **forma 3** del import (`. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")`, sólo DESPUÉS del
+  helper) en la cabecera del conjunto cerrado y en TESTING.md.
+- Declara que `Get-RedefinicionesEnTools` mira **un solo nivel** y no aplica el lint de %TEMP% a `tools/`.
+- Conteos contados sobre el árbol el 2026-09-16: **12** suites usan el helper (11 con forma 1 + temp-hygiene con
+  forma 2), **11** ejecutables por la parte E, **5** baratas, **7** sin red en runtime.
+- Prosa de `export-shareable`: ya no escribe `LEAK-TEST.md` en el repo (fuente hermética vía `New-TestWorkspace`,
+  `tests/export-shareable.tests.ps1:53,90`); el assert de residuo queda declarado **redundante**.
+- Única línea no-comentario: el mensaje del assert `:911` → "...dos formas admitidas (y la forma 3 sólo después)".
+- `.scratch/bootstrap-v2/issues/{01,03,04,05,17}-*.md`: `Status:` → `closed (...)` (gitignoreado, no commiteado).
+
+Tests: `pwsh -NoProfile -File tests/temp-hygiene.tests.ps1` sobre el árbol del commit → **exit 0, 279 ok, 0 FAIL**.
+No se corrieron las otras suites (el diff no las toca).
+
+## 2. Review-loop (light, 1 turno) — cierre LIMPIO
+
+Rango `git diff 9be6477` = `3aef799` (fix del turno-cap del loop anterior, nunca revisado) + `81016b4`.
+Focos Bugs + Tests (opus) + pase de confianza (2 scorers, puntuando el fix). Cero descartados, cero High.
+En `light` sólo un High bloquea ⇒ Medium y Low **reportados y NO arreglados** (deliberado):
+
+| id | sev | score | hallazgo | arreglo validado por el scorer |
+|---|---|---|---|---|
+| T1 | **Medium** | 95 | `tests/skills-lock.tests.ps1:357-369` (C6d) prueba un solo no-booleano (`"true"`). Mutante `$x -eq $true -and $x -isnot [string]` sella el Int64 `1` y sobrevive | iterar C6d sobre valores no booleanos, +3 `$ExpectedChecks` (hoy 95) por valor |
+| T2 | **Medium** (scorer sugiere Low) | 92 | `tools/skills-lock.ps1:~136` (`if (-is [bool])` que elige remedio): mutante `if ($x -eq $false)` sobrevive; `"false"`/`0` recibirían "humano" | sumar `"false"` y `0` al mismo loop, con `-match "volve a correr" -and -notmatch "humano"` |
+| B1 | Low | 95 | **frase falsa escrita en esta slice**: `docs/TESTING.md:156` y `tests/temp-hygiene.tests.ps1:299` dicen que la forma 3 "carga la herramienta que la suite prueba (hoy normalized-hash y skills-lock)"; `skills-lock.tests:40` carga `normalized-hash.ps1` y a `skills-lock.ps1` la corre como subproceso | "carga una herramienta de `tools/`, no el helper — hoy `normalized-hash.tests` y `skills-lock.tests`, las dos `tools/normalized-hash.ps1`" (corregir las DOS ocurrencias) |
+| B2 | Low | 92 | `tests/temp-hygiene.tests.ps1:1194` (no tocada) sigue diciendo que export-shareable es "la única de las cinco que toca el árbol" | pasar a pasado ("la que tocaba el árbol") |
+| T3 | Low | 80 | C6d no ancla que el rechazo sea el del empate ("volve a correr" también sale de la rama blob/commit null) | agregar `-match "booleano"` (sólo lo emite esa rama) |
+| T4 | Low | 90/55 | el mensaje del assert C6 (`:324-325`) sugiere que "no se edita a mano" es propio del empate; está en el pie común (`tools/skills-lock.ps1:~145`) | "el pie común advierte que las bases son salida generada" |
+
+`@()` no discrimina ningún mutante (falsy con cualquier guarda): sirve de regresión, no suma poder.
+
+## 3. Próximos pasos recomendados
+
+1. **Push de `main`** (usuario, con `!`, §5).
+2. **Slice "C6d con dientes"** en `feat/bootstrap-v2`, rigor **standard** (toca asserts de una herramienta):
+   T1+T2 en un solo loop sobre `@("true", 1, @(), "false", 0)` con RED verificado (aplicar los mutantes de §2 y
+   ver que mueren), + T3; de paso B1, B2, T4 (prosa). Correr `tests/skills-lock.tests.ps1` (y temp-hygiene si se
+   toca). `$ExpectedChecks` es conteo EXACTO: recalcularlo.
+3. **Decisión del usuario, sigue diferida**: re-rollout del scaffold `2026-09-16` a los 7 repos (ver §3 del
+   handoff de la mañana, abajo). Recomendado: juntarlo con el próximo cambio del scaffold.
+
+Resto abierto (sin cambios): Low viejos del §5 del handoff 2026-09-15 no cubiertos (`-PathType Leaf` sin test,
+lista de 12 nombres sin inclusión inversa, "Las dos formas solo llegan editando a mano" en `tools/skills-lock.ps1:127`
+y `tests/skills-lock.tests.ps1:330` sobreafirma, rama `-not $resuelta`); Low de la slice "Score the FIX"; issues v2
+02, 06-16, 18, 19 ⬜; gitignore del residuo de Codex; ancla `slice-open:fix/copy-scaffold-respalda` (`4ff2c9f`)
+sigue en `.git/review-loop-state.json` del repo principal (la rama existe; no se tocó).
+
+## 4. Gotchas de esta sesión
+
+- `docs/SESSION_HANDOFF.md` y los dos archivos editados son **CRLF** en disco (medido con Python sobre bytes).
+  El script de reemplazo que preserva EOL/BOM y aborta si un par no matchea 1 vez estaba en el scratchpad de la
+  sesión (`eolrep.py`, borrable); es trivial de reescribir.
+- El `alignment-gate` frenó la primera escritura (hasta de un `.py` del scratchpad); reintentar tras declarar la
+  alineación.
+- `open` con árbol sucio registró el marcador (`9be6477`), no HEAD: correcto, cubrió `3aef799` sin revisar.
+- Revisores sin foco `/code-review` (fork atado al cwd de la sesión, que es el repo principal, no el worktree).
+  Todo con `git -C` y rutas absolutas.
+
+## 5. Comandos
+
+```powershell
+# Push de este repo (MartinDele703 da 403). Correr con `!`:
+! gh auth switch -h github.com -u southpointtech; git -C "C:/Repos/PERSONAL/Bootstrap Skills" push origin main; gh auth switch -h github.com -u MartinDele703
+
+# Estado del worktree v2
+git -C "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2" log --oneline -3
+pwsh -NoProfile -File "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2/.claude/scripts/review-marker.ps1" -Action range -RepoDir "C:/Repos/PERSONAL/Bootstrap-Skills-bootstrap-v2"
+```
+
+---
 # Session Handoff — 2026-09-16 (mañana) — **Todo cerrado: push hecho, PR #122 mergeado, skills DEPLOYADAS**. Repo limpio y en sync. Pendiente único: decidir si se re-rollea el scaffold `2026-09-16` a los 7 repos.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
