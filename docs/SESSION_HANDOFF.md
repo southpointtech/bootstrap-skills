@@ -1,3 +1,104 @@
+# Session Handoff — 2026-09-16 (mañana) — **Todo cerrado: push hecho, PR #122 mergeado, skills DEPLOYADAS**. Repo limpio y en sync. Pendiente único: decidir si se re-rollea el scaffold `2026-09-16` a los 7 repos.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama **`main`**. El push del usuario dejó `34b80b7` == `origin/main`
+  (0 adelante / 0 atrás, verificado con `git fetch` + `rev-list --left-right --count`); **encima queda SÓLO el commit
+  de este handoff, sin pushear** — el clasificador de auto-mode frena el push; el comando exacto está en la sección 5. **Árbol limpio**: lo único untracked es el residuo
+  de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`) — ajeno, **no tocar**.
+- **NO HAY TRABAJO EN VUELO.** Esta sesión no editó ni un archivo del repo: sólo verificó y deployó.
+- **Los tres pendientes del handoff anterior están CERRADOS.** Ver §1.
+- **Decisión pendiente y única** (el usuario la difirió para la próxima terminal): si se re-rollea el scaffold
+  `2026-09-16` a los 7 repos que quedaron en `2026-09-11`. Ver §3.
+
+## 1. Lo que se cerró en esta sesión (nada de código)
+
+| Pendiente del handoff anterior | Estado | Evidencia (verificada en el sink, no en el exit code) |
+|---|---|---|
+| Mergear PR #122 (Forecasting App) | ✅ hecho por el usuario | ya venía verificado: `b7c45fe` es ancestro de `origin/master`, merge `8f0d93b` |
+| Pushear `main` de este repo | ✅ hecho por el usuario | `git rev-parse main` == `git rev-parse origin/main` == `34b80b7` tras `git fetch` |
+| **Deploy de las skills** | ✅ **HECHO en esta sesión** | ver §2 |
+
+La cuenta de `gh` quedó correctamente en **`MartinDele703`** (`gh auth status`: activa MartinDele703, southpointtech
+presente pero inactiva). El comando del push la devolvió bien; no hay que arreglar nada ahí.
+
+## 2. Deploy de las skills — HECHO Y VERIFICADO
+
+Comando corrido, desde la raíz del repo:
+
+```
+pwsh -NoProfile -File tools/sync-skills.ps1
+```
+
+Salida: regeneró los 3 manifests y deployó 5 skills (`bootstrap-{ai,personal,southpoint}-project` 55 archivos c/u,
+`setup-mcp-workstation` 3, `upgrade-bootstrap` 4).
+
+**Verificación en el destino, no en la salida del script**: se hashearon (SHA256) todos los archivos de
+`skills/` contra `~/.claude/skills/` → **0 distintos, 0 huérfanos** en las 5 skills. Antes del deploy el delta eran
+exactamente 5 archivos por skill bootstrap (la slice "Score the FIX"):
+`assets/scaffold/.bootstrap-manifest.json`, `.agents/skills/{review-loop,slice-review}/SKILL.md`,
+`.claude/commands/{review-loop,slice-review}.md`.
+
+- Versión instalada ahora: **`2026-09-16+<hash por skill>`** (personal: `2026-09-16+9582553`; ai: `+16f50f3`;
+  southpoint: `+3ed72da`). Antes: `2026-09-11`.
+- La regla nueva llegó: el `slice-review.md` instalado tiene **6 menciones de `REJECTED`**.
+- ⚠️ Las skills nuevas **toman efecto recién en la próxima sesión** de Claude Code. La sesión que corrió el deploy
+  siguió con las viejas cargadas.
+
+### Corrección de una nota vieja (vale para la próxima vez)
+
+La memoria decía que *"sync/export ensucian el tree en cada corrida"* (por los manifests regenerados). **En esta
+corrida NO pasó**: `git status` quedó idéntico antes y después, porque los hashes regenerados salieron **byte-idénticos
+a los commiteados** — `gen-manifest.ps1` ya se había corrido antes del commit de la slice. O sea: el árbol se ensucia
+sólo si el scaffold cambió sin resellar, no por el solo hecho de correr `sync-skills.ps1`.
+
+## 3. LO ÚNICO PENDIENTE: ¿re-rollout del scaffold `2026-09-16`?
+
+Los 7 repos del rollout anterior (Forecasting App, Profitability App, SouthPoint-Hub, Call Center Stage One,
+Administracion May, Gestor de Obras, claude-analytics) quedaron en el scaffold **`2026-09-11`**, o sea **sin
+"Score the FIX"**. Los otros 11 repos tienen memoria `bootstrap-desactualizado.md` y ni siquiera están en `09-11`.
+
+El usuario **no decidió todavía**. Las opciones que se le plantearon, para que la próxima sesión no las re-derive:
+
+1. **No por ahora (lo que se le recomendó).** El delta es chico y no bloquea: el review-loop de esos repos funciona,
+   sólo le falta la regla de puntuar el arreglo. Se junta con el próximo cambio del scaffold y se rollea una vez sola.
+2. **Sí, a los 7.** Es la sesión larga del 2026-09-15: worktree por repo, `reseal-manifest` + `compare-scaffold`
+   (0 missing / 0 outdated / 0 orphan), parse AST de los 3 hooks, `review-marker -Action range` exit 0, ff local
+   **sin push**, y borrar worktree + rama al terminar. Los gotchas están en §4 del handoff del 2026-09-15 y en la
+   memoria `forecasting-app-mitigacion-interina-review.md`.
+3. **Sólo 1 o 2** donde más se use el review-loop.
+
+**Preguntarle antes de arrancar.** No lo empieces por tu cuenta: es una sesión larga y él la difirió a propósito.
+
+## 4. Lo demás que sigue abierto (sin cambios respecto del handoff anterior)
+
+- **v2**: Low de `TESTING.md` / temp-hygiene, campo `Status:` de los issues, limpiar el ancla `slice-open` vieja.
+  Slice chico, rigor `light`.
+- **Marcador de revisión**: sigue en `08ecb2e` (se avanzó después del turno 1 y **no** después del turno 2). El
+  próximo review va a **re-revisar** el delta del turno 2 — erra hacia revisar de más, que es el lado seguro.
+  **No se compensa hacia adelante**: `advance` sólo corta en HEAD. El ancla `slice-open` **no** se limpió.
+- **Low reportados y no arreglados** de la slice "Score the FIX" (deliberado, el loop sólo arregla Medium/High):
+  el guard `PATCH:prose-churn` es vacuo; el bloque nuevo de tests quedó bajo el comentario del guard 08b; el
+  `docs/adr/0010` justifica descartar Low con una razón que no aplica al Low más común (un número falso en un comentario).
+
+## 5. Comandos útiles verificados en esta sesión
+
+```powershell
+# Estado real contra el remoto (no confiar en el snapshot del prompt)
+git fetch origin; git rev-list --left-right --count origin/main...main
+
+# Deploy de skills + verificación en el destino
+pwsh -NoProfile -File tools/sync-skills.ps1
+# (y después hashear skills/ contra ~/.claude/skills/ — 0 distintos es el criterio)
+
+# Push de este repo (MartinDele703 da 403). El clasificador de auto-mode lo frena: correr con `!`
+!gh auth switch -h github.com -u southpointtech; git -C "C:/Repos/PERSONAL/Bootstrap Skills" push origin main; gh auth switch -h github.com -u MartinDele703
+```
+
+⚠️ **La Bash tool de esta sesión estaba rota** (`git: command not found`, `ls: command not found` — PATH vacío).
+Todo se corrió con la PowerShell tool. Si te pasa lo mismo, no pierdas tiempo: usá PowerShell directo.
+
+---
 # Session Handoff — 2026-09-15/16 (continuación) — **Rollout CERRADO Y VERIFICADO (7 de 7, PR #122 mergeado)** + slice **"Score the FIX"** en el scaffold, review-loop cerrado **por techo** en 2 turnos
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR
