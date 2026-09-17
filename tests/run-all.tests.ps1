@@ -211,6 +211,19 @@ $r = Invoke-Runner $c
 Assert ($r.exit -ne 0) "O: stagear un archivo ya sucio da exit != 0 (dio $($r.exit))"
 Assert ($r.out -match '(?m)^\s+apareci\S*:\s+A\s+para-stagear\.txt') "O: el reporte muestra la entrada nueva"
 
+# --- P. si git status falla, su stderr llega entero y sin deformar al mensaje ---
+# La ruta inexistente lleva acento: el runner la imprime una vez por su cuenta y git otra dentro de
+# su propio error. Si el stderr de git se decodifica con la codificación de la consola, o el mensaje
+# no lo incluye, queda una sola. Se cuenta la palabra y no se ancla texto de git, que puede venir
+# traducido; la línea fuente del throw que pwsh también muestra no la contiene.
+$c = New-Caso "sin-dir"
+$c.repo = Join-Path $c.repo 'no-existe-ñandú'
+Add-Suite $c "quieta" $suiteVerde
+$r = Invoke-Runner $c
+Assert ($r.exit -ne 0) "P: un -RepoRoot inexistente da exit != 0 (dio $($r.exit))"
+$veces = [regex]::Matches($r.out, 'ñandú').Count
+Assert ($veces -eq 2) "P: la ruta con acento aparece en el mensaje del runner y en el de git (aparece $veces veces)"
+
 Remove-TestRunRoot $script:runRoot
 
 Write-Host ""

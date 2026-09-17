@@ -24,7 +24,12 @@ MUTANTES = {
     "M13-exit-negativo-no-es-rojo": ("$rojas = @($resultados | Where-Object { $_.Exit -ne 0 })", "$rojas = @($resultados | Where-Object { $_.Exit -gt 0 })"),
     "M14-filtro-ancho": ("-Filter '*.tests.ps1'", "-Filter '*.ps1'"),
     "M15-clave-sin-xy": ('$estado["$xy $ruta"]', '$estado["$ruta"]'),
-    "M16-git-en-cp850": ("[Text.UTF8Encoding]::new($false)", "[Text.Encoding]::GetEncoding(850)"),
+    "M16-git-en-cp850": ("$psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)",
+                         "$psi.StandardOutputEncoding = [Text.Encoding]::GetEncoding(850)"),
+    # Del turno 2: el stderr de git en el mensaje de error (caso P).
+    "M17-stderr-en-cp850": ("$psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)",
+                            "$psi.StandardErrorEncoding = [Text.Encoding]::GetEncoding(850)"),
+    "M18-sin-stderr-en-el-mensaje": ('en $repo : $($err.Result.Trim())"', 'en $repo"'),
 }
 
 vivos = []
@@ -49,5 +54,7 @@ try:
 finally:
     # Un pwsh ausente, un Ctrl-C o un copytree que falla no dejan el temporal en %TEMP%.
     shutil.rmtree(base, ignore_errors=True)
+    if base.exists():
+        print(f"AVISO: no se pudo borrar {base}; borralo a mano", file=sys.stderr)
 print(f"{len(MUTANTES) - len(vivos)} de {len(MUTANTES)} mutantes muertos")
 sys.exit(1 if vivos else 0)

@@ -164,7 +164,7 @@ una tercera invocación. Es el mismo salto que ya se había hecho de grep a toke
 El chequeo del dot-source **no busca algo que se parezca** a `lib/temp-workspace.ps1`: admite un
 conjunto cerrado de formas y rechaza todo lo demás.
 
-1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las otras once suites.
+1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las otras doce suites.
    El separador `/` también se acepta: es el mismo archivo.
 2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo `temp-hygiene`, que
    necesita el path después. La variable tiene que asignarse **una sola vez fuera de toda función**,
@@ -203,7 +203,7 @@ scope es el helper de verdad?"), y esa pregunta sólo se responde exacto en runt
 mano en `Test-ImportaElHelper`. Es el rojo que se quiere. Y ojo con el alcance: la regla es "**ningún**
 dot-source que no sea el canónico", así que si sumás un segundo helper bajo `tests/lib/`, cada suite
 que lo dot-sourcee da rojo — el chequeo es por archivo, así que sólo caen las que lo usen, no todas.
-Mover `lib/` de lugar sí rompe las doce a la vez, porque cambia el path canónico para todas.
+Mover `lib/` de lugar sí rompe las trece a la vez, porque cambia el path canónico para todas.
 
 El lint recorre **todos** los `.ps1`, `.psm1` y `.psd1` bajo `tests/`, recursivo y **con `-Force`**.
 Antes miraba la raíz más `tests/lib/**`, y ya existía un directorio afuera de eso
@@ -229,7 +229,7 @@ omitía las seis que sí lo son — un borde mal declarado manda a buscar donde 
 | `foreach ($lib in @('C:\stub.ps1')) { }` | deja la variable con el último valor y no es un `AssignmentStatementAst` |
 | `Set-Variable -Name lib -Value ...` | tampoco es una asignación en el AST |
 | `$script:lib = ...` | en el cuerpo del script **es** `$lib`, pero su `UserPath` es `script:lib` |
-| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las once |
+| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las doce |
 | `function global:New-TestRunRoot { }` | el `Name` del AST guarda el prefijo de scope |
 | `Import-Module <stub.psm1>` desde fuera de `tests/` | no es un dot-source |
 
@@ -245,8 +245,8 @@ el probe corre.
 
 **El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
 que la parte E, por el mismo techo de 10 min; las tres caras miden 142,9 / 258,2 / 258,8 s, §2026-09-02
-arriba). Las **otras seis** que importan el helper y `temp-hygiene` misma siguen sólo con el chequeo
-estático de arriba, así que la tabla sigue describiendo su borde real sobre esas siete.
+arriba). Las **otras siete** que importan el helper y `temp-hygiene` misma siguen sólo con el chequeo
+estático de arriba, así que la tabla sigue describiendo su borde real sobre esas ocho.
 
 `Get-RedefinicionesEnTools` (la guarda de la forma 3) mira **un solo nivel**: no sigue los
 dot-sources que la herramienta haga a su vez, y a `tools/` no le aplica el lint de `%TEMP%`, que

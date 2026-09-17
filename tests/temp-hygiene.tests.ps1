@@ -290,7 +290,7 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
 # pregunta sólo se responde exacto en runtime. La respuesta exacta va en un slice aparte.
 #
 # Las dos formas del helper, verificadas por AST sobre el árbol el 2026-09-02 (la 1 la usan hoy
-# once suites, contadas sobre el árbol el 2026-09-16):
+# doce suites, contadas sobre el árbol el 2026-09-16):
 #   1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")`            — todas menos esta
 #   2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo esta suite, que
 #      necesita el path después para el probe de la parte C.
@@ -303,7 +303,7 @@ function Test-TrapDeScript([string]$path, [string]$comando, [string]$argumento) 
 #
 # Costo aceptado: una forma nueva legítima da rojo y hay que agregarla acá a mano. Es exactamente el
 # rojo que se quiere cuando alguien cambia cómo se importa el helper. Contra conocido: mover `lib/`
-# de lugar rompe las doce suites que importan el helper a la vez.
+# de lugar rompe las trece suites que importan el helper a la vez.
 
 # `Join-Path $PSScriptRoot "<relativo>"`, exacto: tres elementos, la raíz es $PSScriptRoot y el
 # relativo es un literal que iguala. Nada de matchear el texto del Extent — matchear es justo lo que
@@ -447,7 +447,7 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
 #
 # Reemplazan la RAÍZ del path (pasa en verde):
 #   - `$PSScriptRoot = 'C:\fake'` antes del dot-source. `$PSScriptRoot` no es de sólo lectura, y el
-#     predicado sólo mira que el nodo se LLAME así. Rompe la forma 1, que es la que usan las once.
+#     predicado sólo mira que el nodo se LLAME así. Rompe la forma 1, que es la que usan las doce.
 #
 # Reemplazan las FUNCIONES después de importarlas:
 #   - `function global:New-TestRunRoot { }` / `script:` / `local:` — el `Name` del AST se guarda con
@@ -462,8 +462,8 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
 # `(Get-Command X).ScriptBlock.File` contra el archivo del helper— es inmune a la FORMA de la evasión
 # (mide la identidad real en vez de aproximarla), así que caza cualquiera de estas grafías que esté
 # PRESENTE en una suite que el probe corre. Pero cubre las cinco suites baratas (la misma lista que la
-# parte E); las otras seis que importan el helper y esta misma suite siguen sólo con el estático de
-# acá, así que el estático de abajo NO es redundante: es la única red sobre esas siete. El borde de estas grafías se
+# parte E); las otras siete que importan el helper y esta misma suite siguen sólo con el estático de
+# acá, así que el estático de abajo NO es redundante: es la única red sobre esas ocho. El borde de estas grafías se
 # ACHICA —de "escapan a toda detección" a "escapan sólo al estático, y la parte F las caza sobre las
 # cinco baratas"—, no desaparece. Qué grafías EJECUTA F como control y cuáles cubre por deducción está
 # detallado en la parte F (F2), sin afirmar "las seis por ejecución".
@@ -1155,12 +1155,12 @@ function Measure-RastrosDe([string]$suitePath, [string]$prefijo, [string[]]$Extr
   return @{ nuevos = $mios; exit = $p.ExitCode; salida = $salida; salidaErr = $salidaErr }
 }
 
-# CINCO de las ONCE suites ejecutables, no una.
+# CINCO de las DOCE suites ejecutables, no una.
 #
-# Doce suites usan el helper (contadas el 2026-09-16), pero una es ESTA, y la parte E no puede
+# Trece suites usan el helper (contadas el 2026-09-16, con `run-all`), pero una es ESTA, y la parte E no puede
 # ejecutarla a ningún precio: se llamaría a sí misma en recursión. Su exclusión es estructural, no
 # económica. Cuando se escribió la lista eran nueve y ocho ejecutables; `normalized-hash`,
-# `skills-lock` y `slice-review` llegaron después y no están en la medición de abajo.
+# `run-all`, `skills-lock` y `slice-review` llegaron después y no están en la medición de abajo.
 #
 # De las ocho ejecutables de entonces, la lista es la mitad barata de una medición de duración hecha
 # el 2026-09-02, UNA corrida por suite:

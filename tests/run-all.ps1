@@ -35,13 +35,17 @@ function Get-GitStatusZ([string]$repo) {
   $psi.RedirectStandardOutput = $true
   $psi.RedirectStandardError = $true
   $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  # El stderr también: el mensaje de error de git trae la ruta (caso P del test).
+  $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
   $p = [Diagnostics.Process]::Start($psi)
-  # stderr en paralelo: leer los dos canales en serie puede trabar al hijo si llena el otro buffer.
-  $err = $p.StandardError.ReadToEndAsync()
-  $salida = $p.StandardOutput.ReadToEnd()
-  $p.WaitForExit()
-  if ($p.ExitCode -ne 0) { throw "git status falló en $repo : $($err.Result.Trim())" }
-  $salida
+  try {
+    # stderr en paralelo: leer los dos canales en serie puede trabar al hijo si llena el otro buffer.
+    $err = $p.StandardError.ReadToEndAsync()
+    $salida = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) { throw "git status falló en $repo : $($err.Result.Trim())" }
+    $salida
+  } finally { $p.Dispose() }
 }
 
 # Mapa "XY ruta" -> hash del archivo ("-" si no existe, p. ej. un borrado).
