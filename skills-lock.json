@@ -124,14 +124,14 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/to-tickets/SKILL.md",
       "base": {
-        "blob": "9f6efbfe5fb5fcb9a751482e333d2f54da173102",
-        "upstreamPath": "skills/engineering/to-issues/SKILL.md",
-        "commit": "ff3ee1dda50d636b4e25b1ba269d25d6d5784164",
-        "commitDate": "2026-05-06T08:26:48Z"
+        "blob": "4a21285cbd01c7d2c6e97d8406d6d23e21b4b850",
+        "upstreamPath": "skills/engineering/to-tickets/SKILL.md",
+        "commit": "6a34259e99bc5fed4f8fe5da61c273dad14edf67",
+        "commitDate": "2026-08-15T21:22:05Z"
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "d496ffc26ccfbb1fe7b8c79f0c0ef5c69b9b297863bb98ff582d2ce99f582bbf"
+        "SKILL.md": "e9288da4dce14595995d007a410267a66228cfb50ee11de432c5aa862f7efc8d"
       }
     },
     "to-prd": {
@@ -139,14 +139,14 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/to-spec/SKILL.md",
       "base": {
-        "blob": "47a01d4e63cb4ba5b1ab020fd7efe6ab2a2c1d69",
+        "blob": "e5f11413b09c19f59150dac52125536ccda34e2d",
         "upstreamPath": "skills/engineering/to-prd/SKILL.md",
-        "commit": "70141119e9fe47430b62b93bcf166a73e6580048",
-        "commitDate": "2026-05-06T15:07:58Z"
+        "commit": "3832253f149ea165f45a32ea727886e6d0094d60",
+        "commitDate": "2026-06-12T08:25:19Z"
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "5e5c2d0f9226e6d492a70471073c15974fde64a1811e644e221a5d1e939ed815"
+        "SKILL.md": "39a971a004e89299f546cdec9f5c2749167dcb686e4b957bb892d2ec7f67b683"
       }
     },
     "triage": {
