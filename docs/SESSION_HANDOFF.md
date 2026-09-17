@@ -1,3 +1,53 @@
+# Session Handoff — 2026-09-16 (cierre 4) — **Issue v2 06 (`tdd`: merge de tres vías + red → green) implementado** en `feat/bootstrap-v2` (`919d9f6` + `d6a16e5` + `bbc91fc`). Review-loop `standard`: 2 turnos corridos (tope) → **cierre por TOPE**; el **pase de coherencia quedó SIN CORRER** (el usuario lo frenó para cambiar de terminal).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: `origin/main` en `13ca18b`; `21db553` (handoff anterior) y el commit de ESTE handoff **sin pushear**. Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`bbc91fc`**, árbol limpio.
+- **Marcador v2**: `d6a16e5` → `-Action range` va a devolver `d6a16e5` = el delta sin revisar es **`bbc91fc`** (los arreglos del turno 2, que ningún reviewer leyó; es lo normal en un cierre por tope).
+- **Ancla `slice-open:feat/bootstrap-v2` = `ed17702`, ABIERTA a propósito** (cierre por tope → NO se corre `-Action close`). `-Action slice-base` devuelve `ed17702`.
+- Issue `.scratch/bootstrap-v2/issues/06-tdd-merge-y-red-green.md` sigue `ready-for-agent` en el archivo (no se actualizó): marcarlo **closed** cuando se cierre el loop.
+- **Trabajo en vuelo: solo el pase de coherencia** (ver §4, paso 1).
+
+## 1. Qué hace el slice (3 commits)
+
+- **Skill `tdd`** (8 copias: `.agents/skills/tdd/SKILL.md` y `.claude/commands/tdd.md` en la raíz y en los 3 scaffolds): cuerpo de upstream `mattpocock/skills` HEAD `959a8e9` (en `tdd` idéntico a `6654f6b`), forma "reference-only" con seams pre-acordados, antipatrón tautológico, `tests.md` de upstream. Drift propio re-aplicado: `description` con triggers en español + "red-green-refactor"; sección **Close the slice** (solo "green/refactor" → "green"); puntero a `deep-modules.md` / `interface-design.md` en vez de `codebase-design` (excluida por el PRD); "Refactoring is not part of the loop" apunta a `/review-loop` (`/code-review` en turno 1 de `standard`; `light` no tiene ese pase; un refactor que se quiera es un slice propio `Review-Rigor: light`). `refactoring.md` **borrado** ×4. El command conserva la `description` de upstream y los links con prefijo `.agents/skills/tdd/`. No se trajo `agents/openai.yaml` (Codex).
+- **Lockfile** (`tools/skills-lock.ps1`, `skills-lock.json` ×4): campo nuevo **`forkFiles`** por skill (marcas humanas de archivos propios dentro de una skill de upstream). Se sella con `-ForkFile skill/archivo[,skill/archivo]` (pwsh `-File` no deja repetir el parámetro → lista con coma); el re-sellado lo conserva con o sin `-Bases`; si el archivo desaparece, la marca se quita con `AVISO`; Verify rechaza una marca sobre un archivo no sellado. `tdd.forkFiles = [deep-modules.md, interface-design.md]`. `Seal -Bases` con lockfile previo ilegible / vacío / `null` / v2 sin `skills` → **exit 2** con remedio (antes: stack trace o pérdida silenciosa de marcas).
+- **Base de `tdd` avanzada**: recuperación completa (`tools/recover-skill-bases.py --upstream-clone <clon>`) → `tdd` pasa a blob `8fc0867`, commit `3216582` (2026-08-19), similitud 0,7287; `upstream.head` `6654f6b` → `959a8e9`; las otras 10 skills sin cambio. `.scratch/bootstrap-v2/skill-bases.json` reemplazado por esa salida.
+- **Golden de la doctrina**: `tools/reseal-step5.ps1` ahora tiene `-Block step5|tdd-loop` (default `step5`). `tdd-loop` hashea el **cuerpo entero** de tdd (del título `# Test-Driven Development` a `\z`, links normalizados) → `tests/fixtures/tdd-loop.golden.sha256` (`c8c41352…`). `tests/techo-del-slice.tests.ps1` §3b: golden + igualdad EXACTA de las dos descriptions + sin `refactoring.md` / sin título de etapa refactor / archivo ausente ×4. `tests/slice-review.tests.ps1` pasa `-Block step5` explícito y ancla "bloque step5" en la salida.
+- **Docs**: ADR-0004 con sección "Correcciones al aplicarla" (el `CLAUDE.md` del scaffold NUNCA dijo red-green-refactor — `git log -S` vacío —; hueco de `light` aceptado por el usuario; `forkFiles`). `docs/agents/recuperar-base-de-skills.md`: sección "Después de un merge de tres vías, la base avanza" (correr completa → sellar `-Bases` → revisar `git diff skills-lock.json`), "cambió la herramienta" acotado, nota bajo la tabla histórica.
+- Manifests de los 3 scaffolds regenerados (`tools/gen-manifest.ps1`). **El manifest de la RAÍZ no** (se re-sella en el deploy, issue 18).
+
+## 2. Verificación
+
+- `pwsh -NoProfile -File tests/run-all.ps1` → **20/20 verde, 225 s** (sobre `bbc91fc`). `tests/skills-lock.tests.ps1` 137/137.
+- Mutantes: 10/10 propios del turno 0; reviewer de mutación 2 muertos / 6 vivos (Low, ver §3); turno 1: D, E, J ×6 muertos; turno 2: T ×5 y U muertos (U re-hecho con la inserción DENTRO del bloque: la primera versión insertaba fuera y sobrevivía por eso).
+- RED directo visto: C (stack trace), R (vacío y `null` sellaban exit 0), golden faltante / hash viejo.
+
+## 3. Review-loop (standard) — hallazgos
+
+- **Turno 1** (6 focos: 5 + mutación; `--code-review` OMITIDO porque el fork queda atado al cwd de la sesión = otro repo; declararlo): Medium arreglados B (base vieja), C (`-Bases` + lockfile ilegible), D (orden ordinal sin test), E (lockfile sin campo sin test), J (doctrina sin test).
+- **Turno 2** (5 focos): Medium arreglados P (tabla "Resultado conocido" contradecía la regla nueva), Q (paso "diff de skill-bases.json" inejecutable), R (vacío/`null`), T (golden no cubría intro/Seams/final/description), U (default de `-Block` no fijado).
+- **Low reportados, NO arreglados** (candidatos a slice `light`): `-ForkFile` sin `Trim`; `-Action Verify` ignora `-ForkFile`/`-Bases` (arreglar los dos juntos o ninguno); marcas conservadas no se re-canonicalizan por mayúsculas; `forkFiles` de un elemento sin aserción de array; sin casos de mayúsculas / anidados / backslash / `viva/` / coma sobrante; "no reescribe el lockfile" vacua (cambiar un archivo sellado antes de capturar `$antesG2`); `CONTEXT.md:75-77` "Fork propio" solo por skill; "all 52 files" (`skills/*/SKILL.md:30`, preexistente; quitar el número y resellar step0b con `tools/reseal-step0b.ps1`); etiqueta G antes que F en `skills-lock.tests.ps1`; `docs/TESTING.md` no menciona §3b; `CLAUDE.md:87` no nombra `*.golden.sha256` ni `reseal-step5.ps1` (preexistente para step5); rama SIN `-Bases` con `ConvertFrom-Json` desprotegido (preexistente, 25).
+- **Para el issue 18**: `refactoring.md` queda **huérfano** en proyectos ya bootstrapeados (`upgrade-bootstrap` lo lista una vez como orphan y el re-sellado del manifest lo olvida) → el rollout tiene que borrarlo/anunciarlo junto con el cambio de doctrina.
+- **Techo**: el slice midió ~133 líneas de herramienta+test, 252 de prosa única, ~1008 con las 4 copias (+ arreglos de los turnos). No se declaró en el trailer de `919d9f6` (el scorer lo puntuó 30: la regla mide al abrir y la prosa espejada se revisa una vez). Queda declarado acá.
+
+## 4. Próximos pasos recomendados
+
+1. **Pase de coherencia** (lo único que falta para cerrar el loop por tope): `/slice-review --coherence` en el worktree v2 — un solo subagente en modelo liviano, solo lectura, sobre `git -C C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2 diff ed17702` contra el issue 06 + ADR-0004 + los 3 mensajes de commit; sus hallazgos al pase de confianza. Rutas absolutas (el cwd de la sesión es el repo principal). **NO correr `-Action close`** (cierre por tope). Después: marcar el issue 06 closed en `.scratch`, y handoff.
+2. **Push de `main`** (usuario con `!`): `gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+3. Siguiente issue v2: 07-16, 18, 19 ⬜ (07 = to-prd / to-issues con nuestros nombres, mismo patrón de merge; usar la regla nueva de base que avanza y `-ForkFile` si hay archivos propios). Los Low de §3 pueden viajar en un slice `light`.
+
+## Gotchas de esta sesión
+
+- **Heredoc + backslashes**: un `python - <<'EOF'` con `replace` de código PowerShell se comió los `\` (regex `[^/\\]` quedó `[^/\]`). Para editar código con backslashes usar la tool Edit, no scripts inline.
+- La tool Edit dejó `tests/*.ps1` en LF; con `autocrlf=true` el diff queda limpio igual. Se normalizó a CRLF con Python antes de commitear.
+- `if` como expresión desenrolló `@(...)` de un elemento → `$real[0]` era la primera LETRA (ya en memoria; volvió a pasar).
+- Un mutante de golden tiene que insertar DENTRO del bloque y sin romper sus anclas de borde; si no, "sobrevive" o "muere" por la razón equivocada.
+- Clon de upstream y scripts de mutantes quedaron en el scratchpad de la sesión (`.../72fec20c-.../scratchpad/`): no se versionan; re-clonar si hace falta (`git clone https://github.com/mattpocock/skills.git`).
+
+---
+
 # Session Handoff — 2026-09-16 (cierre 3) — **Slice `light` con los Low del runner CERRADA** en `feat/bootstrap-v2` (`ed17702`), review-loop light con clean close. Sin trabajo en vuelo.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
