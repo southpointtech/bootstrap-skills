@@ -20,6 +20,7 @@
         "commit": "a6bdfd9fed6c17d21b306aeb7ff6a0de8b72ef3c",
         "commitDate": "2026-03-26T14:28:04Z"
       },
+      "forkFiles": [],
       "files": {
         "SKILL.md": "88e46c700e67c4f1e0a328052875a0b00f731f0f88b52bd0bbeacc40776ab549"
       }
@@ -34,6 +35,7 @@
         "commit": "e74f0061bb67222181640effa98c675bdb2fdaa7",
         "commitDate": "2026-05-13T13:05:18Z"
       },
+      "forkFiles": [],
       "files": {
         "ADR-FORMAT.md": "f1f36cd3f8d3b6474ddd5855da4e233bfc4ae1a1c5024909ccf11871819a41b2",
         "CONTEXT-FORMAT.md": "886ce0e96fd0f76f4c72c337c049cf4655227c599862ce920a62297e0929beae",
@@ -50,6 +52,7 @@
         "commit": "d54c497aa94400a496d3f2c38be10fa5f284c5a9",
         "commitDate": "2026-05-19T16:07:02Z"
       },
+      "forkFiles": [],
       "files": {
         "SKILL.md": "470317c89692d3643c472085fb45f7b9cc40f747ba188fb4729415b894ad053a"
       }
@@ -59,6 +62,7 @@
       "upstreamState": "fork-propio",
       "upstreamHeadPath": null,
       "base": null,
+      "forkFiles": [],
       "files": {
         "SKILL.md": "0c79014e6282542a55eb8de5ff2fa5d2c2b9ef85d6eee7a660e00e32c7e96356"
       }
@@ -73,6 +77,7 @@
         "commit": "4369256220a6f69b3a66dd140e1162967a68376c",
         "commitDate": "2026-04-29T07:21:19Z"
       },
+      "forkFiles": [],
       "files": {
         "SKILL.md": "cd272c79f9eeb07053eb83b983071d4e95b629b214610a96f980d522813c10db",
         "domain.md": "a8cc3d1c11c9cdea455f39c4090cf61ac273f2474dd6f229ab0c2b9b1deec759",
@@ -87,6 +92,7 @@
       "upstreamState": "fork-propio",
       "upstreamHeadPath": null,
       "base": null,
+      "forkFiles": [],
       "files": {
         "SKILL.md": "5d1b3c49e88a2d070998e55045cd09c6ac69a64b89791d05afc4383921c8e266"
       }
@@ -101,13 +107,16 @@
         "commit": "7afa86d3a5dd96edde06ffa014e16c64e733681e",
         "commitDate": "2026-04-28T15:33:37Z"
       },
+      "forkFiles": [
+        "deep-modules.md",
+        "interface-design.md"
+      ],
       "files": {
-        "SKILL.md": "8ef095dc7bbf859d74c89d277cee992e225e88b9c7785e8f49a8dc777d746813",
+        "SKILL.md": "d5e60409b211964160d532662293bdf70a139491acf218291fa40118450792b1",
         "deep-modules.md": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32",
         "interface-design.md": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d",
         "mocking.md": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef",
-        "refactoring.md": "54fced22dd1911b7094c3fe7979b7c1a40d40be307482c4adf7dc0588f27d6cc",
-        "tests.md": "e12182f5c4c6a844b7c6ab4b8d2623b642aaaae5460fe58ed087efd4f3d5fb8a"
+        "tests.md": "859f9e592c188fda4fc7277dd180e4ce9c7a2e13f6efe1f6f29eccc9d28c106a"
       }
     },
     "to-issues": {
@@ -120,6 +129,7 @@
         "commit": "ff3ee1dda50d636b4e25b1ba269d25d6d5784164",
         "commitDate": "2026-05-06T08:26:48Z"
       },
+      "forkFiles": [],
       "files": {
         "SKILL.md": "d496ffc26ccfbb1fe7b8c79f0c0ef5c69b9b297863bb98ff582d2ce99f582bbf"
       }
@@ -134,6 +144,7 @@
         "commit": "70141119e9fe47430b62b93bcf166a73e6580048",
         "commitDate": "2026-05-06T15:07:58Z"
       },
+      "forkFiles": [],
       "files": {
         "SKILL.md": "5e5c2d0f9226e6d492a70471073c15974fde64a1811e644e221a5d1e939ed815"
       }
@@ -148,6 +159,7 @@
         "commit": "179a14e721034706ffce7abae75b877c922b4ae8",
         "commitDate": "2026-04-28T18:06:32Z"
       },
+      "forkFiles": [],
       "files": {
         "AGENT-BRIEF.md": "1c71c747aa97d938f75ec7a4b8fe87451763b38a3ce6348acf2b222e5819b2e5",
         "OUT-OF-SCOPE.md": "8ed8cf27833444060c81b3961a83c0e3d8e6cf2fcb2ddf6f8b07c6655cbb0d85",
@@ -164,6 +176,7 @@
         "commit": "7afa86d3a5dd96edde06ffa014e16c64e733681e",
         "commitDate": "2026-04-28T15:33:37Z"
       },
+      "forkFiles": [],
       "files": {
         "SKILL.md": "6d6c653eda25e64c2a6220c4372067b790ba398d08738b485eeddad32011d4b9"
       }

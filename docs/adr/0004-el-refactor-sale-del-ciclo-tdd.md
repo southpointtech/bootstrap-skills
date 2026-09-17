@@ -49,3 +49,24 @@ demuestra lo contrario.
 - **Sube la carga del `review-loop`**: lo que antes se limpiaba durante la implementación ahora llega
   al review. Es el efecto buscado, no un daño colateral, pero conviene mirarlo cuando se comparen los
   turnos por slice antes y después.
+
+## Correcciones al aplicarla (2026-09-16, issue 06)
+
+- **El `CLAUDE.md` del scaffold nunca dijo `red-green-refactor`.** `git log -S'red-green-refactor'`
+  sobre el `CLAUDE.md` del scaffold no devuelve ningún commit: la primera consecuencia partía de una
+  premisa falsa. La doctrina vieja sí sale del repo, pero por la skill `tdd` y por el comando
+  `.claude/commands/tdd.md`, que viajan con el rollout. El anuncio del issue 18 sigue haciendo falta,
+  y lo que tiene que nombrar es la skill.
+- **El foco de simplificación no está en todos los slices.** El contexto dice que el `review-loop`
+  tiene "un foco dedicado a simplificación". Ese foco es el `/code-review` que el loop suma solo en
+  el turno 1 de un slice `standard` (ADR-0003). Un slice `Review-Rigor: light` (ADR-0009) corre
+  Bugs y Tests y nadie le busca refactors. **Se acepta el hueco**, por decisión del usuario:
+  `light` es para lo de bajo radio de impacto, y un refactor que igual se quiera es un slice propio
+  que preserva comportamiento, que es justamente uno de los casos para los que existe `light`. La
+  skill lo dice así. No se agregó un foco de simplificación a `light` porque subiría el costo de
+  cada slice `light`, que es lo que ADR-0009 bajó.
+- **`deep-modules.md` e `interface-design.md` se conservan como archivos de fork propio.** Upstream
+  los sacó de `tdd` y su skill ahora apunta a `codebase-design`, que el PRD deja afuera. Nuestra
+  skill apunta a las dos notas. El lockfile registra la marca en `forkFiles`, que se sella con
+  `tools/skills-lock.ps1 -Action Seal -ForkFile tdd/deep-modules.md,tdd/interface-design.md` y el
+  re-sellado conserva.

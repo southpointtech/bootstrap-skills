@@ -1,6 +1,6 @@
 # tools/skills-lock.ps1 — sella y verifica el lockfile de las skills tomadas de upstream.
 #
-#   pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal   [-Bases <skill-bases.json>]
+#   pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal   [-Bases <skill-bases.json>] [-ForkFile <skill>/<archivo>[,<skill>/<archivo>...]]
 #   pwsh -NoProfile -File tools/skills-lock.ps1 -Action Verify
 #
 # Por qué existe: el lockfile anterior declaraba un `computedHash` por skill que nunca fue computado
@@ -18,9 +18,22 @@ param(
   # Raíz del repo. Existe para que el test pueda apuntar a un árbol sintético.
   [string]$Repo,
   # Solo para Seal: la salida de tools/recover-skill-bases.py, de donde salen los metadatos de base.
-  [string]$Bases
+  [string]$Bases,
+  # Solo para Seal: archivos NUESTROS dentro de una skill que sí viene de upstream (`tdd/deep-modules.md`:
+  # upstream lo retiró y lo conservamos). Es una decisión humana, como marcar una skill entera como fork
+  # propio, y el lockfile es generado: entra por acá y el re-sellado la conserva.
+  [string[]]$ForkFile = @()
 )
 $ErrorActionPreference = "Stop"
+
+# `pwsh -File` no deja repetir el parámetro y entrega `a,b` como un solo string: se separa acá.
+$ForkFile = @($ForkFile | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+foreach ($spec in $ForkFile) {
+  if ($spec -notmatch '^[^/\\]+/[^/\\].*$') {
+    Write-Host "ERROR: -ForkFile '$spec' no tiene la forma <skill>/<archivo relativo a la skill>"
+    exit 2
+  }
+}
 
 . (Join-Path $PSScriptRoot "normalized-hash.ps1")
 
@@ -101,6 +114,13 @@ function Get-SkillTree([string]$root) {
   return $tree
 }
 
+# Las marcas de fork propio de una entrada de un lockfile ya sellado. Un lockfile sellado antes de que
+# existiera el campo no lo trae, y `@($null)` tiene UN elemento: por eso el caso nulo va aparte.
+function Get-ForkFiles($entry) {
+  if ($null -eq $entry -or $null -eq $entry.forkFiles) { return [string[]]@() }
+  return [string[]]@($entry.forkFiles)
+}
+
 # Traduce `skill-bases.json` (salida de recover-skill-bases.py) a los metadatos que el lockfile
 # registra. Los tres estados NO se colapsan: `upstream-huerfano` conserva el commit base que la
 # recuperación por similitud encontró, y colapsarlo en `fork-propio` tiraría justo ese dato.
@@ -158,6 +178,7 @@ function Import-Bases([string]$path) {
       # para comparar contra el archivo correcto y no contra ninguno (ADR-0006).
       upstreamHeadPath = if ($estado -eq "upstream-vivo") { $s.upstreamHead.path } else { $null }
       base             = $null
+      forkFiles        = [string[]]@()
       files            = [ordered]@{}
     }
     if ($tieneBase) {
@@ -211,6 +232,9 @@ function Test-Lock([string[]]$roots) {
       foreach ($rel in @($reales | Where-Object { $sellados -notcontains $_ } | Sort-Object)) {
         $problemas += "$root : $name/$rel esta en el arbol pero no esta en el lockfile"
       }
+      foreach ($rel in @(Get-ForkFiles $doc.skills[$name] | Where-Object { $sellados -notcontains $_ } | Sort-Object)) {
+        $problemas += "$root : $name/$rel esta marcado como fork propio pero no esta sellado"
+      }
       foreach ($rel in @($sellados | Where-Object { $reales -contains $_ } | Sort-Object)) {
         if ($tree[$name][$rel] -ne $doc.skills[$name].files[$rel]) {
           $problemas += "$root : $name/$rel el hash sellado no coincide con el archivo"
@@ -256,6 +280,17 @@ if ($Action -eq 'Seal') {
   if ($Bases) {
     $imported = Import-Bases $Bases
     $fuente = $Bases
+    # Re-migrar con -Bases no puede tirar las marcas de fork propio: la recuperación no las emite,
+    # porque son una decisión humana. Se conservan las del lockfile que ya está, si hay uno v2.
+    $prevPath = Join-Path $roots[0] $LOCK
+    if (Test-Path -LiteralPath $prevPath) {
+      $prev = [IO.File]::ReadAllText($prevPath) | ConvertFrom-Json -AsHashtable
+      if ($prev.version -eq 2) {
+        foreach ($k in @($imported.Skills.Keys)) {
+          if ($prev.skills.Contains($k)) { $imported.Skills[$k].forkFiles = Get-ForkFiles $prev.skills[$k] }
+        }
+      }
+    }
   } else {
     $prevPath = Join-Path $roots[0] $LOCK
     if (-not (Test-Path -LiteralPath $prevPath)) {
@@ -289,6 +324,7 @@ if ($Action -eq 'Seal') {
                                commitDate   = ConvertTo-UtcIso $e.base.commitDate
                              }
                            } else { $null }
+        forkFiles        = Get-ForkFiles $e
         files            = [ordered]@{}
       }
     }
@@ -314,6 +350,33 @@ if ($Action -eq 'Seal') {
     foreach ($d in $desajuste) { Write-Host "ERROR: $d" }
     Write-Host "No se sello nada: la fuente de metadatos y el arbol tienen que describir el mismo conjunto de skills."
     exit 1
+  }
+
+  # Las marcas de fork propio: las conservadas más las de -ForkFile, siempre sobre archivos del árbol.
+  # Una pedida que no está en el árbol es un tipeo y frena todo; una conservada cuyo archivo se borró
+  # dejó de ser un fork, así que se quita, y se dice cuál.
+  $noEncontrados = @()
+  foreach ($spec in $ForkFile) {
+    $skill, $rel = $spec -split '/', 2
+    # El `@()` de afuera no es ruido: un `if` usado como expresión desenrolla el array de un elemento,
+    # y `$real[0]` pasaba a ser la primera LETRA del nombre.
+    $real = @(if ($tree.Contains($skill)) { $tree[$skill].Keys | Where-Object { $_ -eq $rel.Replace('\', '/') } })
+    if ($real.Count -eq 0) { $noEncontrados += $spec; continue }
+    $marcas = @(Get-ForkFiles $imported.Skills[$skill])
+    if ($marcas -notcontains $real[0]) { $imported.Skills[$skill].forkFiles = [string[]]@($marcas + $real[0]) }
+  }
+  if ($noEncontrados.Count -gt 0) {
+    foreach ($n in $noEncontrados) { Write-Host "ERROR: -ForkFile '$n' no esta en el arbol de $($roots[0])" }
+    Write-Host "No se sello nada: solo se marca como fork propio un archivo que existe."
+    exit 1
+  }
+  foreach ($name in $enArbol) {
+    $vivas = @()
+    foreach ($rel in @(Get-ForkFiles $imported.Skills[$name])) {
+      if (@($tree[$name].Keys) -contains $rel) { $vivas += $rel }
+      else { Write-Host "AVISO: se quito la marca de fork propio de $name/$rel`: el archivo ya no esta en el arbol" }
+    }
+    $imported.Skills[$name].forkFiles = [string[]]@(Sort-Ordinal $vivas)
   }
 
   # El documento se arma con el árbol de la primera raíz y se escribe en todas. Si otra raíz tiene un

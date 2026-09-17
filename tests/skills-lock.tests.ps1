@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 113
+$ExpectedChecks = 126
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -519,6 +519,68 @@ try {
   Assert ($r.Out -match "version '1'" -and $r.Out -match '-Bases') `
     "y dice que hay que migrarlo con -Bases (salida: $($r.Out))"
 
+  # --- G. Archivos de fork propio dentro de una skill de upstream -------------------------------
+  # `tdd` viene de upstream, pero `deep-modules.md` e `interface-design.md` son nuestros: upstream los
+  # retiró y los conservamos (issue 06). La marca la decide un humano y el lockfile es generado, así
+  # que entra por `-ForkFile` y el re-sellado la conserva, igual que los metadatos de base.
+  $rootG = Join-Path $script:tmp "G"
+  New-Tree $rootG @{
+    viva     = @{ "SKILL.md" = "cuerpo de viva`n"; "notas.md" = "nuestras notas`n" }
+    huerfana = @{ "SKILL.md" = "cuerpo de huerfana`n" }
+    propia   = @{ "SKILL.md" = "cuerpo de propia`n" }
+  }
+  $basesG = Join-Path $script:tmp "bases-G.json"
+  New-Bases $basesG
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG, "-Bases", $basesG, "-ForkFile", "viva/notas.md")
+  Assert ($r.Code -eq 0) "sellar con -ForkFile sale con codigo 0 (salida: $($r.Out))"
+  $docG = Read-Lock $rootG
+  Assert ((@($docG.skills['viva'].forkFiles) -join '|') -eq 'notas.md') `
+    "y registra el archivo marcado en la skill que lo contiene, sin el nombre de la skill"
+  Assert ($docG.skills['huerfana'].forkFiles -is [array] -and @($docG.skills['huerfana'].forkFiles).Count -eq 0) `
+    "y las demas skills quedan con una lista vacia, no sin el campo"
+
+  [IO.File]::WriteAllText((Join-Path $rootG ".agents/skills/viva/SKILL.md"), "cuerpo nuevo de viva`n")
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG)
+  Assert ($r.Code -eq 0 -and (@((Read-Lock $rootG).skills['viva'].forkFiles) -join '|') -eq 'notas.md') `
+    "re-sellar sin -ForkFile conserva la marca que ya estaba (salida: $($r.Out))"
+
+  # Re-migrar desde las bases tampoco la tira: la recuperación no emite marcas, son decisión humana.
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG, "-Bases", $basesG)
+  Assert ($r.Code -eq 0 -and (@((Read-Lock $rootG).skills['viva'].forkFiles) -join '|') -eq 'notas.md') `
+    "re-sellar con -Bases y sin -ForkFile conserva la marca del lockfile que ya estaba (salida: $($r.Out))"
+
+  # Varios archivos van separados por coma: `pwsh -File` no deja repetir el parámetro y entrega
+  # `a,b` como UN string. Uno nuevo se suma, uno ya marcado no se duplica, y la lista sale ordinal.
+  [IO.File]::WriteAllText((Join-Path $rootG ".agents/skills/viva/Extra.md"), "mas nuestro`n")
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG, "-ForkFile", "viva/notas.md,viva/Extra.md")
+  Assert ($r.Code -eq 0 -and (@((Read-Lock $rootG).skills['viva'].forkFiles) -join '|') -eq 'Extra.md|notas.md') `
+    "un -ForkFile con coma suma el nuevo sin duplicar el conservado, en orden ordinal (salida: $($r.Out))"
+
+  # Marcar un archivo que no existe es un error de tipeo: sellarlo dejaría una marca que Verify rechaza.
+  $antesG2 = [IO.File]::ReadAllText((Join-Path $rootG "skills-lock.json"))
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG, "-ForkFile", "viva/no-existe.md")
+  Assert ($r.Code -eq 1 -and $r.Out -match 'viva/no-existe\.md') `
+    "un -ForkFile que no esta en el arbol sale con codigo 1 y lo nombra (salida: $($r.Out))"
+  Assert ([IO.File]::ReadAllText((Join-Path $rootG "skills-lock.json")) -eq $antesG2) "y no reescribe el lockfile"
+
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG, "-ForkFile", "sin-barra")
+  Assert ($r.Code -eq 2 -and $r.Out -match 'sin-barra') `
+    "un -ForkFile sin la forma <skill>/<archivo> sale con codigo 2 y lo nombra (salida: $($r.Out))"
+
+  # Si el archivo marcado se borra, deja de ser un fork: la marca se va con él, y se dice.
+  Remove-Item -LiteralPath (Join-Path $rootG ".agents/skills/viva/Extra.md") -Force
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG)
+  Assert ($r.Code -eq 0 -and (@((Read-Lock $rootG).skills['viva'].forkFiles) -join '|') -eq 'notas.md') `
+    "re-sellar despues de borrar un archivo marcado quita su marca y conserva las otras (salida: $($r.Out))"
+  Assert ($r.Out -match 'viva/Extra\.md') "y avisa que marca quito (salida: $($r.Out))"
+
+  # La verificación: una marca sobre un archivo que no está sellado es una afirmación que nada respalda.
+  $lockG = Join-Path $rootG "skills-lock.json"
+  [IO.File]::WriteAllText($lockG, ([IO.File]::ReadAllText($lockG) -replace '"notas\.md"(\s*\])', '"fantasma.md"$1'))
+  $r = Run-Tool @("-Action", "Verify", "-Repo", $rootG)
+  Assert ($r.Code -eq 1 -and $r.Out -match 'viva/fantasma\.md' -and $r.Out -match 'fork propio') `
+    "una marca de fork propio sobre un archivo no sellado sale con codigo 1 y la nombra (salida: $($r.Out))"
+
   # --- F. El repo de verdad -------------------------------------------------------------------
   # Este es el AC "la verificación corre sin red y forma parte de la suite": acá la suite verifica
   # el lockfile real. Todo lo de arriba corrió sobre directorios de %TEMP% que no son repositorios
@@ -528,6 +590,8 @@ try {
 
   $docReal = Read-Lock $repo
   Assert ($docReal.version -eq 2) "y es un lockfile version 2, con metadatos de base por entrada"
+  Assert ((@($docReal.skills['tdd'].forkFiles) -join '|') -eq 'deep-modules.md|interface-design.md') `
+    "y marca como fork propio las dos notas de tdd que upstream retiro (issue 06)"
 
   # El conteo no se hardcodea —agregar una cuarta variante de bootstrap es legítimo—: se compara
   # contra las copias que git trackea. Lo que se fija es que el descubrimiento de la herramienta no se
