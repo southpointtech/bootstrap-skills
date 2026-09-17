@@ -121,8 +121,8 @@
     },
     "to-issues": {
       "source": "https://github.com/mattpocock/skills.git",
-      "upstreamState": "upstream-huerfano",
-      "upstreamHeadPath": null,
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/to-tickets/SKILL.md",
       "base": {
         "blob": "9f6efbfe5fb5fcb9a751482e333d2f54da173102",
         "upstreamPath": "skills/engineering/to-issues/SKILL.md",
