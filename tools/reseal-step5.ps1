@@ -1,6 +1,11 @@
-# Golden del bloque "Score the FIX" del Step 5 de /slice-review: lo sella y lo verifica.
-#   pwsh -NoProfile -File tools/reseal-step5.ps1           # resella (tras mirar el diff)
-#   pwsh -NoProfile -File tools/reseal-step5.ps1 -Check    # verifica; exit 0 si coincide, 1 si no
+# Golden por hash de un bloque de instrucciones espejado en 8 copias: lo sella y lo verifica.
+#   pwsh -NoProfile -File tools/reseal-step5.ps1 [-Block <nombre>]           # resella (tras mirar el diff)
+#   pwsh -NoProfile -File tools/reseal-step5.ps1 [-Block <nombre>] -Check    # verifica; exit 0 si coincide, 1 si no
+#
+# Bloques (-Block, default step5):
+#   step5     el bloque "Score the FIX" del Step 5 de /slice-review.
+#   tdd-loop  "Rules of the loop" y "Close the slice" de la skill tdd: la doctrina red -> green de
+#             ADR-0004 (el refactor no es parte del ciclo) y el cierre de slice con su trailer.
 #
 # Por que existe: los asserts semanticos de tests/slice-review.tests.ps1 muerden mutantes que EDITAN o
 # BORRAN una oracion anclada, pero son ciegos a los que AÑADEN (medido en el turno 2 del review-loop del
@@ -12,24 +17,33 @@
 # Una sola implementacion, dos modos: el test invoca este mismo script con -Check, asi el sello y la
 # verificacion no pueden divergir (y la suite no necesita dot-sourcear un helper propio, que es lo que
 # tests/temp-hygiene.tests.ps1 prohibe para que nadie cuele un stub).
-param([switch]$Check)
+param([switch]$Check, [ValidateSet('step5', 'tdd-loop')][string]$Block = 'step5')
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
-$goldenPath = Join-Path $repo "tests\fixtures\step5-score-the-fix.golden.sha256"
+
+if ($Block -eq 'tdd-loop') {
+  $goldenPath = Join-Path $repo "tests\fixtures\tdd-loop.golden.sha256"
+  $rels = @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")
+  # Desde el titulo de las reglas hasta el ultimo parrafo del cierre: un bullet AGREGADO ("Refactor after
+  # green") o una etapa nueva entre las dos secciones cambia el hash. Ninguna de las dos secciones tiene
+  # links, que es lo unico en que difieren el command y el SKILL.md.
+  $rx = '(?s)## Rules of the loop\r?\n.*?if that lands on a RED commit, the loop''s pre-flight closes it without noise\.'
+} else {
+  $goldenPath = Join-Path $repo "tests\fixtures\step5-score-the-fix.golden.sha256"
+  $rels = @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")
+  # Del titulo del bloque hasta el parrafo de la consecuencia inclusive: es la MECANICA que el golden
+  # congela (las tres preguntas, la modalidad, el orden y el destino de la sugerencia). El resto del Step 5
+  # —rubrica, dedup, prosa-es-Low— queda afuera a proposito: lo cubren sus propios asserts y cambia por
+  # otras razones.
+  $rx = '(?s)\*\*Score the FIX, not only the finding\.\*\*.*?judges findings and writes its own fix behind a RED test, so a rejected suggestion plus the reason\r?\nis more useful to it than silence\.'
+}
 
 # Las 8 copias del documento: el repo (auto-bootstrapeado) + las 3 skills, command y SKILL.md en cada una.
-$rels = @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")
 $files = @()
 foreach ($r in $rels) { $files += (Join-Path $repo $r) }
 foreach ($s in @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")) {
   foreach ($r in $rels) { $files += (Join-Path $repo "skills\$s\assets\scaffold\$r") }
 }
-
-# Del titulo del bloque hasta el parrafo de la consecuencia inclusive: es la MECANICA que el golden
-# congela (las tres preguntas, la modalidad, el orden y el destino de la sugerencia). El resto del Step 5
-# —rubrica, dedup, prosa-es-Low— queda afuera a proposito: lo cubren sus propios asserts y cambia por
-# otras razones.
-$rx = '(?s)\*\*Score the FIX, not only the finding\.\*\*.*?judges findings and writes its own fix behind a RED test, so a rejected suggestion plus the reason\r?\nis more useful to it than silence\.'
 
 $hashes = [ordered]@{}
 $faltan = @()
@@ -64,7 +78,7 @@ if ($Check) {
   if ($golden -notmatch '^[0-9a-f]{64}$') { Write-Host "El golden no es un sha256: '$golden'"; exit 1 }
   if ($golden -ne $distinct[0]) {
     Write-Host "El bloque cambio: sello $($golden.Substring(0,12)) vs actual $($distinct[0].Substring(0,12))."
-    Write-Host "Si el cambio es a proposito, mira el diff y resella: pwsh -NoProfile -File tools/reseal-step5.ps1"
+    Write-Host "Si el cambio es a proposito, mira el diff y resella: pwsh -NoProfile -File tools/reseal-step5.ps1 -Block $Block"
     exit 1
   }
   Write-Host "OK: las 8 copias coinciden con el golden ($($golden.Substring(0,12)))."
@@ -73,6 +87,6 @@ if ($Check) {
 
 $prev = if (Test-Path -LiteralPath $goldenPath) { (Get-Content $goldenPath -Raw).Trim() } else { "(no habia)" }
 [IO.File]::WriteAllText($goldenPath, $distinct[0] + "`n")
-Write-Host "Golden del Step 5 resellado en $goldenPath"
+Write-Host "Golden del bloque $Block resellado en $goldenPath"
 Write-Host "  antes:  $prev"
 Write-Host "  ahora:  $($distinct[0])"

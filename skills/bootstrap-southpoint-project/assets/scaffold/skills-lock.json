@@ -7,7 +7,7 @@
   },
   "upstream": {
     "url": "https://github.com/mattpocock/skills.git",
-    "head": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76"
+    "head": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260"
   },
   "skills": {
     "grill-me": {
@@ -102,10 +102,10 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/tdd/SKILL.md",
       "base": {
-        "blob": "7a989411eb3c4d0879cb33b2d7d05831add27b84",
+        "blob": "8fc086710806190ee7c4baa32089cb877a75736a",
         "upstreamPath": "skills/engineering/tdd/SKILL.md",
-        "commit": "7afa86d3a5dd96edde06ffa014e16c64e733681e",
-        "commitDate": "2026-04-28T15:33:37Z"
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
       },
       "forkFiles": [
         "deep-modules.md",

@@ -284,7 +284,14 @@ if ($Action -eq 'Seal') {
     # porque son una decisión humana. Se conservan las del lockfile que ya está, si hay uno v2.
     $prevPath = Join-Path $roots[0] $LOCK
     if (Test-Path -LiteralPath $prevPath) {
-      $prev = [IO.File]::ReadAllText($prevPath) | ConvertFrom-Json -AsHashtable
+      # `-Bases` es el camino de recuperación, y un lockfile ilegible (un conflicto de merge en el archivo
+      # generado) es justo cuando se lo usa. Seguir sin las marcas las perdería en silencio: se frena.
+      try { $prev = [IO.File]::ReadAllText($prevPath) | ConvertFrom-Json -AsHashtable }
+      catch {
+        Write-Host "ERROR: no se puede leer $prevPath ($($_.Exception.Message))"
+        Write-Host "Resolvelo, o borralo y volve a sellar con -Bases y con -ForkFile para cada marca de fork propio que tenia."
+        exit 2
+      }
       if ($prev.version -eq 2) {
         foreach ($k in @($imported.Skills.Keys)) {
           if ($prev.skills.Contains($k)) { $imported.Skills[$k].forkFiles = Get-ForkFiles $prev.skills[$k] }

@@ -272,6 +272,23 @@ así que esta salida es local y se regenera cuando haga falta. **No se edita a m
 mal, se corrige la herramienta y se vuelve a correr. Editarlo a mano reintroduce exactamente el problema que ADR-0005 documenta —una
 afirmación verificable escrita sin verificar.
 
+### Después de un merge de tres vías, la base avanza
+
+La base es la versión de upstream de la que sale nuestra copia. Cuando un merge adopta el cuerpo de una
+versión más nueva de upstream, la base pasa a ser esa versión. Si el lockfile conserva la base vieja, el
+próximo merge le atribuye a nuestro drift todo lo que upstream cambió entre las dos versiones.
+
+Al cerrar un merge:
+
+1. Corré la herramienta **completa**, sin `--skill`. `tools/skills-lock.ps1 -Action Seal -Bases`
+   rechaza unas bases que no describen todas las skills del árbol.
+2. Revisá el diff de `skill-bases.json`. Solo tienen que cambiar las skills mergeadas y
+   `upstream.head`.
+3. Sellá con `-Bases`. Las marcas de fork propio (`forkFiles`) se conservan del lockfile anterior.
+
+Medido con `tdd` en el issue v2 06: la base pasó de `7a98941` a `8fc0867`, que es el blob del HEAD de
+upstream, con similitud 0,7287. Las otras diez skills no cambiaron.
+
 ## Resultado conocido
 
 Medido el 2026-08-28 contra `mattpocock/skills` en `6654f6b`; la columna `similitud` re-medida el

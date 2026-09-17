@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 126
+$ExpectedChecks = 133
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -580,6 +580,41 @@ try {
   $r = Run-Tool @("-Action", "Verify", "-Repo", $rootG)
   Assert ($r.Code -eq 1 -and $r.Out -match 'viva/fantasma\.md' -and $r.Out -match 'fork propio') `
     "una marca de fork propio sobre un archivo no sellado sale con codigo 1 y la nombra (salida: $($r.Out))"
+
+  # Un lockfile v2 sellado antes de que existiera el campo (el de ed17702 era así). `@($null)` tiene UN
+  # elemento: sin el caso nulo de Get-ForkFiles, cada skill aparece con una marca fantasma de nombre vacío.
+  $rootG3 = New-SealedRoot "G3"
+  $lockG3 = Join-Path $rootG3 "skills-lock.json"
+  $sinCampo = [IO.File]::ReadAllText($lockG3) -replace '(?m)^\s*"forkFiles": \[\],\r?\n', ''
+  Assert ($sinCampo -notmatch 'forkFiles') "el fixture del lockfile legado quedo sin el campo forkFiles"
+  [IO.File]::WriteAllText($lockG3, $sinCampo)
+  $r = Run-Tool @("-Action", "Verify", "-Repo", $rootG3)
+  Assert ($r.Code -eq 0) "verificar un lockfile v2 sin forkFiles sale con codigo 0 (salida: $($r.Out))"
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG3)
+  Assert ($r.Code -eq 0 -and $r.Out -notmatch 'AVISO') "re-sellarlo sale con codigo 0 y sin avisos de marcas fantasma (salida: $($r.Out))"
+  $viva3 = (Read-Lock $rootG3).skills['viva'].forkFiles
+  Assert ($viva3 -is [array] -and $viva3.Count -eq 0) "y deja el campo como lista vacia"
+
+  # Orden ORDINAL: mayúscula antes que minúscula. `Extra.md`/`notas.md` salen igual en orden cultural, así
+  # que no distinguen; `Zeta.md`/`alfa.md` sí, y se sella en una cultura que ordenaría al revés.
+  $rootG4 = New-SealedRoot "G4"
+  [IO.File]::WriteAllText((Join-Path $rootG4 ".agents/skills/viva/Zeta.md"), "z`n")
+  [IO.File]::WriteAllText((Join-Path $rootG4 ".agents/skills/viva/alfa.md"), "a`n")
+  $r = Run-ToolInCulture 'es-AR' @("-Action", "Seal", "-Repo", $rootG4, "-ForkFile", "viva/alfa.md,viva/Zeta.md")
+  Assert ($r.Code -eq 0 -and (@((Read-Lock $rootG4).skills['viva'].forkFiles) -join '|') -eq 'Zeta.md|alfa.md') `
+    "las marcas salen en orden ordinal aunque la cultura ordene distinto (salida: $($r.Out))"
+
+  # `-Bases` es el camino de recuperación: un lockfile ilegible (un conflicto de merge en el archivo
+  # generado) no puede terminar en un stack trace sin remedio. Se frena, se dice qué hacer y no se pisa.
+  $rootG5 = New-SealedRoot "G5"
+  $lockG5 = Join-Path $rootG5 "skills-lock.json"
+  [IO.File]::WriteAllText($lockG5, "<<<<<<< HEAD`n{bad`n")
+  $basesG5 = Join-Path $script:tmp "bases-G5-recuperacion.json"
+  New-Bases $basesG5
+  $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG5, "-Bases", $basesG5)
+  Assert ($r.Code -eq 2 -and $r.Out -match 'no se puede leer' -and $r.Out -match '-ForkFile') `
+    "con -Bases y un lockfile ilegible sale con codigo 2 y nombra el remedio, las marcas por -ForkFile (salida: $($r.Out))"
+  Assert ([IO.File]::ReadAllText($lockG5) -eq "<<<<<<< HEAD`n{bad`n") "y no pisa el lockfile ilegible"
 
   # --- F. El repo de verdad -------------------------------------------------------------------
   # Este es el AC "la verificación corre sin red y forma parte de la suite": acá la suite verifica

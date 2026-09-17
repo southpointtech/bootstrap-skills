@@ -115,6 +115,30 @@ foreach ($rel in @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")) {
   )
 }
 
+# --- 3b. tdd: el ciclo es red -> green y el refactor vive en el review (ADR-0004, issue v2 06) ---
+# mirror.tests.ps1 solo compara las copias entre si: volver a meter la etapa de refactor en las 8 a la
+# vez pasa en verde. Un match por oracion tampoco alcanza, porque es ciego a lo que se AGREGA (un bullet
+# "Refactor after green" deja intactas las oraciones ancladas). Por eso las reglas del ciclo y el cierre
+# van por golden, con el mismo sellador que el Step 5 de /slice-review; lo demas son anclas sueltas.
+$resealTdd = Join-Path $repo "tools\reseal-step5.ps1"
+$goldenTdd = & pwsh -NoProfile -File $resealTdd -Block tdd-loop -Check 2>&1
+Assert ($LASTEXITCODE -eq 0) "golden de las reglas del ciclo y el cierre de tdd: las 8 copias coinciden con el sello -> $($goldenTdd -join ' / ')"
+foreach ($rel in @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")) {
+  foreach ($c in Copias $rel) {
+    $nombre = "$($c.label)/$rel"
+    $txt = [IO.File]::ReadAllText($c.path)
+    # En la description y no en cualquier lado: quien dice "red-green-refactor" tiene que seguir
+    # cayendo en la skill, y el cuerpo la nombra igual aunque la description la pierda.
+    Assert ($txt -match '(?m)\A---\r?\nname: tdd\r?\ndescription: [^\r\n]*red-green-refactor') `
+      "${nombre}: la description conserva el trigger red-green-refactor"
+    Assert ($txt -notmatch 'refactoring\.md') "${nombre}: ya no enlaza refactoring.md"
+    Assert ($txt -notmatch '(?im)^#+[^\r\n]*refactor') "${nombre}: ningun titulo presenta el refactor como etapa"
+  }
+}
+foreach ($c in Copias ".agents\skills\tdd") {
+  Assert (-not (Test-Path -LiteralPath (Join-Path $c.path "refactoring.md"))) "$($c.label): la skill tdd ya no trae refactoring.md"
+}
+
 # --- 4. El pre-flight de /slice-review: no puede fabricar el hallazgo que la regla exime ---
 foreach ($rel in @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")) {
   VerificarSitio $rel @(
