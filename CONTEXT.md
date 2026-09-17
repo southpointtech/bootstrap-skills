@@ -118,6 +118,36 @@ _Avoid_: archivo del usuario, custom, local
 El archivo propio sobre el que la copia escribió. Toda copia que pisa deja primero un respaldo, así que pisar no es perder.
 _Avoid_: sobrescrito, conflicto, clobber
 
+### Los carriles
+
+**Orquestador**:
+La única terminal que habla con el humano cuando se trabaja en paralelo. Planea la ola, abre los worktrees, despacha los carriles, revisa e integra en serie.
+_Avoid_: agente principal, coordinador
+
+**Carril**:
+Un subagente que implementa un solo slice en su propio worktree, durante una sola ola. No habla con el humano ni con otros carriles.
+_Avoid_: agente paralelo, worker, lane
+
+**Ola**:
+Hasta tres carriles que corren a la vez. Termina cuando todas sus ramas están integradas y la suite completa pasó sobre la base.
+_Avoid_: tanda, batch, sprint
+
+**Mecánica de carriles**:
+Las reglas de trabajo en paralelo que valen para cualquier proyecto. Llegan igual a todos por el scaffold y ningún proyecto las edita. Una lección de una ola que vale para cualquier proyecto se sube a la mecánica, no se queda en el proyecto donde apareció.
+_Avoid_: norma del proyecto, plantilla de paralelismo
+
+**Datos del proyecto** (de carriles):
+Lo que la mecánica necesita saber de un proyecto concreto: camino crítico, archivos calientes, recursos por carril, carpeta de worktrees, guardas transversales, la ola vigente y lo que dejó cada ola. Llega con marcas sin rellenar y se completa recién cuando el proyecto tiene issues y va a abrir su primera ola.
+_Avoid_: configuración, plantilla rellenada
+
+**Marca sin rellenar**:
+Un `{{…}}` que sigue en los datos del proyecto. Mientras quede una, no se despacha ninguna ola: una marca vacía no puede pasar por un dato.
+_Avoid_: placeholder, TODO
+
+**Archivo caliente**:
+El archivo que casi todos los slices de una ola necesitan tocar (entrypoint, router, registro). Tiene un solo dueño por ola; los demás carriles le pasan su diff al orquestador.
+_Avoid_: archivo compartido, hotspot
+
 ## Flagged ambiguities
 
 **"review" a secas está sobrecargado** y esa ambigüedad ya causó un bug real: el loop apuntaba al reviewer equivocado y se cerraba sin revisar nada. Los tres son cosas distintas:
