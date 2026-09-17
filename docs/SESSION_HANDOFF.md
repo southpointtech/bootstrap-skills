@@ -1,3 +1,51 @@
+# Session Handoff — 2026-09-16 (cierre 3) — **Slice `light` con los Low del runner CERRADA** en `feat/bootstrap-v2` (`ed17702`), review-loop light con clean close. Sin trabajo en vuelo.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: `origin/main` en `13ca18b` (push hecho por el usuario y
+  verificado `0 0`) + el commit de ESTE handoff, **sin pushear**. Untracked de Codex: ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`ed17702`**, árbol
+  limpio. Marcador en `ed17702` (`range` vacío, exit 0); ancla `slice-open` **limpia** (`-Action close`).
+- **NO HAY TRABAJO EN VUELO.**
+
+## 1. Lo hecho (`ed17702`, trailers `Slice-Close:` + `Review-Rigor: light`)
+
+- `tests/run-all.ps1`: `StandardErrorEncoding` UTF-8 en `Get-GitStatusZ` y `Process` liberado en `finally`.
+- `tests/run-all.tests.ps1`: **caso P** (`-RepoRoot` inexistente `no-existe-ñandú`): la palabra aparece **exactamente 2
+  veces** (el `$repo` del runner + el `fatal:` de git). Se cuenta en vez de anclar texto de git (puede venir traducido) y
+  porque la línea fuente del throw que muestra pwsh también tiene ` : `. RED visto (1 vez) → verde.
+- `tests/mutantes/run-all.py`: M16 re-anclado a la línea de stdout (el ancla vieja pasó a aparecer 2 veces), **M17**
+  (stderr en cp850) y **M18** (sin stderr en el mensaje); aviso por stderr si el temporal no se borra.
+- Conteos que `run-all.tests.ps1` dejó viejos: `TESTING.md:167,206,232,248-249` y `temp-hygiene.tests.ps1:293,306,450,
+  465-466` y el espejo de `TESTING.md:94` en `temp-hygiene.tests.ps1:1158-1163` (CINCO de las DOCE; Trece usan el helper;
+  `run-all` en la lista de los que llegaron después).
+- Verificado: **18 de 18 mutantes muertos**; suite completa **20/20 verde, 366 s** (4 carriles), árbol limpio.
+
+## 2. Review-loop light (1 turno, Bugs + Tests en opus) — CLEAN CLOSE
+
+- Cero High/Medium. Dos Low puntuados, **no arreglados** (light: Low se reporta):
+  - **(92)** `tests/temp-hygiene.tests.ps1:1180` dice "(hoy 5/11)" → debe ser **"(hoy 5/12)"**; el "1/8 a 5/8" es
+    histórico y queda. Lo dejó este mismo commit al actualizar la línea 1158.
+  - **(85)** el caso P ancla el literal `ñandú` en texto decodificado con el code page de la consola: en cp866/cp932 sale
+    `nandu` → rojo falso (nunca verde falso). Arreglo recomendado por el scorer (c): contar
+    `[regex]::Escape($enc.GetString($enc.GetBytes('ñandú')))` con `$enc = [Console]::OutputEncoding` (no ejecutado para
+    M17 en 866/932, sólo razonado). **NO** usar `[Console]::OutputEncoding = UTF8` en el test: medido por el scorer, el
+    cambio queda en la consola compartida si el proceso muere antes del `finally`.
+- Verificado por los focos: P da 2 en anchos de consola 80/100/110/120 (ConciseView parte sólo en espacios); M17 y M18
+  mueren por P.
+
+## 3. Próximos pasos recomendados
+
+1. **Push de `main`** (este handoff), usuario con `!`:
+   `gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+2. Próximo issue v2: 06-16, 18, 19 ⬜ (el 02 quedó cerrado del todo salvo los dos Low de §2, que pueden viajar en el
+   próximo slice que toque esos archivos).
+3. Diferido sin cambios: re-rollout del scaffold a los 7 repos (preguntar antes); gitignore del residuo de Codex; ancla
+   `slice-open:fix/copy-scaffold-respalda` (`4ff2c9f`) en el repo principal; el `index.lock` huérfano del repo principal
+   (creado 21:20 sin proceso git de esa hora) se borró a mano para poder commitear.
+
+---
+
 # Session Handoff — 2026-09-16 (cierre 2) — **Issue v2 02 (runner en paralelo) CERRADO**: review-loop `standard` con CLEAN CLOSE en el turno 2. Sin trabajo en vuelo.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
