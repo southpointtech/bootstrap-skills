@@ -45,29 +45,44 @@ que es lo que decide cuántos de ellos entran en una misma ola.
 
 ## Archivos calientes
 
-Rige la regla de dueño único de la norma: **uno solo de estos carriles por ola toca cada archivo de
-esta lista**, y el plan de la ola lo nombra. Regenerar es cómo se resuelve un conflicto, no un
-permiso para que dos carriles lo editen a la vez.
+Dos listas, no una. **Dueño único** rige sólo para lo **escrito a mano**: un conflicto ahí se
+mergea leyendo, y dos carriles editándolo a la vez es una ola perdida. Lo **generado** no lleva
+dueño: se regenera. Medido el 2026-09-17 al planear la ola 1: con los generados dentro de la regla
+de dueño único, los tres `.bootstrap-manifest.json` —que toca cualquier slice que edite un
+scaffold— dejaban la ola en **un solo carril**. Los dos candidatos de la ola 1 que tocan scaffold
+(07 y 15) piden espejado en sus criterios de aceptación, así que los dos regeneran manifest.
 
-- `skills-lock.json` (raíz y los tres scaffolds): se regenera con
-  `pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal`. Lo tocan 07 a 12 y 16.
-- `.scratch/bootstrap-v2/skill-bases.json`: gitignoreado, así que cada carril recibe su copia y
-  lo que cambie ahí **no viaja por git**. El orquestador lo re-aplica en el worktree de v2 al
-  integrar.
-- `.bootstrap-manifest.json` de los tres scaffolds: `pwsh -NoProfile -File tools/gen-manifest.ps1
-  -SkillDir skills/<bootstrap-x>`. Lo toca cualquier slice que edite un scaffold.
+### Dueño único: uno solo por ola, nombrado en el plan
+
+Quien no es dueño **no lo edita**: escribe en su reporte el diff que necesita y lo aplica el
+orquestador al integrar.
+
 - La línea `This delivers:` de los tres `skills/bootstrap-*/SKILL.md`: **escrita a mano**, y
   `tests/mirror.tests.ps1` ata sus conteos a lo que el scaffold tiene de verdad. La tocan todos los
   que suman una skill o un doc de flujo (09, 10, 11, 12, 14 y 16), así que un conflicto acá se
   mergea a mano contando contra el scaffold.
+- La allowlist `$allow` de `tests/mirror.tests.ps1`.
+- `CLAUDE.md` de la raíz y de los tres scaffolds: los tocan 14 y 20. La norma ya lo reserva al
+  orquestador, así que un carril que necesita tocarlo salió de su alcance.
+
+### Generados: sin dueño, los regenera el orquestador al integrar
+
+Acá no hay diff que pedir: el orquestador corre la herramienta sobre el árbol ya integrado y el
+resultado es el mismo salga de donde salga. Un conflicto al rebasar se resuelve tomando cualquiera
+de los dos lados y volviendo a correr la herramienta. **Nunca a mano.** Lo que sí exige el plan es
+que la herramienta se corra **una vez, al final de la ola**, y que su suite quede verde.
+
+- `skills-lock.json` (raíz y los tres scaffolds): `pwsh -NoProfile -File tools/skills-lock.ps1
+  -Action Seal`, verificado por `tests/skills-lock.tests.ps1`. Su campo `files` hashea el
+  `SKILL.md` de cada skill, así que lo toca **cualquier carril que edite el cuerpo de una skill**:
+  07 a 12, 15 y 16. El 19 lo toca sólo si su métrica nueva cambia algún `base`.
+- `.bootstrap-manifest.json` de los tres scaffolds: `pwsh -NoProfile -File tools/gen-manifest.ps1
+  -SkillDir skills/<bootstrap-x>`. Lo toca cualquier slice que edite un scaffold.
 - Los goldens de `tests/fixtures/`: `tools/reseal-step0b.ps1` (Step 0b), `tools/reseal-step5.ps1
   -Block <nombre>` (`step5`, `tdd-loop`) y `tools/reseal-goldens.ps1` (Step 2 y techos).
-- La allowlist `$allow` de `tests/mirror.tests.ps1`.
-- `CLAUDE.md` de la raíz y de los tres scaffolds: los tocan 14 y 20.
-
-**Un conflicto en un archivo generado se resuelve regenerándolo con su herramienta, nunca a
-mano.** El carril dueño lo re-sella en su rama; si al rebasar hay conflicto, el orquestador toma
-cualquiera de los dos lados y vuelve a correr la herramienta sobre el árbol integrado.
+- `.scratch/bootstrap-v2/skill-bases.json`: gitignoreado, así que cada carril recibe su copia y
+  lo que cambie ahí **no viaja por git**. El orquestador lo re-aplica en el worktree de v2 al
+  integrar.
 
 ## Config compartida
 
@@ -120,7 +135,36 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 
 ## La ola vigente
 
-Ninguna todavía. La ola 1 se planea con `PLAN-DE-OLA` al cerrar el issue 20 y se muestra antes de
-despachar.
+**Ola 1** · Aprobada por el dueño del repo el 2026-09-17 · Base `feat/bootstrap-v2` @ `c8bc726`.
+
+| Carril | Slice | Dueño de | Caliente escrito a mano |
+|---|---|---|---|
+| **A** (camino crítico) | 07 — `to-prd` / `to-issues` con nuestros nombres | `.agents/skills/to-prd/` y `.agents/skills/to-issues/` (raíz + 3 scaffolds) | no |
+| **B** | 15 — reviewers como agents declarados | `.claude/agents/` (nuevo, ×4), `.agents/skills/slice-review/SKILL.md` y `.agents/skills/review-loop/SKILL.md` (×4) | **dueño** de `This delivers:` y de la allowlist `$allow` |
+| **C** | 19 — autojunk / métrica de similitud | `tools/recover-skill-bases.py`, `tests/recover-skill-bases.tests.ps1` y su fixture | no |
+
+Afuera: 08 a 12 por el techo de 3; 13 bloqueado por los seis; 14 es entero `CLAUDE.md` y va en
+serie entre olas; 16 bloqueado por el 10; 18 es HITL.
+
+Medido al repartir (2026-09-17):
+
+- Ningún archivo aparece en dos filas.
+- El 19 no toca ningún scaffold: `git ls-files` ubica `tools/recover-skill-bases.py` y su suite
+  sólo en la raíz. No regenera manifest ni entra al espejado.
+- El 07 y el 15 tocan `skills-lock.json` porque su campo `files` hashea el `SKILL.md` de cada
+  skill, y `to-prd`, `to-issues`, `slice-review` y `review-loop` tienen entrada con `files`.
+  Por eso el lock es generado sin dueño y se re-sella una vez, al cerrar la ola.
+- `.claude/agents/` no existe hoy ni en la raíz ni en los tres scaffolds: el carril B lo crea.
+- **No medido**: la proyección de ~400 líneas de lógica de los tres. Cada carril la mide antes
+  de su primer test y para si se pasa.
+
+Dos cosas que la integración tiene que resolver:
+
+1. El 19 «bloquea al 05», que ya está **cerrado**: su lockfile selló veredictos de la métrica
+   vieja. Al integrar el carril C hay que re-sellar y correr `tests/skills-lock.tests.ps1`, y
+   todo veredicto que cambie va explicado por escrito.
+2. `review-loop` y `slice-review` figuran en el lock como `fork-propio` sin base, mientras el
+   issue 19 los llama «hoy `unmatched`». Si la métrica nueva les recupera una base, eso es del
+   issue 12 (forks propios): el carril C lo anota y **no** reclasifica.
 
 ## Lo que dejó la ola N
