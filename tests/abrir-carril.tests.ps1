@@ -198,6 +198,15 @@ Assert ($out -match '(?m)^Rama:.*\(desde main @') "una marca en el bloque no se 
 Assert (($out -match '(?m)^Copiaria: \.env ') -and ($out -match '(?m)^Copiaria: \.scratch ')) "una marca en copiar no se toma como lista: rige el default"
 Assert ($out -match 'DryRun: no se creo nada') "con la plantilla real, el dry run llega hasta el final"
 
+# El default de la base es la rama ACTUAL, no el literal 'main': un repo adoptado que vive en
+# 'master' salía 1 en el dry run («La base 'main' no existe»), que es el mismo fallo que el chequeo
+# de marcas quiere evitar, ahora causado por el default.
+$t = New-Repo -datos $plantilla
+git -C $t branch -m master
+$out = Abrir $t @("-Slice", "07", "-Slug", "padron", "-DryRun")
+Assert ($script:lastExit -eq 0) "la plantilla en un repo que vive en master sale 0 con dry run (salió $script:lastExit)"
+Assert ($out -match '(?m)^Rama:.*\(desde master @') "sin base declarada, el default es la rama actual"
+
 # --- Un -Root relativo se resuelve en un solo lugar, aunque la cwd no sea la raíz del repo ---
 # git -C lo resuelve contra el repo y los cmdlets contra la cwd: si no se normaliza, el worktree
 # queda en un lado y lo copiado en otro.
@@ -209,10 +218,30 @@ Assert ($script:lastExit -eq 0) "con -Root relativo desde un subdirectorio sale 
 Assert (Test-Path -LiteralPath (Join-Path $sub "wt-rel/slice-07/.scratch/issues/07.md")) "el worktree y lo copiado caen en el mismo lugar, resuelto contra la cwd"
 Assert (-not (Test-Path -LiteralPath (Join-Path $t "wt-rel"))) "no queda una carpeta suelta resuelta contra la raíz del repo"
 
+# --- El worktrees relativo del BLOQUE se resuelve contra el repo, no contra la cwd ---
+# Es la rama hermana del caso de arriba: el parámetro se resuelve contra la cwd (lo que escribió el
+# usuario) y la clave del bloque contra el repo (el archivo de datos habla del repo). Sin el
+# Join-Path, un carril abierto desde un subdirectorio caía en otro lado.
+$relBloque = $script:datosOk -replace 'copiar: \.env, \.scratch', "copiar: .scratch`nworktrees: wt-bloque"
+$t = New-Repo -datos $relBloque
+$sub = Join-Path $t "docs"
+[IO.Directory]::CreateDirectory($sub) | Out-Null
+$out = Abrir $sub @("-Slice", "07", "-Slug", "padron")
+Assert ($script:lastExit -eq 0) "con worktrees relativo en el bloque sale 0 (salió $script:lastExit)"
+Assert (Test-Path -LiteralPath (Join-Path $t "wt-bloque/slice-07/.scratch/issues/07.md")) "el worktrees relativo del bloque cuelga del repo"
+Assert (-not (Test-Path -LiteralPath (Join-Path $sub "wt-bloque"))) "el worktrees del bloque no se resuelve contra la cwd"
+
 # --- Un repo con acentos en la ruta, con la consola en cp850 ---
 # git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Con un
 # code page OEM, `rev-parse --show-toplevel` llega deformado y el script muere con un error crudo.
-$t = New-Repo -nombre "proyecto-acentuado-ñ"
+# Control positivo antes del caso: si el `GetEncoding(850)` del hijo fallara en silencio, el caso
+# quedaría verde sin ejercitar el code page OEM, que es todo lo que prueba. Y el nombre se arma por
+# punto de código y no como literal, para que el caso no dependa de con qué encoding se guardó ESTE
+# archivo. Las dos cosas son las que ya fijó tests/review-marker.tests.ps1 para su propio caso.
+$cp = ((& pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); [Console]::OutputEncoding.CodePage") | Out-String).Trim()
+Assert ($cp -eq "850") "control positivo: el pwsh hijo del fixture corre en code page 850 (dio '$cp')"
+$t = New-Repo -nombre ("proyecto-acentuado-" + [string][char]0x00F1)
+Assert ($t -match '[^\x00-\x7F]') "control positivo: la ruta del fixture tiene un caracter no ASCII"
 $cmd = "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); Set-Location -LiteralPath '$t'; & '$script:abrir' -Slice 07 -Slug padron -DryRun; exit `$LASTEXITCODE"
 $out = (@((& pwsh -NoProfile -Command $cmd 2>&1) | ForEach-Object { "$_" }) -join "`n")
 Assert ($LASTEXITCODE -eq 0) "un repo con acentos en la ruta sale 0 con la consola en cp850 (salió $LASTEXITCODE)"

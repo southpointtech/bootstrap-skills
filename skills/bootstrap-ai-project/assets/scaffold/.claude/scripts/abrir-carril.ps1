@@ -99,8 +99,13 @@ if ($inicios.Count -eq 1) {
   if (-not $cerrado) { Rechazar "El bloque 'carriles' de los datos del proyecto no esta cerrado con ```." }
 }
 
-# Precedencia: parametro > bloque > default.
-if (-not $Base) { $Base = if ($bloque.base) { $bloque.base } else { 'main' } }
+# Precedencia: parametro > bloque > default. El default de la base es la RAMA ACTUAL y no el
+# literal 'main': un repo adoptado que vive en 'master' no tiene 'main', y el rechazo de la base
+# es fatal aun con -DryRun, asi que el dry run de una plantilla sin rellenar moria por el default.
+if (-not $Base) {
+  $Base = if ($bloque.base) { $bloque.base } else { (git -C $repo symbolic-ref --short HEAD 2>$null) }
+  if (-not $Base) { $Base = 'main' }   # HEAD desprendido: queda el literal, y el chequeo de abajo decide
+}
 if (-not $Copy) { $Copy = if ($bloque.copiar) { @($bloque.copiar) } else { @('.env', '.env.local', '.scratch') } }
 if (-not $Root -and $bloque.worktrees) {
   $Root = if ([IO.Path]::IsPathRooted($bloque.worktrees)) { $bloque.worktrees } else { Join-Path $repo $bloque.worktrees }
