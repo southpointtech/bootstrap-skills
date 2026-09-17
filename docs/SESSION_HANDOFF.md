@@ -1,3 +1,71 @@
+# Session Handoff — 2026-09-16 (cierre 2) — **Issue v2 02 (runner en paralelo) CERRADO**: review-loop `standard` con CLEAN CLOSE en el turno 2. Sin trabajo en vuelo.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: va **2 commits adelante** de `origin/main` (`aac8820` y el
+  commit de ESTE handoff), **sin pushear**. Untracked de Codex: ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD **`056858b`**, árbol
+  limpio. Sin commits nuevos en esta sesión (el turno 2 no arregló nada).
+- **Marcador v2**: `056858b` (== HEAD; `range` vacío, exit 0). Ancla `slice-open:feat/bootstrap-v2` **limpia**
+  (`-Action close` corrido; `slice-base` ahora cae a la base de rama `2245efd`).
+- Issue `02-runner-de-la-suite-en-paralelo.md` marcado **closed** (`.scratch/`, gitignoreado).
+- **NO HAY TRABAJO EN VUELO.**
+
+## 1. Verificación previa al turno 2 (medida en esta sesión)
+
+- `PYTHONIOENCODING=utf-8 python tests/mutantes/run-all.py` → **16 de 16 mutantes muertos**, exit 0. M16 murió con 2 FAIL,
+  los dos del caso L (no por un fallo general).
+- `pwsh -NoProfile -File tests/run-all.ps1` → **20/20 verdes, 332 s** (4 carriles), exit 0; árbol limpio después.
+
+## 2. Turno 2 (rango `81a1adf` = commit `056858b`) — CLEAN CLOSE
+
+- 5 focos (bugs/contratos/tests en opus, reglas/historia en sonnet), sin `--mutation` ni `--code-review`. Árbol verificado
+  limpio antes de `-Action advance`.
+- 7 hallazgos tras dedup, 7 puntuados: **cero Medium/High**. Descartados por el pase (<60): caso J dependiente del entorno
+  (35: pre-existente, no se da en esta máquina — `%TEMP%` no está en un repo, no hay `GIT_DIR`, ningún hook corre suites);
+  los números 219 s / 296 s (15: el transcript `11d65e85-….jsonl` registra las dos corridas).
+- **Coherencia** (sonnet, ancla `d8e228a`, con el contenido del merge excluido): los 6 criterios del issue cumplidos,
+  las 16 anclas de mutantes matchean una sola vez. Un hallazgo Low (95), abajo.
+
+## 3. Low reportados y NO arreglados (deliberado; candidatos a una slice `light`)
+
+- **Conteos de suites viejos (95, causado por ESTE slice)**: `run-all.tests.ps1` sumó un usuario del helper y solo se
+  actualizó `TESTING.md:94`. Reemplazos verificados por el scorer contando los archivos:
+  `TESTING.md:167` once→doce; `:206` doce→trece; `:232` once→doce; `:248-249` "otras seis … esas siete" → "otras siete
+  … esas ocho"; `temp-hygiene.tests.ps1:292-293` once→doce; `:306` doce→trece; `:450` once→doce; `:465-466` seis/siete →
+  siete/ocho. **NO tocar** "seis grafías" (cuenta grafías, no suites) ni "nueve y ocho" / "1/8 a 5/8" (históricos).
+  Absorbe el C4 del turno 1.
+- **stderr de `Get-GitStatusZ` no es UTF-8 (92)**: `tests/run-all.ps1:37`, sumar
+  `$psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)`. Reproducido por el scorer con CP 850. **NO** forzar
+  `[Console]::OutputEncoding` al tope: `run-all.ps1` se puede correr dentro de la sesión interactiva (el patrón "una vez
+  al tope" de `review-marker.ps1` vale para procesos hijos efímeros).
+- **Sufijo de stderr del throw sin test (92)**: el caso J solo ancla `git status fall`. Ancla independiente del idioma:
+  `$r.out -match 'git status fall\S* en .+ : \S'` (NO `fatal:`: el prefijo se traduce en builds con locales).
+- **`Process` sin `Dispose` (95)**: `run-all.ps1:38`, `try { … } finally { $p.Dispose() }` (cubre también el throw).
+- **`ProcessStartInfo('git')` solo resuelve `git.exe` (85)**: un `git.cmd` solo no se encuentra; falla ruidoso (exit ≠ 0),
+  nunca verde falso. Sin acción, o una línea de comentario.
+- **`rmtree(ignore_errors=True)` silencioso (85)**: `tests/mutantes/run-all.py`, tras el rmtree
+  `if base.exists(): print(aviso, file=sys.stderr)`.
+- Siguen los Low del turno 1 (sección de abajo): C1, C3, C5, S3, L1b, L2, L4, L6, salida roja en cp850,
+  `temp-hygiene:~850`.
+
+## 4. Próximos pasos recomendados
+
+1. **Push de `main`** (2 commits de handoff), usuario con `!`:
+   `gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+2. **Slice `light` con los Low de §3** (conteos + stderr UTF-8 + ancla del sufijo + Dispose + aviso del rmtree), o
+   arrancar el próximo issue v2: 06-16, 18, 19 ⬜.
+3. Diferido sin cambios: re-rollout del scaffold a los 7 repos (preguntar antes); gitignore del residuo de Codex; ancla
+   `slice-open:fix/copy-scaffold-respalda` (`4ff2c9f`) en el repo principal.
+
+## Gotchas
+
+- Los reviewers corren con cwd en el repo principal: el shared context con rutas absolutas y `git -C` funcionó sin
+  misfires (`scratchpad/shared-context.md` de esta sesión).
+- `sed -i` sobre el issue 02 lo dejó en LF (está en `.scratch/`, gitignoreado; sin efecto).
+
+---
+
 # Session Handoff — 2026-09-16 (cierre) — **Merge de main en v2 HECHO; issue v2 02 (runner en paralelo) en REVIEW-LOOP, turno 1 aplicado, falta el TURNO 2**
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
