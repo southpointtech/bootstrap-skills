@@ -132,47 +132,91 @@ def body_of(text):
     return t.strip()
 
 
-def similarity(a, b):
-    """Ratio de `SequenceMatcher` sobre los dos cuerpos, con el `autojunk` de la libreria.
+# Minimo de lineas para que comparar por linea signifique algo. Con N lineas, UNA linea
+# distinta mueve el ratio exactamente 1/N (`ratio` es 2M/T, y una sustitucion deja M = N-1
+# con T = 2N). Con menos de 10 lineas eso es mas de 0.10, o sea mas de un cuarto de la
+# distancia entre el 1.0 de un cuerpo intacto y el umbral de 0.60 con el que se acepta una
+# base: ahi la granularidad de la unidad decide el veredicto mas que el parecido. Debajo de
+# este piso se compara por caracter (ver `_matcher`).
+MIN_LINEAS = 10
 
-    `autojunk` viene activo por default y se dispara por el largo de la SEGUNDA secuencia:
-    cuando `len(b) >= 200`, los elementos que aparecen en mas de `len(b)//100 + 1` posiciones
-    de `b` se marcan "populares" y salen del indice, asi que no pueden SEMBRAR un match
-    (uno ya sembrado si se extiende sobre ellos: un cuerpo contra si mismo sigue dando 1.0).
-    Sobre markdown comparado caracter a caracter, "popular" son las letras comunes.
 
-    Como `b` es el blob de upstream, el heuristico se dispara en casi TODA comparacion del
-    corpus, no solo en los cuerpos largos. Medido el 2026-08-31 sobre las skills locales:
-    `zoom-out` (169 B) contra `slice-review` da 0.0020 con autojunk y 0.0086 sin el (4,2x),
-    y al revés —`slice-review` contra `zoom-out`, donde `b` tiene 169 elementos y no llega
-    a 200— da 0.0083 con y sin el heuristico. La asimetria ES la firma de que depende de `b`.
+def _matcher(a, b):
+    """El `SequenceMatcher` con el que se mide TODA similitud de cuerpo de esta herramienta.
 
-    El efecto sobre el REPORTE es mas chico, pero lo que esta medido tiene borde: apagarlo
-    movio el numero publicado y el blob elegido de `review-loop` y `slice-review` (0.0308 y
-    0.0202 medidos el 2026-08-28 con autojunk; 0.1305 y 0.1101 el 2026-08-31 sin el, contra
-    otro blob). De las otras nueve, las dos con drift dan el mismo ratio contra su base con
-    y sin el (`tdd` 0.8450, `to-issues` 0.9466, re-medidos el 2026-09-03; iguales a los seis
-    decimales en los dos casos). El `tdd` publicado antes era 0.8625, medido el 2026-08-31,
-    y ya no se reproduce: `87f11fe` edito el cuerpo local DESPUES de esa medicion. No lo movio
-    el arreglo del delimitador de frontmatter de `body_of` — con la version vieja y la nueva
-    el cuerpo de las once skills es identico, y el ratio de `tdd` da 0.844958 con las dos.
-    O sea que este numero envejece con cada edicion del scaffold. Y las siete restantes
-    publican 1.0. Dos limites de eso, para no leerlo de mas: el 1.0 es el ratio REDONDEADO
-    (`exactBodyMatches` es el campo que habla de cuerpos identicos) y no se verifico que
-    ningun otro de los 413 blobs las supere con el heuristico apagado. O sea "solo esas dos cambian" vale para el numero contra su
-    base, no para toda la busqueda. Ningun veredicto cambia: los cuatro numeros de las dos
-    sin match estan lejos del umbral de 0.60.
+    Dos decisiones, las dos medidas, y las dos declaradas en `method.similarity` del reporte
+    porque ese numero viaja al lockfile y se lee como si fuera una propiedad del contenido:
 
-    No se apaga por costo medido el 2026-08-31: `autojunk=False` lleva la corrida de ~98 s a
-    ~2.500-3.500 s. Cambiar la metrica (tokenizar por linea) es el issue 19.
+    1. **Se compara por LINEA, no por caracter.** Comparando caracter a caracter, el
+       `autojunk` de `difflib` —activo por default— saca del indice los elementos que
+       aparecen en mas de `len(b)//100 + 1` posiciones de `b` cuando `len(b) >= 200`: sobre
+       markdown, las letras comunes. Esos elementos no pueden SEMBRAR un match, y con un
+       bloque de prosa PREPENDIDO la alineacion no se vuelve a sembrar. Medido sobre el par
+       congelado en `tests/fixtures/autojunk-*.txt` (6.269 caracteres de cuerpo con 637
+       prependidos): por caracter da 0.3361, y 0.3347 con los argumentos al reves — los dos
+       BAJO el umbral de 0.60, o sea `unmatched`. El mismo bloque APENDEADO da 0.9517, asi
+       que el disparador es la posicion del drift. Por linea ese par da 0.9091 en las dos
+       direcciones. Un cuerpo tiene cientos de lineas, no miles de caracteres, asi que la
+       tokenizacion por linea tambien es la que saca el costo cuadratico: la corrida completa
+       de las once skills contra los 414 blobs paso de 107,1 s a 6,2 s (medido el 2026-09-17
+       en la misma maquina y contra el mismo clon, `959a8e9f`).
 
-    El ratio con el que se ELIGE la base no pasa por aca: se calcula en `_best_blobs`, que
-    llama a `SequenceMatcher` directo para poder usar las cotas baratas. Esta funcion tiene
-    un solo call site de produccion —los `unconfirmedSuccessorCandidates`—, y ese numero
-    tambien se publica. Lo de arriba vale igual para las dos llamadas: misma libreria, mismo
-    default.
+    2. **`autojunk=False` en las DOS ramas**, y por motivos distintos. Sobre la ruta por
+       linea hoy es inerte: el heuristico se dispara con el largo de `b`, y ningun blob
+       `*/SKILL.md` de upstream llega a 200 lineas (maximo medido: 176 de 414). Ponerlo evita
+       que se active solo el dia que upstream pase ese largo, que es exactamente como este
+       defecto aparecio del lado de los caracteres. Sobre el fallback por caracter NO es
+       inerte: medido el 2026-09-17 sobre el reporte entero, las once similitudes publicadas
+       y las once bases salen identicas prendido o apagado, pero las pistas de sucesor de
+       `zoom-out` —cuerpo de una sola linea, o sea siempre en el fallback— cambian de orden y
+       de contenido: prendido encabeza `grill-with-docs` con 0.2060 y `wait-what` queda
+       tercera con 0.0591; apagado encabeza `wait-what` con 0.2273. Cual de las dos listas
+       orienta mejor a un humano no se midio; lo que si se midio es que el heuristico las
+       decide. Cuesta 2,8 s: `recover()` en proceso tarda 2,8 s prendido y 5,6 s apagado.
+
+    El piso de `MIN_LINEAS` es el costo aceptado del punto 1: con pocas lineas la unidad es
+    demasiado gruesa, y con UNA sola la comparacion por linea deja de ser una similitud y pasa
+    a ser una igualdad (1.0 o 0.0). Debajo del piso se cae a caracteres con `autojunk=False`,
+    que ahi sale barato porque el lado corto es corto: en el corpus de hoy los cuerpos con
+    menos de 10 lineas son `zoom-out` (1 linea, 169 caracteres), `grill-me` (5, 365) y
+    `handoff` (9, 666) del lado local, y 54 de los 414 blobs de upstream, el mas largo de
+    1.475 caracteres. El piso se compara contra el lado MAS CORTO para que la funcion sea
+    simetrica: el colapso que este issue arregla se daba en las dos direcciones.
+
+    Lo que NO esta medido, y por eso no se afirma: que un cuerpo de menos de 10 lineas y
+    muchisimos caracteres (una linea minificada, por ejemplo) no vuelva cara la corrida. El
+    fallback es cuadratico sin el heuristico; lo que acota el costo hoy es el corpus, no una
+    guarda.
     """
-    return difflib.SequenceMatcher(None, a, b).ratio()
+    la, lb = a.splitlines(), b.splitlines()
+    if min(len(la), len(lb)) < MIN_LINEAS:
+        return difflib.SequenceMatcher(None, a, b, autojunk=False)
+    return difflib.SequenceMatcher(None, la, lb, autojunk=False)
+
+
+def similarity(a, b):
+    """Que tan parecidos son dos cuerpos, entre 0.0 y 1.0. La unidad la fija `_matcher`.
+
+    Este numero se PUBLICA (`similarity`, `bestSimilarity`, y la similitud de cada
+    `unconfirmedSuccessorCandidate`) y de ahi viaja al lockfile, asi que hay dos limites que
+    conviene tener a mano al leerlo:
+
+    - **No es una propiedad del contenido, es una propiedad del par y de la unidad.** Cambiar
+      la unidad cambia todos los valores sin que cambie un byte de las skills: al pasar de
+      caracteres a lineas, `tdd` paso de 0.7287 a 0.8052 y `to-issues` de 0.9466 a 0.9873
+      (medido el 2026-09-17 contra `mattpocock/skills` en `959a8e9f`). Ningun veredicto se
+      movio en esa corrida: las nueve `recovered` siguieron recuperadas con la misma base, el
+      mismo blob y el mismo commit, y las dos `unmatched` siguieron lejos del umbral.
+    - **Envejece con cada edicion del scaffold**, porque compara el blob de upstream contra
+      nuestro `SKILL.md` de hoy. Un valor distinto al publicado manda a leer el `git log` del
+      `SKILL.md`, no a buscar un bug en la herramienta.
+
+    El ratio con el que se ELIGE la base no pasa por aca: lo calcula `_best_blobs`, que pide
+    su propio matcher para poder usar antes las cotas baratas. Pero se lo pide a `_matcher`,
+    igual que esta funcion, asi que las dos rutas comparan con la misma unidad y los mismos
+    heuristicos. Eran dos llamadas separadas a `SequenceMatcher` y nada exigia que coincidieran.
+    """
+    return _matcher(a, b).ratio()
 
 
 # --------------------------------------------------------------------------- #
@@ -411,7 +455,10 @@ def _best_blobs(mine, bodies):
     """
     best, tied = 0.0, []
     for oid, other in bodies.items():
-        sm = difflib.SequenceMatcher(None, mine, other)
+        # `_matcher` y no `SequenceMatcher` pelado: la unidad con la que se ELIGE la base
+        # tiene que ser la misma con la que se PUBLICA el numero. Eran dos llamadas separadas
+        # y la asimetria no la agarraba nada.
+        sm = _matcher(mine, other)
         # cotas baratas: si el techo no llega al mejor actual, ni calculamos el ratio.
         # La comparación es estricta a propósito: un techo IGUAL al mejor puede empatar.
         if sm.real_quick_ratio() < best or sm.quick_ratio() < best:
@@ -501,10 +548,12 @@ def recover(upstream, skills_dir, names, threshold):
             entry["status"] = "unmatched"
             # El valor nombra lo MEDIDO y nada mas: que ningun blob supere el umbral no
             # prueba que la skill nunca haya salido de upstream. Un cuerpo reescrito lo
-            # bastante cae por debajo igual: medido el 2026-08-31, con drift prependido a
-            # un cuerpo real el mismo par pasa de 0.7800 a 0.0842 (el issue 19 ataca esa
-            # metrica, pero su repro es otro y esta por reescribirse). Quien lo lea como
-            # "fork propio" esta decidiendo, no leyendo.
+            # bastante cae por debajo igual, y con la metrica vieja —por caracter, con el
+            # `autojunk` de la libreria— bastaba MUCHO menos que eso: sobre el par congelado
+            # en `tests/fixtures/`, 637 caracteres de prosa PREPENDIDOS a un cuerpo por lo
+            # demas intacto lo tiraban de 0.9517 a 0.3361, o sea a esta rama. Eso es lo que
+            # arreglo el issue 19 (ver `_matcher`); el limite de fondo sigue en pie. Quien lo
+            # lea como "fork propio" esta decidiendo, no leyendo.
             entry["upstreamRelation"] = "no-match-above-threshold"
             entry["base"] = None
             entry["bestSimilarity"] = round(best_ratio, 4)
@@ -634,12 +683,15 @@ def recover(upstream, skills_dir, names, threshold):
         "doNotEditByHand": ("salida generada; es la entrada del lockfile de skills. "
                             "Para cambiarla, volve a correr la herramienta."),
         "method": {
-            "similarity": ("difflib.SequenceMatcher(None, mine, other).ratio(), con "
-                           "autojunk activo (default de la libreria). Se dispara con el "
-                           "largo del blob de upstream (>= 200 elementos), o sea en casi "
-                           "toda comparacion, y deprime el ratio; medido, mueve el numero "
-                           "publicado y el blob elegido de las dos skills sin match "
-                           "verdadero. Ver docs/agents/recuperar-base-de-skills.md"),
+            "similarity": ("difflib.SequenceMatcher(...).ratio() sobre las LINEAS del cuerpo "
+                           "(cuerpo.splitlines()), con autojunk=False. Cuando el cuerpo mas "
+                           "corto del par tiene menos de %d lineas se compara por CARACTER, "
+                           "tambien con autojunk=False: con pocas lineas la unidad es "
+                           "demasiado gruesa (una linea vale 1/N del ratio) y con una sola "
+                           "linea la comparacion por linea es una igualdad, no una similitud. "
+                           "El valor depende de la UNIDAD y no solo del contenido: la misma "
+                           "skill da otro numero con otra tokenizacion. "
+                           "Ver docs/agents/recuperar-base-de-skills.md" % MIN_LINEAS),
             "comparedOn": "cuerpo del SKILL.md sin frontmatter, fines de linea normalizados a LF, extremos recortados",
             "searchSpace": "todos los blobs */SKILL.md alcanzables en la historia publicada de upstream",
             "tieBreak": ("ante empate de ratio entre blobs distintos, la aparicion mas vieja "
@@ -739,8 +791,15 @@ def _fixture_texts():
         "renglon 5.", "renglon 5 REESCRITO por upstream despues de la base.")
     t["ALPHA_V3"] = t["ALPHA"].replace(
         "renglon 7.", "renglon 7 reescrito de nuevo, y van dos.")
-    t["GHOST"] = block("Linea de una skill que upstream borro, numero", 29)
-    t["TWIN"] = block("Renglon del cuerpo gemelo, identico en dos blobs, numero", 29)
+    # `GHOST` y `TWIN` comparten un segundo bloque que NINGUN otro cuerpo tiene. Es lo que
+    # hace que las pistas de sucesor de `ghost` tengan similitudes DISTINTAS entre si: con el
+    # bloque comun de abajo y nada mas, las doce daban el mismo 0.1212 y el check del orden
+    # pasaba por vacuidad — una lista de valores iguales ya viene ordenada, con `reverse=True`
+    # y sin el.
+    _SEGUNDO_COMUN = "\n## Como corre\n\nDesde la raiz del repo.\n"
+    t["GHOST"] = block("Linea de una skill que upstream borro, numero", 29) + _SEGUNDO_COMUN
+    t["TWIN"] = (block("Renglon del cuerpo gemelo, identico en dos blobs, numero", 29)
+                 + _SEGUNDO_COMUN)
     t["TZ"] = block("Renglon de la skill con fechas de husos distintos, numero", 29)
     t["DRIFT_UP"] = block("Punto del cuerpo de drift segun upstream, numero", 29)
     t["DRIFT_LOCAL"] = (t["DRIFT_UP"]
@@ -753,10 +812,17 @@ def _fixture_texts():
     t["MERGED_Y"] = t["MERGED_BASE"].replace("numero 4.", "numero 4 segun main.")
     t["MERGED_Z"] = t["MERGED_BASE"].replace("numero 4.",
                                              "numero 4 resuelto a mano en el merge.")
-    # cuerpo largo con UNA sola diferencia: la similitud real no es 1.0 pero redondeada
-    # a 4 decimales da 1.0. Sirve para que exactBodyMatches no cuente redondeos.
-    t["NEAR_UP"] = block("Renglon largo de la skill casi identica, numero", 800)
-    t["NEAR_LOCAL"] = t["NEAR_UP"].replace("numero 400.", "numero 400!")
+    # Cuerpo con UNA sola LINEA distinta: la similitud real no es 1.0 pero redondeada a 4
+    # decimales da 1.0. Sirve para que `exactBodyMatches` no cuente redondeos.
+    #
+    # El largo no es decorativo y no se puede bajar: comparando por linea, una linea distinta
+    # de N deja el ratio en 1 - 1/N, asi que `round(r, 4) == 1.0` recien se alcanza con
+    # N >= 20.000 (1 - 1/20000 = 0.99995, que redondea a 1.0). Con las 800 lineas de antes
+    # —suficientes cuando la unidad era el caracter— el ratio da 0.9988 y el caso deja de
+    # distinguir el ratio crudo del redondeado. El prefijo es corto a proposito: 20.000
+    # renglones del prefijo largo anterior serian mas de un mega de fixture.
+    t["NEAR_UP"] = block("L", 20000)
+    t["NEAR_LOCAL"] = t["NEAR_UP"].replace("L 10000.", "L 10000!")
     # Renombre CON edicion: upstream mueve el archivo y lo retoca en el MISMO commit, asi
     # que git no lo puede casar por hash y lo registra como `R0xx` en vez de `R100`. Es la
     # unica forma de renombre que gasta presupuesto de deteccion inexacta, o sea la unica
@@ -796,7 +862,7 @@ def _fixture_texts():
     # agrupa por ratio, no por contenido, asi que este empate entra por la misma rama que el
     # de `twin` —donde el cuerpo si es identico y solo cambia el frontmatter— y la nota de
     # empate no puede afirmar "mismo cuerpo" sin haberlo comparado. Medido contra el fixture
-    # que quedo: los dos dan 0.9913985345651481 contra COLL_LOCAL —sobre el umbral de 0.60—
+    # que quedo: los dos dan 0.9696969696969697 contra COLL_LOCAL —sobre el umbral de 0.60—
     # y A != B. El numero no vive solo en este comentario: lo fija el check
     # `los dos cuerpos de la colision empatan en el ratio crudo medido`, porque un valor con
     # etiqueta "medido" que ningun test toca es justamente lo que este slice vino a sacar.
@@ -806,6 +872,16 @@ def _fixture_texts():
     t["COLL_B"] = t["COLL_LOCAL"].replace("numero 3.",
                                           "numero 3, variante B de la colision.")
     t["OURS"] = block("Nada de esto salio de upstream, linea", 29)
+    # Lineas que comparten TODOS los cuerpos, como las comparten los markdown de verdad:
+    # encabezados, renglones en blanco, un cierre. Sin nada compartido, la similitud por
+    # LINEA entre dos cuerpos cualesquiera del fixture es exactamente 0.0, y con eso tres
+    # checks se vuelven vacuos: el que exige que la mejor similitud de una skill sin match
+    # este acotada por las DOS puntas (`0 < x < umbral`), el del valor del mejor candidato a
+    # sucesor, y el del orden de los candidatos (una lista de ceros ya viene ordenada).
+    # Antes no hacia falta porque comparando por caracter dos textos cualesquiera comparten
+    # letras; la unidad nueva no perdona eso, y el fixture tiene que decirlo explicito.
+    for k in list(t):
+        t[k] += "\n## Notas\n\nVer el README del repo.\n"
     t["fm"] = fm
     return t
 
@@ -971,13 +1047,13 @@ def self_test():
     import subprocess
     import tempfile
 
-    # medido contra este fixture: el ratio crudo es 0.9785325216276834. A 3 decimales
-    # daria 0.979, a 2 daria 0.98 y a 1 daria 1.0, asi que exigir los 4 decimales es lo
+    # medido contra este fixture: el ratio crudo es 0.9090909090909091. A 3 decimales
+    # daria 0.909, a 2 daria 0.91 y a 1 daria 0.9, asi que exigir los 4 decimales es lo
     # que mata a cualquier mutante que recorte la precision de la similitud.
-    DRIFT_EXPECTED = 0.9785
+    DRIFT_EXPECTED = 0.9091
     # el mismo ratio SIN redondear: es el unico valor con el que se puede asertar la
     # frontera del umbral (que la comparacion sea `<` y no `<=`).
-    DRIFT_RAW = 0.9785325216276834
+    DRIFT_RAW = 0.9090909090909091
 
     _T = _fixture_texts()          # los mismos textos con los que se arma el fixture
 
@@ -1070,13 +1146,13 @@ def self_test():
         check("collide: dos blobs empatan en el mejor ratio",
               lambda: (len(d(by, "collide", "base", "tiedCandidates") or []) == 1,
                        d(by, "collide", "base", "tiedCandidates")))
-        check("collide: el ratio empatado es el medido (0.9914), sobre el umbral y < 1.0",
-              lambda: ((lambda r: r == 0.9914 and
+        check("collide: el ratio empatado es el medido (0.9697), sobre el umbral y < 1.0",
+              lambda: ((lambda r: r == 0.9697 and
                         (d(report, "method", "threshold") or 1) < r < 1.0)(
                            d(by, "collide", "similarity")),
                        (d(by, "collide", "similarity"), d(report, "method", "threshold"))))
         check("los dos cuerpos de la colision empatan en el ratio crudo medido, y difieren",
-              lambda: ((lambda a, b: a == b == 0.9913985345651481 and
+              lambda: ((lambda a, b: a == b == 0.9696969696969697 and
                         body_of(_T["COLL_A"]) != body_of(_T["COLL_B"]))(
                            similarity(body_of(_T["COLL_LOCAL"]), body_of(_T["COLL_A"])),
                            similarity(body_of(_T["COLL_LOCAL"]), body_of(_T["COLL_B"]))),
@@ -1162,13 +1238,16 @@ def self_test():
               lambda: (len(d(by, "ghost", "upstreamHead",
                              "unconfirmedSuccessorCandidates") or []) == 3,
                        d(by, "ghost", "upstreamHead", "unconfirmedSuccessorCandidates")))
-        # F18: `similarity()` es el UNICO lugar donde se usa `ratio()` fuera de
-        # `_best_blobs`, y sin aserción de valor el mutante `ratio()` -> `quick_ratio()`
-        # sobrevivia: las cotas baratas sobrevaluan y no son el contrato. Medido sobre este
-        # fixture: con `ratio()` el mejor candidato da 0.2607; con `quick_ratio()` da 0.8304
-        # y ademas cambia cual es (otro path), o sea el reporte diria otra cosa.
-        check("ghost: la similitud del mejor candidato es la de ratio(), no una cota barata",
-              lambda: ((lambda c: bool(c) and c[0]["similarity"] == 0.2607)(
+        # El VALOR del mejor candidato, medido: `ghost` y `twin` comparten el segundo bloque
+        # comun del fixture y ninguna otra pareja lo hace, asi que `skills/twin/SKILL.md`
+        # tiene que quedar arriba y con un numero propio. Sin la asercion de valor, un
+        # mutante que devuelva cualquier constante pasa. (Que el ratio NO sea una de las
+        # cotas baratas lo muerde el check `similarity: devuelve ratio()...` de mas abajo:
+        # aca ratio y cotas coinciden, porque las lineas compartidas estan en el mismo
+        # orden de los dos lados.)
+        check("ghost: el mejor candidato a sucesor es twin, con la similitud medida",
+              lambda: ((lambda c: bool(c) and c[0]["similarity"] == 0.2162
+                        and c[0]["path"] == "skills/twin/SKILL.md")(
                            d(by, "ghost", "upstreamHead",
                              "unconfirmedSuccessorCandidates") or []),
                        d(by, "ghost", "upstreamHead", "unconfirmedSuccessorCandidates")))
@@ -1329,21 +1408,21 @@ def self_test():
         # da 0.3361 y queda BAJO el umbral de 0.60: la herramienta publicaria `unmatched` +
         # `no-match-above-threshold` —"ninguna version de upstream se parece"— por 637
         # caracteres de prosa prependidos a un cuerpo que por lo demas esta intacto.
-        check("drift prependido: el par queda sobre el umbral",
-              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+        check("drift prependido: el par da 0.9091, sobre el umbral",
+              lambda: ((lambda r: (r == 0.9090909090909091 and r > DEFAULT_THRESHOLD, r))(
                   similarity(_DRIFT + _VICT, _VICT))))
         # Colapsa en las DOS direcciones (0.3361 y 0.3347 con la metrica por caracteres), asi
         # que elegir de que lado va el blob de upstream nunca fue un arreglo posible.
-        check("drift prependido: tampoco cae con los argumentos al reves",
-              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+        check("drift prependido: con los argumentos al reves da el MISMO 0.9091",
+              lambda: ((lambda r: (r == 0.9090909090909091 and r > DEFAULT_THRESHOLD, r))(
                   similarity(_VICT, _DRIFT + _VICT))))
         # Los dos controles que ATRIBUYEN la causa, y por eso van: sin ellos "el ratio subio"
         # no distingue haber arreglado el heuristico de haber subido todos los ratios.
         check("control: el MISMO bloque APENDEADO no colapsa (es la posicion, no el contenido)",
-              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+              lambda: ((lambda r: (r == 0.9047619047619048 and r > DEFAULT_THRESHOLD, r))(
                   similarity(_VICT + _DRIFT, _VICT))))
         check("control: OTRO bloque prependido no colapsa (es el par, no el prepender)",
-              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+              lambda: ((lambda r: (r == 0.8984375 and r > DEFAULT_THRESHOLD, r))(
                   similarity(_OTRO + _VICT, _VICT))))
 
         # --- el cuerpo de UNA sola linea: decidido, no derivado de la formula -------------
@@ -1360,12 +1439,48 @@ def self_test():
               lambda: (len(_UNA.splitlines()) == 1 and len(_UNA) == 169
                        and _sha(_UNA) == "b3b4172d6c8b",
                        (len(_UNA.splitlines()), len(_UNA), _sha(_UNA))))
-        check("una sola linea: una edicion chica NO tira la similitud debajo del umbral",
-              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+        check("una sola linea: una edicion chica da 0.9185, no la tira debajo del umbral",
+              lambda: ((lambda r: (r == 0.9184782608695652 and r > DEFAULT_THRESHOLD, r))(
                   similarity(_UNA_EDITADA, _UNA))))
         check("una sola linea: comparada por LINEA ese mismo par daria 0.0",
               lambda: ((lambda r: (r == 0.0, r))(difflib.SequenceMatcher(
                   None, _UNA_EDITADA.splitlines(), _UNA.splitlines()).ratio())))
+
+        # La FRONTERA del piso, que es donde vive el off-by-one. El par tiene TODAS las
+        # lineas tocadas: por linea da exactamente 0.0 y por caracter da mas de 0.9, asi que
+        # los dos lados del `if` son distinguibles a simple vista. Con 10 lineas tiene que
+        # elegir lineas y con 9, caracteres; assertar un solo lado deja pasar el `<=`.
+        def _todas_las_lineas_tocadas(n):
+            a = "".join("renglon %d del cuerpo, con largo suficiente para notarse.\n" % i
+                        for i in range(n))
+            return a, a.replace("renglon", "rengIon")
+
+        check("piso de lineas: con MIN_LINEAS lineas se compara por LINEA (el par da 0.0)",
+              lambda: ((lambda p: (similarity(*p) == 0.0, similarity(*p)))(
+                  _todas_las_lineas_tocadas(MIN_LINEAS))))
+        check("piso de lineas: con una linea MENOS se cae a CARACTER (el par no da 0.0)",
+              lambda: ((lambda p: ((lambda r: r > 0.9)(similarity(*p)), similarity(*p)))(
+                  _todas_las_lineas_tocadas(MIN_LINEAS - 1))))
+        # `similarity()` es el UNICO lugar donde se usa `ratio()` fuera de `_best_blobs`, y
+        # sin un caso donde `ratio()` y las cotas baratas DIFIERAN, el mutante
+        # `ratio()` -> `quick_ratio()` sobrevive: las cotas sobrevaluan y no son el contrato.
+        # Las cotas cuentan multiconjuntos, o sea que ignoran el ORDEN: el caso es el mismo
+        # contenido con las lineas invertidas. Van 12 lineas de cada lado, por encima del
+        # piso, para que ejercite la ruta por linea, que es la de produccion.
+        _ORD_A = "".join("linea %d\n" % i for i in range(12))
+        _ORD_B = "".join("linea %d\n" % i for i in reversed(range(12)))
+        check("similarity: devuelve ratio(), no una cota barata que ignora el orden",
+              lambda: ((lambda r, q: (r == 0.08333333333333333 and q == 1.0, (r, q)))(
+                  similarity(_ORD_A, _ORD_B), _matcher(_ORD_A, _ORD_B).quick_ratio())))
+        # `method.similarity` viaja al lockfile y se lee como si describiera el contenido. Lo
+        # que tiene que decir es la UNIDAD y los heuristicos, no solo el nombre de la funcion.
+        # Se asserta el positivo Y el negativo: sin el negativo, dejar la frase vieja pegada
+        # abajo de la nueva —el modo de falla de este repo con la prosa— pasaba en verde.
+        check("method.similarity declara la unidad, el piso y que el heuristico esta apagado",
+              lambda: ((lambda s: (all(x in s for x in ("LINEAS", "autojunk=False", "CARACTER",
+                                                        "menos de %d lineas" % MIN_LINEAS))
+                                   and "autojunk activo" not in s, s))(
+                  d(report, "method", "similarity") or "")))
 
         # --- near / exactBodyMatches ----------------------------------------------------
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",
