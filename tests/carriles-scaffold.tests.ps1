@@ -80,6 +80,16 @@ foreach ($v in $variantes) {
   Assert ((Leer (Join-Path $sc "docs/ai-workflow/PARALELISMO.md")) -match 'se sube a esta mecánica en Bootstrap Skills') "${v}: la norma dice que una lección general se sube a la mecánica"
 }
 
+# La raíz adoptó la mecánica tal cual y rellenó sus datos: sin marcas y con el bloque del script.
+$sc = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold"
+foreach ($rel in $mecanica) {
+  $p = Join-Path $repo $rel
+  Assert ((Test-Path -LiteralPath $p) -and ((Leer $p) -eq (Leer (Join-Path $sc $rel)))) "raíz: $rel es la mecánica del scaffold, sin editar"
+}
+$raiz = Join-Path $repo $datos
+Assert ((Test-Path -LiteralPath $raiz) -and -not (Leer $raiz).Contains("{{")) "raíz: los datos del proyecto están rellenados, sin marcas"
+Assert ((Test-Path -LiteralPath $raiz) -and (Leer $raiz) -match '(?m)^base: feat/bootstrap-v2$') "raíz: el bloque carriles apunta a la base feat/bootstrap-v2"
+
 # La línea condicional del CLAUDE.md, dentro de «Required workflow docs», en los tres scaffolds y
 # en la raíz.
 $claudes = @($variantes | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold/CLAUDE.md" }) + @(Join-Path $repo "CLAUDE.md")
