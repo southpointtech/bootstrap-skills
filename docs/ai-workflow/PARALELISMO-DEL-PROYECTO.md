@@ -26,15 +26,16 @@ Medido el 2026-09-17 sobre el grafo de `.scratch/bootstrap-v2/issues/`, con 01 a
 y el 20 como slice fundacional de los carriles:
 
 ```
-07/08 → 13 → 18
+07–12 → 13 → 18
 ```
 
-Aparte: 10 → 16. El 18 (deploy, rollout y resellado) espera a todos, el 20 incluido.
-Desbloqueados: 07, 08, 09, 10, 11, 12, 14, 15 y 19.
+El 13 está bloqueado por los seis (06 a 12), así que 09 a 12 son tan del camino crítico como 07 y
+08. Aparte: 10 → 16. El 18 (deploy, rollout y resellado) espera a los issues 01 a 17 y al 20; el 19
+no lo bloquea y puede ir en cualquier ola. Desbloqueados: 07, 08, 09, 10, 11, 12, 14, 15 y 19.
 
 3 eslabones: se pasa de 12 slices en fila a ~3 niveles, pero con el techo de 3 carriles los 11
-anteriores al 18 necesitan al menos 4 olas. Además, 07 a 12 comparten archivos calientes (abajo):
-dos de ellos en la misma ola se integran regenerando.
+anteriores al 18 necesitan al menos 4 olas. Además, 07 a 12 comparten archivos calientes (abajo),
+que es lo que decide cuántos de ellos entran en una misma ola.
 
 ## Contratos fijados
 
@@ -44,20 +45,28 @@ dos de ellos en la misma ola se integran regenerando.
 
 ## Archivos calientes
 
+Rige la regla de dueño único de la norma: **uno solo de estos carriles por ola toca cada archivo de
+esta lista**, y el plan de la ola lo nombra. Regenerar es cómo se resuelve un conflicto, no un
+permiso para que dos carriles lo editen a la vez.
+
 - `skills-lock.json` (raíz y los tres scaffolds): se regenera con
-  `pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal`. Lo tocan 07 a 12.
+  `pwsh -NoProfile -File tools/skills-lock.ps1 -Action Seal`. Lo tocan 07 a 12 y 16.
 - `.scratch/bootstrap-v2/skill-bases.json`: gitignoreado, así que cada carril recibe su copia y
   lo que cambie ahí **no viaja por git**. El orquestador lo re-aplica en el worktree de v2 al
   integrar.
 - `.bootstrap-manifest.json` de los tres scaffolds: `pwsh -NoProfile -File tools/gen-manifest.ps1
   -SkillDir skills/<bootstrap-x>`. Lo toca cualquier slice que edite un scaffold.
+- La línea `This delivers:` de los tres `skills/bootstrap-*/SKILL.md`: **escrita a mano**, y
+  `tests/mirror.tests.ps1` ata sus conteos a lo que el scaffold tiene de verdad. La tocan todos los
+  que suman una skill o un doc de flujo (09, 10, 11, 12, 14 y 16), así que un conflicto acá se
+  mergea a mano contando contra el scaffold.
 - Los goldens de `tests/fixtures/`: `tools/reseal-step0b.ps1` (Step 0b), `tools/reseal-step5.ps1
   -Block <nombre>` (`step5`, `tdd-loop`) y `tools/reseal-goldens.ps1` (Step 2 y techos).
 - La allowlist `$allow` de `tests/mirror.tests.ps1`.
-- `CLAUDE.md` de la raíz y de los tres scaffolds: 14 y 20 los tocan.
+- `CLAUDE.md` de la raíz y de los tres scaffolds: los tocan 14 y 20.
 
 **Un conflicto en un archivo generado se resuelve regenerándolo con su herramienta, nunca a
-mano.** Un carril los re-sella en su rama; si al rebasar hay conflicto, el orquestador toma
+mano.** El carril dueño lo re-sella en su rama; si al rebasar hay conflicto, el orquestador toma
 cualquiera de los dos lados y vuelve a correr la herramienta sobre el árbol integrado.
 
 ## Config compartida

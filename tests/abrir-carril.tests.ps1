@@ -34,9 +34,9 @@ copiar: .env, .scratch
 
 # Un repo en `main` con `.env` y `.scratch/` gitignoreados y el archivo de datos commiteado.
 # El gitconfig global se neutraliza como en review-marker.tests.ps1.
-function New-Repo([string]$datos = $script:datosOk) {
+function New-Repo([string]$datos = $script:datosOk, [string]$nombre = "proyecto") {
   $ws = New-TestWorkspace $script:runRoot "ac"
-  $t = Join-Path $ws "proyecto"
+  $t = Join-Path $ws $nombre
   [IO.Directory]::CreateDirectory($t) | Out-Null
   git -C $t init -q -b main
   git -C $t config user.email a@b.c
@@ -179,7 +179,68 @@ $t = New-Repo
 $root = Join-Path (Split-Path $t -Parent) "carriles"
 $out = Abrir $t @("-Slice", "09", "-Slug", "suelto", "-Root", $root, "-Copy", "suelto.txt")
 Assert ($script:lastExit -eq 0) "copiar algo no ignorado no es un rechazo (salió $script:lastExit)"
-Assert ($out -match 'no esta limpio' -and $out -match 'suelto\.txt') "avisa que lo copiado no está ignorado y lo nombra"
+# El aviso se ancla en la línea de `git status --porcelain` que trae adentro, no en el nombre del
+# archivo suelto: ese nombre también aparece en la línea `Copiado:`, así que un aviso que dejara de
+# incluir el status pasaba igual (medido).
+Assert ($out -match 'no esta limpio' -and $out -match '(?m)^\?\? suelto\.txt') "avisa que lo copiado no está ignorado y muestra la línea de status"
+
+# --- La plantilla REAL del scaffold, con marcas en el bloque, sale 0 con -DryRun ---
+# El fixture de más arriba tiene las marcas FUERA del bloque, así que no cubría el caso que ve un
+# proyecto recién bootstrapeado: sus tres claves llegan con marca, y una marca tomada como valor
+# ('base: {{main}}') hacía fallar el chequeo de la base con exit 1, justo lo contrario de lo que
+# prometen el ADR-0011 y la nota del archivo.
+$plantilla = [IO.File]::ReadAllText((Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md"))
+$t = New-Repo -datos $plantilla
+$out = Abrir $t @("-Slice", "07", "-Slug", "padron", "-DryRun")
+Assert ($script:lastExit -eq 0) "la plantilla recién bootstrapeada sale 0 con dry run (salió $script:lastExit)"
+Assert ($out -match 'marcas sin rellenar') "avisa que la plantilla tiene marcas sin rellenar"
+Assert ($out -match '(?m)^Rama:.*\(desde main @') "una marca en el bloque no se toma como base: rige el default"
+Assert (($out -match '(?m)^Copiaria: \.env ') -and ($out -match '(?m)^Copiaria: \.scratch ')) "una marca en copiar no se toma como lista: rige el default"
+Assert ($out -match 'DryRun: no se creo nada') "con la plantilla real, el dry run llega hasta el final"
+
+# --- Un -Root relativo se resuelve en un solo lugar, aunque la cwd no sea la raíz del repo ---
+# git -C lo resuelve contra el repo y los cmdlets contra la cwd: si no se normaliza, el worktree
+# queda en un lado y lo copiado en otro.
+$t = New-Repo
+$sub = Join-Path $t "docs"
+[IO.Directory]::CreateDirectory($sub) | Out-Null
+$out = Abrir $sub @("-Slice", "07", "-Slug", "padron", "-Root", "wt-rel", "-Copy", ".scratch")
+Assert ($script:lastExit -eq 0) "con -Root relativo desde un subdirectorio sale 0 (salió $script:lastExit)"
+Assert (Test-Path -LiteralPath (Join-Path $sub "wt-rel/slice-07/.scratch/issues/07.md")) "el worktree y lo copiado caen en el mismo lugar, resuelto contra la cwd"
+Assert (-not (Test-Path -LiteralPath (Join-Path $t "wt-rel"))) "no queda una carpeta suelta resuelta contra la raíz del repo"
+
+# --- Un repo con acentos en la ruta, con la consola en cp850 ---
+# git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Con un
+# code page OEM, `rev-parse --show-toplevel` llega deformado y el script muere con un error crudo.
+$t = New-Repo -nombre "proyecto-acentuado-ñ"
+$cmd = "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); Set-Location -LiteralPath '$t'; & '$script:abrir' -Slice 07 -Slug padron -DryRun; exit `$LASTEXITCODE"
+$out = (@((& pwsh -NoProfile -Command $cmd 2>&1) | ForEach-Object { "$_" }) -join "`n")
+Assert ($LASTEXITCODE -eq 0) "un repo con acentos en la ruta sale 0 con la consola en cp850 (salió $LASTEXITCODE)"
+Assert ($out -match 'DryRun: no se creo nada') "con acentos y cp850 el dry run llega hasta el final"
+
+# --- El bloque mal formado es un error, con y sin -DryRun ---
+# Las tres guardas fallan ABIERTO si se las saca: dos bloques hace que se ignore el bloque entero,
+# una clave repetida deja ganar a la última en silencio, y un bloque sin cerrar sigue leyendo el
+# markdown de abajo. Cada caso ancla su mensaje: todos los rechazos salen 1, así que el exit code
+# solo no distingue cuál guarda disparó.
+$cerca = '```'
+$malformados = @(
+  @{ nombre = "dos bloques";     datos = $script:datosOk + "`n$cerca" + "carriles`nbase: otra`n$cerca"; mensaje = "2 bloques 'carriles'" },
+  @{ nombre = "clave repetida";  datos = $script:datosOk -replace 'copiar: \.env, \.scratch', "copiar: .env`ncopiar: .scratch"; mensaje = "'copiar' aparece dos veces" },
+  @{ nombre = "bloque sin cerrar"; datos = "# Datos`n`n$cerca" + "carriles`ncopiar: .env`n"; mensaje = "no esta cerrado" },
+  @{ nombre = "linea sin dos puntos"; datos = $script:datosOk -replace 'copiar: \.env, \.scratch', "copiar: .env`nesto no es una clave"; mensaje = "sin forma 'clave: valor'" }
+)
+foreach ($caso in $malformados) {
+  $t = New-Repo -datos $caso.datos
+  $root = Join-Path (Split-Path $t -Parent) "carriles"
+  foreach ($extra in @(@(), @("-DryRun"))) {
+    $etiqueta = if ($extra) { "$($caso.nombre) con dry run" } else { $caso.nombre }
+    $out = Abrir $t (@("-Slice", "07", "-Slug", "padron", "-Root", $root) + $extra)
+    Assert ($script:lastExit -ne 0) "$($etiqueta): sale distinto de 0"
+    Assert ($out -match [regex]::Escape($caso.mensaje)) "$($etiqueta): el rechazo dice «$($caso.mensaje)»"
+  }
+  Assert (-not (Test-Path -LiteralPath $root)) "$($caso.nombre): no abre el worktree"
+}
 
 Remove-TestRunRoot $script:runRoot
 

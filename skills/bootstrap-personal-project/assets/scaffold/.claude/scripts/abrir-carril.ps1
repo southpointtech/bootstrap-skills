@@ -31,6 +31,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding, que en
+# un pwsh con stdout redirigido es el code page OEM de la maquina. Sin esto, `rev-parse
+# --show-toplevel` llega deformado en un repo con acentos en la ruta y el script muere con un error
+# crudo en vez de abrir el carril. Es el mismo arreglo que ya tiene review-marker.ps1. Se setea y no
+# se restaura: este script siempre corre como proceso hijo y efimero.
+try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+
 # Un rechazo sale con 1 y el motivo en stderr. `throw` tambien saldria con 1, pero con el
 # motivo enterrado en el formato de error de PowerShell.
 function Rechazar([string] $motivo) {
@@ -83,8 +90,11 @@ if ($inicios.Count -eq 1) {
     $clave = $Matches[1]; $valor = $Matches[2]
     if ($clave -notin $claves) { Rechazar "Clave desconocida '$clave' en la linea $($i + 1) del bloque 'carriles'. Las validas: $($claves -join ', ')." }
     if ($bloque.ContainsKey($clave)) { Rechazar "La clave '$clave' aparece dos veces en el bloque 'carriles'." }
-    # 'no aplica' es un valor valido y equivale a no declarar la clave: rige el default.
-    if ($valor -and $valor -ne 'no aplica') { $bloque[$clave] = $valor }
+    # 'no aplica' es un valor valido y equivale a no declarar la clave: rige el default. Un valor
+    # con marca vale lo mismo: la plantilla recien bootstrapeada trae las tres claves con marca, y
+    # tomarlas como valor hacia fallar el -DryRun ('La base {{main}} no existe'), que es justo lo
+    # que tiene que salir 0 para mostrar que faltan los datos.
+    if ($valor -and $valor -ne 'no aplica' -and -not $valor.Contains('{{')) { $bloque[$clave] = $valor }
   }
   if (-not $cerrado) { Rechazar "El bloque 'carriles' de los datos del proyecto no esta cerrado con ```." }
 }
@@ -100,6 +110,11 @@ if (-not $Root -and $bloque.worktrees) {
 $Copy = @($Copy | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
 if (-not $Root) { $Root = Join-Path (Split-Path $repo -Parent) (Join-Path 'carriles' $repoName) }
+# Absoluto antes de usarlo: `git -C $repo worktree add` resuelve un relativo contra el REPO y los
+# cmdlets de copia contra la cwd, asi que con la cwd en un subdirectorio el worktree quedaba en un
+# lado y lo copiado en otro. GetUnresolvedProviderPathFromPSPath y no Resolve-Path: la carpeta
+# todavia no existe.
+$Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
 $branch = "slice/$Slice-$Slug"
 $path = Join-Path $Root "slice-$Slice"
 
