@@ -1,3 +1,163 @@
+# Session Handoff — 2026-09-17 — **Mecánica de carriles planeada** (grill → ADR-0011 → PRD → issue 20 en bootstrap-v2) + issue del hook para worktrees. **Sin código.** Sigue pendiente el pase de coherencia del 06.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: `origin/main` en `13ca18b`. Los dos
+  handoffs anteriores (`21db553`, `639cfa1`) y el commit de ESTE handoff están **sin pushear**.
+  Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`, HEAD
+  **`bbc91fc`**. **Árbol SUCIO a propósito**, con dos archivos de esta sesión sin commitear:
+  - `M CONTEXT.md`: sección nueva «Los carriles» (Orquestador, Carril, Ola, Mecánica de carriles,
+    Datos del proyecto, Marca sin rellenar, Archivo caliente).
+  - `?? docs/adr/0011-mecanica-de-carriles-separada-de-los-datos.md`.
+  - **No commitearlos antes de cerrar el 06**: entrarían en el rango de su pase de coherencia. Van
+    en el primer commit del issue 20.
+- **Marcador v2** en `d6a16e5`. **Ancla `slice-open:feat/bootstrap-v2` = `ed17702`, abierta a
+  propósito** (el 06 cerró por tope; NO correr `-Action close`).
+- **Issue 06**: le falta sólo el **pase de coherencia**. Correrlo con un **rango explícito**
+  `git -C C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2 diff ed17702 bbc91fc` (NO
+  `diff ed17702`, que incluye el árbol sucio de arriba), contra el issue 06, ADR-0004 y los 3
+  mensajes de commit (`919d9f6`, `d6a16e5`, `bbc91fc`). Un subagente de modelo liviano, de solo
+  lectura, con rutas absolutas; sus hallazgos van al pase de confianza. Después, marcar
+  `.scratch/bootstrap-v2/issues/06-tdd-merge-y-red-green.md` como closed.
+
+## 1. Qué pidió el usuario (prompt del kit, apéndice «Bootstrap Skills»)
+
+Que el scaffold incluya la paralelización por carriles del kit `C:\Repos\PERSONAL\kit-paralelismo-carriles\`
+(README, PARALELISMO/PLAN-DE-OLA/BRIEF-DE-CARRIL `.template.md`, `scripts/abrir-carril.ps1`,
+PROMPTS.md), para que los proyectos nuevos nazcan con ella y los existentes la reciban por
+`upgrade-bootstrap`. Además: la issue del hook (hecha) y el reporte de cierre (hecho).
+
+## 2. Decisiones del usuario (firmadas en esta sesión)
+
+1. **Base**: se construye **dentro de bootstrap-v2** y los issues pendientes de v2 se desarrollan
+   **con carriles** («seguir desarrollando la B2 con el paralelismo por carriles»).
+2. **Orden**: primero cerrar el 06 → **issue 20 solo, como slice fundacional** → después planear la
+   ola 1 con PLAN-DE-OLA y **mostrarla antes de despachar**.
+3. **Un solo slice** para el 20: scaffold + script + tests + adopción en la raíz. **Si al medir antes
+   del primer test se proyecta muy por encima de ~450 líneas de lógica**, parar y partir en **20a**
+   (scaffold + script + tests) y **20b** (adopción en la raíz, bloqueada por la 20a).
+4. **ADR-0011, mecánica separada de los datos**:
+   - Mecánica pura, que ningún proyecto edita: `docs/ai-workflow/PARALELISMO.md`, `PLAN-DE-OLA.md`,
+     `BRIEF-DE-CARRIL.md` y `.claude/scripts/abrir-carril.ps1`. Las `{{…}}` de PLAN y BRIEF se
+     rellenan **en el chat**.
+   - Datos del proyecto en `docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md`, con marcas.
+   - La norma apunta a los datos **por nombre de sección**.
+   - Una lección general se sube a la mecánica en Bootstrap Skills; «Lo que dejó la ola N» vive en
+     los datos.
+5. **El chequeo de marcas lo hace el script**:
+   - `abrir-carril.ps1` se niega a abrir (exit ≠ 0, lista las líneas) si los datos faltan o tienen
+     `{{`. Con `-DryRun`, avisa y sale 0.
+   - Los datos que usa viven en un bloque cercado ` ```carriles ` con líneas `clave: valor`
+     (`copiar`, `worktrees`, `base`). Precedencia: parámetro > bloque > default. Una clave
+     desconocida es un error.
+   - Un dato que no aplica se escribe «no aplica». La nota del archivo no tiene `{{` literal.
+     «Lo que dejó la ola N» arranca vacía.
+6. **Carriles de este repo**:
+   - Worktrees en `C:\Repos\PERSONAL\carriles\Bootstrap Skills\slice-NN`.
+   - Base: `feat/bootstrap-v2`. Integra el orquestador con `git -C` sobre el worktree de v2.
+   - El `/review-loop` de cada carril lo corre el orquestador, a mano y en serie: el hook no
+     dispara porque la sesión está en `main`.
+7. **Issue 18**: bloqueado también por el 20, y su anuncio del rollout incluye los archivos de
+   carriles (hecho).
+
+**Decisiones técnicas mías** (están en el PRD):
+
+- Los generados (`skills-lock.json` ×4, `skill-bases.json`, manifests, goldens) son archivos
+  calientes. Un conflicto en uno de ellos se resuelve **regenerando con su herramienta, nunca a
+  mano**.
+- La línea del `CLAUDE.md` del scaffold va en inglés y es condicional, en «Required workflow docs».
+- La instrucción de no rellenar va en el Step 6 de las tres `bootstrap-*` (NO en el 0b: el golden
+  no cambia), en el paso 4 de `upgrade-bootstrap` y en la nota de los datos.
+- Sin golden por hash para la mecánica en este slice.
+- La mecánica viene del kit **sin suavizar**. Sólo se permite:
+  - poner punteros en lugar de las marcas;
+  - generalizar lo del proyecto de origen (p. ej. `CUENTA_BROU` en §3);
+  - agregar los dos destinos de las lecciones;
+  - agregar en §7 la remisión a la issue del hook.
+
+## 3. Archivos de esta sesión
+
+- `main`: `.scratch/issue-hook-review-loop-cwd-de-worktree.md` (gitignoreado, local).
+- v2, gitignoreados:
+  - `.scratch/bootstrap-v2/PRD-20-carriles.md`: 24 historias, decisiones, tests, fuera de alcance.
+  - `.scratch/bootstrap-v2/issues/20-mecanica-de-carriles-en-el-scaffold.md`: criterios de
+    aceptación completos.
+  - `.scratch/bootstrap-v2/issues/18-deploy-rollout-y-resellado.md`: el ajuste.
+- v2, versionados sin commitear: `CONTEXT.md` y ADR-0011 (ver arriba).
+
+## 4. Hechos verificados que el 20 necesita
+
+- **Scaffold** (`skills/bootstrap-*/assets/scaffold/`):
+  - `.claude/scripts/` hoy sólo tiene `review-marker.ps1`.
+  - `docs/ai-workflow/` en v2 suma `ESTIMATION_GUIDE.md` y `RUNBOOK_TEMPLATE.md`.
+  - No hay `{{` en ningún archivo del scaffold.
+  - `gitignore.txt` ya ignora `.env`, `.env.*` y `.scratch/`.
+- **`tests/mirror.tests.ps1`** exige el mismo set de archivos y la identidad de contenido
+  (normalizada) fuera de su allowlist. Los archivos nuevos van fuera de la allowlist: tienen que ser
+  idénticos en los tres scaffolds.
+- **`tools/gen-manifest.ps1 -SkillDir skills/<bootstrap-x>`** regenera un manifest (la fecha va en
+  `version`). `sync-skills.ps1` los regenera antes del deploy.
+- **`tools/leak-markers.txt`** trae hoy 5 marcadores: zoho, domo, MartinDele703, martin.deleon,
+  southpoint. El kit nombra un proyecto de origen sólo en README y PROMPTS, que no se copian.
+- **`upgrade-bootstrap`**:
+  - un `missing` se copia (paso 4);
+  - un archivo editado queda `customized` y exige un merge asistido archivo por archivo, que es la
+    razón del ADR-0011.
+- **Tests en v2**:
+  - `tests/run-all.ps1` descubre `*.tests.ps1` solo.
+  - Las suites nuevas tienen que crear sus temporales con `tests/lib/temp-workspace.ps1`
+    (`New-TestRunRoot` + `trap` en el cuerpo del script + `Remove-TestRunRoot`); lo verifica
+    `tests/temp-hygiene.tests.ps1` por AST.
+  - La recolección por edad (> 1 día) permite suites concurrentes: la memoria del barrido global
+    de `%TEMP%` describe el `main` viejo.
+- **Grafo de v2**:
+  - desbloqueados: 07, 08, 09, 10, 11, 12, 15, 19;
+  - 13 ← 06, 07, 08; 14 ← 06; 16 ← 10; 18 ← todos + 20;
+  - camino crítico: 06 → 07/08 → 13 → 18;
+  - 07–12 comparten `skills-lock.json` ×4 y `skill-bases.json`; 14 y 20 comparten el `CLAUDE.md`
+    del scaffold.
+- **Hook `review-loop-trigger.ps1`**:
+  - ubica el repo con el `cwd` del evento;
+  - encabezado: NO parsea el comando, porque ese bloque dio 8 High, todos falsos negativos;
+  - ventana de frescura de 1800 s;
+  - el matcher en `settings.json` es `"Bash"`, así que los commits hechos con la herramienta
+    PowerShell no lo disparan.
+
+## 5. Tests / comandos
+
+No se corrió ningún test (sin código). Comandos: sólo lectura (`git diff --stat`, `rev-list`, `grep`, `sed`).
+
+## 6. Preguntas abiertas del usuario (no contestadas)
+
+1. Issue del hook: ¿el caso de la herramienta PowerShell entra en esa issue o va en otra?
+2. Issue del hook: una vez arreglado, ¿cada carril corre su propio `/review-loop`, o lo sigue
+   corriendo el orquestador en serie?
+3. Ola 1 de v2: ¿tiene preferencia de cuáles van primero? (Se propone con PLAN-DE-OLA cuando cierre
+   el 20.)
+
+## 7. Próximos pasos
+
+1. **Cerrar el 06**: pase de coherencia con el rango explícito de arriba → pase de confianza →
+   issue 06 closed.
+2. **Implementar el 20** con `/tdd` en el worktree v2:
+   - medir antes del primer test (umbral de parada ~450);
+   - primer commit con `CONTEXT.md` + ADR-0011;
+   - al cerrar, trailer `Slice-Close:` → `/review-loop` corrido a mano, porque el hook no dispara
+     desde esta sesión.
+3. **Planear la ola 1** con PLAN-DE-OLA y mostrarla **antes de despachar**.
+4. Push de `main` (lo hace el usuario):
+   `! gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+
+## Gotchas
+
+- `docs/SESSION_HANDOFF.md` pesa ~650 KB: leer sólo la primera sección (`head -c 15000`).
+- En el árbol principal no existe `SESSION_HANDOFF.md` en la raíz: está en `docs/`.
+- Editar texto con tildes con Edit/Write, no con heredocs.
+
+---
+
+
 # Session Handoff — 2026-09-16 (cierre 4) — **Issue v2 06 (`tdd`: merge de tres vías + red → green) implementado** en `feat/bootstrap-v2` (`919d9f6` + `d6a16e5` + `bbc91fc`). Review-loop `standard`: 2 turnos corridos (tope) → **cierre por TOPE**; el **pase de coherencia quedó SIN CORRER** (el usuario lo frenó para cambiar de terminal).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
