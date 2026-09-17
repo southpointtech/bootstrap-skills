@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import difflib
+import hashlib
 import json
 import os
 import re
@@ -1283,6 +1284,88 @@ def self_test():
                                    {"status": (e or {}).get("status"),
                                     "upstreamRelation": (e or {}).get("upstreamRelation")}))(
                            _por_nombre(_rep(["drift"], DRIFT_RAW + 1e-9), "drift"))))
+
+        # --- issue 19: el par congelado donde el heuristico colapsa la similitud ---------
+        # El colapso vive en el PAR concreto, no en el largo del cuerpo: medido, el mismo
+        # cuerpo con otro bloque de drift no se cae, y el mismo bloque contra otro cuerpo
+        # tampoco. Por eso las cadenas se congelan en `tests/fixtures/` en vez de leerse de
+        # los `SKILL.md` vivos: un test que leyera los archivos vivos dejaria de ser rojo con
+        # la proxima edicion de una skill, sin que nadie lo note.
+        # `tests/fixtures/autojunk-par.gen.py` deja escrito de donde salio cada uno.
+        def _fx(nombre):
+            """Un fixture congelado de `tests/fixtures/`, normalizado a LF como lo deja `body_of`.
+
+            Normalizar al leer no es ceremonia: `core.autocrlf=true` —el valor de esta
+            maquina— hace que el checkout entregue los `.txt` en CRLF, y con CRLF ni los
+            bytes ni las lineas son los que la herramienta compara.
+            """
+            with open(os.path.join(REPO, "tests", "fixtures", nombre), "rb") as f:
+                return f.read().decode("utf-8").replace("\r\n", "\n")
+
+        def _sha(t):
+            return hashlib.sha1(t.encode("utf-8")).hexdigest()[:12]
+
+        _VICT = _fx("autojunk-victima.txt")          # cuerpo de setup-matt-pocock-skills
+        _DRIFT = _fx("autojunk-drift-colapsa.txt")   # seccion nueva, sacada de grill-with-docs
+        _OTRO = _fx("autojunk-drift-control.txt")    # la misma seccion, pero sacada de triage
+
+        # El fixture se ancla por HASH y no solo por largo: otro contenido del mismo largo es
+        # justo la forma de perder el colapso sin que nada se ponga rojo.
+        check("par congelado: la victima son 6.269 caracteres y 115 lineas, con su sha1",
+              lambda: (len(_VICT) == 6269 and len(_VICT.splitlines()) == 115
+                       and _sha(_VICT) == "fc4f744e0756",
+                       (len(_VICT), len(_VICT.splitlines()), _sha(_VICT))))
+        check("par congelado: el bloque que colapsa son 637 caracteres y 23 lineas, y cierra en \\n",
+              lambda: (len(_DRIFT) == 637 and len(_DRIFT.splitlines()) == 23
+                       and _DRIFT.endswith("\n") and _sha(_DRIFT) == "a1ac6eeefc0b",
+                       (len(_DRIFT), len(_DRIFT.splitlines()), _sha(_DRIFT))))
+        check("par congelado: el bloque de control son 671 caracteres y 26 lineas, y cierra en \\n",
+              lambda: (len(_OTRO) == 671 and len(_OTRO.splitlines()) == 26
+                       and _OTRO.endswith("\n") and _sha(_OTRO) == "51229cc4d724",
+                       (len(_OTRO), len(_OTRO.splitlines()), _sha(_OTRO))))
+
+        # EL caso: una seccion corta agregada ARRIBA, que es la forma normal de editar un
+        # SKILL.md. Comparando caracter a caracter con el `autojunk` de la libreria este par
+        # da 0.3361 y queda BAJO el umbral de 0.60: la herramienta publicaria `unmatched` +
+        # `no-match-above-threshold` —"ninguna version de upstream se parece"— por 637
+        # caracteres de prosa prependidos a un cuerpo que por lo demas esta intacto.
+        check("drift prependido: el par queda sobre el umbral",
+              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+                  similarity(_DRIFT + _VICT, _VICT))))
+        # Colapsa en las DOS direcciones (0.3361 y 0.3347 con la metrica por caracteres), asi
+        # que elegir de que lado va el blob de upstream nunca fue un arreglo posible.
+        check("drift prependido: tampoco cae con los argumentos al reves",
+              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+                  similarity(_VICT, _DRIFT + _VICT))))
+        # Los dos controles que ATRIBUYEN la causa, y por eso van: sin ellos "el ratio subio"
+        # no distingue haber arreglado el heuristico de haber subido todos los ratios.
+        check("control: el MISMO bloque APENDEADO no colapsa (es la posicion, no el contenido)",
+              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+                  similarity(_VICT + _DRIFT, _VICT))))
+        check("control: OTRO bloque prependido no colapsa (es el par, no el prepender)",
+              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+                  similarity(_OTRO + _VICT, _VICT))))
+
+        # --- el cuerpo de UNA sola linea: decidido, no derivado de la formula -------------
+        # `zoom-out` es el cuerpo mas corto del scaffold y entra en UNA linea. Sobre una sola
+        # linea, comparar por linea no es medir parecido: es comparar por igual — 1.0 si el
+        # cuerpo es identico y 0.0 con cualquier edicion, por chica que sea. Publicar 0.0
+        # seria el MISMO desenlace que este issue vino a sacar (una skill que si vino de
+        # upstream declarada sin match). La decision es caer a caracteres cuando el lado mas
+        # corto tiene menos de 10 lineas; los dos checks de abajo la fijan, con el numero por
+        # linea al lado para que se vea que es el fallback y no la suerte.
+        _UNA = _fx("autojunk-una-linea.txt")         # cuerpo de zoom-out
+        _UNA_EDITADA = _UNA + " Marca los que no tengan test."
+        check("una sola linea: el fixture tiene UNA linea y 169 caracteres, con su sha1",
+              lambda: (len(_UNA.splitlines()) == 1 and len(_UNA) == 169
+                       and _sha(_UNA) == "b3b4172d6c8b",
+                       (len(_UNA.splitlines()), len(_UNA), _sha(_UNA))))
+        check("una sola linea: una edicion chica NO tira la similitud debajo del umbral",
+              lambda: ((lambda r: (r > DEFAULT_THRESHOLD, r))(
+                  similarity(_UNA_EDITADA, _UNA))))
+        check("una sola linea: comparada por LINEA ese mismo par daria 0.0",
+              lambda: ((lambda r: (r == 0.0, r))(difflib.SequenceMatcher(
+                  None, _UNA_EDITADA.splitlines(), _UNA.splitlines()).ratio())))
 
         # --- near / exactBodyMatches ----------------------------------------------------
         check("near: la similitud redondeada da 1.0 pero el cuerpo NO es identico",
