@@ -65,12 +65,28 @@ orquestador al integrar.
 - `CLAUDE.md` de la raíz y de los tres scaffolds: los tocan 14 y 20. La norma ya lo reserva al
   orquestador, así que un carril que necesita tocarlo salió de su alcance.
 
-### Generados: sin dueño, los regenera el orquestador al integrar
+### Generados: sin dueño, pero el carril sella lo que su suite mira
 
-Acá no hay diff que pedir: el orquestador corre la herramienta sobre el árbol ya integrado y el
-resultado es el mismo salga de donde salga. Un conflicto al rebasar se resuelve tomando cualquiera
-de los dos lados y volviendo a correr la herramienta. **Nunca a mano.** Lo que sí exige el plan es
-que la herramienta se corra **una vez, al final de la ola**, y que su suite quede verde.
+**Nunca a mano**, en ningún caso: un generado se toca corriendo su herramienta. Eso no se negocia.
+
+Lo que sí depende del archivo es **cuándo**:
+
+- **Si su desfasaje pone una suite en rojo, lo sella el carril, en su rama, antes de entregar.**
+  Una rama no se entrega roja, y el carril siguiente que corra la suite no tiene por qué ver un
+  rojo ajeno.
+- **Si no lo pone en rojo, se difiere** al cierre de la ola y el carril lo **declara** en su
+  reporte. No hace falta que cada carril regenere lo que el orquestador va a regenerar igual.
+
+En las dos ramas, el orquestador **re-corre la herramienta una vez sobre el árbol ya integrado**:
+el sellado de un carril queda invalidado por el merge del siguiente, así que el sellado final es
+suyo. Un conflicto al rebasar se resuelve tomando cualquiera de los dos lados y volviendo a correr
+la herramienta.
+
+Medido el 2026-09-17, en el review del carril A de la ola 1: la versión anterior de esta regla
+decía «una vez, al final de la ola» sin distinguir, el carril no selló `skills-lock.json` —cuya
+suite compara el lockfile real contra el árbol real— y entregó la rama con `run-all.ps1` en rojo.
+Peor: para meter igual el dato que necesitaba, **editó el archivo generado a mano**, que es lo que
+esta regla prohíbe. Las dos mitades de la regla vieja no se sostenían juntas.
 
 - `skills-lock.json` (raíz y los tres scaffolds): `pwsh -NoProfile -File tools/skills-lock.ps1
   -Action Seal`, verificado por `tests/skills-lock.tests.ps1`. Su campo `files` hashea el
