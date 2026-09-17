@@ -1,3 +1,144 @@
+# Session Handoff — 2026-09-17 (cierre 2) — **Issue 06 CERRADO** (pase de coherencia sin hallazgos) e **issue v2 20 (mecánica de carriles) CERRADO** en `feat/bootstrap-v2` (`c8bc726`). Review-loop `standard` cerrado **por TOPE**. Sin trabajo en vuelo.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: `origin/main` sigue en `13ca18b`. Hay
+  **4 commits de handoff sin pushear** (`21db553`, `639cfa1`, `209d714` + el de este handoff).
+  El push lo hace el usuario: `! gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+  Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+  HEAD **`c8bc726`**, **árbol limpio**. Sin trabajo en vuelo.
+- **Marcador de review** en `cf09210`. El delta sin revisar son `c111b84` (arreglos del turno 2) y
+  `c8bc726` (un número de prosa): es lo esperado de un cierre por tope, no un olvido.
+- **Ancla `slice-open:feat/bootstrap-v2`: NO EXISTE** (se corrió `-Action close` el 2026-09-17 al
+  cerrar el 06, ver «Desvíos»). El primer turno del próximo slice va a registrar su propio inicio.
+- **Issues cerrados hoy**: 06 (`bbc91fc`) y 20 (`c111b84`). Los `.md` de ambos ya dicen `closed`.
+
+## 1. Lo hecho en esta sesión
+
+### a) Issue 06 — cerrado
+Pase de coherencia con rango explícito `ed17702 bbc91fc` (un subagente liviano, de solo lectura,
+contra el issue 06, el ADR-0004 y los 3 mensajes de commit): **cero hallazgos**, los 9 criterios de
+aceptación cumplidos, las cuatro copias idénticas. El pase de confianza quedó vacío.
+
+### b) Issue v2 20 — mecánica de carriles (6 commits, `34dc3b2`..`c8bc726`)
+
+| Commit | Qué |
+|---|---|
+| `34dc3b2` | `CONTEXT.md` («Los carriles») + `docs/adr/0011-mecanica-de-carriles-separada-de-los-datos.md` |
+| `c3ff198` | Mecánica + datos en los **tres scaffolds**, línea del `CLAUDE.md` ×4, Step 6 ×3, paso 4 de `upgrade-bootstrap`, manifests regenerados, 2 suites nuevas |
+| `3389457` | **Adopción en la raíz** con los datos medidos de v2 (commit de cierre, trailer `Slice-Close:`) |
+| `cf09210` | Turno 1 del review-loop (3 arreglos de script + tests + prosa de datos) |
+| `c111b84` | Turno 2 del review-loop (base por rama actual, `worktrees` relativo del bloque, controles positivos de cp850) |
+| `c8bc726` | Hallazgo Low del pase de coherencia: el 13 lo bloquean **seis pendientes (07 a 12)** |
+
+**Archivos nuevos** (idénticos en raíz y en los 3 scaffolds; `mirror.tests.ps1` lo exige):
+`docs/ai-workflow/PARALELISMO.md`, `PLAN-DE-OLA.md`, `BRIEF-DE-CARRIL.md`,
+`PARALELISMO-DEL-PROYECTO.md` (en el scaffold: plantilla con marcas; en la raíz: rellenado) y
+`.claude/scripts/abrir-carril.ps1`.
+**Suites nuevas**: `tests/abrir-carril.tests.ps1` (script) y `tests/carriles-scaffold.tests.ps1`
+(presencia, marcas, manifests, línea del `CLAUDE.md`, Step 6, paso 4, adopción en la raíz).
+
+**Contrato del script** (`abrir-carril.ps1`): `-Slice -Slug -Root -Base -Copy -Datos -DryRun`.
+Lee el bloque cercado ` ```carriles ` (`copiar`, `worktrees`, `base`); precedencia
+**parámetro > bloque > default**; `no aplica` y **un valor con marca** equivalen a clave no
+declarada; el default de `base` es **la rama actual** (`symbolic-ref`), no el literal `main`.
+Rechaza (exit 1): datos ausentes, marcas (lista las líneas), clave desconocida, clave repetida, dos
+bloques, bloque sin cerrar, línea sin `clave: valor`, base inexistente, rama existente, carpeta
+existente. Con `-DryRun`, los datos ausentes y las marcas son **aviso y exit 0**; un bloque mal
+formado sigue siendo error. `-Root` se vuelve absoluto contra la **cwd**; `worktrees` del bloque,
+contra el **repo**.
+
+## 2. Tests
+
+- Suite completa con el runner paralelo: **22 suites, 0 rojas, 522 s** (corrida tras el turno 2).
+- Mutación: 23 mutantes muertos entre los tres barridos. **Sobrevive uno**, que es el Low AB.
+- Comando: `pwsh -NoProfile -File tests/run-all.ps1` desde el worktree v2.
+
+## 3. Review-loop del 20 — `standard`, CIERRE POR TOPE
+
+- **Turno 1**: 6 focos (bugs, reglas, historia, contratos, tests, mutación), 20 hallazgos
+  deduplicados, pase de confianza en 5 scorers → **8 Medium arreglados**, 6 Low, 6 descartados.
+- **Turno 2**: 5 focos sobre el delta de los arreglos → **3 Medium arreglados**. El peor: en un repo
+  que vive en `master`, el `-DryRun` de la plantilla seguía saliendo 1 porque el default de la base
+  era el literal `main`.
+- **Los arreglos del turno 2 (`c111b84`) no los revisó ningún turno**: eso es el cierre por tope.
+- **Pase de coherencia**: corrido (rango `bbc91fc`), 3 hallazgos → 1 sobrevivió al pase de
+  confianza (el número del 13, arreglado en `c8bc726`); los otros 2 se descartaron (el tamaño del
+  slice y el párrafo de §6).
+
+### Low reportados y NO arreglados (deliberado; candidatos a una slice `light`)
+
+1. `abrir-carril.ps1`: `Contains('{{')` vs `StartsWith('{{')` — un valor medio relleno
+   (`copiar: .env, {{otro}}`) no distingue las dos versiones. **Es el mutante que sobrevive.**
+2. `abrir-carril.ps1`: `GetUnresolvedProviderPathFromPSPath` tira error crudo con un prefijo de
+   unidad inexistente (`-Root 'noesundrive:\x'`) o `\\?\C:\a`; debería ser `Rechazar`.
+3. La regla «una marca vale como clave no declarada» vive **sólo en un comentario del script**: no
+   está en el ADR-0011 §4 ni en la nota del archivo de datos (que se espeja ×4).
+4. El rechazo «La carpeta ya existe» no tiene test (el caso de rama repetida pasa otro `-Root`).
+5. `no aplica` sólo está probado para `copiar`.
+6. `tests/carriles-scaffold.tests.ps1` fija `base: feat/bootstrap-v2`: **se va a poner rojo cuando
+   v2 mergee a main**; conviene aflojarlo a «hay clave `base` sin marcas».
+
+## 4. Desvíos declarados (leer antes de tocar el marcador)
+
+1. **`-Action close` corrido sobre un cierre por tope** (el del issue 06). La regla dice no hacerlo,
+   porque el slice podría re-correrse; el 06 ya no se repite, y sin borrar el ancla el `open` del 20
+   (que es write-once) habría heredado `ed17702` y su pase de coherencia habría leído todo el 06.
+2. **El 20 no corrió `-Action open`**, así que los tres pases usaron el **rango explícito
+   `bbc91fc`**. Por eso hoy no hay ancla: la próxima slice registra la suya.
+3. **Un Low arreglado** (el número del 13): era una afirmación mía sin verificar, y la regla dura del
+   `CLAUDE.md` pesa más que «los Low se reportan».
+4. **Tamaño**: al cerrar el slice eran **458 líneas de lógica** (script 157 contado una vez + tests
+   186 + 115) contra la guía de ~450; las 110 que faltan hasta 568 las puso el propio loop
+   arreglándose, y esas están exentas. No se partió en 20a/20b.
+
+## 5. Datos de carriles de este repo (ya en `docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md`)
+
+- Camino crítico: `07–12 → 13 → 18`; aparte `10 → 16`. El 18 espera a 01–17 y al 20; **el 19 no lo
+  bloquea**. Desbloqueados: 07, 08, 09, 10, 11, 12, 14, 15 y 19.
+- Base `feat/bootstrap-v2`; worktrees en `C:\Repos\PERSONAL\carriles\Bootstrap Skills`; se copia
+  `.scratch`.
+- Archivos calientes: `skills-lock.json` ×4 (07–12 y 16), `.scratch/bootstrap-v2/skill-bases.json`
+  (gitignoreado: no viaja por git), los 3 manifests, la línea `This delivers:` de los 3 `SKILL.md`
+  (a mano, atada por `mirror.tests.ps1`), los goldens, la allowlist de `mirror.tests.ps1` y los
+  `CLAUDE.md`. **Dueño único por ola**; un conflicto en un generado se resuelve regenerando.
+- Guardas transversales: `mirror`, `shareable-leaks`, `temp-hygiene`.
+
+## 6. Preguntas abiertas del usuario (siguen sin contestar; hacen falta para la ola 1)
+
+1. Issue del hook: ¿el caso de la herramienta PowerShell entra en esa issue o va en otra?
+2. Una vez arreglado el hook, ¿cada carril corre su propio `/review-loop` o lo sigue corriendo el
+   orquestador en serie?
+3. Ola 1 de v2: ¿hay preferencia de cuáles van primero?
+
+## 7. Próximos pasos
+
+1. **Planear la ola 1** con `docs/ai-workflow/PLAN-DE-OLA.md`, **mostrarla y esperar aprobación**
+   antes de despachar. Candidatos: 07, 08, 09, 10, 11, 12, 15 y 19, con el techo de 3 carriles y sin
+   dos dueños del mismo archivo caliente. Ojo: **14 es entero un cambio de `CLAUDE.md`**, que la
+   norma reserva al orquestador (pregunta abierta: ¿va como carril o en serie?).
+2. Abrir los carriles con
+   `pwsh -NoProfile -File .claude/scripts/abrir-carril.ps1 -Slice NN -Slug slug` **desde el worktree
+   de v2** (`-DryRun` primero). El `/review-loop` de cada carril lo corre el orquestador, a mano.
+3. Opcional antes de la ola: una slice `light` con los 6 Low de arriba (el 6 se vuelve urgente
+   recién al mergear v2).
+4. Push de `main` (lo hace el usuario).
+
+## Gotchas de esta sesión
+
+- `docs/SESSION_HANDOFF.md` pesa ~656 KB: leer sólo la primera sección.
+- El handoff y los `CLAUDE.md` son **CRLF**; los archivos nuevos del slice son **LF**. Medir antes
+  de editar, nunca heredarlo de un handoff.
+- En PowerShell, ` ``` ` dentro de comillas dobles rompe el parser: armar la cerca con una variable
+  (`$cerca = '```'`).
+- El review cross-repo se hace con rutas absolutas y `git -C`; **no** pasar `--code-review`, que
+  está atado al cwd de la sesión (que vive en `main`).
+- Los tests que lanzan un `pwsh` hijo con acentos necesitan los dos controles positivos que ya usa
+  `tests/review-marker.tests.ps1`: code page del hijo y nombre armado por punto de código.
+
+---
+
 # Session Handoff — 2026-09-17 — **Mecánica de carriles planeada** (grill → ADR-0011 → PRD → issue 20 en bootstrap-v2) + issue del hook para worktrees. **Sin código.** Sigue pendiente el pase de coherencia del 06.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
