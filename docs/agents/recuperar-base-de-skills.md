@@ -282,9 +282,11 @@ Al cerrar un merge:
 
 1. Corré la herramienta **completa**, sin `--skill`. `tools/skills-lock.ps1 -Action Seal -Bases`
    rechaza unas bases que no describen todas las skills del árbol.
-2. Revisá el diff de `skill-bases.json`. Solo tienen que cambiar las skills mergeadas y
-   `upstream.head`.
-3. Sellá con `-Bases`. Las marcas de fork propio (`forkFiles`) se conservan del lockfile anterior.
+2. Sellá con `-Bases`. Las marcas de fork propio (`forkFiles`) se conservan del lockfile anterior.
+3. Revisá `git diff skills-lock.json`, que sí está versionado (`skill-bases.json` no: `.scratch/` está
+   ignorado y la herramienta pisa la salida anterior). Dentro de `skills` solo tienen que cambiar las
+   skills mergeadas, además de `upstream.head`. Si cambia otra skill, averiguá por qué antes de
+   commitear: por ejemplo, upstream la renombró o la borró.
 
 Medido con `tdd` en el issue v2 06: la base pasó de `7a98941` a `8fc0867`, que es el blob del HEAD de
 upstream, con similitud 0,7287. Las otras diez skills no cambiaron.
@@ -296,7 +298,9 @@ Medido el 2026-08-28 contra `mattpocock/skills` en `6654f6b`; la columna `simili
 
 Sirve de regresión **acotada**, y el alcance importa: contra ese mismo HEAD, lo que tiene que
 seguir dando igual son las columnas que **no dependen de nuestra copia** — base (blob), path
-histórico, commit base y HEAD de upstream. Si una de esas cambia, cambió la herramienta.
+histórico, commit base y HEAD de upstream. Si una de esas cambia sin que nuestra copia haya adoptado
+un cuerpo más nuevo de upstream, cambió la herramienta. Si la copia lo adoptó, la base avanza (ver la
+sección anterior) y el cambio es esperado.
 
 La columna `similitud`, en cambio, **envejece sola**: compara el blob de upstream contra nuestro
 `SKILL.md`, así que cualquier edición del scaffold la mueve sin que la herramienta haya cambiado.
@@ -315,6 +319,10 @@ número distinto en esa columna manda a leer `git log` del `SKILL.md`, no a busc
 | to-prd | 1.0000 | `47a01d4e` | `skills/engineering/to-prd/SKILL.md` | `70141119` 2026-05-06 | renamed → `to-spec` | no |
 | triage | 1.0000 | `3dee68f9` | `skills/engineering/triage/SKILL.md` | `179a14e7` 2026-04-28 | present | no |
 | zoom-out | 1.0000 | `1e7a5dc7` | `skills/engineering/zoom-out/SKILL.md` | `7afa86d3` 2026-04-28 | **gone** | sí: `8cc007c4` 2026-06-12 |
+
+Después del merge del issue v2 06, la misma corrida contra `6654f6b` da para `tdd` la base `8fc08671`,
+el commit `32165827` (2026-08-19) y similitud 0,7287 (medido el 2026-09-16). La fila de arriba queda
+como registro de antes del merge.
 
 Siete cuerpos intactos, y las dos con drift real (`tdd` y `to-issues`) son exactamente las dos
 modificaciones que ya estaban documentadas.

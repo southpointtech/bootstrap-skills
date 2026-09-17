@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 133
+$ExpectedChecks = 137
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -615,6 +615,17 @@ try {
   Assert ($r.Code -eq 2 -and $r.Out -match 'no se puede leer' -and $r.Out -match '-ForkFile') `
     "con -Bases y un lockfile ilegible sale con codigo 2 y nombra el remedio, las marcas por -ForkFile (salida: $($r.Out))"
   Assert ([IO.File]::ReadAllText($lockG5) -eq "<<<<<<< HEAD`n{bad`n") "y no pisa el lockfile ilegible"
+
+  # Vacío (lo que deja una escritura que falla a mitad) o `null`: `ConvertFrom-Json` los devuelve como
+  # `$null` SIN error, así que el try no los ve y el sellado seguía sin las marcas, con Verify en verde.
+  foreach ($contenido in @("", "null`n")) {
+    $etiqueta = if ($contenido) { 'null' } else { 'vacio' }
+    [IO.File]::WriteAllText($lockG5, $contenido)
+    $r = Run-Tool @("-Action", "Seal", "-Repo", $rootG5, "-Bases", $basesG5)
+    Assert ($r.Code -eq 2 -and $r.Out -match 'no se puede leer') `
+      "con -Bases y un lockfile $etiqueta sale con codigo 2, no sella sin las marcas (salida: $($r.Out))"
+    Assert ([IO.File]::ReadAllText($lockG5) -eq $contenido) "y no pisa el lockfile $etiqueta"
+  }
 
   # --- F. El repo de verdad -------------------------------------------------------------------
   # Este es el AC "la verificación corre sin red y forma parte de la suite": acá la suite verifica

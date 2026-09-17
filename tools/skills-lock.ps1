@@ -286,9 +286,15 @@ if ($Action -eq 'Seal') {
     if (Test-Path -LiteralPath $prevPath) {
       # `-Bases` es el camino de recuperación, y un lockfile ilegible (un conflicto de merge en el archivo
       # generado) es justo cuando se lo usa. Seguir sin las marcas las perdería en silencio: se frena.
+      # Un archivo vacío (lo que deja una escritura cortada), `null` o `[]` NO tiran: `ConvertFrom-Json`
+      # los devuelve como `$null` sin error. Por eso además del try se exige un objeto, y en un v2, sus skills.
+      $motivo = $null
       try { $prev = [IO.File]::ReadAllText($prevPath) | ConvertFrom-Json -AsHashtable }
-      catch {
-        Write-Host "ERROR: no se puede leer $prevPath ($($_.Exception.Message))"
+      catch { $motivo = $_.Exception.Message }
+      if (-not $motivo -and $prev -isnot [Collections.IDictionary]) { $motivo = "no es un objeto JSON" }
+      if (-not $motivo -and $prev.version -eq 2 -and $prev.skills -isnot [Collections.IDictionary]) { $motivo = "es version 2 pero no tiene skills" }
+      if ($motivo) {
+        Write-Host "ERROR: no se puede leer $prevPath ($motivo)"
         Write-Host "Resolvelo, o borralo y volve a sellar con -Bases y con -ForkFile para cada marca de fork propio que tenia."
         exit 2
       }

@@ -854,8 +854,11 @@ $reseal = Join-Path $repo "tools\reseal-step5.ps1"
 if (-not (Test-Path -LiteralPath $reseal)) {
   Assert $false "existe tools/reseal-step5.ps1 (sella y verifica el golden del bloque)"
 } else {
-  $goldenOut = & pwsh -NoProfile -File $reseal -Check 2>&1
-  Assert ($LASTEXITCODE -eq 0) "golden del bloque Score the FIX: las 8 copias coinciden con el sello -> $($goldenOut -join ' / ')"
+  # `-Block step5` explicito y anclado en la salida: el script sella mas de un bloque, y con el default
+  # implicito un cambio de default verificaria otro golden con este mismo OK.
+  $goldenOut = & pwsh -NoProfile -File $reseal -Block step5 -Check 2>&1
+  Assert ($LASTEXITCODE -eq 0 -and ($goldenOut -join ' ') -match 'bloque step5') `
+    "golden del bloque Score the FIX: las 8 copias coinciden con el sello del bloque step5 -> $($goldenOut -join ' / ')"
 }
 # El CALLER tiene que saber que existe REJECTED, o lee "el reviewer lo descarto" -> no arregla nada ->
 # rango vacio -> CLEAN CLOSE sobre un High vivo (el mismo defecto del turno 1, un nivel mas arriba).

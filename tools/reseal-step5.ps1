@@ -4,8 +4,8 @@
 #
 # Bloques (-Block, default step5):
 #   step5     el bloque "Score the FIX" del Step 5 de /slice-review.
-#   tdd-loop  "Rules of the loop" y "Close the slice" de la skill tdd: la doctrina red -> green de
-#             ADR-0004 (el refactor no es parte del ciclo) y el cierre de slice con su trailer.
+#   tdd-loop  el cuerpo entero de la skill tdd, del titulo al final del archivo: la doctrina red -> green
+#             de ADR-0004 (el refactor no es parte del ciclo) y el cierre de slice con su trailer.
 #
 # Por que existe: los asserts semanticos de tests/slice-review.tests.ps1 muerden mutantes que EDITAN o
 # BORRAN una oracion anclada, pero son ciegos a los que AÑADEN (medido en el turno 2 del review-loop del
@@ -24,10 +24,13 @@ $repo = Split-Path $PSScriptRoot -Parent
 if ($Block -eq 'tdd-loop') {
   $goldenPath = Join-Path $repo "tests\fixtures\tdd-loop.golden.sha256"
   $rels = @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")
-  # Desde el titulo de las reglas hasta el ultimo parrafo del cierre: un bullet AGREGADO ("Refactor after
-  # green") o una etapa nueva entre las dos secciones cambia el hash. Ninguna de las dos secciones tiene
-  # links, que es lo unico en que difieren el command y el SKILL.md.
-  $rx = '(?s)## Rules of the loop\r?\n.*?if that lands on a RED commit, the loop''s pre-flight closes it without noise\.'
+  # Del titulo al final del archivo: la doctrina tambien vive en la intro ("TDD is the red -> green loop")
+  # y en Seams, y un parrafo agregado al final del archivo tiene que cambiar el hash igual que uno
+  # agregado en el medio. El frontmatter queda afuera porque la description difiere a proposito entre el
+  # command (la de upstream) y el SKILL.md; la fija el test con igualdad exacta. Lo otro que difiere son
+  # los links del command, que llevan el prefijo `.agents/skills/tdd/` y se normalizan antes del hash.
+  $rx = '(?sm)^# Test-Driven Development\r?\n.*\z'
+  $normalizar = { param($t) $t -replace '\]\(\.agents/skills/tdd/', '](' }
 } else {
   $goldenPath = Join-Path $repo "tests\fixtures\step5-score-the-fix.golden.sha256"
   $rels = @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")
@@ -36,6 +39,7 @@ if ($Block -eq 'tdd-loop') {
   # —rubrica, dedup, prosa-es-Low— queda afuera a proposito: lo cubren sus propios asserts y cambia por
   # otras razones.
   $rx = '(?s)\*\*Score the FIX, not only the finding\.\*\*.*?judges findings and writes its own fix behind a RED test, so a rejected suggestion plus the reason\r?\nis more useful to it than silence\.'
+  $normalizar = { param($t) $t }
 }
 
 # Las 8 copias del documento: el repo (auto-bootstrapeado) + las 3 skills, command y SKILL.md en cada una.
@@ -54,7 +58,7 @@ foreach ($f in $files) {
   if (-not $m.Success) { $faltan += "$rel (sin bloque)"; continue }
   # EOL normalizado: con autocrlf=true el disco y el blob difieren, y un golden atado al EOL da rojo por
   # maquina (el bug de los manifests con hashes mixtos, CLAUDE.md).
-  $norm = $m.Value -replace "`r`n", "`n"
+  $norm = (& $normalizar $m.Value) -replace "`r`n", "`n"
   $sha = [System.Security.Cryptography.SHA256]::Create()
   $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($norm))
   $hashes[$rel] = ([System.BitConverter]::ToString($bytes).Replace("-", "").ToLower())
@@ -81,7 +85,7 @@ if ($Check) {
     Write-Host "Si el cambio es a proposito, mira el diff y resella: pwsh -NoProfile -File tools/reseal-step5.ps1 -Block $Block"
     exit 1
   }
-  Write-Host "OK: las 8 copias coinciden con el golden ($($golden.Substring(0,12)))."
+  Write-Host "OK: bloque $Block, las 8 copias coinciden con el golden ($($golden.Substring(0,12)))."
   exit 0
 }
 
