@@ -29,7 +29,7 @@ y el 20 como slice fundacional de los carriles:
 07–12 → 13 → 18
 ```
 
-El 13 está bloqueado por los seis (06 a 12), así que 09 a 12 son tan del camino crítico como 07 y
+El 13 está bloqueado por los seis pendientes (07 a 12), así que 09 a 12 son tan del camino crítico como 07 y
 08. Aparte: 10 → 16. El 18 (deploy, rollout y resellado) espera a los issues 01 a 17 y al 20; el 19
 no lo bloquea y puede ir en cualquier ola. Desbloqueados: 07, 08, 09, 10, 11, 12, 14, 15 y 19.
 
