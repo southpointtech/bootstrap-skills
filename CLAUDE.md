@@ -24,6 +24,7 @@ Claude must read and follow:
 - docs/ai-workflow/TASK_TEMPLATE.md
 - docs/ai-workflow/QA_CHECKLIST.md
 - docs/ai-workflow/DEPLOYMENT_RULES.md
+- docs/ai-workflow/PARALELISMO.md — only when more than one lane (carril) runs at the same time: before dispatching a wave, read it together with docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md, the project's lane data.
 
 ## Workflow State Machine
 
