@@ -154,21 +154,33 @@ foreach ($sk in $skills) {
       Assert (@($t -split "`n") -ccontains "name: $n") "$etq : el comando $n.md declara ``name: $n``"
     } else { Assert $false "$etq : el comando $n.md declara ``name: $n`` (no se pudo leer)" }
 
-    # La `description` es lo que hace que la skill y el comando se INVOQUEN: vacía o ausente, nunca
-    # se disparan. Y no la mira nadie más — `Cuerpo()` la filtra de la comparación de cuerpos, y el
-    # lockfile sella `.agents/skills/` pero NO `.claude/commands/`. Medido el 2026-09-17: borrarla en
-    # las 8 copias dejaba la suite entera en verde. CUÁL debe ser es el issue 13; que exista y no esté
-    # vacía es un invariante del frontmatter, no una política de invocación.
+    # La `description` es lo que hace que la skill y el comando se INVOQUEN: vacía, ausente o FUERA
+    # del frontmatter, nunca se disparan. CUÁL debe ser es el issue 13; que exista, no esté vacía y
+    # esté en el frontmatter es un invariante del formato, no una política de invocación.
+    #
+    # Qué la cuida, medido el 2026-09-17: `Cuerpo()` la filtra de la comparación de cuerpos, así que
+    # `mismoCuerpo` es ciego a ella. El golden del lockfile SÍ caza las 4 copias de `.agents/skills/`
+    # (vaciarla ahí da Verify exit 1 con 4 problemas), pero NO las 4 de `.claude/commands/`, que no
+    # sella nadie. Para esas cuatro, este assert es el único net.
     foreach ($par in @(@{ ruta = $pSkill; hay = $haySkill; que = "el SKILL.md de $n" },
                        @{ ruta = $pCmd;   hay = $hayCmd;   que = "el comando $n.md" })) {
-      # El @() va AFUERA del `if`: asignar el resultado de un `if` DESENROLLA un array de un solo
-      # elemento a string, y ahi $lineas[0] indexa el primer CARACTER. Medido el 2026-09-17: con
+      # Los @() van AFUERA del `if`: asignar el resultado de un `if` DESENROLLA un array de un solo
+      # elemento a string, y ahi el indice [0] devuelve el primer CARACTER. Medido el 2026-09-17: con
       # `@()` adentro este assert daba `d` en vez del valor y pasaba en verde con la description
       # borrada en las 8 copias, o sea nacio vacuo.
-      $lineas = @(if ($par.hay) { (Texto $par.ruta) -split "`n" | Where-Object { $_ -cmatch '^description:' } })
+      $todas  = @(if ($par.hay) { (Texto $par.ruta) -split "`n" })
+      # El frontmatter es el bloque entre el primer `---` y el `---` que lo cierra. Buscar la
+      # description en TODO el archivo la daba por buena aunque cayera DEBAJO del cierre — un comando
+      # que no se invoca nunca. Medido el 2026-09-17: ese mutante sobrevivía a las tres guardas.
+      $cierre = -1
+      if ($todas.Count -gt 0 -and $todas[0] -ceq '---') {
+        for ($k = 1; $k -lt $todas.Count; $k++) { if ($todas[$k] -ceq '---') { $cierre = $k; break } }
+      }
+      $fm     = @(if ($cierre -gt 1) { $todas[1..($cierre - 1)] })
+      $lineas = @($fm | Where-Object { $_ -cmatch '^description:' })
       $valor  = if ($lineas.Count -eq 1) { ($lineas[0] -creplace '^description:\s*', '').Trim() } else { "" }
-      Assert ($lineas.Count -eq 1 -and $valor.Length -gt 0) `
-        "$etq : $($par.que) tiene una línea ``description:`` con valor (dice: ``$valor``)"
+      Assert ($cierre -gt 1 -and $lineas.Count -eq 1 -and $valor.Length -gt 0) `
+        "$etq : $($par.que) tiene ``description:`` con valor DENTRO del frontmatter (dice: ``$valor``)"
     }
   }
 
