@@ -38,8 +38,13 @@
 
 1. **Push de `main`** (este handoff), usuario con `!`:
    `gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
-2. Próximo issue v2: 06-16, 18, 19 ⬜ (el 02 quedó cerrado del todo salvo los dos Low de §2, que pueden viajar en el
-   próximo slice que toque esos archivos).
+2. **DECIDIDO por el usuario: arrancar el issue 06** (`.scratch/bootstrap-v2/issues/06-tdd-merge-y-red-green.md`, en el
+   worktree v2): merge de tres vías de la skill `tdd` desde la base recuperada + ADR-0004 (el refactor sale del ciclo y
+   vive en el review). Re-aplicar el drift propio (paso `Slice-Close:`, notas de módulos profundos / interfaces), conservar
+   el trigger "red-green-refactor" en la `description`, espejar en las 3 skills bootstrap + `CLAUDE.md` del scaffold.
+   Es el único cambio de doctrina del release (lo anuncia el issue 18). Empezar leyendo el issue completo, el PRD
+   (`.scratch/bootstrap-v2/PRD.md`) y ADR-0004; ofrecer alineación antes de codear. Resto: 07-16, 18, 19 ⬜; los dos
+   Low de §2 pueden viajar en el próximo slice que toque esos archivos.
 3. Diferido sin cambios: re-rollout del scaffold a los 7 repos (preguntar antes); gitignore del residuo de Codex; ancla
    `slice-open:fix/copy-scaffold-respalda` (`4ff2c9f`) en el repo principal; el `index.lock` huérfano del repo principal
    (creado 21:20 sin proceso git de esa hora) se borró a mano para poder commitear.
