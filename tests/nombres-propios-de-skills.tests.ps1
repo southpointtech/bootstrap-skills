@@ -10,9 +10,20 @@
 # lo único que le dice al próximo merge de tres vías contra qué archivo comparar, se pierde sin que
 # nada lo note (ADR-0005, ADR-0006).
 #
-# Las anclas negativas no son decoración: un anclaje por presencia es ciego a un mutante por AÑADIDO
-# (dejar el cuerpo VIEJO y pegarle el nuevo al lado pasa todas las positivas). Por eso cada frase que
-# el cuerpo nuevo REEMPLAZA se asierta ausente.
+# Las anclas negativas son PARCIALES y NO son la red contra un mutante por AÑADIDO: cubren sólo las
+# pocas frases listadas en `ausentes`, no cada frase que el cuerpo nuevo reemplaza. Medido el
+# 2026-09-17: reinyectar una frase vieja al lado de la nueva pasa las positivas y las negativas.
+#
+# La red real contra cualquier edición del cuerpo —por añadido, por borrado o por inversión— es el
+# GOLDEN POR HASH del lockfile: `skills-lock.json` sella `skills.<n>.files['SKILL.md']` con
+# `Get-NormalizedHash`, y `tools/skills-lock.ps1 -Action Verify` —que corre dentro de
+# `tests/skills-lock.tests.ps1`, y ésa entra a `run-all.ps1` por glob— sale en rojo ante cualquier
+# byte distinto. Verificado el 2026-09-17 invirtiendo la regla de ~400 líneas: mutada en las 4
+# raíces da exit 1 con 4 problemas; el árbol sano da OK en las 4 copias.
+#
+# Lo que aportan las anclas de acá es DIAGNÓSTICO: el golden dice «cambió», éstas dicen QUÉ regla.
+# Por eso el golden NO las reemplaza, y por eso este archivo ancla las reglas operativas que el
+# issue 07 manda re-aplicar, no una frase representativa de cada una.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $script:failures = 0
@@ -25,7 +36,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Se actualiza a mano al agregar o quitar checks. Sin este número un
 # mutante que BORRA asserts sale en verde: 0 fails de 0 checks también es "0 fail".
-$ExpectedChecks = 88
+$ExpectedChecks = 110
 
 # Las cuatro raíces que llevan una copia de las skills: el repo y los tres scaffolds. Los nombres de
 # los scaffolds se asertan, no se cuentan: con un `-ge` una skill bootstrap podía desaparecer y el
@@ -61,7 +72,11 @@ $skills = @(
        # El vocabulario del flujo de 8 pasos se conserva: PRD, no spec (ADR-0006).
        "<prd-template>",
        "A description of the things that are out of scope for this PRD.",
-       "produces a PRD"
+       "produces a PRD",
+       # Reglas operativas del paso 1 y el paso 2. Se anclan ENTERAS y por separado: el mutante que
+       # las invierte (2026-09-17) sobrevivía a la frase representativa que las cubría antes.
+       'Do NOT interview the user; just synthesize what you already know.',
+       'Existing seams should be preferred to new ones. Use the highest seam possible.'
      )
      ausentes = @(
        # Lo que el cuerpo nuevo REEMPLAZA.
@@ -85,7 +100,16 @@ $skills = @(
        # Drift propio que se conserva: HITL/AFK sigue clasificando los slices, porque
        # docs/ai-workflow/PARALELISMO.md del scaffold y los issues del proyecto lo usan.
        "Slices may be 'HITL' or 'AFK'.",
-       "- **Type**: HITL / AFK"
+       "- **Type**: HITL / AFK",
+       # La MITAD operativa de la regla de ~400: el ancla de arriba es un prefijo estricto del
+       # párrafo, así que sin esto se podía borrar el umbral y las exclusiones sin que nada mordiera.
+       'MUST be split before it is published, not after.',
+       # Dos líneas que el slice agregó sin ninguna ancla (medido el 2026-09-17: sus mutantes vivían).
+       'vertical, NOT a horizontal slice of one layer',
+       '.scratch/<feature-slug>/issues/<NN>-<slug>.md',
+       # La etiqueta del camino PRIMARIO del scaffold (docs/agents/issue-tracker.md: «Primary:
+       # Local Markdown»). Sin nombrarla, el agente elige entre las cinco de triage-labels.md.
+       '`Status: ready-for-agent` unless instructed otherwise'
      )
      ausentes = @(
        # Lo que el cuerpo nuevo REEMPLAZA (viñeta de la base que upstream sacó).
@@ -116,13 +140,30 @@ foreach ($sk in $skills) {
     if ($haySkill) {
       $t = Texto $pSkill
       $textosSkill += $t
-      Assert (@($t -split "`n") -contains "name: $n") "$etq : el SKILL.md de $n declara ``name: $n``"
+      Assert (@($t -split "`n") -ccontains "name: $n") "$etq : el SKILL.md de $n declara ``name: $n``"
     } else { Assert $false "$etq : el SKILL.md de $n declara ``name: $n`` (no se pudo leer)" }
     if ($hayCmd) {
       $t = Texto $pCmd
       $textosCmd += $t
-      Assert (@($t -split "`n") -contains "name: $n") "$etq : el comando $n.md declara ``name: $n``"
+      Assert (@($t -split "`n") -ccontains "name: $n") "$etq : el comando $n.md declara ``name: $n``"
     } else { Assert $false "$etq : el comando $n.md declara ``name: $n`` (no se pudo leer)" }
+
+    # La `description` es lo que hace que la skill y el comando se INVOQUEN: vacía o ausente, nunca
+    # se disparan. Y no la mira nadie más — `Cuerpo()` la filtra de la comparación de cuerpos, y el
+    # lockfile sella `.agents/skills/` pero NO `.claude/commands/`. Medido el 2026-09-17: borrarla en
+    # las 8 copias dejaba la suite entera en verde. CUÁL debe ser es el issue 13; que exista y no esté
+    # vacía es un invariante del frontmatter, no una política de invocación.
+    foreach ($par in @(@{ ruta = $pSkill; hay = $haySkill; que = "el SKILL.md de $n" },
+                       @{ ruta = $pCmd;   hay = $hayCmd;   que = "el comando $n.md" })) {
+      # El @() va AFUERA del `if`: asignar el resultado de un `if` DESENROLLA un array de un solo
+      # elemento a string, y ahi $lineas[0] indexa el primer CARACTER. Medido el 2026-09-17: con
+      # `@()` adentro este assert daba `d` en vez del valor y pasaba en verde con la description
+      # borrada en las 8 copias, o sea nacio vacuo.
+      $lineas = @(if ($par.hay) { (Texto $par.ruta) -split "`n" | Where-Object { $_ -cmatch '^description:' } })
+      $valor  = if ($lineas.Count -eq 1) { ($lineas[0] -creplace '^description:\s*', '').Trim() } else { "" }
+      Assert ($lineas.Count -eq 1 -and $valor.Length -gt 0) `
+        "$etq : $($par.que) tiene una línea ``description:`` con valor (dice: ``$valor``)"
+    }
   }
 
   # Las cuatro copias son el mismo archivo. Sin esto, las anclas de contenido de más abajo (que
@@ -164,7 +205,9 @@ foreach ($raiz in $raices) {
       if ($excluidos -contains $f.Name) { continue }
       $t = [IO.File]::ReadAllText($f.FullName)
       foreach ($p in $prohibidos) {
-        if ($t.Contains($p)) { $culpables += "$($f.Name):$p" }
+        # OrdinalIgnoreCase a propósito: `String.Contains` es ordinal, así que `To-Spec` en otra
+        # caja pasaba el barrido. Un rename a medias entra justamente así.
+        if ($t.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $culpables += "$($f.Name):$p" }
       }
     }
   }
@@ -184,12 +227,12 @@ foreach ($raiz in $raices) {
   $doc = if (Test-Path -LiteralPath $lock) { [IO.File]::ReadAllText($lock) | ConvertFrom-Json -AsHashtable } else { $null }
   foreach ($n in @("to-prd", "to-issues")) {
     $e = if ($null -ne $doc -and $doc.skills.Contains($n)) { $doc.skills[$n] } else { $null }
-    Assert ($null -ne $e -and $e.upstreamHeadPath -eq $esperado[$n]) `
+    Assert ($null -ne $e -and $e.upstreamHeadPath -ceq $esperado[$n]) `
       "$etq : el lockfile mapea $n -> $($esperado[$n]) (dice: $(if ($e) { $e.upstreamHeadPath } else { '<sin entrada>' }))"
     # Sin `upstream-vivo` la herramienta de sellado pone `upstreamHeadPath` en null: el estado y el
     # mapeo son un solo hecho, y asertar solo el path dejaría pasar una entrada que el próximo
     # re-sellado vacía.
-    Assert ($null -ne $e -and $e.upstreamState -eq "upstream-vivo") `
+    Assert ($null -ne $e -and $e.upstreamState -ceq "upstream-vivo") `
       "$etq : el lockfile marca $n como upstream-vivo (dice: $(if ($e) { $e.upstreamState } else { '<sin entrada>' }))"
   }
 }
