@@ -14,12 +14,18 @@
 # pocas frases listadas en `ausentes`, no cada frase que el cuerpo nuevo reemplaza. Medido el
 # 2026-09-17: reinyectar una frase vieja al lado de la nueva pasa las positivas y las negativas.
 #
-# La red real contra cualquier edición del cuerpo —por añadido, por borrado o por inversión— es el
-# GOLDEN POR HASH del lockfile: `skills-lock.json` sella `skills.<n>.files['SKILL.md']` con
-# `Get-NormalizedHash`, y `tools/skills-lock.ps1 -Action Verify` —que corre dentro de
-# `tests/skills-lock.tests.ps1`, y ésa entra a `run-all.ps1` por glob— sale en rojo ante cualquier
-# byte distinto. Verificado el 2026-09-17 invirtiendo la regla de ~400 líneas: mutada en las 4
-# raíces da exit 1 con 4 problemas; el árbol sano da OK en las 4 copias.
+# La red contra un mutante por añadido en el SKILL.md es el GOLDEN POR HASH del lockfile:
+# `skills-lock.json` sella `skills.<n>.files['SKILL.md']` con `Get-NormalizedHash`, y
+# `tools/skills-lock.ps1 -Action Verify` —que corre dentro de `tests/skills-lock.tests.ps1`, y ésa
+# entra a `run-all.ps1` por glob— sale en rojo ante cualquier byte distinto SALVO el fin de línea,
+# que `Get-NormalizedHash` trata como ruido de plataforma a propósito. Verificado el 2026-09-17
+# invirtiendo la regla de ~400 líneas: mutada en las 4 raíces da exit 1 con 4 problemas; el árbol
+# sano da OK en las 4 copias.
+#
+# OJO CON EL ALCANCE: el golden sella `.agents/skills/` y NADA MÁS, o sea 4 de las 8 copias. Las 4
+# de `.claude/commands/` no las mira: las sostiene ESTA suite, por la identidad entre copias y por
+# el assert de cuerpo compartido. Ese assert es el ÚNICO net del cuerpo de un comando: no lo
+# borres por creerlo redundante con el golden.
 #
 # Lo que aportan las anclas de acá es DIAGNÓSTICO: el golden dice «cambió», éstas dicen QUÉ regla.
 # Por eso el golden NO las reemplaza, y por eso este archivo ancla las reglas operativas que el
@@ -109,7 +115,7 @@ $skills = @(
        '.scratch/<feature-slug>/issues/<NN>-<slug>.md',
        # La etiqueta del camino PRIMARIO del scaffold (docs/agents/issue-tracker.md: «Primary:
        # Local Markdown»). Sin nombrarla, el agente elige entre las cinco de triage-labels.md.
-       '`Status: ready-for-agent` unless instructed otherwise'
+       'set to `ready-for-agent` unless instructed otherwise'
      )
      ausentes = @(
        # Lo que el cuerpo nuevo REEMPLAZA (viñeta de la base que upstream sacó).
