@@ -144,40 +144,38 @@ instead of it being re-pasted into each prompt by hand:
 > the tree corrupts the diff every other parallel reviewer is reading, and the confidence pass then
 > scores those mutations as findings.
 
-In a measured run, 84 of 345 reviewers used Write/Edit despite the prose telling them not to;
-declaring the prohibition once, in the context all focuses share, is what stops it.
+In a measured run, 84 of 345 reviewers used Write/Edit despite the prose telling them not to. That is
+why the prohibition is no longer only this paragraph: every read-only focus is a **declared agent**
+whose frontmatter denies the file-mutating tools (Step 4). The paragraph stays because a declaration
+does not cover everything — a shell command can still write — and because the Mutation focus and the
+built-in `/code-review` are not those agents.
 
 ## Step 4 — Fan out parallel reviewers
 
-Dispatch these as **parallel subagents** (`general-purpose`), all in a single message so they run
-concurrently. Give each one the shared context from Step 3 and its own focus. Each returns a list
-of findings; every finding must carry `file:line`, what is wrong, and why it matters.
+Each focus is a **declared agent** under `.claude/agents/`. Dispatch them **by name**, all in a
+single message so they run concurrently, and give each one the shared context from Step 3. Its focus
+and its model already live in its declaration, so there is nothing else to paste in. Each returns a
+list of findings; every finding must carry `file:line`, what is wrong, and why it matters.
 
 **Models by focus** — mechanical audits run on a lighter model, judgment calls on the strongest:
 project rules and historical context on **a lighter, faster model**;
-bugs, contracts and tests on **the most capable model available**. Do not pin a version — pick
-whichever of the models you are running is the lightest or the most capable. Pass the model
-explicitly when you dispatch each subagent, so the run does not silently default all five focuses to
-one model. The split is why this step got cheaper without losing precision: the two
+bugs, contracts and tests on **the most capable model available**. Each agent fixes its own model in
+its declaration — the one place in this flow where a model is fixed at all. **Do not pass a model
+when you dispatch one of these agents**: a model given at dispatch overrides the declaration, which
+is how the run silently defaults all the focuses to one model again. The split is why this step got
+cheaper without losing precision: the two
 audits that are pattern-matching against a file (`CLAUDE.md` rules, `git log`) do not need the
 strongest model; the three that require reading logic and predicting failure do.
 
-1. **Bugs** *(most capable model)* — read the changed lines and hunt for real defects: wrong logic, unhandled
-   errors, null/undefined paths, off-by-one, race conditions, resource leaks, broken async. Focus
-   on the change itself, not the whole codebase. Skip nitpicks.
-2. **Project rules** *(lighter model)* — audit the change against the `CLAUDE.md` files. Flag only rules
-   the file actually states, quoting the rule. `CLAUDE.md` is guidance for writing code, so not
-   every line is a review criterion.
-3. **Historical context** *(lighter model)* — read `git log`/`git blame` for the modified regions. Flag
-   anything that reintroduces a previously fixed bug, contradicts a deliberate past decision, or
-   repeats a pattern that was already corrected here.
-4. **Contracts and callers** *(most capable model)* — check the change against the code around it: callers of
-   every modified signature, comments and docstrings that state invariants, and existing types.
-   Flag silent breaks in behavior a caller depends on. Also flag **unverified assertions** — a
-   comment, docstring, or commit message that states as fact something the diff does not support.
-5. **Tests** *(most capable model)* — is the changed logic actually covered? Flag risky logic shipped with no
-   test, tests asserting on mocks instead of behavior, and tests that would pass even if the feature
-   broke.
+1. **Bugs** *(most capable model)* — agent `slice-review-bugs`: real defects in the changed lines.
+2. **Project rules** *(lighter model)* — agent `slice-review-rules`: the change against the `CLAUDE.md` files.
+3. **Historical context** *(lighter model)* — agent `slice-review-history`: `git log`/`git blame` on the modified regions.
+4. **Contracts and callers** *(most capable model)* — agent `slice-review-contracts`: callers, invariants, types, and unverified assertions.
+5. **Tests** *(most capable model)* — agent `slice-review-tests`: whether the changed logic is actually covered.
+
+Each agent's brief lives in its own file, not here: a focus explained in two places drifts in one of
+them. What the declaration buys over the prose is the write prohibition — those agents deny the
+file-mutating tools, and only the ones that need a `git` read carry `Bash` at all.
 
 **If `--mutation` was passed** — only `/review-loop`'s first turn does, or a standalone opt-in —
 dispatch a **sixth focus** in the same parallel message: the **Mutation focus** (see its section
@@ -205,8 +203,8 @@ collapse duplicates first, then score what remains. Without it the report double
 fixes the same thing twice.
 
 Reviewers over-report. For each finding returned by the reviewers — Step 4's focuses, or the
-coherence focus — dispatch a **parallel** subagent that
-receives the finding plus the diff and scores it 0-100 —
+coherence focus — dispatch the declared agent `slice-review-scorer`, one per finding and all in
+parallel. It receives the finding plus the diff and scores it 0-100 —
 **the confidence pass runs on the most capable model available**, the
 same as the judgment reviewers: it is the only filter for false positives, costs ~3% of the run, and
 is not where to save tokens. Give it this rubric verbatim:
@@ -311,8 +309,11 @@ making the loop expensive:
 - **Only the logic lines the slice changed** — not the whole module, not the whole file.
 - **Only the relevant test file**, never the whole suite.
 
-Dispatch it on **the most capable model available** — do not pin a version (the strongest model you
-are running). Give it the shared context from Step 3, with one
+Dispatch it as a **`general-purpose`** subagent — deliberately not one of Step 4's declared reviewer
+agents, since those deny the file-editing tools this one exists to use — on
+**the most capable model available**, passed at dispatch because there is no declaration to read it
+from, and do not pin a version (the strongest model you are running).
+Give it the shared context from Step 3, with one
 **exception to the write prohibition**: this focus **may** use file-editing tools (Edit, or a
 shell command) to apply its mutations, **only inside its isolated worktree `$tmp`** (below). The
 ban stays absolute for the user's tree and for the shared diff every other reviewer is reading —
@@ -450,8 +451,9 @@ It differs from the per-turn review in four ways:
   stale snapshot (it resolved — that is this case's premise). Get the branch base from **`-Action
   base`** instead (`git diff <base>...HEAD`, where `<base>` is what `base` prints — an ancestor of
   HEAD here, so it does resolve, unlike the exit-2 case).
-- **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on
-  **a lighter, faster model**,
+- **A single read-only focus**, not the five-way fan-out. Dispatch the declared agent
+  `slice-review-coherence` — **one** subagent, on **a lighter, faster model** fixed in its own
+  declaration,
   with the shared context from Step 3 (including the same write prohibition it carries), and this
   focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the
   commit message it implements — and flag where the pieces do not add up to that intent: an
