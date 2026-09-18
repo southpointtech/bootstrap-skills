@@ -157,6 +157,8 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 
 **Ola 1** · Aprobada por el dueño del repo el 2026-09-17 · Base `feat/bootstrap-v2` @ `c8bc726`.
 
+**Cerrada el 2026-09-18**: integrada en `feat/bootstrap-v2` @ `628c84b`, `run-all.ps1` verde (24 suites).
+
 | Carril | Slice | Dueño de | Caliente escrito a mano |
 |---|---|---|---|
 | **A** (camino crítico) | 07 — `to-prd` / `to-issues` con nuestros nombres | `.agents/skills/to-prd/` y `.agents/skills/to-issues/` (raíz + 3 scaffolds) | no |
@@ -188,3 +190,22 @@ Dos cosas que la integración tiene que resolver:
    issue 12 (forks propios): el carril C lo anota y **no** reclasifica.
 
 ## Lo que dejó la ola N
+
+### Ola 1 (07, 15, 19), cerrada el 2026-09-18
+
+- **Una predicción de un carril sobre otro se re-mide en el árbol integrado.** El carril C midió
+  sobre `98a8f36` que su métrica nueva «no cambia ningún veredicto». Con el carril A adentro sí
+  cambió uno: la base de `to-issues` pasó de `4a21285c` a `e868c831`. Y la equivocada era la
+  vieja, que el carril A había sellado con la métrica por carácter. Ninguno de los dos carriles
+  podía verlo desde su rama. El orquestador corre la herramienta sobre el árbol integrado **antes**
+  de sellar, y explica por escrito cada veredicto que se mueva.
+- **Integrar por cherry-pick en el worktree de la base, no rebasando las ramas de carril.** Las
+  ramas conservan los SHAs que revisó el loop, y el orden A → B → C salió sin conflictos: el único
+  archivo que tocaban dos carriles era `skills-lock.json`, un generado, que se auto-mergeó y
+  después se re-selló igual.
+- **Los números del reporte de un carril se re-miden antes de pasarlos a docs.** Los tiempos del
+  carril C (6,2 s contra 109,1 s) salieron hoy en 5,6 s contra 94,5 s: la proporción se mantiene,
+  los absolutos dependen de la carga. Un doc que los copia sin re-medir afirma un número que nadie
+  verificó.
+- **Los tres review-loops cerraron por tope**, ninguno limpio, y dos carriles pasaron el techo de
+  ~400 líneas de lógica, declarado en vez de partido (B ~505; C ~455 contando el generador).
