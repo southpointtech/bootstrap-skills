@@ -8,7 +8,7 @@
 #
 #   1. La `description` propia, EXACTA (la política de invocación y su largo son el issue 13, no éste).
 #   2. El vocabulario del flujo: upstream renombró `to-prd` -> `to-spec` y `to-issues` -> `to-tickets`
-#      y terminó ese rename en el texto distribuido (upstream a2f9333 y 386d4ff). ADR-0006 conserva
+#      y lo llevó al texto distribuido (upstream 386d4ff, 44eed54 y a2f9333). ADR-0006 conserva
 #      NUESTROS nombres y "PRD" como término del flujo, así que en esos renglones se revierte el rename.
 #   3. La forma de los comandos: `.claude/commands/<n>.md` es el mismo cuerpo con los links a los
 #      auxiliares reescritos a `.agents/skills/<n>/<archivo>`, porque el comando no vive en la carpeta
@@ -72,10 +72,11 @@ $skills = @(
        "SKILL.md" = @(
          "**a PR is an issue with attached code**",
          "Run two checks against the codebase: (a) **redundancy**",
-         # Upstream 1dab982: una skill no invoca a otra user-invoked. `grill-with-docs` lo es (issue 13);
-         # `grilling` y `domain-modeling` son las model-invoked que trae el issue 09.
+         # Upstream 221ffca reemplazó `/grill-with-docs` por `grilling` + `domain-modeling` (las trae el
+         # issue 09), y fcf0071 fijó esta redacción de llamada por Skill tool.
          'call the Skill tool twice, for "grilling" and "domain-modeling"',
          "**Already implemented**: the change already exists in the codebase.",
+         # Upstream 1dab982: una skill no invoca por Skill tool a otra user-invoked; le pide al humano.
          'If not, tell the user to run `/setup-matt-pocock-skills`.'
        )
        "AGENT-BRIEF.md"  = @("### Good agent brief (PR)")
@@ -197,12 +198,16 @@ foreach ($sk in $skills) {
   Assert ($culpables.Count -eq 0) "$n : ningún archivo nombra to-spec ni to-tickets ($($culpables -join ', '))"
 }
 
-# El lockfile sella la base en el HEAD de upstream (959a8e9), no en la base vieja: es lo que le dice al
-# próximo merge de tres vías desde dónde comparar.
+# El lockfile sella como base la versión de upstream cuyo CUERPO es el del HEAD (959a8e9), no la base
+# vieja: es lo que le dice al próximo merge de tres vías desde dónde comparar. Son los blobs que
+# `tools/recover-skill-bases.py` recuperó el 2026-09-18 contra ese clon. Para triage y handoff es el
+# blob del HEAD. Para setup NO: el blob del HEAD (7f6f576, upstream 5c89081) y el de 3216582 tienen el
+# cuerpo idéntico y difieren sólo en el frontmatter (5c89081 entrecomilló la description), así que
+# empatan y la herramienta elige la aparición más vieja (`tieOnIdenticalBodies`).
 $bases = @{
   "triage"                   = "37ddea1e3dcf8fb5be5b92e4e45f2c34b8e61d3e"
   "handoff"                  = "2eb98a51b97bb5bac461a26ad14828eeac827909"
-  "setup-matt-pocock-skills" = "7f6f576e2e54e0d287cbb9731ebe0343f54e50cf"
+  "setup-matt-pocock-skills" = "7ddcbf41d8acbb047078716ed7119357a154590b"
 }
 foreach ($raiz in $raices) {
   $etq = Etiqueta $raiz
@@ -211,7 +216,7 @@ foreach ($raiz in $raices) {
   foreach ($n in $bases.Keys) {
     $e = if ($null -ne $doc -and $doc.skills.Contains($n)) { $doc.skills[$n] } else { $null }
     $blob = if ($null -ne $e -and $null -ne $e.base) { $e.base.blob } else { "<sin base>" }
-    Assert ($blob -ceq $bases[$n]) "$etq : el lockfile sella la base de $n en el blob de upstream @959a8e9 (dice: $blob)"
+    Assert ($blob -ceq $bases[$n]) "$etq : el lockfile sella la base de $n en la versión de upstream con el cuerpo de @959a8e9 (dice: $blob)"
   }
 }
 

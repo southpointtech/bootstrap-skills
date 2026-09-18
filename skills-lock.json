@@ -92,14 +92,14 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/productivity/handoff/SKILL.md",
       "base": {
-        "blob": "0aa5b99300da27b50e80db53f880e422204faedd",
+        "blob": "2eb98a51b97bb5bac461a26ad14828eeac827909",
         "upstreamPath": "skills/productivity/handoff/SKILL.md",
-        "commit": "d54c497aa94400a496d3f2c38be10fa5f284c5a9",
-        "commitDate": "2026-05-19T16:07:02Z"
+        "commit": "d28dfdc39beadc3142a33359b5cfa4765dcbd0bc",
+        "commitDate": "2026-08-15T20:42:06Z"
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "470317c89692d3643c472085fb45f7b9cc40f747ba188fb4729415b894ad053a"
+        "SKILL.md": "0fec50c26c1131faddde5693be1539d27ce40bf204ab6a29eecb84414273a32a"
       }
     },
     "review-loop": {
@@ -117,18 +117,18 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
       "base": {
-        "blob": "1ebc6e14c126792dd48d946beb983e7519a7dac4",
+        "blob": "7ddcbf41d8acbb047078716ed7119357a154590b",
         "upstreamPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
-        "commit": "4369256220a6f69b3a66dd140e1162967a68376c",
-        "commitDate": "2026-04-29T07:21:19Z"
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "cd272c79f9eeb07053eb83b983071d4e95b629b214610a96f980d522813c10db",
-        "domain.md": "a8cc3d1c11c9cdea455f39c4090cf61ac273f2474dd6f229ab0c2b9b1deec759",
-        "issue-tracker-github.md": "f0e138631d1fc8aedc9e05d25bc688b97679f81eae7a7c760dd35e0790568370",
-        "issue-tracker-gitlab.md": "94c574647c4755f2a807742f5e78e7cef586c100266d54501d0e55445c1b1807",
-        "issue-tracker-local.md": "9a052f4599525e581721ec24cb2ae3e0296b79053e39f684b540d34d3a4f6528",
+        "SKILL.md": "e37aba0a9ddcb87547c430b4daaf65d351753910a4b0dbac7d666d2945df21e2",
+        "domain.md": "edc6d6131fdffc4b7135704f5262124fc43355c95f61b7399dc5a4db643e28ca",
+        "issue-tracker-github.md": "02b8e6445b6514d87c5226373e077ea7f531bd8f7cf1c2fa4be5cf48320b6385",
+        "issue-tracker-gitlab.md": "1f1e2f178bea28e39753613687e02621e0f7d6f0e29127e13f2ae4a75fa66c70",
+        "issue-tracker-local.md": "e16b3fe28ad6e389887e001b4da82fd8751ca12f95b355c432a2b39b8c0bff4a",
         "triage-labels.md": "4f53c9b40ce2651e3611aa090eaedbd6dbc9b71ef8c5f7e65eac0d8263190d0d"
       }
     },
@@ -199,16 +199,16 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/triage/SKILL.md",
       "base": {
-        "blob": "3dee68f977ebab5d25a421f9d1f9ac1b56e0b7d7",
+        "blob": "37ddea1e3dcf8fb5be5b92e4e45f2c34b8e61d3e",
         "upstreamPath": "skills/engineering/triage/SKILL.md",
-        "commit": "179a14e721034706ffce7abae75b877c922b4ae8",
-        "commitDate": "2026-04-28T18:06:32Z"
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
       },
       "forkFiles": [],
       "files": {
-        "AGENT-BRIEF.md": "1c71c747aa97d938f75ec7a4b8fe87451763b38a3ce6348acf2b222e5819b2e5",
-        "OUT-OF-SCOPE.md": "8ed8cf27833444060c81b3961a83c0e3d8e6cf2fcb2ddf6f8b07c6655cbb0d85",
-        "SKILL.md": "8af1b1d4df5a11e2ba67be4f5e124f19c8f121510360abc4761411eb62e81ddd"
+        "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
+        "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
+        "SKILL.md": "546b5daa797a9b7fbb3251e28d34fe6736a4fe22b15b7479b22b9f6ffebf3b16"
       }
     },
     "zoom-out": {
