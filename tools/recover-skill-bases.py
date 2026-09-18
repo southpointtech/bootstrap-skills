@@ -174,6 +174,15 @@ def _matcher(a, b):
        orienta mejor a un humano no se midio; lo que si se midio es que el heuristico las
        decide. Cuesta 2,8 s: `recover()` en proceso tarda 2,8 s prendido y 5,6 s apagado.
 
+    El costo del punto 1 que NO se arregla: una edicion chica repartida en muchas lineas
+    cuenta cada linea ENTERA como distinta. En el caso sintetico del self-test, un termino
+    renombrado en TODAS las lineas da 0.0 por linea donde la metrica de antes daba 0.9080
+    (lo fija el check `limite declarado`). Por caracter colapsa el prepend y por linea el
+    renombre; el issue 19 eligio la linea. Re-puntuar por caracter los mejores candidatos
+    cuando la linea queda bajo el umbral lo cubriria, pero ese costo no esta medido aca y no
+    se hizo.
+    `method.similarity` lo declara.
+
     El piso de `MIN_LINEAS` es el costo aceptado del punto 1: con pocas lineas la unidad es
     demasiado gruesa, y con UNA sola la comparacion por linea deja de ser una similitud y pasa
     a ser una igualdad (1.0 o 0.0). Debajo del piso se cae a caracteres con `autojunk=False`,
@@ -468,6 +477,22 @@ def _best_blobs(mine, bodies):
             best, tied = r, [oid]
         elif r == best and tied:
             tied.append(oid)
+    # Desempate por CARACTER, solo entre empatados de cuerpo DISTINTO. Por linea el ratio es
+    # 2M/T con enteros: dos versiones de upstream del mismo largo que difieren en una linea,
+    # contra una copia nuestra que edito esa misma linea, dan exactamente el mismo numero.
+    # Por caracter si se separan, y la que queda mas cerca es la que nuestra copia extiende.
+    # Sin esto el empate llega a `recover`, gana la aparicion mas vieja, y
+    # `tools/skills-lock.ps1 -Action Seal` rechaza la entrada por empate de cuerpos
+    # distintos. Si el caracter tambien empata, queda el empate de antes y decide un humano.
+    # Empates de cuerpo identico no pasan por aca: el caracter no tiene nada que separar.
+    if len(tied) > 1 and len({bodies[oid] for oid in tied}) > 1:
+        por_cuerpo = {}
+        for oid in tied:
+            if bodies[oid] not in por_cuerpo:
+                por_cuerpo[bodies[oid]] = difflib.SequenceMatcher(
+                    None, mine, bodies[oid], autojunk=False).ratio()
+        top = max(por_cuerpo.values())
+        tied = [oid for oid in tied if por_cuerpo[bodies[oid]] == top]
     return best, tied
 
 
@@ -551,8 +576,9 @@ def recover(upstream, skills_dir, names, threshold):
             # bastante cae por debajo igual, y con la metrica vieja —por caracter, con el
             # `autojunk` de la libreria— bastaba MUCHO menos que eso: sobre el par congelado
             # en `tests/fixtures/`, 637 caracteres de prosa PREPENDIDOS a un cuerpo por lo
-            # demas intacto lo tiraban de 0.9517 a 0.3361, o sea a esta rama. Eso es lo que
-            # arreglo el issue 19 (ver `_matcher`); el limite de fondo sigue en pie. Quien lo
+            # demas intacto lo tiraban de 0.9517 a 0.3361, o sea a esta rama. Ese caso lo
+            # arreglo el issue 19 (ver `_matcher`), pero la metrica por linea trae el suyo:
+            # un termino renombrado en todo el cuerpo tambien cae aca. Quien lo
             # lea como "fork propio" esta decidiendo, no leyendo.
             entry["upstreamRelation"] = "no-match-above-threshold"
             entry["base"] = None
@@ -690,11 +716,18 @@ def recover(upstream, skills_dir, names, threshold):
                            "demasiado gruesa (una linea vale 1/N del ratio) y con una sola "
                            "linea la comparacion por linea es una igualdad, no una similitud. "
                            "El valor depende de la UNIDAD y no solo del contenido: la misma "
-                           "skill da otro numero con otra tokenizacion. "
+                           "skill da otro numero con otra tokenizacion. Limite: una edicion "
+                           "chica repartida en muchas lineas cuenta cada linea entera como "
+                           "distinta, asi que renombrar un termino en todo el cuerpo puede "
+                           "dejar bajo el umbral una skill que si vino de upstream. "
                            "Ver docs/agents/recuperar-base-de-skills.md" % MIN_LINEAS),
             "comparedOn": "cuerpo del SKILL.md sin frontmatter, fines de linea normalizados a LF, extremos recortados",
             "searchSpace": "todos los blobs */SKILL.md alcanzables en la historia publicada de upstream",
-            "tieBreak": ("ante empate de ratio entre blobs distintos, la aparicion mas vieja "
+            "tieBreak": ("ante empate de ratio entre blobs de cuerpo distinto, primero el "
+                         "ratio por CARACTER (difflib, autojunk=False) contra nuestra copia, "
+                         "solo entre los empatados; la similitud publicada sigue siendo la de "
+                         "linea. Si sigue el empate, o si los cuerpos empatados son identicos, "
+                         "la aparicion mas vieja "
                          "del contenido por commit time, en cualquier path; a igual segundo, "
                          "el commit mas viejo del log. `base.tieOnIdenticalBodies` dice si "
                          "TODOS los cuerpos empatados son identicos; en false, al menos dos "
@@ -773,6 +806,11 @@ _D_REDIT = "2026-03-06 10:00:00 +0000"     # dos renombres CON edicion, en un so
 # desempate se hiciera por path en vez de por instante, ganaria `colla` y el check lo ve.
 _D_COLL_VIEJA = "2026-03-07 10:00:00 +0000"   # collb
 _D_COLL_NUEVA = "2026-03-08 10:00:00 +0000"   # colla, un dia despues
+# Empate POR LINEA entre dos versiones distintas de upstream (issue 19, hallazgo B del
+# review). La mas vieja es V1; nuestra copia edito la linea que V2 ya habia pulido, asi que
+# la base correcta es V2 y el desempate por instante elegiria la otra.
+_D_RET_V1 = "2026-03-10 10:00:00 +0000"
+_D_RET_V2 = "2026-03-11 10:00:00 +0000"
 _D_M1 = "2026-03-12 10:00:00 +0000"
 _D_M2 = "2026-03-13 10:00:00 +0000"
 _D_M3 = "2026-03-14 10:00:00 +0000"
@@ -871,6 +909,15 @@ def _fixture_texts():
                                           "numero 3, variante A de la colision.")
     t["COLL_B"] = t["COLL_LOCAL"].replace("numero 3.",
                                           "numero 3, variante B de la colision.")
+    # Dos versiones de upstream con el MISMO numero de lineas que difieren en UNA, y una
+    # copia local que edito esa misma linea encima de la version nueva. Por linea las dos
+    # dan exactamente el mismo ratio (2M/T con los mismos enteros): ninguna linea editada
+    # coincide con nada. Por caracter la nueva esta mas cerca, porque nuestra linea la
+    # extiende. Es la forma normal de customizar: se tocan las lineas que upstream pule.
+    t["RET_V1"] = block("Renglon del cuerpo que upstream retoca despues, numero", 29)
+    t["RET_V2"] = t["RET_V1"].replace("numero 3.", "numero 3, pulido por upstream.")
+    t["RET_LOCAL"] = t["RET_V1"].replace(
+        "numero 3.", "numero 3, pulido por upstream y extendido en nuestra copia.")
     t["OURS"] = block("Nada de esto salio de upstream, linea", 29)
     # Lineas que comparten TODOS los cuerpos, como las comparten los markdown de verdad:
     # encabezados, renglones en blanco, un cierre. Sin nada compartido, la similitud por
@@ -984,6 +1031,11 @@ def _build_fixture(tmp):
     commit("commit 8: colla, la mas nueva, pero la primera por orden de path",
            _D_COLL_NUEVA)
 
+    write("skills/retoque/SKILL.md", fm("retoque", "version 1") + t["RET_V1"])
+    commit("commit 9: retoque V1, la version MAS VIEJA", _D_RET_V1)
+    write("skills/retoque/SKILL.md", fm("retoque", "version 1") + t["RET_V2"])
+    commit("commit 10: retoque V2, upstream pule el renglon 3", _D_RET_V2)
+
     # mismo blob en dos ramas y dos paths, con husos distintos: el instante mas viejo es
     # el de la rama lateral, pero su %cI ordena DESPUES por ser +02:00.
     g("switch", "-c", "tzbranch")
@@ -1017,6 +1069,7 @@ def _build_fixture(tmp):
         ("near", fm("near", "nuestra copia") + t["NEAR_LOCAL"]),
         ("ours", fm("ours", "nunca salio de upstream") + t["OURS"]),
         ("redit", fm("redit", "nuestra copia, del cuerpo de antes del renombre") + t["REDIT"]),
+        ("retoque", fm("retoque", "nuestra copia, editada sobre V2") + t["RET_LOCAL"]),
         ("cafe", fm("cafe", "nuestra copia de la del path acentuado") + t["ACENTO"]),
         ("twin", fm("twin", "tercera description, mismo cuerpo") + t["TWIN"]),
         ("tz", fm("tz", "nuestra copia") + t["TZ"]),
@@ -1175,6 +1228,36 @@ def self_test():
                        (d(by, "collide", "base", "commitSubject") or "").startswith("commit 7:"),
                        (d(by, "collide", "base", "upstreamPath"),
                         d(by, "collide", "base", "commitSubject"))))
+        # --- retoque: empate POR LINEA que el caracter SI separa ---------------------------
+        # Con la metrica por linea, V1 y V2 empatan exacto contra nuestra copia; con la de
+        # caracter no. Si el empate llega a `recover`, gana la aparicion mas vieja (V1, la
+        # base equivocada) y `tieOnIdenticalBodies` sale false, con lo que
+        # `tools/skills-lock.ps1 -Action Seal` se niega a sellar. Se desempata por caracter
+        # SOLO entre los empatados de cuerpo distinto.
+        check("retoque: por LINEA las dos versiones empatan, por CARACTER no",
+              lambda: ((lambda l1, l2, c1, c2: (l1 == l2 == 0.9696969696969697 and c2 > c1,
+                                                (l1, l2, c1, c2)))(
+                  similarity(body_of(_T["RET_LOCAL"]), body_of(_T["RET_V1"])),
+                  similarity(body_of(_T["RET_LOCAL"]), body_of(_T["RET_V2"])),
+                  difflib.SequenceMatcher(None, body_of(_T["RET_LOCAL"]),
+                                          body_of(_T["RET_V1"]), autojunk=False).ratio(),
+                  difflib.SequenceMatcher(None, body_of(_T["RET_LOCAL"]),
+                                          body_of(_T["RET_V2"]), autojunk=False).ratio())))
+        check("retoque: la base es V2, la que nuestra copia extiende, no la mas vieja",
+              lambda: ((d(by, "retoque", "base", "commitSubject") or "").startswith("commit 10:"),
+                       d(by, "retoque", "base", "commitSubject")))
+        check("retoque: el desempate por caracter no deja empate expuesto",
+              lambda: (d(by, "retoque", "base", "tiedCandidates") is None and
+                       d(by, "retoque", "base", "tieOnIdenticalBodies") is None,
+                       d(by, "retoque", "base")))
+        check("retoque: la similitud publicada sigue siendo la de LINEA (0.9697)",
+              lambda: (d(by, "retoque", "similarity") == 0.9697,
+                       d(by, "retoque", "similarity")))
+        check("method.tieBreak declara el desempate por CARACTER antes del instante",
+              lambda: ((lambda s: ("por CARACTER" in s and "autojunk=False" in s
+                                   and s.index("por CARACTER") < s.index("aparicion mas vieja"),
+                                   s))(d(report, "method", "tieBreak") or "")))
+
         # los tres contadores juntos: el resumen es lo que mira un humano al sellar el
         # lockfile, y hasta aca solo uno de los tres estaba asertado.
         check("el resumen cuenta los empates, los que NO son de cuerpo identico, y los "
@@ -1215,8 +1298,8 @@ def self_test():
               lambda: (len(d(by, "merged", "base", "blob") or "") == 40,
                        d(by, "merged", "base", "blob")))
         check("merged: el resumen NO la cuenta entre las recuperadas",
-              lambda: ((lambda rec: "merged" not in rec and len(rec) == 9 and
-                        d(report, "summary", "recovered") == 9)(
+              lambda: ((lambda rec: "merged" not in rec and len(rec) == 10 and
+                        d(report, "summary", "recovered") == 10)(
                            sorted(e["name"] for e in report["skills"]
                                   if e.get("status") == "recovered")),
                        (d(report, "summary", "recovered"), sorted(
@@ -1455,12 +1538,36 @@ def self_test():
                         for i in range(n))
             return a, a.replace("renglon", "rengIon")
 
-        check("piso de lineas: con MIN_LINEAS lineas se compara por LINEA (el par da 0.0)",
+        # Los dos lados van con LITERALES (10 y 9), no con `MIN_LINEAS`: leyendo la constante
+        # que prueban, cualquier valor del piso pasaba en verde (medido con 2, 5 y 11).
+        check("piso de lineas: con 10 lineas se compara por LINEA (el par da 0.0)",
               lambda: ((lambda p: (similarity(*p) == 0.0, similarity(*p)))(
-                  _todas_las_lineas_tocadas(MIN_LINEAS))))
-        check("piso de lineas: con una linea MENOS se cae a CARACTER (el par no da 0.0)",
-              lambda: ((lambda p: ((lambda r: r > 0.9)(similarity(*p)), similarity(*p)))(
-                  _todas_las_lineas_tocadas(MIN_LINEAS - 1))))
+                  _todas_las_lineas_tocadas(10))))
+        check("piso de lineas: con 9 lineas se cae a CARACTER (el par da 0.9825)",
+              lambda: ((lambda p: (similarity(*p) == 0.9824561403508771, similarity(*p)))(
+                  _todas_las_lineas_tocadas(9))))
+        # El piso se mide sobre el lado MAS CORTO del par, en los dos ordenes. Todos los pares
+        # de arriba tienen los dos lados del mismo lado del piso, asi que `max(...)`, `len(la)`
+        # o `len(lb)` en lugar de `min(...)` pasaban en verde. El caso real es `zoom-out`, de
+        # UNA linea, contra blobs de upstream de 10 lineas o mas: por linea daria 0.1538.
+        # Hacen falta los dos ordenes: `len(la)` solo cae con uno y `len(lb)` solo con el otro.
+        _DOCE = _UNA + "".join("\nrelleno %d del cuerpo largo, sin nada en comun." % i
+                               for i in range(11))
+        check("piso de lineas: 1 linea contra 12 se compara por CARACTER (0.3949)",
+              lambda: ((lambda r: (r == 0.39485981308411217, r))(similarity(_UNA, _DOCE))))
+        check("piso de lineas: 12 lineas contra 1 tambien se compara por CARACTER (0.3949)",
+              lambda: ((lambda r: (r == 0.39485981308411217, r))(similarity(_DOCE, _UNA))))
+        # `autojunk=False` en las DOS ramas, cada una con un par donde el heuristico prendido
+        # cambia el valor. Rama por caracter: `zoom-out` contra 9 lineas de la victima (508
+        # caracteres, sobre los 200 que lo disparan) da 0.0207 con el heuristico. Rama por
+        # linea: con 250 lineas en blanco la linea vacia es "popular" y no siembra; con el
+        # heuristico el par da 0.0040.
+        check("autojunk apagado en la rama por CARACTER (0.1743; prendido daria 0.0207)",
+              lambda: ((lambda r: (r == 0.17429837518463812, r))(
+                  similarity(_UNA, "\n".join(_VICT.splitlines()[:9])))))
+        check("autojunk apagado en la rama por LINEA (0.9940; prendido daria 0.0040)",
+              lambda: ((lambda r: (r == 0.9940119760479041, r))(
+                  similarity("\n" * 250 + "unico", "unico" + "\n" * 250))))
         # `similarity()` es el UNICO lugar donde se usa `ratio()` fuera de `_best_blobs`, y
         # sin un caso donde `ratio()` y las cotas baratas DIFIERAN, el mutante
         # `ratio()` -> `quick_ratio()` sobrevive: las cotas sobrevaluan y no son el contrato.
@@ -1478,8 +1585,25 @@ def self_test():
         # abajo de la nueva —el modo de falla de este repo con la prosa— pasaba en verde.
         check("method.similarity declara la unidad, el piso y que el heuristico esta apagado",
               lambda: ((lambda s: (all(x in s for x in ("LINEAS", "autojunk=False", "CARACTER",
-                                                        "menos de %d lineas" % MIN_LINEAS))
+                                                        "menos de 10 lineas"))
                                    and "autojunk activo" not in s, s))(
+                  d(report, "method", "similarity") or "")))
+
+        # --- el limite de la metrica por linea: declarado, no arreglado -----------------
+        # Una edicion chica repartida en muchas lineas cuenta cada linea ENTERA como
+        # distinta. Renombrar un termino en todo el cuerpo lo tira a 0.0 por linea, cuando por
+        # caracter —con el `autojunk` de la libreria, la metrica de antes del issue 19— el
+        # mismo par da 0.9080. Es el costo aceptado de comparar por linea. El check lo
+        # congela para que arreglarlo sea una decision visible, no un efecto lateral.
+        _REN = "".join("Paso %d: corre los test del modulo antes de seguir con el siguiente.\n"
+                       % i for i in range(20))
+        check("limite declarado: renombrar un termino en todas las lineas da 0.0 por linea "
+              "(por caracter daba 0.9080)",
+              lambda: ((lambda r, v: (r == 0.0 and v == 0.908029197080292, (r, v)))(
+                  similarity(_REN.replace("test", "spec"), _REN),
+                  difflib.SequenceMatcher(None, _REN.replace("test", "spec"), _REN).ratio())))
+        check("method.similarity declara el limite del renombre repartido en muchas lineas",
+              lambda: ((lambda s: ("renombrar un termino" in s, s))(
                   d(report, "method", "similarity") or "")))
 
         # --- near / exactBodyMatches ----------------------------------------------------
@@ -1514,10 +1638,10 @@ def self_test():
             # vacio y el conteo en 9 igual — el guard pasaba sin haber verificado nada
             # (mutante visto sobrevivir). Y el `got` no puede decir "9 verificadas" cuando
             # lo que falla es justamente el conteo.
-            return (not malos and verificadas == 9,
+            return (not malos and verificadas == 10,
                     {"mismatches": malos, "basesVerificadas": verificadas})
 
-        check("las 9 bases con commit publicado existen en su commit y su path",
+        check("las 10 bases con commit publicado existen en su commit y su path",
               _invariante_commit_path)
 
         # --- latin-1 ---------------------------------------------------------------------
@@ -1525,8 +1649,8 @@ def self_test():
               lambda: ("latin" in by, sorted(by)))
 
         # --- reporte ---------------------------------------------------------------------
-        check("recorre las 12 skills del fixture",
-              lambda: (len(report["skills"]) == 12, len(report["skills"])))
+        check("recorre las 13 skills del fixture",
+              lambda: (len(report["skills"]) == 13, len(report["skills"])))
         check("registra el HEAD de upstream",
               lambda: (len(d(report, "upstream", "head") or "") == 40,
                        d(report, "upstream", "head")))
