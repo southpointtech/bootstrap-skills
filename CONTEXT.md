@@ -148,6 +148,40 @@ _Avoid_: placeholder, TODO
 El archivo que casi todos los slices de una ola necesitan tocar (entrypoint, router, registro). Tiene un solo dueño por ola; los demás carriles le pasan su diff al orquestador.
 _Avoid_: archivo compartido, hotspot
 
+### La sincronización con el Hub
+
+**Hub**:
+El SouthPoint-Hub: donde el cliente ve el estado de su proyecto, su trazabilidad y el soporte posterior al deploy. Todo lo que se escribe ahí puede llegarle al cliente.
+_Avoid_: portal, dashboard, Command Center
+
+**Proyecto del Hub**:
+Uno solo por repo, y acumula todos sus stages: un stage nuevo se escribe a continuación de lo anterior, no en un proyecto aparte, para que quede el registro completo.
+_Avoid_: proyecto por stage, delivery (es el tipo, no el término)
+
+**Stage**:
+Un tramo planificado del proyecto que se desarrolla y se libera. Los stages son sucesivos, nunca paralelos, y viven todos en el mismo proyecto del Hub.
+_Avoid_: fase (la fase es una entidad del Hub), etapa, versión
+
+**Ongoing Support**:
+El soporte posterior a la liberación, uno por proyecto y del proyecto en general, sin importar qué stage originó el pedido. Puede correr en paralelo con el desarrollo de un stage nuevo.
+_Avoid_: onboarding support, maintenance (es el tipo en el Hub), mantenimiento
+
+**Propuesta**:
+Un cambio al Hub que todavía nadie aprobó. La genera la máquina; solo el PM la convierte en escritura.
+_Avoid_: borrador, draft, update (Update es una entidad del Hub, no esto)
+
+**Recolección**:
+La corrida diaria en la máquina de cada dev que lee lo que pasó en el proyecto y deja propuestas. No lee ni escribe el Hub.
+_Avoid_: sync, sincronización, job
+
+**Bandeja de propuestas**:
+El lugar compartido donde las recolecciones de todos los devs dejan sus propuestas y donde el PM las revisa.
+_Avoid_: cola, inbox, artifact
+
+**Aprobación**:
+El acto del PM de revisar las propuestas contra el estado actual del Hub, editarlas, juntarlas o descartarlas, y recién entonces escribirlas. Es el único camino por el que algo llega al Hub.
+_Avoid_: review, revisión (ver la ambigüedad de "review" abajo), publicación
+
 ## Flagged ambiguities
 
 **"review" a secas está sobrecargado** y esa ambigüedad ya causó un bug real: el loop apuntaba al reviewer equivocado y se cerraba sin revisar nada. Los tres son cosas distintas:
