@@ -1,3 +1,215 @@
+# Session Handoff — 2026-09-17/18 — **Ola 1 de carriles DESPACHADA**. Carril A (issue 07) cerrado por TOPE con pase de coherencia. Carriles B (15) y C (19) entregados y **SIN REVISAR**. **Ningún merge todavía.**
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`: HEAD `4d7cfc4`, `origin/main` sigue
+  en `13ca18b`. **5 commits de handoff sin pushear** (`21db553`, `639cfa1`, `209d714`, `4d7cfc4` +
+  el de este handoff). El push lo hace el usuario:
+  `! gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+  Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, rama `feat/bootstrap-v2`,
+  HEAD **`c6b08fc`**, arbol limpio. Dos commits nuevos de hoy, los dos del ORQUESTADOR (datos de
+  carriles), ninguno de los carriles.
+- **Tres worktrees de carril abiertos, los tres LIMPIOS, ninguno mergeado**:
+
+  | Carril | Issue | Worktree | Rama | HEAD | Review |
+  |---|---|---|---|---|---|
+  | A | 07 | `C:\Repos\PERSONAL\carriles\Bootstrap Skills\slice-07` | `slice/07-to-prd-y-to-issues` | `9813b37` | OK cerrado por TOPE + coherencia |
+  | B | 15 | `...\slice-15` | `slice/15-reviewers-agents` | `64aacc1` | 🔴 **SIN REVISAR** |
+  | C | 19 | `...\slice-19` | `slice/19-autojunk-similitud` | `a499e25` | 🔴 **SIN REVISAR** |
+
+- **Todos los carriles salieron de `98a8f36`**, que ya NO es la punta de `feat/bootstrap-v2`
+  (ahora `c6b08fc`). Al integrar hay que rebasar, y el rebase **reescribe los SHAs** de los carriles.
+- **Marcador de review del slice-07: `c946116`, ATRASADO a proposito.** No lo avance antes de los
+  fixes del turno 2; avanzarlo ahora marcaria como revisado lo que nadie reviso. Se declara y se
+  sigue (no existe volver atras). Los worktrees 15 y 19 no tienen marcador propio.
+- **No hay ancla `slice-open`** en ningun worktree: los tres pases del carril A usaron rango
+  explicito. NO se corrio `-Action close` (es cierre por tope).
+
+## 1. Lo que decidio el usuario hoy (firmado)
+
+1. **Archivos calientes**: los **generados** salen de la regla de dueno unico. Dueno unico queda
+   solo para lo escrito a mano (`This delivers:`, allowlist de `mirror.tests.ps1`, `CLAUDE.md`,
+   `leak-markers.txt`). Escrito en `docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md` (`98a8f36`).
+2. **El `/review-loop` de cada carril lo corre el ORQUESTADOR, en serie.** No cambia al arreglar el
+   hook. Razon medida: paralelizar reviewers no acelera y los reviewers concurrentes mutan arboles.
+3. **Ola 1 = 07 + 15 + 19.**
+4. **Modelo de los agents del issue 15**: alias de familia (`opus` / `sonnet`), como quedo.
+5. **El gating del issue 15 SIGUE VIGENTE**: no viaja a Outsourcing ni Forecasting. Afecta al
+   issue 18 (rollout), no a construirlo.
+
+### Decisiones tecnicas mias
+
+- **Issue 21 creado** (`.scratch/bootstrap-v2/issues/21-matcher-del-hook-no-cubre-powershell.md`):
+  el matcher del `review-loop-trigger` es `"Bash"`, asi que un commit con la herramienta PowerShell
+  no dispara el hook **en ningun arbol**. Es *cobertura*, distinto del issue del hook (que es
+  *atribucion*): fix distinto, test distinto, independientes.
+- **El issue del hook NO esta en el camino critico de ninguna ola** (consecuencia de la decision 2).
+  Anotado en `.scratch/issue-hook-review-loop-cwd-de-worktree.md` (en `main`, gitignoreado).
+- **Issue 14 va en serie**, no como carril: es entero `CLAUDE.md`, que la norma reserva al orquestador.
+- **Regla de generados corregida** (`c6b08fc`): «nunca a mano» es absoluto; el **CUANDO** depende de
+  si el desfasaje pone una suite en rojo (lo sella el carril) o no (se difiere y se declara). En las
+  dos ramas el orquestador re-sella una vez sobre el arbol integrado.
+
+## 2. Carril A (issue 07) — 6 commits, CERRADO POR TOPE
+
+```
+9813b37  fix(tests): la description DENTRO del frontmatter           turno 2
+2fce359  fix(tests): alcance real del golden, etiqueta sin formato   turno 2
+51e1f0a  fix(tests): anclas que muerden, caja, description, etiqueta turno 1
+2476b0d  fix(lock): bases recuperadas y lockfile sellado             turno 1
+c946116  feat(skills): el slice (trailer Slice-Close:)
+162616d  test(skills): RED
+```
+
+**Lo que arreglo el loop** (7 Medium/High en el turno 1, 3 en el turno 2):
+
+- El slice dejaba `tools/skills-lock.ps1 -Action Verify` en **exit 1 con 8 problemas** y
+  `tests/skills-lock.tests.ps1` en **137/2** -> la rama se entregaba con `run-all.ps1` rojo.
+- Las bases de **las dos** skills no habian avanzado pese a adoptar los cuerpos nuevos. Se corrio
+  `tools/recover-skill-bases.py --upstream-clone <clon>` + `Seal -Bases`:
+  `to-prd` `47a01d4`->`e5f11413` (sim. 0.9927), `to-issues` `9f6efbf`->`4a21285c`
+  (`skills/engineering/to-tickets/SKILL.md`, sim. 0.7866). Las otras 9 skills sin cambios.
+  El clon de upstream sin red vive en
+  `C:/Users/marti/AppData/Local/Temp/claude/C--Repos-PERSONAL-Bootstrap-Skills/72fec20c-1905-4a46-b20c-8066f9fa806a/scratchpad/upstream`
+  (HEAD `959a8e9`, el mismo que declara el lockfile). Es un temporal: si desaparecio, la herramienta
+  clona sola pero necesita red e historia completa.
+- **Hallazgo transversal que conviene recordar**: el campo `files` de `skills-lock.json` es un
+  **golden por hash normalizado** de cada `SKILL.md`. Restaurarlo mata los mutantes por ANADIDO que
+  ninguna ancla de texto ataja. Medido: mutar la regla de ~400 en las 4 raices -> `Verify` exit 1
+  con 4 problemas; arbol sano OK. **Ojo con el alcance**: sella `.agents/skills/` y NADA mas, o sea
+  4 de las 8 copias, y normaliza el fin de linea a proposito.
+- Test `tests/nombres-propios-de-skills.tests.ps1`: de 88 a **110 aserciones**. 6 anclas nuevas
+  (enteras, no sub-cadenas), `-ccontains`/`-ceq`, barrido con `OrdinalIgnoreCase`, y assert de
+  `description` con valor **dentro del frontmatter**.
+- `.agents/skills/to-issues/SKILL.md` x8: la rama «Local files» (camino PRIMARIO del scaffold)
+  nombra la etiqueta `ready-for-agent` **sin fijar el formato literal**.
+
+**Los 3 Medium del turno 2 eran defectos de mis propios arreglos del turno 1**, mas un cuarto que
+ataje antes de commitear. Ninguno se detecto releyendo: los cuatro salieron de correr un mutante o
+un comando que verifica la afirmacion.
+
+## 3. Carriles B y C — entregados, SIN REVISAR
+
+### Carril B — issue 15, `64aacc1`
+- 7 agents declarados en `.claude/agents/` (nuevo, raiz + 3 scaffolds, 28 archivos byte-identicos):
+  `slice-review-{bugs,rules,history,contracts,tests,coherence,scorer}`.
+- El foco de **mutacion NO es agent** a proposito: es el unico que debe escribir.
+- Toco la linea `This delivers:` de los 3 `SKILL.md` (es dueno unico de la ola) y `skills-lock.json`.
+- `tests/reviewer-agents.tests.ps1` nuevo (RED 147 fallidas -> GREEN).
+- ATENCION: **~505 lineas de logica unica, por encima del techo**, declarado en vez de partido.
+- ATENCION: su AC «una corrida real del loop deja el arbol sin cambios» la tiene que hacer el
+  orquestador: guardar `git status --porcelain=v1` + `git stash create` antes, y volver a mirarlos
+  **entre el fan-out y el reporte**.
+
+### Carril C — issue 19, `a499e25`
+- Metrica de similitud por **LINEA** con fallback a caracteres bajo 10 lineas (`MIN_LINEAS`).
+- Costo medido: **109,1 s -> 6,2 s** (17,6x). **Ningun veredicto cambia**; `tdd` 0.7287->0.8052,
+  `to-issues` 0.9466->0.9873, las 7 de cuerpo identico siguen en 1.0.
+- Par congelado en `tests/fixtures/autojunk-*.txt` + generador `autojunk-par.gen.py`.
+- `$ExpectedChecks` 125 -> 139.
+- ATENCION: **entrego un diff para dos archivos que NO son suyos** y que hay que aplicar al integrar:
+  `docs/TESTING.md` (125->139) y `docs/agents/recuperar-base-de-skills.md` (seis lugares: el costo,
+  el bullet «Tiempo», el campo `similarity`, la seccion «La metrica y su limite: autojunk» entera,
+  las similitudes del bloque «Lo que la herramienta NO decide», y la nota de «Resultado conocido»).
+  **Esta en su reporte, no en el repo.** Si se perdio ese reporte, hay que re-pedirlo al carril.
+- ATENCION: el 19 «bloquea al 05», que esta cerrado: al integrarlo hay que re-sellar y correr
+  `tests/skills-lock.tests.ps1`, y explicar por escrito todo veredicto que cambie.
+- El carril C midio que la metrica nueva **NO** recupera base para `review-loop` ni `slice-review`
+  (0.2562 y 0.1916, lejos del umbral 0.60): siguen `fork-propio`. No reclasificar: es el issue 12.
+
+## 4. Bugs encontrados y abiertos
+
+**Arreglados en el carril A**: los 7 + 3 Medium/High de arriba.
+
+**Abiertos, declarados**:
+1. **Los 3 `.bootstrap-manifest.json` desfasados en 5 entradas cada uno** (`to-prd`/`to-issues`
+   SKILL + comando + `skills-lock.json`). No ponen ninguna suite en rojo -> diferidos al cierre de
+   ola por la regla nueva. **Hay que regenerarlos antes de cualquier rollout** o `upgrade-bootstrap`
+   los rutea como `customized` y NO entrega los cuerpos nuevos.
+2. **Otros 7 archivos del manifest desfasados desde antes** (los de carriles: `abrir-carril.ps1`,
+   `docs/ai-workflow/*`). Preexistentes a esta ola, medidos en `98a8f36` y `c8bc726`. Candidato al
+   bug de `autocrlf` ya registrado en memoria.
+3. Low del carril A sin tocar: no hay canal tipo `-ForkFile` para `upstreamHeadPath` (-> issue
+   propio); el test hardcodea 3 scaffolds; el ancla `blocking edges` matchea 4 lineas;
+   `$ExpectedChecks` caza el borrado de un assert pero no su debilitamiento; `$zonas = if (...)
+   { @(...) }` tiene el mismo patron de desenrollado (hoy benigno); la `description` de un comando
+   se puede reemplazar por basura y sobrevive (diferido al issue 13 a proposito).
+4. Los mensajes de `c946116` y `162616d` dicen «19 en rojo»; reproduciendo el RED son **18**.
+   No se corrige: reescribir 5 commits por una frase no vale.
+
+## 5. Tests corridos
+
+Todo desde el worktree correspondiente, con `pwsh -NoProfile -File tests/<x>.tests.ps1`:
+
+| Suite | Donde | Resultado |
+|---|---|---|
+| `nombres-propios-de-skills` | slice-07 | **110 aserciones, 0 fallidas** |
+| `skills-lock` | slice-07 | **137, 0** (venia de 137/2) |
+| `mirror`, `shareable-leaks`, `temp-hygiene` | slice-07 | verdes |
+| `tools/skills-lock.ps1 -Action Verify` | slice-07 | **OK: 4 copias** |
+| `carriles-scaffold` | v2 | verde |
+| `run-all.ps1` | slice-07 | 23 suites verdes, ~598 s (lo corrio un reviewer) |
+
+**No se corrio la suite completa en los worktrees 15 y 19.**
+
+## 6. Proximos pasos
+
+1. **Review-loop del carril B (15)**, en serie, desde `...\slice-15`. Rigor `standard` (toca el
+   motor del review). Rango explicito **`98a8f36`**. 6 focos + mutacion, **sin `--code-review`**.
+2. **Review-loop del carril C (19)**, igual, rango explicito `98a8f36`.
+3. **Integrar en orden**: A primero (camino critico), rebasando sobre `c6b08fc`; despues B y C
+   rebasando sobre la base nueva, cada uno re-corriendo su suite. Al terminar:
+   - aplicar los dos diffs de docs que entrego el carril C;
+   - **una** corrida de `tools/gen-manifest.ps1 -SkillDir skills/<bootstrap-x>` x3;
+   - **un** `tools/skills-lock.ps1 -Action Seal` sobre el arbol integrado + `Verify`;
+   - `run-all.ps1` completo verde sobre `feat/bootstrap-v2`, con el SHA anotado;
+   - marcar los issues 07, 15 y 19 como `closed` citando el SHA **de `feat/bootstrap-v2`**;
+   - escribir «Lo que dejo la ola 1» en `PARALELISMO-DEL-PROYECTO.md`;
+   - `git worktree remove` de los tres (las ramas NO se borran).
+4. Push de `main` (lo hace el usuario).
+
+## 7. Lo que la proxima sesion TIENE que saber antes de editar
+
+- **Pasale a los reviewers de B y C el TEXTO NUEVO de la regla de generados**, no los mandes a leer
+  la copia de su worktree: los tres carriles salieron de `98a8f36` y tienen la **regla vieja**. El
+  foco de reglas del carril A cito la vieja por esto exacto.
+- **Commitear con la Bash tool**: `-m "..."` con comillas dobles **se come los backticks y los
+  `$var`**, y `python -c "..."` tambien. El commit entra con exit 0 y el mensaje sale mutilado.
+  Unica via sana: escribir el mensaje a un archivo (con la herramienta Write, o con un heredoc
+  citado) y `git commit -F`, y **releer el mensaje** con `git log -1 --format=%B`. Costo dos
+  `--amend` hoy. Un heredoc que contenga comillas simples tambien puede romper el parser de la
+  Bash tool: ahi conviene la herramienta Write directamente.
+- **`[IO.File]::ReadAllText` y las APIs de .NET resuelven rutas relativas contra el cwd del
+  PROCESO**, no contra `Set-Location`. El carril A escribio en el arbol principal por esto y borro
+  dos bloques de un `SKILL.md` (revertido y verificado). Advertir explicitamente a todo subagente.
+- **Medir el EOL antes de editar** (`.md` y `.ps1` del repo son **CRLF**; los archivos nuevos del
+  slice 20 son LF). Escribir a temporal + `os.replace` con `newline=''`.
+- **El `--code-review` del review-loop esta atado al cwd de la sesion** (que vive en `main`): no
+  pasarlo en reviews cross-worktree; usar los focos con rutas absolutas y `git -C`.
+- **`~/.claude/PARCHE-review-loop-prosa.md` sigue vigente**: prosa interna es Low y no bloquea.
+- Los subagentes de carril tienen **prohibido** `git checkout/switch/branch/worktree/merge/rebase/
+  push/reset --hard`, correr la suite completa y correr `/review-loop`.
+- **Memoria libre de la maquina: 1.4 GB** cuando se midio. La suite completa va sin subagentes
+  vivos; si esta baja, pedirle al usuario que cierre cosas, NO matar sus procesos.
+
+## 8. Gotchas nuevos de esta sesion
+
+- **`$x = if (...) { @(...) }` DESENROLLA** un array de un elemento a string: `.Count` sigue dando 1
+  y `$x[0]` devuelve el **primer caracter**. Se escribio un assert que comparaba `d` contra vacio y
+  pasaba siempre. El `@()` va **afuera** del `if`.
+- **Un assert que mira «todo el archivo» es ciego a la POSICION**: la `description` movida debajo del
+  `---` de cierre deja el comando sin frontmatter valido y pasaba las tres guardas.
+- **Los mutantes propios son mas debiles que los del reviewer** (5a medicion): el carril A reporto
+  7/7 muertos; el foco de mutacion encontro **6 vivos** sobre las mismas lineas.
+- **El pase de confianza sobre el ARREGLO ataja de verdad**: 5 veces rechazo una correccion que
+  empeoraba el original, incluida una donde el hallazgo era falso positivo (28/100) porque el
+  reviewer miro **un solo blob base** y habia dos (la vieja y la que el slice sello).
+- **«Drift propio» en este repo significa diferencia contra la base SELLADA**, no autoria. HITL/AFK
+  viene de upstream pero es drift propio igual, porque no esta en `to-tickets`, que es la base nueva.
+
+---
+
 # Session Handoff — 2026-09-17 (cierre 2) — **Issue 06 CERRADO** (pase de coherencia sin hallazgos) e **issue v2 20 (mecánica de carriles) CERRADO** en `feat/bootstrap-v2` (`c8bc726`). Review-loop `standard` cerrado **por TOPE**. Sin trabajo en vuelo.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
