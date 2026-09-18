@@ -10,19 +10,36 @@
     "head": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260"
   },
   "skills": {
+    "domain-modeling": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/domain-modeling/SKILL.md",
+      "base": {
+        "blob": "9b97707e19ef1f590aada356f2b3f6bb881f91be",
+        "upstreamPath": "skills/engineering/domain-modeling/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "ADR-FORMAT.md": "944c92aa790e8fbdc9199640b170979abb8a34ba8d0fe18c2a01a63bce140ca0",
+        "CONTEXT-FORMAT.md": "17ab16ce783e4d2801ee52fd9acdf550cbf44de65ae76797a93943bbedf22a13",
+        "SKILL.md": "2db9b793e82ad909a4f515b28041b12f468b5ab9d4ada6751b0890702d16050e"
+      }
+    },
     "grill-me": {
       "source": "https://github.com/mattpocock/skills.git",
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/productivity/grill-me/SKILL.md",
       "base": {
-        "blob": "bd04394c675ee54173a093c50eb74da01a2940fa",
-        "upstreamPath": "grill-me/SKILL.md",
-        "commit": "a6bdfd9fed6c17d21b306aeb7ff6a0de8b72ef3c",
-        "commitDate": "2026-03-26T14:28:04Z"
+        "blob": "3947ff9c4ad980d14fc07fccbf659d47c114e81d",
+        "upstreamPath": "skills/productivity/grill-me/SKILL.md",
+        "commit": "fcf0071560d32913c9d4f820e0d7ca467c881619",
+        "commitDate": "2026-08-15T20:46:38Z"
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "88e46c700e67c4f1e0a328052875a0b00f731f0f88b52bd0bbeacc40776ab549"
+        "SKILL.md": "0da7ebc8fa1a6ff2f903f2c0113335c7cd60f63910a58e5e8610ef22c67846c0"
       }
     },
     "grill-with-docs": {
@@ -30,16 +47,29 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/grill-with-docs/SKILL.md",
       "base": {
-        "blob": "5ea0aa913629bec683690f371839bd10e588413d",
+        "blob": "62b9efb6f991d1b229adee7506962f13ced0c499",
         "upstreamPath": "skills/engineering/grill-with-docs/SKILL.md",
-        "commit": "e74f0061bb67222181640effa98c675bdb2fdaa7",
-        "commitDate": "2026-05-13T13:05:18Z"
+        "commit": "447ca70872026d5b79d6073a546dac082117fed7",
+        "commitDate": "2026-08-15T20:48:40Z"
       },
       "forkFiles": [],
       "files": {
-        "ADR-FORMAT.md": "f1f36cd3f8d3b6474ddd5855da4e233bfc4ae1a1c5024909ccf11871819a41b2",
-        "CONTEXT-FORMAT.md": "886ce0e96fd0f76f4c72c337c049cf4655227c599862ce920a62297e0929beae",
-        "SKILL.md": "e9ae274b8c51f308c68bd6b97712b9380adb3f1bd89c0ab7c96f9fc29574d84d"
+        "SKILL.md": "bacdfeb4b9bc5d4594fffffcc8e4a9f1dc598b2242764b06236b7b018fd011df"
+      }
+    },
+    "grilling": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/productivity/grilling/SKILL.md",
+      "base": {
+        "blob": "8ca78c6d8f901aab0c5a1f896034b70e666ff2a3",
+        "upstreamPath": "skills/productivity/grilling/SKILL.md",
+        "commit": "85f83d3fde1d3a90d5c9a657f6998c79a6c37308",
+        "commitDate": "2026-08-20T10:34:29Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "d4ad13f111c5727f22fc80b86f53e025d9fcca4df84b06f67793d1dcaed88e57"
       }
     },
     "handoff": {
