@@ -130,8 +130,10 @@ findings — there is nothing to review.
 
 Collect this and hand it to every reviewer, so none of them re-derives it:
 
-- The diff itself (`git diff <range>`), **plus the contents of the untracked files** — they are
-  part of the change and appear in no diff.
+- The diff itself **as text** — the output of `git diff <range>`, pasted in or written to a file
+  whose absolute path you hand over — **plus the contents of the untracked files**: they are part
+  of the change and appear in no diff. A range or a `git` command is not enough: four of the five
+  Step 4 agents carry no `Bash`, so they cannot run it and would review blind.
 - The list of changed files.
 - Paths of the relevant `CLAUDE.md` files: the root one, plus any in the directories touched.
 - The slice's intent: the task/PRD/commit message it implements.
@@ -156,6 +158,14 @@ Each focus is a **declared agent** under `.claude/agents/`. Dispatch them **by n
 single message so they run concurrently, and give each one the shared context from Step 3. Its focus
 and its model already live in its declaration, so there is nothing else to paste in. Each returns a
 list of findings; every finding must carry `file:line`, what is wrong, and why it matters.
+
+**If these agents are not among the agent types you can dispatch**, do not improvise. Project
+agents load when a session starts, from its working directory: a session opened before
+`.claude/agents/` existed, or one reviewing another repo or worktree, does not have them. Dispatch
+each focus as a `general-purpose` subagent instead, with the body of its agent file as the brief and
+the `model` its frontmatter declares **passed explicitly**; do the same for the scorer (Step 5) and
+the coherence focus. Say so in the report: in that run the write prohibition rests on Step 3's prose
+alone.
 
 **Models by focus** — mechanical audits run on a lighter model, judgment calls on the strongest:
 project rules and historical context on **a lighter, faster model**;

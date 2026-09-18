@@ -6,6 +6,8 @@
 #   step5     el bloque "Score the FIX" del Step 5 de /slice-review.
 #   tdd-loop  el cuerpo entero de la skill tdd, del titulo al final del archivo: la doctrina red -> green
 #             de ADR-0004 (el refactor no es parte del ciclo) y el cierre de slice con su trailer.
+#   fan-out   Step 3 y Step 4 de /slice-review enteros: el contexto compartido, el ruteo de cada foco a
+#             su agent declarado, los modelos por foco y la orden de no pasar el modelo en el dispatch.
 #
 # Por que existe: los asserts semanticos de tests/slice-review.tests.ps1 muerden mutantes que EDITAN o
 # BORRAN una oracion anclada, pero son ciegos a los que AÑADEN (medido en el turno 2 del review-loop del
@@ -17,11 +19,18 @@
 # Una sola implementacion, dos modos: el test invoca este mismo script con -Check, asi el sello y la
 # verificacion no pueden divergir (y la suite no necesita dot-sourcear un helper propio, que es lo que
 # tests/temp-hygiene.tests.ps1 prohibe para que nadie cuele un stub).
-param([switch]$Check, [ValidateSet('step5', 'tdd-loop')][string]$Block = 'step5')
+param([switch]$Check, [ValidateSet('step5', 'tdd-loop', 'fan-out')][string]$Block = 'step5')
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 
-if ($Block -eq 'tdd-loop') {
+if ($Block -eq 'fan-out') {
+  $goldenPath = Join-Path $repo "tests\fixtures\fan-out.golden.sha256"
+  $rels = @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")
+  # Del titulo de Step 3 hasta el de Step 5, excluido: una frase agregada en cualquier punto del fan-out
+  # (una orden de pasar el modelo, un foco ruteado al agent de otro) tiene que cambiar el hash.
+  $rx = '(?sm)^## Step 3 — Gather shared context \(once\)\r?\n.*?(?=^## Step 5 — )'
+  $normalizar = { param($t) $t }
+} elseif ($Block -eq 'tdd-loop') {
   $goldenPath = Join-Path $repo "tests\fixtures\tdd-loop.golden.sha256"
   $rels = @(".claude\commands\tdd.md", ".agents\skills\tdd\SKILL.md")
   # Del titulo al final del archivo: la doctrina tambien vive en la intro ("TDD is the red -> green loop")

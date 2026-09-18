@@ -91,11 +91,20 @@ function Get-Frontmatter([string]$path) {
   $fin = -1
   for ($i = 1; $i -lt $lineas.Count; $i++) { if ($lineas[$i] -eq '---') { $fin = $i; break } }
   if ($fin -lt 1) { return $null }
-  $fm = @{}
+  # Diccionario ORDINAL: un @{} ignora el case de las CLAVES, y Claude Code las lee con case exacto,
+  # asi que `Model: opus` pasaba el assert de `model` mientras la plataforma lo ignoraba. Las claves
+  # repetidas y las lineas que no son `clave: valor` se juntan aparte: el hashtable se quedaria con la
+  # ultima y el test no veria la primera.
+  $fm = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+  $claves = [Collections.Generic.List[string]]::new()
+  $sueltas = [Collections.Generic.List[string]]::new()
   for ($i = 1; $i -lt $fin; $i++) {
     $m = [regex]::Match($lineas[$i], '^([A-Za-z][A-Za-z0-9_]*):\s*(.*)$')
-    if ($m.Success) { $fm[$m.Groups[1].Value] = $m.Groups[2].Value }
+    if ($m.Success) { $claves.Add($m.Groups[1].Value); $fm[$m.Groups[1].Value] = $m.Groups[2].Value }
+    elseif ($lineas[$i].Trim()) { $sueltas.Add($lineas[$i]) }
   }
+  $fm['__claves'] = ($claves -join "`n")
+  $fm['__sueltas'] = ($sueltas -join "`n")
   # El cuerpo entra para poder exigir que el agent NO quede vacio: un frontmatter correcto sobre un
   # archivo sin instrucciones declara un reviewer que no sabe que revisar.
   $fm['__body'] = if ($fin + 1 -lt $lineas.Count) { (@($lineas[($fin + 1)..($lineas.Count - 1)]) -join "`n") } else { "" }
@@ -138,6 +147,14 @@ foreach ($r in $roots) {
     $fm = Get-Frontmatter $f
     if ($null -eq $fm) { Assert $false "$($r.label)/${n}: el archivo abre y cierra un frontmatter YAML"; continue }
     $e = $esperados[$n]
+
+    # El SET exacto de claves, con case y sin repetir: una clave agregada (`permissionMode:`, `hooks:`,
+    # `mcpServers:`) es un mutante por AÑADIDO que toca permisos y que ninguna igualdad de las de abajo ve.
+    $clavesHay = @($fm['__claves'] -split "`n" | Where-Object { $_ })
+    $clavesDif = @(Compare-Object -CaseSensitive @('name', 'description', 'tools', 'disallowedTools', 'model') $clavesHay |
+      ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+    Assert ($clavesDif.Count -eq 0) "$($r.label)/${n}: el frontmatter declara exactamente name, description, tools, disallowedTools y model, una vez cada una (diff: $($clavesDif -join ', '))"
+    Assert (-not $fm['__sueltas']) "$($r.label)/${n}: el frontmatter no tiene lineas que no sean 'clave: valor' (sueltas: '$($fm['__sueltas'])')"
 
     # El ruteo por nombre usa el campo `name`, no el nombre de archivo: si divergen, el dispatch falla.
     Assert ($fm['name'] -ceq $n) "$($r.label)/${n}: el campo name es '$n' (dice '$($fm['name'])')"
@@ -241,6 +258,16 @@ foreach ($d in $docs) {
   Assert ($s4 -notmatch '(?i)Pass the model\s+explicitly when you dispatch each subagent') `
     "${rel}: no queda la orden vieja de pasar el modelo en cada dispatch"
 }
+
+# --- 3. Golden del fan-out: Step 3 y Step 4 enteros, por hash --------------------------------------
+# Las aserciones de arriba son anclas y son ciegas a los mutantes por AÑADIDO: medido en el review de
+# este slice, una frase agregada que revierte la orden de no pasar el modelo, y el swap del nombre de
+# agent entre dos focos (bugs <-> rules en las 8 copias), sobrevivian a todas las suites. El golden no
+# impide reescribir el fan-out: lo hace visible. Se resella con la herramienta, nunca a mano.
+$reseal = Join-Path $repo "tools\reseal-step5.ps1"
+$goldenOut = & pwsh -NoProfile -File $reseal -Block fan-out -Check 2>&1
+Assert ($LASTEXITCODE -eq 0 -and ($goldenOut -join ' ') -match 'bloque fan-out') `
+  "golden del fan-out (Step 3 + Step 4): las 8 copias coinciden con el sello -> $($goldenOut -join ' / ')"
 
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

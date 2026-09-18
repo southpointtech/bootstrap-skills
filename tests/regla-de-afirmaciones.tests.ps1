@@ -64,9 +64,6 @@ foreach ($p in $slicePairs) {
     if (-not (Test-Path -LiteralPath $f)) { Assert $false "$($p.label): existe slice-review ($rel)"; continue }
     $txt = [IO.File]::ReadAllText($f)
     $s4 = Section $txt 'Step 4 — Fan out parallel reviewers'
-    # El reviewer de contratos suma la linea sobre afirmaciones no verificadas.
-    Assert ($s4 -match '(?i)unverified assertion') `
-      "$($p.label)/${rel}: el reviewer de contratos marca afirmaciones no verificadas"
     # Sin foco dedicado: siguen los 5 focos de lectura numerados (el unico 6to condicional es el de
     # mutacion, que EJECUTA, no es de lectura, y vive en su propia seccion, no como item 6 de Step 4).
     Assert ($s4 -match '(?im)^5\.\s') `
@@ -74,6 +71,17 @@ foreach ($p in $slicePairs) {
     Assert (-not ($s4 -match '(?im)^6\.\s')) `
       "$($p.label)/${rel}: no se agrego un 6to foco de lectura numerado para afirmaciones"
   }
+}
+
+# --- La instruccion vive en el AGENT de contratos, no en Step 4: desde el issue 15 el brief de cada
+#     foco esta en su declaracion, y en Step 4 queda solo una linea-resumen que nombra el tema. Anclar
+#     ahi dejaba que borrar la instruccion real pasara verde. Se ancla la ORDEN, no el tema. ---
+foreach ($p in $slicePairs) {
+  $agent = Join-Path (Split-Path (Split-Path (Split-Path $p.files[0] -Parent) -Parent) -Parent) ".claude\agents\slice-review-contracts.md"
+  if (-not (Test-Path -LiteralPath $agent)) { Assert $false "$($p.label): existe .claude/agents/slice-review-contracts.md"; continue }
+  $body = [IO.File]::ReadAllText($agent) -replace "`r`n", "`n"
+  Assert ($body -cmatch '(?m)^Also flag \*\*unverified assertions\*\* — a comment, docstring, or commit message that states as fact') `
+    "$($p.label): el agent de contratos ordena marcar afirmaciones no verificadas"
 }
 
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FALLARON"; exit 1 }
