@@ -95,7 +95,11 @@ esta regla prohíbe. Las dos mitades de la regla vieja no se sostenían juntas.
 - `.bootstrap-manifest.json` de los tres scaffolds: `pwsh -NoProfile -File tools/gen-manifest.ps1
   -SkillDir skills/<bootstrap-x>`. Lo toca cualquier slice que edite un scaffold.
 - Los goldens de `tests/fixtures/`: `tools/reseal-step0b.ps1` (Step 0b), `tools/reseal-step5.ps1
-  -Block <nombre>` (`step5`, `tdd-loop`) y `tools/reseal-goldens.ps1` (Step 2 y techos).
+  -Block <nombre>` (`step5`, `tdd-loop`, `fan-out`, `agents`) y `tools/reseal-goldens.ps1` (Step 2
+  y techos). `fan-out` congela el Step 3 y el Step 4 de `slice-review`, y `agents` los siete
+  `.claude/agents/slice-review-*.md`, los dos verificados por `tests/reviewer-agents.tests.ps1`:
+  **un carril que toque el Step 3 o el 4 de `slice-review`, o cualquier agent, mueve esos goldens**
+  y los resella con la herramienta, mirando el diff.
 - `.scratch/bootstrap-v2/skill-bases.json`: gitignoreado, así que cada carril recibe su copia y
   lo que cambie ahí **no viaja por git**. El orquestador lo re-aplica en el worktree de v2 al
   integrar.

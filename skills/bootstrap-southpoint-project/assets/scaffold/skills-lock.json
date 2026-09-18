@@ -124,10 +124,10 @@
       "upstreamState": "upstream-vivo",
       "upstreamHeadPath": "skills/engineering/to-tickets/SKILL.md",
       "base": {
-        "blob": "4a21285cbd01c7d2c6e97d8406d6d23e21b4b850",
+        "blob": "e868c831fcfb1e124e010bcdf84a429ec879160f",
         "upstreamPath": "skills/engineering/to-tickets/SKILL.md",
-        "commit": "6a34259e99bc5fed4f8fe5da61c273dad14edf67",
-        "commitDate": "2026-08-15T21:22:05Z"
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
       },
       "forkFiles": [],
       "files": {

@@ -63,7 +63,8 @@ Si la necesitás al día: `git rev-list --objects --all` filtrando por `SKILL.md
 | 5 | la recuperación no se pudo completar contra el clon: git falló a mitad, o upstream **no entregó blobs que hacen falta** (repo incompleto o podado, o un clon parcial). Va aparte del 4 porque acá el clon existe y responde: lo que falta es contenido adentro. Antes esto salía como traceback crudo **con exit 1**, que ya significa otra cosa |
 
 Todo lo que se puede detectar se detecta antes de clonar y de recuperar, porque la recuperación
-cuesta entre 81 s y 98 s con el clon ya hecho (medido) y un error de invocación no debe costar eso —
+cuesta unos 6 s con el clon ya hecho (medido el 2026-09-18; con la métrica por carácter de antes
+del issue 19 eran ~95 s) y un error de invocación no debe costar ni eso —
 y sobre todo no debe terminar escribiendo un reporte todo-ceros encima de uno bueno.
 
 ## Qué requiere
@@ -77,13 +78,17 @@ y sobre todo no debe terminar escribiendo un reporte todo-ceros encima de uno bu
   si el promisor está inalcanzable, git muere primero y el que sale impreso es su error; si no,
   el de `_exigir_blobs` diciendo cuántos blobs faltaron.
 - **git** y **Python 3** (solo librería estándar: `difflib`, `json`, `subprocess`).
-- **Tiempo.** Medido el 2026-08-28 en la máquina de Martín, contra `mattpocock/skills` en
-  `6654f6b` (413 blobs `*/SKILL.md` en toda la historia):
-  - 11 skills con el clon ya hecho: **~1 m 22 s** (dos corridas: 81,1 s y 83,9 s).
-  - 2 skills (`grill-me` y `tdd`) incluyendo clonar desde GitHub: **8,2 s**.
+- **Tiempo.** Medido el 2026-09-18 en la máquina de Martín, contra `mattpocock/skills` en
+  `959a8e9f` (`skillBlobsScanned`: 414), con el clon ya hecho:
+  - 11 skills: **5,6 / 5,7 / 5,7 s** en tres corridas.
+  - La misma invocación con la herramienta de antes del issue 19 —métrica por carácter—: **94,5 s**,
+    en la misma sesión y contra el mismo clon. Los absolutos dependen de la carga de la máquina; la
+    proporción es la que importa.
+  - 2 skills (`grill-me` y `tdd`) incluyendo clonar desde GitHub: **8,2 s** (2026-08-28, con la
+    métrica por carácter; no se re-midió).
 
-  Cada skill local se compara contra los 413 blobs, así que el grueso del tiempo es la comparación,
-  no el clon.
+  Cada skill local se compara contra todos los blobs, así que el grueso del tiempo sigue siendo la
+  comparación, no el clon; lo que la abarató es comparar líneas en vez de caracteres.
 
 ## Qué emite
 
@@ -104,8 +109,9 @@ JSON. Por skill:
   - `no-match-above-threshold`: ninguna versión histórica de upstream supera el umbral de similitud
     de cuerpo contra nuestra copia (`review-loop`, `slice-review`). Eso es todo lo que afirma: **no**
     prueba que la skill nunca haya salido de upstream. Un cuerpo con suficiente drift cae por debajo
-    igual, y el mecanismo está medido (issue 19): con drift prependido, un par real pasa de 0,7800 a
-    0,0842 sin que cambie una línea del original.
+    igual, y el mecanismo está medido (issue 19): con la métrica por carácter de antes, un drift
+    prependido llevaba un par real de 0,7800 a 0,0842 sin que cambie una línea del original. La
+    métrica por línea tiene su propio caso (ver *La métrica*).
   - `in-upstream-head`: tiene base recuperada y su path sigue vivo en el HEAD de upstream, en el
     mismo lugar o renombrado.
   - `gone-from-upstream-head`: tiene base recuperada, pero su path ya no está en el HEAD de upstream
@@ -115,7 +121,8 @@ JSON. Por skill:
   ninguna base sobre el umbral, mientras que ADR-0006 llama fork propio a `zoom-out`, que **sí** vino
   de upstream y tiene base recuperada. Son conjuntos disjuntos y el lockfile (issue 05) necesita
   distinguirlos. **"Fork propio" no lo emite la herramienta**: lo firma un humano mirando esto.
-- `similarity`: el ratio de `difflib.SequenceMatcher` sobre el cuerpo, redondeado a 4 decimales;
+- `similarity`: el ratio de `difflib.SequenceMatcher` sobre las **líneas** del cuerpo (por carácter
+  si el cuerpo más corto del par tiene menos de 10 líneas; ver *La métrica*), redondeado a 4 decimales;
   `1.0` = cuerpo idéntico salvo redondeo (el resumen sí usa el ratio crudo, ver abajo). **Solo en las
   entradas que tienen base**; una `unmatched` trae `bestSimilarity` en su lugar.
 - `bestSimilarity`: la mejor similitud **vista**, en las entradas `unmatched`. No es una base: es el
@@ -189,49 +196,60 @@ Dos reglas, las dos con guard en el self-test:
    husos distintos — y los commits hechos desde la web de GitHub son siempre `+00:00`. A igual
    segundo desempata el commit más viejo del log.
 
-### La métrica y su límite: `autojunk`
+### La métrica: se compara por línea
 
-La similitud es `difflib.SequenceMatcher(None, mine, other).ratio()` **con el `autojunk` de la
-librería activo**, que es su default. Cuando la **segunda** secuencia tiene 200 elementos o más,
-`SequenceMatcher` marca como "populares" los que aparecen en más de `len(b)//100 + 1` posiciones de
-`b` y los saca del índice: dejan de poder **sembrar** un match (uno ya sembrado sí se extiende sobre
-ellos — un cuerpo contra sí mismo sigue dando 1.0, así que "los excluye del matching" sería
-sobreafirmar). Sobre markdown comparado carácter a carácter, "popular" son las letras comunes.
+La similitud es `difflib.SequenceMatcher(...).ratio()` sobre las **líneas** del cuerpo
+(`cuerpo.splitlines()`), con `autojunk=False`. Cuando el cuerpo **más corto** del par tiene menos de
+**10 líneas** se compara por **carácter**, también con `autojunk=False`. Hasta el issue 19 se
+comparaba por carácter siempre, con el `autojunk` de la librería prendido.
 
-Lo que importa acá: **`b` es el blob de upstream**, así que el heurístico se dispara en casi
-**toda** comparación del corpus, no solo en los cuerpos largos. Medido el 2026-08-31 sobre las
-skills locales: `zoom-out` —169 B de cuerpo— contra `slice-review` da 0,0020 con `autojunk` y 0,0086
-sin él (4,2×); al revés, `slice-review` contra `zoom-out`, donde `b` tiene 169 elementos y no llega
-a 200, da 0,0083 con y sin el heurístico. Esa asimetría es la firma de que el efecto depende de `b`
-y no del largo de nuestro cuerpo.
+**Por qué no por carácter.** El `autojunk` de la librería saca del índice los elementos que aparecen
+en más de `len(b)//100 + 1` posiciones de `b` cuando `len(b) >= 200`: sobre markdown comparado
+carácter a carácter, las letras comunes. Esos elementos no pueden **sembrar** un match, y con un
+bloque de prosa **prependido** la alineación no se vuelve a sembrar. Medido sobre el par congelado en
+`tests/fixtures/autojunk-*.txt` (el cuerpo de `setup-matt-pocock-skills`, 6.269 caracteres, con 637
+prependidos): por carácter da **0,3361** —y 0,3347 con los argumentos al revés—, los dos **bajo el
+umbral de 0,60**. El mismo bloque **apendeado** da 0,9517, así que el disparador es la **posición**
+del drift, no su contenido. Por línea ese par da **0,9091** en las dos direcciones (lo fija el
+self-test).
 
-Los números con `autojunk` son de la corrida del 2026-08-28; los de `autojunk=False` se midieron
-aparte el 2026-08-31, sobre las mismas once skills locales:
+**Por qué el piso de 10 líneas.** Con N líneas, una línea distinta mueve el ratio exactamente 1/N.
+Debajo de 10 líneas una sola línea vale más de 0,10, y con **una sola** línea la comparación por
+línea deja de ser una similitud y pasa a ser una igualdad: 1,0 o 0,0. Es el caso de `zoom-out` (169
+caracteres, una línea): sin el fallback, el día que alguien le corrija una palabra la herramienta
+publicaría 0,0 y `unmatched`.
 
-| skill | cuerpo | mejor similitud con `autojunk` (lo que se publica) | con `autojunk=False` |
-| --- | --- | --- | --- |
-| `review-loop` | > 7 KB | 0,0308 | **0,1305**, y elige **otro archivo** (`wayfinder/SKILL.md` → `improve-codebase-architecture/SKILL.md`) |
-| `slice-review` | > 7 KB | 0,0202 | **0,1101**, otro blob |
+**Por qué `autojunk=False`.** Sobre la ruta por línea hoy es inerte: ningún cuerpo de un blob
+`*/SKILL.md` de upstream llega a 200 líneas (máximo medido el 2026-09-18: 176). Ponerlo evita que se
+active solo cuando upstream crezca. Sobre el **fallback por carácter no es inerte**: las pistas de
+sucesor de `zoom-out` —cuerpo de una línea, o sea siempre en el fallback— cambian con él. Prendido
+encabeza `grill-with-docs` con 0,2060 y `wait-what` queda tercera con 0,0591; apagado encabeza
+`wait-what` con 0,2273. Cuál de las dos listas orienta mejor a un humano no se midió.
 
-Son las **dos únicas** que pasan los 7 KB —la tercera más larga tiene 6.335 B—, pero eso **no** es
-la razón por la que son las únicas que se mueven: el heurístico distorsiona casi todos los pares (ver
-arriba). Se mueven porque son las dos que **no tienen match verdadero**: de las otras nueve, las dos
-con drift dan el mismo ratio contra su base con y sin él (`tdd` 0,8625 y `to-issues` 0,9466, medido
-el 2026-08-31) y las siete restantes publican 1,0. Con dos salvedades, para no leerlo de más: ese
-1,0 es el ratio **redondeado** (el campo que habla de cuerpos idénticos es
-`summary.exactBodyMatches`) y lo medido vale para el ratio **contra su base**: que ningún otro de los 413 blobs las supere con el heurístico apagado no
-se verificó. Dos consecuencias, distintas entre sí:
+**El límite que NO se arregla: un renombre repartido en muchas líneas.** Por línea, una edición
+chica cuenta la línea **entera** como distinta. Medido el 2026-09-18: reemplazar `test` por `spec`
+en el cuerpo local de `tdd` toca 15 de sus 44 líneas y lo baja de 0,8052 a **0,4675** contra su
+base —bajo el umbral, `unmatched`—, cuando por carácter daba 0,7019. Es una regresión del cambio de
+métrica **en ese patrón**, aceptada: por carácter colapsaba el prepend y por línea colapsa el
+renombre, y el issue 19 eligió la línea. El self-test la congela con un sintético (check `limite
+declarado`) y `method.similarity` la declara en el reporte. Re-puntuar por carácter los candidatos
+que quedan bajo el umbral la cubriría, pero no se hizo.
 
-- **El veredicto no cambia.** 0,1305 y 0,1101 siguen muy por debajo del umbral de 0,60: las dos
-  salen `unmatched` / `no-match-above-threshold` con `autojunk` prendido o apagado.
-- **El número publicado y el blob citado sí son artefactos del heurístico.** No leerlos como "el
-  parecido real con lo más parecido de upstream": son el parecido que quedó después de tirar los
-  caracteres frecuentes, y el blob que ganó esa comparación degradada.
+**Empates entre cuerpos distintos: quedan expuestos a propósito.** Por línea, dos versiones de
+upstream del mismo largo que difieren en una sola línea pueden dar **exactamente** el mismo ratio
+contra nuestra copia. La herramienta no desempata por contenido: reporta el empate
+(`tieOnIdenticalBodies: false`, `summary.tiedOnDifferentBodies`) y `tools/skills-lock.ps1 -Action
+Seal` lo rechaza, porque un empate entre cuerpos distintos **lo decide un humano**. Desempatar por
+carácter se probó durante el issue 19 y se revirtió: elige la base equivocada en silencio cuando
+upstream pule después la misma línea que retocamos nosotros. El fixture `retoque` del self-test fija
+la política. En el reporte real de hoy no hay ninguno (`tiedOnDifferentBodies`: 0).
 
-**No se apaga**, y es una decisión de costo medida el 2026-08-31, no un olvido: `autojunk=False`
-lleva la corrida de ~98 s a **~2.500-3.500 s** (40-60 minutos) en la misma máquina. Cambiar la métrica —tokenizar por
-línea en vez de por carácter, que ataca la misma causa sin el costo cuadrático— es el **issue 19**,
-no esta herramienta.
+**El número depende de la unidad, no sólo del contenido.** Cambiar la tokenización mueve los valores
+publicados sin que cambie un byte de las skills. Medido el 2026-09-18 contra `959a8e9f` sobre el
+mismo árbol, métrica vieja → nueva: `review-loop` 0,0284 → 0,2562, `slice-review` 0,0183 → 0,1875,
+`tdd` 0,7287 → 0,8052, `to-prd` 0,9927 → 0,9565, `to-issues` 0,7793 → 0,6878. El `summary` sale
+idéntico con las dos, pero **una base sí se movió**: la de `to-issues` (ver *Después de los issues
+07 y 19*, abajo).
 
 ### Lo que la herramienta NO decide
 
@@ -259,10 +277,13 @@ defenderlo como default. Por eso la herramienta usa la detección de renombres *
 cuando no alcanza, dice `gone` en vez de adivinar. El mapeo `to-issues` → `to-tickets` es una
 **decisión humana**: vive en ADR-0006 y en el lockfile, no acá.
 
-La similitud de cuerpo que mide la herramienta, para los mismos pares (2026-08-28):
-`to-issues` ↔ `to-tickets` **0,2449**; `zoom-out` ↔ `wait-what` **0,0591** — y el candidato más
-parecido a `zoom-out` en el HEAD de upstream no es `wait-what` sino `grill-with-docs`, con 0,2060,
-que es tan falso como el otro. De ahí que la lista se llame *unconfirmed*.
+La similitud de cuerpo que midió la herramienta para los mismos pares el 2026-08-28, con la
+métrica por carácter y el cuerpo de `to-issues` de antes del issue 07: `to-issues` ↔ `to-tickets`
+**0,2449**; `zoom-out` ↔ `wait-what` **0,0591**, y el candidato más parecido a `zoom-out` era
+`grill-with-docs`, con 0,2060. Con la métrica por línea (2026-09-18) la lista de `zoom-out` la
+encabeza `wait-what` con 0,2273, seguida de `implement` (0,2090) y `grill-with-docs` (0,2060): el
+orden lo decidía el `autojunk`, no el contenido (ver *La métrica*). Que encabece no la confirma:
+sigue siendo *unconfirmed*, y el mapeo lo firma un humano en ADR-0006.
 
 ## La salida es la entrada del lockfile
 
@@ -289,12 +310,14 @@ Al cerrar un merge:
    commitear: por ejemplo, upstream la renombró o la borró.
 
 Medido con `tdd` en el issue v2 06: la base pasó de `7a98941` a `8fc0867`, que es el blob del HEAD de
-upstream, con similitud 0,7287. Las otras diez skills no cambiaron.
+upstream, con similitud 0,7287 (métrica por carácter; por línea da 0,8052). Las otras diez skills no
+cambiaron.
 
 ## Resultado conocido
 
 Medido el 2026-08-28 contra `mattpocock/skills` en `6654f6b`; la columna `similitud` re-medida el
-2026-09-03.
+2026-09-03, **con la métrica por carácter**. Con la de línea los números son otros: ver *Después de
+los issues 07 y 19*, al final de la sección.
 
 Sirve de regresión **acotada**, y el alcance importa: contra ese mismo HEAD, lo que tiene que
 seguir dando igual son las columnas que **no dependen de nuestra copia** — base (blob), path
@@ -324,6 +347,19 @@ Después del merge del issue v2 06, la misma corrida contra `6654f6b` da para `t
 el commit `32165827` (2026-08-19) y similitud 0,7287 (medido el 2026-09-16). La fila de arriba queda
 como registro de antes del merge.
 
+**Después de los issues 07 y 19** (medido el 2026-09-18 contra `959a8e9f`, métrica por línea):
+`to-prd` y `to-issues` adoptaron el cuerpo de upstream (issue 07) y la métrica pasó a línea (issue
+19). Siete skills siguen en 1,0 con la misma base. `tdd` conserva `8fc08671` con 0,8052; `to-prd`
+conserva `e5f11413` con 0,9565.
+
+`to-issues` **cambia de base**: `4a21285c` (`6a34259e`, 2026-08-15) → `e868c831` (`32165827`,
+2026-08-19, *Remove all em-dashes from the repo*), las dos en `skills/engineering/to-tickets/SKILL.md`.
+La nueva es la correcta: `e868c831` es el blob del HEAD de upstream y nuestro cuerpo no tiene ninguno
+de los em-dashes que `32165827` sacó, así que salió de esa versión. La métrica por carácter elegía la
+anterior (0,7793 contra 0,6878 por línea) y con ella quedó sellada al cerrar el issue 07; la de línea
+la corrige. El 0,6878 es bajo para un cuerpo adoptado entero porque le re-aplicamos nuestros nombres
+(`issue` por `ticket`) en muchas líneas: es el límite de la métrica, ver *La métrica*.
+
 Siete cuerpos intactos, y las dos con drift real (`tdd` y `to-issues`) son exactamente las dos
 modificaciones que ya estaban documentadas.
 
@@ -339,15 +375,14 @@ renombre puro).
 
 Las skills propias del scaffold que están en el mismo directorio salen `unmatched` con
 `upstreamRelation: no-match-above-threshold`, como corresponde: `review-loop` con 0,0308 de mejor
-similitud y `slice-review` con 0,0202. **Esos dos números están deprimidos por `autojunk`** (son las
-dos únicas con cuerpo > 7 KB): sin el heurístico dan 0,1305 y 0,1101, contra otros blobs. El
-veredicto es el mismo con los cuatro números —todos quedan lejos del umbral de 0,60—, pero la cifra
-publicada no es "el parecido real". Ver *La métrica y su límite*.
+similitud y `slice-review` con 0,0202, medidos con la métrica por carácter, que los deprimía con
+`autojunk`. Con la métrica por línea (2026-09-18) dan 0,2562 y 0,1875. El veredicto es el mismo:
+todos quedan lejos del umbral de 0,60. Ver *La métrica*.
 
 ## Verificación
 
-La **recuperación real** no va a la suite: necesita red y ~90 s, que no es algo que pueda correr en
-cada corrida de tests. Por eso la herramienta trae su propia verificación **offline**, adentro:
+La **recuperación real** no va a la suite: necesita red, o un clon completo de upstream, que no es
+algo que pueda depender de cada corrida de tests. Por eso la herramienta trae su propia verificación **offline**, adentro:
 
 ```
 py tools/recover-skill-bases.py --self-test
@@ -363,7 +398,7 @@ correr nada daría verde vacío— y que el total de aserciones sea **exactament
 (3 fallas), assert borrado (1 falla, la del total exacto) y resumen suprimido (2 fallas).
 
 Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
-solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **125
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **149
 afirmaciones** sobre doce skills de fixture, y no toca la red.
 
 El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
