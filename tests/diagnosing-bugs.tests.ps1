@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 74
+$ExpectedChecks = 78
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -99,7 +99,13 @@ foreach ($r in $raices) {
   $ini = PosLinea $skill '## Where this fits'
   $fin = PosLinea $skill '## Redact'
   $encaja = if ($ini -ge 0 -and $fin -gt $ini) { $skill.Substring($ini, $fin - $ini) } else { "" }
-  Assert ($encaja.Contains('`debug-source-first`') -and $encaja.Contains('failing hop')) "${nombre}: 'Where this fits' cede el primer paso de una ausencia downstream a debug-source-first y retoma en el salto que falla"
+  # La regla de primer paso, como línea EXACTA dentro de su sección: cubre el dato que no llegó Y el que
+  # llegó mal, y el salto que falla es la TRANSICIÓN entre el último correcto y el primero mal, como lo
+  # define debug-source-first. Un Contains la dejaba invertir ("start with Phase 1 here instead").
+  $regla = '- **`debug-source-first`** is the **first-step rule** for one class of bug: a downstream absence or wrong value in a multi-hop pipeline ("the email didn''t arrive", "it doesn''t show in the dashboard", "the report came out empty"). When the symptom is that, run it first: read the source of truth and bisect forward to the failing transition, between the last hop where the data is right and the first one where it is missing or wrong. It answers *where* the data is lost or goes wrong. Then come back here and diagnose that failing transition with the phases below: this skill answers *why* it fails.'
+  $posRegla = PosLinea $skill $regla
+  Assert ($posRegla -gt $ini -and $posRegla -lt $fin) "${nombre}: 'Where this fits' cede el primer paso a debug-source-first para un dato que no llegó o llegó mal, y retoma en la transición que falla"
+  Assert ($desc.Count -eq 1 -and $desc[0].Contains('Si el síntoma es un dato que no llegó, o que llegó mal, al destino de un pipeline de varios saltos, el primer paso lo da debug-source-first')) "${nombre}: la description cede el primer paso también cuando el dato llegó mal"
   Assert ($encaja.Contains('`superpowers:systematic-debugging`')) "${nombre}: 'Where this fits' nombra su relación con superpowers:systematic-debugging"
   Assert ($encaja.Contains('not merged')) "${nombre}: 'Where this fits' dice que las skills no se fusionan"
 

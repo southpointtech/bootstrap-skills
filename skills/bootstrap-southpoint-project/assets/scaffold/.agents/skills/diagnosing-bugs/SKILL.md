@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: Loop de diagnóstico para bugs difíciles y regresiones de performance, con un loop de feedback que vaya rojo antes de cualquier hipótesis. Usala cuando el usuario diga "diagnose", "debug this", "diagnosticá", "debuggeá esto" o "encontrá por qué falla", o reporte algo roto, que tira error, que falla o que anda lento ("se rompió", "tira una excepción", "falla el test", "anda lento", "no funciona"). Si lo que falta es un dato que no llegó al destino de un pipeline de varios saltos, el primer paso lo da debug-source-first y esta skill diagnostica el salto que falla.
+description: Loop de diagnóstico para bugs difíciles y regresiones de performance, con un loop de feedback que vaya rojo antes de cualquier hipótesis. Usala cuando el usuario diga "diagnose", "debug this", "diagnosticá", "debuggeá esto" o "encontrá por qué falla", o reporte algo roto, que tira error, que falla o que anda lento ("se rompió", "tira una excepción", "falla el test", "anda lento", "no funciona"). Si el síntoma es un dato que no llegó, o que llegó mal, al destino de un pipeline de varios saltos, el primer paso lo da debug-source-first y esta skill diagnostica el salto que falla.
 ---
 
 # Diagnosing Bugs
@@ -13,7 +13,7 @@ When exploring the codebase, read `CONTEXT.md` (if it exists) to get a clear men
 
 This skill is the **diagnosis engine**. Two neighbours answer different questions, and the three are not merged:
 
-- **`debug-source-first`** is the **first-step rule** for one class of bug: a downstream absence in a multi-hop pipeline ("the email didn't arrive", "it doesn't show in the dashboard", "the report came out empty"). When the symptom is that, run it first: read the source of truth and bisect forward to the failing hop, the last hop where the data is right before the first one where it is missing or wrong. It answers *where* the data is lost. Then come back here and diagnose that failing hop with the phases below: this skill answers *why* it fails.
+- **`debug-source-first`** is the **first-step rule** for one class of bug: a downstream absence or wrong value in a multi-hop pipeline ("the email didn't arrive", "it doesn't show in the dashboard", "the report came out empty"). When the symptom is that, run it first: read the source of truth and bisect forward to the failing transition, between the last hop where the data is right and the first one where it is missing or wrong. It answers *where* the data is lost or goes wrong. Then come back here and diagnose that failing transition with the phases below: this skill answers *why* it fails.
 - **`superpowers:systematic-debugging`** (when installed) is the general debugging process the agent already follows for any bug, and its rule of no fix before the root cause still holds. This skill does not replace it: it is the concrete engine for the hard cases, where the cause is not visible on a first read. Its phases are how you reach that root cause, and no fix lands before Phase 5.
 
 ## Redact
