@@ -1,3 +1,98 @@
+# Session Handoff — 2026-09-18 (noche 2) — **Ola 2 (09, 10, 08) INTEGRADA y CERRADA** en `feat/bootstrap-v2` @ `f48233e`, `run-all.ps1` verde (27 suites). `main` ya está mergeado en v2. Próximo: planear la ola 3.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `227a53d` + el commit de este handoff (sin
+  pushear; `origin/main` = `dd3fdf6`, tag `v1.0.0`). Untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`f48233e`**, árbol
+  limpio, **local, sin pushear**. Commits de esta sesión (sobre `73d70d0`):
+  ```
+  f48233e docs(carriles): la ola 2 queda cerrada en 6e1a0e9, con lo que dejo
+  6e1a0e9 chore(ola-2): integracion del 08 — manifests regenerados sobre el arbol integrado
+  8c57dbc/461d8de/e87856b  (cherry-picks del carril C, issue 08)
+  6df7545 chore(ola-2): integracion del 10 — lock y manifests re-sellados, This delivers con diagnosing-bugs
+  d9c6245/d9439ab/2b4eb7b  (cherry-picks del carril B, issue 10)
+  d43d5bb/d2355d1/4809ffb  (carril A, issue 09, fast-forward)
+  2957532 docs(carriles): plan de la ola 2 — 09, 10 y 08 en tres carriles
+  b8c246c docs(recuperar-base): seis skills en 1,0, no siete, y el bloque de 07/19 al final de la seccion
+  d23a93f merge: main en feat/bootstrap-v2 (reglas de escritura del paso 5 y CHANGELOG v1.0.0)
+  ```
+- **Ramas de carril conservadas** (worktrees removidos): `slice/09-grilling-y-punteros` (`d43d5bb`),
+  `slice/10-diagnosing-bugs` (`d45dadc`), `slice/08-merge-triage-handoff-setup` (`ae216ba`), más las de la ola 1.
+  El worktree `carriles\Bootstrap Skills\hub-sync` (`feat/hub-sync`) es de OTRA sesión: no tocar.
+- **Estado v2**: cerrados 01–10, 15, 17, 19, 20. Pendientes: **11, 12, 16** (desbloqueados: ola 3 prevista),
+  **21** (sin dependencias; ola 4 junto al 13), **13** (espera 11 y 12), **14** (`CLAUDE.md`, en serie entre
+  olas), **18** (último, HITL). Issues en `.scratch/bootstrap-v2/issues/` del worktree v2 (gitignoreado).
+
+## 1. Qué se hizo en esta sesión
+
+1. **`main` → v2** (`d23a93f`): sólo chocaron los 3 manifests (regenerados). El golden `step5` NO se movió (el
+   handoff anterior predecía que sí). Lock re-sellado (sólo el hash de `review-loop`). Suite verde.
+2. **Review-loop light de la integración de la ola 1** (rango `aa3aec6..d23a93f`, rigor light por decisión del
+   usuario aunque HEAD no tenía `Slice-Close:`): clean close, 0 Medium/High. **AC pendiente del issue 15
+   cumplido**: `git status --porcelain` y `git stash create` vacíos antes y después del fan-out. Los 2 Low del
+   doc se arreglaron en `b8c246c` (su propio light: limpio).
+3. **Ola 2** (plan aprobado por el usuario: 09 + 10 + 08; la plantilla HITL del 10 la decidía el carril):
+   - **A / 09**: `grilling` y `domain-modeling` reales; `grill-me`/`grill-with-docs` punteros de una línea;
+     FORMATs movidos a `domain-modeling/`. Review standard: T1 un Medium (se perdió el trigger "grilleame con la
+     documentación") → fix `d43d5bb` con RED; T2 limpio; coherencia limpia.
+   - **B / 10**: `diagnosing-bugs` como motor; **plantilla HITL retirada** (medido: la Bash tool no la puede
+     correr con humano; reemplazo: checklist numerado en el ítem 10); sección `## Where this fits`. Review
+     standard: T1 un Medium (el primer paso cubría sólo el dato que no llegó; el salto que falla mal definido) →
+     fix `d45dadc` con RED; T2 limpio; coherencia marcó los manifests diferidos (declarados, resueltos al integrar).
+   - **C / 08**: `triage`, `handoff`, `setup-matt-pocock-skills` con cuerpo de upstream y description propia;
+     bases movidas (triage `37ddea1`, handoff `2eb98a5`, setup `7ddcbf4`). Review standard: T1 sin Medium → clean
+     close; coherencia limpia.
+   - Integración A (ff) → B (cherry-pick; lock re-sellado tras `recover-skill-bases.py` sobre el árbol integrado;
+     `This delivers:` 14 skills / 12 synced / 14 commands) → C (cherry-pick sin conflictos, Seal sin diff).
+   - Cierre: issues 08/09/10 `closed`; nota en el issue 16 (ver §4); 6 lecciones en `PARALELISMO-DEL-PROYECTO.md`.
+
+## 2. Tests
+
+`pwsh -NoProfile -File tests/run-all.ps1` sobre `6e1a0e9`: **SUITE VERDE — 27 suites, 0 rojas, 330 s.**
+`f48233e` sólo toca un `.md` de datos. Suites nuevas: `grilling-y-punteros` (245), `diagnosing-bugs` (78),
+`merge-triage-handoff-setup` (177). No hay rojos conocidos.
+
+## 3. Próximos pasos (en este orden)
+
+1. **Planear la ola 3**: 11 (wizard + to-questionnaire), 12 (research, resolving-merge-conflicts,
+   git-guardrails, writing-for-agents solo-repo, zoom-out fork propio), 16 (bundle downstream; leer la nota del
+   §4). Plantilla `PLAN-DE-OLA`, aprobación del usuario antes de despachar. Un solo dueño de
+   `This delivers:`/`$allow` (11, 12 y 16 suman skills). Base: `feat/bootstrap-v2` @ `f48233e`.
+2. **Lows reportados sin arreglar** (candidatos a un slice light, o a meterlos en la ola 3 por dueño):
+   - `setup-matt-pocock-skills/domain.md:11` nombra `/improve-codebase-architecture` (no se shipea), y las 3
+     plantillas de tracker traen "Wayfinding operations" (`/wayfinder`; `Status: claimed/resolved` choca con los
+     roles de triage). Misma clase: arreglar juntos.
+   - La description de `setup-matt-pocock-skills` (y su :63) nombra `diagnose`/`improve-codebase-architecture` → issue 13.
+   - El frontmatter de `review-loop`, `slice-review` y `tdd` NO pasa `yaml.safe_load` (`: ` dentro de
+     `Review-Rigor: light` sin comillas). Sin verificar si Claude Code lo tolera.
+   - `docs/TESTING.md:17`, `public/README.md:12` y `README.md:89-90` con conteos viejos (11 skills).
+   - Test del 08: el scan de `to-spec` no mira los commands; un comentario atribuye `fcf0071` en vez de `447ca70`.
+3. **Push de v2**: lo hace el usuario (`! gh auth switch -u southpointtech && git push ...`).
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **Issue 16**: `diagnosing-bugs` ya le cede el primer paso a `debug-source-first` para un dato que no llegó
+  **o llegó mal**, y retoma en la "failing transition". Al traer `debug-source-first` al scaffold hay que
+  conservar su extensión de valores equivocados y cambiar su paso 5 (hoy devuelve a systematic-debugging).
+- Sesión abierta en `main` ⇒ los agents `slice-review-*` NO están cargados: se despacharon como `Plan` con el
+  modelo de su frontmatter (opus/sonnet), y la mutación como `general-purpose`. **Un `Plan` tiene Bash**: el
+  pase de coherencia del 09 corrió suites pese al brief; mirar `git status` después de cada fan-out.
+- El marcador de review en worktrees de carril: `-Action range` devolvía `227a53d` (merge-base con `main`), no la
+  base del carril. Se usaron **rangos explícitos** (`<base>..<head>`), y `advance`/`close` igual.
+- `gen-manifest.ps1` sobre el árbol integrado cambia hashes de 7 archivos ajenos (bug de hashes crudos con
+  `autocrlf`); se declara en el commit. Los carriles difieren los manifests al orquestador.
+- `recover-skill-bases.py --upstream-clone C:\Users\marti\AppData\Local\Temp\claude\C--Repos-PERSONAL-Bootstrap-Skills\72fec20c-1905-4a46-b20c-8066f9fa806a\scratchpad\upstream`
+  (clon de `mattpocock/skills` @ `959a8e9`, sigue vivo) escribe `.scratch/bootstrap-v2/skill-bases.json`; después
+  `skills-lock.ps1 -Action Seal -Bases .scratch/bootstrap-v2/skill-bases.json`, y recién después `gen-manifest` ×3.
+- EOL: `PARALELISMO-DEL-PROYECTO.md` y `recuperar-base-de-skills.md` son LF en disco; `diagnosing-bugs` LF;
+  `domain-modeling` CRLF. Editar con un script que mide el EOL, hace match exacto (aborta si ≠1) y usa `os.replace`.
+- Commits con `git commit -F <archivo>`, y releer el mensaje. El heredoc de la Bash tool se rompe con ciertos
+  textos: escribir los archivos largos con la herramienta Write.
+
+---
+
 # Session Handoff — 2026-09-18 (cierre) — **Ola 1 INTEGRADA y CERRADA** en `feat/bootstrap-v2` (`628c84b` + `73d70d0`), `run-all.ps1` verde. Falta: traer `main` a v2 + un `/review-loop light`.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
