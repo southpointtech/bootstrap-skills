@@ -477,22 +477,6 @@ def _best_blobs(mine, bodies):
             best, tied = r, [oid]
         elif r == best and tied:
             tied.append(oid)
-    # Desempate por CARACTER, solo entre empatados de cuerpo DISTINTO. Por linea el ratio es
-    # 2M/T con enteros: dos versiones de upstream del mismo largo que difieren en una linea,
-    # contra una copia nuestra que edito esa misma linea, dan exactamente el mismo numero.
-    # Por caracter si se separan, y la que queda mas cerca es la que nuestra copia extiende.
-    # Sin esto el empate llega a `recover`, gana la aparicion mas vieja, y
-    # `tools/skills-lock.ps1 -Action Seal` rechaza la entrada por empate de cuerpos
-    # distintos. Si el caracter tambien empata, queda el empate de antes y decide un humano.
-    # Empates de cuerpo identico no pasan por aca: el caracter no tiene nada que separar.
-    if len(tied) > 1 and len({bodies[oid] for oid in tied}) > 1:
-        por_cuerpo = {}
-        for oid in tied:
-            if bodies[oid] not in por_cuerpo:
-                por_cuerpo[bodies[oid]] = difflib.SequenceMatcher(
-                    None, mine, bodies[oid], autojunk=False).ratio()
-        top = max(por_cuerpo.values())
-        tied = [oid for oid in tied if por_cuerpo[bodies[oid]] == top]
     return best, tied
 
 
@@ -723,11 +707,7 @@ def recover(upstream, skills_dir, names, threshold):
                            "Ver docs/agents/recuperar-base-de-skills.md" % MIN_LINEAS),
             "comparedOn": "cuerpo del SKILL.md sin frontmatter, fines de linea normalizados a LF, extremos recortados",
             "searchSpace": "todos los blobs */SKILL.md alcanzables en la historia publicada de upstream",
-            "tieBreak": ("ante empate de ratio entre blobs de cuerpo distinto, primero el "
-                         "ratio por CARACTER (difflib, autojunk=False) contra nuestra copia, "
-                         "solo entre los empatados; la similitud publicada sigue siendo la de "
-                         "linea. Si sigue el empate, o si los cuerpos empatados son identicos, "
-                         "la aparicion mas vieja "
+            "tieBreak": ("ante empate de ratio entre blobs distintos, la aparicion mas vieja "
                          "del contenido por commit time, en cualquier path; a igual segundo, "
                          "el commit mas viejo del log. `base.tieOnIdenticalBodies` dice si "
                          "TODOS los cuerpos empatados son identicos; en false, al menos dos "
@@ -806,9 +786,7 @@ _D_REDIT = "2026-03-06 10:00:00 +0000"     # dos renombres CON edicion, en un so
 # desempate se hiciera por path en vez de por instante, ganaria `colla` y el check lo ve.
 _D_COLL_VIEJA = "2026-03-07 10:00:00 +0000"   # collb
 _D_COLL_NUEVA = "2026-03-08 10:00:00 +0000"   # colla, un dia despues
-# Empate POR LINEA entre dos versiones distintas de upstream (issue 19, hallazgo B del
-# review). La mas vieja es V1; nuestra copia edito la linea que V2 ya habia pulido, asi que
-# la base correcta es V2 y el desempate por instante elegiria la otra.
+# Empate POR LINEA entre dos versiones distintas de upstream (issue 19). La mas vieja es V1.
 _D_RET_V1 = "2026-03-10 10:00:00 +0000"
 _D_RET_V2 = "2026-03-11 10:00:00 +0000"
 _D_M1 = "2026-03-12 10:00:00 +0000"
@@ -910,10 +888,11 @@ def _fixture_texts():
     t["COLL_B"] = t["COLL_LOCAL"].replace("numero 3.",
                                           "numero 3, variante B de la colision.")
     # Dos versiones de upstream con el MISMO numero de lineas que difieren en UNA, y una
-    # copia local que edito esa misma linea encima de la version nueva. Por linea las dos
-    # dan exactamente el mismo ratio (2M/T con los mismos enteros): ninguna linea editada
-    # coincide con nada. Por caracter la nueva esta mas cerca, porque nuestra linea la
-    # extiende. Es la forma normal de customizar: se tocan las lineas que upstream pule.
+    # copia local que edito esa misma linea. Por linea las dos dan exactamente el mismo
+    # ratio (2M/T con los mismos enteros): la linea editada no coincide con ninguna. Por
+    # caracter este par si se separa, pero no se desempata por caracter: el caracter mide
+    # que version comparte mas letras con nuestra linea, no de cual deriva, y una copia
+    # hecha sobre V1 puede quedar mas cerca de V2 si upstream pulio despues la misma linea.
     t["RET_V1"] = block("Renglon del cuerpo que upstream retoca despues, numero", 29)
     t["RET_V2"] = t["RET_V1"].replace("numero 3.", "numero 3, pulido por upstream.")
     t["RET_LOCAL"] = t["RET_V1"].replace(
@@ -1228,42 +1207,33 @@ def self_test():
                        (d(by, "collide", "base", "commitSubject") or "").startswith("commit 7:"),
                        (d(by, "collide", "base", "upstreamPath"),
                         d(by, "collide", "base", "commitSubject"))))
-        # --- retoque: empate POR LINEA que el caracter SI separa ---------------------------
-        # Con la metrica por linea, V1 y V2 empatan exacto contra nuestra copia; con la de
-        # caracter no. Si el empate llega a `recover`, gana la aparicion mas vieja (V1, la
-        # base equivocada) y `tieOnIdenticalBodies` sale false, con lo que
-        # `tools/skills-lock.ps1 -Action Seal` se niega a sellar. Se desempata por caracter
-        # SOLO entre los empatados de cuerpo distinto.
-        check("retoque: por LINEA las dos versiones empatan, por CARACTER no",
-              lambda: ((lambda l1, l2, c1, c2: (l1 == l2 == 0.9696969696969697 and c2 > c1,
-                                                (l1, l2, c1, c2)))(
+        # --- retoque: empate POR LINEA entre cuerpos distintos, EXPUESTO ------------------
+        # La metrica por linea hace este empate mas frecuente que la de caracter, y la
+        # tentacion es desempatarlo con una segunda metrica. No se hace: un empate entre
+        # cuerpos distintos lo decide un humano (`tieOnIdenticalBodies` false, y
+        # `tools/skills-lock.ps1 -Action Seal` se niega a sellar), porque elegir mal cambia
+        # el merge de tres vias. Estos checks fijan esa politica para la metrica nueva.
+        check("retoque: por LINEA las dos versiones empatan exacto (0.9697)",
+              lambda: ((lambda l1, l2: (l1 == l2 == 0.9696969696969697, (l1, l2)))(
                   similarity(body_of(_T["RET_LOCAL"]), body_of(_T["RET_V1"])),
-                  similarity(body_of(_T["RET_LOCAL"]), body_of(_T["RET_V2"])),
-                  difflib.SequenceMatcher(None, body_of(_T["RET_LOCAL"]),
-                                          body_of(_T["RET_V1"]), autojunk=False).ratio(),
-                  difflib.SequenceMatcher(None, body_of(_T["RET_LOCAL"]),
-                                          body_of(_T["RET_V2"]), autojunk=False).ratio())))
-        check("retoque: la base es V2, la que nuestra copia extiende, no la mas vieja",
-              lambda: ((d(by, "retoque", "base", "commitSubject") or "").startswith("commit 10:"),
-                       d(by, "retoque", "base", "commitSubject")))
-        check("retoque: el desempate por caracter no deja empate expuesto",
-              lambda: (d(by, "retoque", "base", "tiedCandidates") is None and
-                       d(by, "retoque", "base", "tieOnIdenticalBodies") is None,
+                  similarity(body_of(_T["RET_LOCAL"]), body_of(_T["RET_V2"])))))
+        check("retoque: el empate de cuerpos distintos queda EXPUESTO, no se desempata solo",
+              lambda: (d(by, "retoque", "base", "tieOnIdenticalBodies") is False and
+                       len(d(by, "retoque", "base", "tiedCandidates") or []) == 1,
                        d(by, "retoque", "base")))
-        check("retoque: la similitud publicada sigue siendo la de LINEA (0.9697)",
+        check("retoque: la base es la aparicion mas vieja (commit 9), por convencion",
+              lambda: ((d(by, "retoque", "base", "commitSubject") or "").startswith("commit 9:"),
+                       d(by, "retoque", "base", "commitSubject")))
+        check("retoque: la similitud publicada es la de LINEA (0.9697)",
               lambda: (d(by, "retoque", "similarity") == 0.9697,
                        d(by, "retoque", "similarity")))
-        check("method.tieBreak declara el desempate por CARACTER antes del instante",
-              lambda: ((lambda s: ("por CARACTER" in s and "autojunk=False" in s
-                                   and s.index("por CARACTER") < s.index("aparicion mas vieja"),
-                                   s))(d(report, "method", "tieBreak") or "")))
 
         # los tres contadores juntos: el resumen es lo que mira un humano al sellar el
         # lockfile, y hasta aca solo uno de los tres estaba asertado.
         check("el resumen cuenta los empates, los que NO son de cuerpo identico, y los "
               "ausentes del HEAD",
-              lambda: (d(report, "summary", "tiedOnDifferentBodies") == 1 and
-                       d(report, "summary", "tiedBestSimilarity") == 2 and
+              lambda: (d(report, "summary", "tiedOnDifferentBodies") == 2 and
+                       d(report, "summary", "tiedBestSimilarity") == 3 and
                        d(report, "summary", "goneFromUpstreamHead") == 2,
                        d(report, "summary")))
 
