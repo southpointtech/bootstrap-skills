@@ -233,6 +233,15 @@ One turn = one complete pass through these steps:
 5. For each bug fix, first write a test that **fails without the fix** — run it and watch it fail (RED)
    before writing the fix. A test that never failed is not a net. Then apply the fix, re-run the test,
    and run the relevant tests/typechecks.
+   Two ways a fix fails without anyone noticing:
+   - A scripted edit (`sed`, a regex or string replace) whose pattern does not match changes nothing
+     and still exits 0. Make it abort when the pattern is absent, and `grep` for the old text
+     afterwards: a commit must not claim a correction that never landed.
+   - The prose written to justify a fix is where the next finding comes from. Write only what you
+     checked: no claim you did not run, no single tidy mechanism for causes you did not verify one
+     by one, no count a reader cannot reconstruct, no history that was never committed. Re-read the
+     comment and the commit message **after** the fix is in, because the fix can refute its own
+     premise, and do not swap a true sentence for a false one while improving the wording.
 
 After step 5, begin the next turn back at step 1 — which now reviews only the fixes you just made. Stop when ANY of:
 
