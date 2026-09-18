@@ -155,39 +155,42 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 
 ## La ola vigente
 
-**Ola 1** · Aprobada por el dueño del repo el 2026-09-17 · Base `feat/bootstrap-v2` @ `c8bc726`.
+**Ola 2** · Aprobada por el dueño del repo el 2026-09-18 · Base `feat/bootstrap-v2` @ `b8c246c`.
 
-**Cerrada el 2026-09-18**: integrada en `feat/bootstrap-v2` @ `628c84b`, `run-all.ps1` verde (24 suites).
+La ola 1 (07, 15, 19) cerró el 2026-09-18 en `628c84b`; su plan quedó en el historial de este
+archivo (`git log -p`) y sus lecciones, abajo.
 
 | Carril | Slice | Dueño de | Caliente escrito a mano |
 |---|---|---|---|
-| **A** (camino crítico) | 07 — `to-prd` / `to-issues` con nuestros nombres | `.agents/skills/to-prd/` y `.agents/skills/to-issues/` (raíz + 3 scaffolds) | no |
-| **B** | 15 — reviewers como agents declarados | `.claude/agents/` (nuevo, ×4), `.agents/skills/slice-review/SKILL.md` y `.agents/skills/review-loop/SKILL.md` (×4) | **dueño** de `This delivers:` y de la allowlist `$allow` |
-| **C** | 19 — autojunk / métrica de similitud | `tools/recover-skill-bases.py`, `tests/recover-skill-bases.tests.ps1` y su fixture | no |
+| **A** (camino crítico) | 09 — `grilling` + `domain-modeling`, y `grill-me` / `grill-with-docs` como punteros | `.agents/skills/{grilling,domain-modeling,grill-me,grill-with-docs}/` y sus `.claude/commands/` (raíz + 3 scaffolds) | **dueño** de `This delivers:` y de la allowlist `$allow` |
+| **B** | 10 — `diagnosing-bugs` | `.agents/skills/diagnosing-bugs/` y su `.claude/commands/` (raíz + 3 scaffolds) | no: el diff que necesita en `This delivers:` va en su reporte |
+| **C** | 08 — merge de `triage`, `handoff` y `setup-matt-pocock-skills` | `.agents/skills/{triage,handoff,setup-matt-pocock-skills}/` y sus `.claude/commands/` (raíz + 3 scaffolds) | no: no suma skills, no toca `This delivers:` |
 
-Afuera: 08 a 12 por el techo de 3; 13 bloqueado por los seis; 14 es entero `CLAUDE.md` y va en
-serie entre olas; 16 bloqueado por el 10; 18 es HITL.
+Afuera: 11 y 12 por el techo de 3 (y los dos sumarían otra edición de `This delivers:`); 21 no
+es del camino crítico y entra en una ola posterior; 13 espera a 08–12; 14 es `CLAUDE.md` y va en
+serie entre olas; 16 espera al 10; 18 es HITL y va último. Con este reparto, la ola 3 es 11 + 12
++ 16 y la 4 es 13 + 21.
 
-Medido al repartir (2026-09-17):
+Medido al repartir (2026-09-18, contra el clon de upstream en `959a8e9`, cuerpo + auxiliares):
 
-- Ningún archivo aparece en dos filas.
-- El 19 no toca ningún scaffold: `git ls-files` ubica `tools/recover-skill-bases.py` y su suite
-  sólo en la raíz. No regenera manifest ni entra al espejado.
-- El 07 y el 15 tocan `skills-lock.json` porque su campo `files` hashea el `SKILL.md` de cada
-  skill, y `to-prd`, `to-issues`, `slice-review` y `review-loop` tienen entrada con `files`.
-  Por eso el lock es generado sin dueño y se re-sella una vez, al cerrar la ola.
-- `.claude/agents/` no existe hoy ni en la raíz ni en los tres scaffolds: el carril B lo crea.
-- **No medido**: la proyección de ~400 líneas de lógica de los tres. Cada carril la mide antes
-  de su primer test y para si se pasa.
+- `grilling` 31 líneas (2 archivos), `domain-modeling` 184 (4), `grill-me` y `grill-with-docs` 12
+  cada una (2).
+- `diagnosing-bugs` 185 (3).
+- `triage` 429 (4), `setup-matt-pocock-skills` 308 (7), `handoff` 21 (2).
+- Son cuerpos que se adoptan de upstream, copiados ×4; la lógica propia de cada carril
+  (`description`, punteros, lock, tests) es lo que se mide contra las ~400 líneas, y cada carril
+  la proyecta antes de su primer test.
+- Ningún archivo escrito a mano aparece en dos filas. `skills-lock.json` y los tres
+  `.bootstrap-manifest.json` los tocan los tres carriles: son generados, cada carril los sella en
+  su rama y el orquestador los re-sella sobre el árbol integrado.
 
-Dos cosas que la integración tiene que resolver:
+Lo que cada carril resuelve antes del primer test:
 
-1. El 19 «bloquea al 05», que ya está **cerrado**: su lockfile selló veredictos de la métrica
-   vieja. Al integrar el carril C hay que re-sellar y correr `tests/skills-lock.tests.ps1`, y
-   todo veredicto que cambie va explicado por escrito.
-2. `review-loop` y `slice-review` figuran en el lock como `fork-propio` sin base, mientras el
-   issue 19 los llama «hoy `unmatched`». Si la métrica nueva les recupera una base, eso es del
-   issue 12 (forks propios): el carril C lo anota y **no** reclasifica.
+- 09: dónde quedan alcanzables el formato de `CONTEXT.md` y el de ADR que hoy cuelgan de
+  `grill-with-docs` → técnica: la decide el carril.
+- 10: si la plantilla de loop con humano en el ciclo viaja al scaffold o se retira → la decide el
+  carril, por delegación del dueño del repo, y la deja dicha en la skill y en su reporte.
+- 08: nada abierto.
 
 ## Lo que dejó la ola N
 
