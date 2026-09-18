@@ -155,7 +155,9 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 
 ## La ola vigente
 
-**Ola 2** · Aprobada por el dueño del repo el 2026-09-18 · Base `feat/bootstrap-v2` @ `b8c246c`.
+**Ola 2** · Aprobada por el dueño del repo el 2026-09-18 · Base `feat/bootstrap-v2` @ `2957532` (el commit de este plan, sobre `b8c246c`).
+
+**Cerrada el 2026-09-18**: integrada en `feat/bootstrap-v2` @ `6e1a0e9`, `run-all.ps1` verde (27 suites).
 
 La ola 1 (07, 15, 19) cerró el 2026-09-18 en `628c84b`; su plan quedó en el historial de este
 archivo (`git log -p`) y sus lecciones, abajo.
@@ -193,6 +195,28 @@ Lo que cada carril resuelve antes del primer test:
 - 08: nada abierto.
 
 ## Lo que dejó la ola N
+
+### Ola 2 (09, 10, 08), cerrada el 2026-09-18
+
+- **Los tres review-loops cerraron limpios** (09 y 10 en el turno 2, 08 en el turno 1), a diferencia
+  de la ola 1, donde los tres cerraron por tope. Cada uno tuvo un solo Medium real o ninguno; el
+  resto de los hallazgos cayeron en el scorer como Low o como diseño preexistente.
+- **Integrar en el orden de las dependencias de prosa.** El 08 adoptó el cuerpo de `triage`, que
+  llama a `grilling` y `domain-modeling`, que trae el 09. Integrar A → B → C dejó cada nombre
+  existiendo antes de que entrara quien lo nombra. Las referencias de prosa entre carriles de la
+  misma ola no violan el reparto, pero fijan el orden de integración.
+- **Lo que un carril difiere al orquestador va en el brief de la coherencia.** El 10 difirió los
+  manifests, como manda la regla de generados, y el pase de coherencia lo reportó como Medium
+  («half-wired»). No era un defecto: el brief no le decía que estaba declarado.
+- **`gen-manifest` sobre el árbol integrado cambia hashes de archivos ajenos** (siete, por el fin de
+  línea en disco: el bug conocido de hashes crudos con `autocrlf`). Que los carriles difieran los
+  manifests evita ese ruido en cada rama y lo deja en un solo commit de integración, declarado.
+- **Los mutantes por AÑADIDO sobreviven a los tests del carril y los mata el hash del lockfile.**
+  Pasó en los tres. El scorer lo clasificó como diseño (el lockfile es el golden de las skills
+  adoptadas), no como hueco del slice: agregar anclas no es el arreglo.
+- **Un agente `Plan` tiene `Bash`, y el pase de coherencia del 09 corrió las suites** aunque el brief
+  decía «no ejecutes nada». No ensució el árbol, pero la prohibición en prosa no alcanza: sin los
+  agents declarados cargados (sesión abierta en `main`), el único freno es mirar el árbol después.
 
 ### Ola 1 (07, 15, 19), cerrada el 2026-09-18
 
