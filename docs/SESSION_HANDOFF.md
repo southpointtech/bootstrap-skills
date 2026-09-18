@@ -1,3 +1,224 @@
+# Session Handoff — 2026-09-18 (noche) — **Carril C (issue 19) REVISADO**, cerrado por TOPE con pase de coherencia (`a5522a1`). **Los tres carriles de la ola 1 están revisados. Próximo paso: INTEGRAR.** Ningún merge todavía.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`. ⚠️ **`main` avanzó por OTRA sesión** después de
+  `5a93bdc`: `51f5e14` + `f73d65b` (rama `fix/reglas-de-escritura-del-parche`: las reglas de escritura
+  del PARCHE entran al **paso 5 de `review-loop`** en las 3 skills espejadas + manifests resellados + un
+  test que ancla las reglas) y `dd3fdf6` (`CHANGELOG.md`, v1.0.0). **Ya pusheado**: `origin/main` = `dd3fdf6`,
+  tag `v1.0.0`. El único commit sin pushear es el de este handoff.
+  Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ `c6b08fc`, sin cambios.
+  **No tiene** los 3 commits nuevos de `main`. Traerlos a v2 es una decisión pendiente (ver §4).
+- **Carriles** (todos salieron de `98a8f36`; al integrar se rebasan sobre `c6b08fc`):
+
+  | Carril | Issue | Worktree | HEAD | Review |
+  |---|---|---|---|---|
+  | A | 07 | `C:\Repos\PERSONAL\carriles\Bootstrap Skills\slice-07` | `9813b37` | OK tope + coherencia |
+  | B | 15 | `...\slice-15` | `a5f30d9` | OK tope + coherencia limpia |
+  | C | 19 | `...\slice-19` | **`a5522a1`** | OK **tope + coherencia (esta sesión)** |
+
+- Árboles de los tres worktrees de carril: limpios. **Marcador del slice-19: `069ca95`**. `a5522a1` es el
+  fix del turno tope y **no lo revisó ningún turno**. No se corrió `-Action close` y no hay ancla `slice-open`.
+
+## 1. Review-loop del carril C — lo que pasó
+
+Rigor `standard`, rango explícito `98a8f36`, sin `--code-review`. Los focos se despacharon como
+`general-purpose` (opus para bugs/contratos/tests/mutación/scorers, sonnet para reglas/historia/coherencia).
+
+| Turno | Rango | Focos | Medium reales | Commit |
+|---|---|---|---|---|
+| 1 | `98a8f36..a499e25` | 5 + mutación | 5 (A–E) | `069ca95` |
+| 2 | `a499e25..069ca95` | 5 | 1 (P: el fix de B del turno 1) | `a5522a1` (revert) |
+| coherencia | `98a8f36..a5522a1` | 1 (sonnet) | 0 nuevos (repitió el Low G) | — |
+
+**Arreglado (`069ca95`, se mantiene):**
+- **C**: `autojunk=False` en las dos ramas de `_matcher` → checks contra literal (rama carácter 0.1743,
+  prendido 0.0207; rama línea 0.9940, prendido 0.0040).
+- **D**: el piso sobre el lado MÁS CORTO (`min`) → checks 1 línea vs 12 en los dos órdenes (0.3949).
+- **E**: el valor 10 de `MIN_LINEAS` → la frontera 10/9 y `method.similarity` usan literales.
+- **A** (declarado, NO arreglado): la métrica por línea cuenta cada línea entera como distinta; un término
+  renombrado en muchas líneas la hunde. Medido por el scorer: `tdd` con `s/test/spec/` da 0.4675 por línea
+  (`unmatched`) y 0.7019 con la métrica vieja. **Es una regresión del delta en ese patrón**, aceptada como
+  costo. Declarado en el docstring de `_matcher`, en `method.similarity` y en el comentario de `recover()`,
+  con un check `limite declarado` que congela un sintético (20 líneas renombradas: 0.0 por línea). La
+  variante "re-puntuar por carácter bajo el umbral" se rechazó por costo.
+- Los 8 mutantes que sobrevivían (max, len_la, len_lb, piso 2/5/11, autojunk por rama) caen.
+
+**Revertido (`a5522a1`):** el turno 1 había agregado en `_best_blobs` un desempate por carácter entre
+empatados de cuerpo distinto (hallazgo B: por línea, dos versiones del mismo largo que difieren en una
+línea empatan exacto y `skills-lock.ps1 -Action Seal` rechaza). El turno 2 lo tumbó (scorer 95):
+elige la base equivocada **en silencio** (copia hecha sobre V1 + upstream que después pule la misma
+línea → por carácter gana V2), revierte la política deliberada "un empate entre cuerpos distintos lo
+decide un humano" (`900ba7f`, `16c559a`, `72e742f`, `3aef799`, `skills-lock.ps1:157`,
+`recuperar-base-de-skills.md:144-169`) y llevaba la corrida real de 7 s a 35 s. **`_best_blobs` y
+`method.tieBreak` quedaron byte-idénticos a `a499e25`** (verificado con diff). El hallazgo B se
+reclasifica: el rechazo de Seal es el diseño. El fixture `retoque` quedó y ahora **fija** esa política
+(empate expuesto, base = aparición más vieja, `tiedOnDifferentBodies` 2, `tiedBestSimilarity` 3).
+
+**Low sin tocar:** docstring de `_matcher` dice **107,1 s** y el commit `a499e25` **109,1 s** (el reporte
+del carril dice 109,1 en dos lugares; lo vieron 3 focos + coherencia); "para que la funcion sea
+simetrica" es falso (el ratio no es simétrico: 1.660 de 4.554 pares difieren); el control "APENDEADO" pega
+dos líneas (víctima sin `\n` final); el check "comparada por LINEA daria 0.0" y la mitad `0.9080` del
+`limite declarado` llaman a `difflib` directo; los controles ya no atribuyen causa; la unidad se decide
+por par (escalas mezcladas en un ranking); "de 0.9517 a 0.3361" (0.9517 es el apendeado); el generador
+`autojunk-par.gen.py` sale siempre 0; los checks de prosa de `method.similarity` sólo buscan presencia;
+`recover()` "tambien cae aca" debería decir "puede caer". Techo: ~342 líneas de lógica (455 con el
+generador) + ~60 de los fixes; la regla no exige declararlo.
+
+## 2. Tests corridos (en `slice-19` @ `a5522a1`)
+
+Exit 0: `recover-skill-bases` (**149** aserciones, `$ExpectedChecks = 149`), `mirror`, `shareable-leaks`,
+`temp-hygiene`, `skills-lock`. **`run-all.ps1` NO se corrió** en ningún carril. Mutantes medidos en
+memoria (exec del fuente modificado), nunca editando el worktree.
+
+## 3. Integración de la ola 1 — el procedimiento
+
+1. Rebasar A → B → C sobre `c6b08fc` (reescribe SHAs), en ese orden, cada uno con su suite.
+   Posibles conflictos: `tests/recover-skill-bases.tests.ps1` sólo lo toca el C; `skills-lock.json`
+   y los manifests los tocan A y B (generados: tomar cualquier lado y volver a correr la herramienta).
+2. **Aplicar los diffs de docs del carril C (§5 abajo), CON las correcciones de esta sesión:**
+   - `docs/TESTING.md`: **149** aserciones, no 139.
+   - `docs/agents/recuperar-base-de-skills.md`, sección nueva de la métrica: **sumar el límite A** (renombre
+     repartido en muchas líneas; `tdd` `s/test/spec/` 0.4675 vs 0.7019; declarado, no arreglado) y
+     el párrafo del empate (§(d) no lo cubre): la métrica por línea hace más frecuentes los empates entre
+     cuerpos distintos y **se mantienen expuestos a propósito** (fixture `retoque`).
+   - En (f), `125` → **149**, no 139.
+3. Los agregados a `docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md` que dejó el carril B (bloques `fan-out`
+   y `agents` de `reseal-step5.ps1`; aviso de que tocar Step 3/4 de slice-review o un agent mueve goldens).
+4. **Una** corrida de `tools/gen-manifest.ps1 -SkillDir skills/<bootstrap-x>` ×3; **un**
+   `tools/skills-lock.ps1 -Action Seal` + `-Action Verify` sobre el árbol integrado; resellar
+   `fan-out`/`agents`/`step5`/`tdd-loop` sólo si el test lo pide, mirando el diff.
+   El issue 19 "bloquea al 05": el `skill-bases.json` real **no cambia ningún veredicto** (medido por el
+   foco de contratos contra `959a8e9f`: summary idéntico), así que el Seal no debería mover `base`.
+5. `run-all.ps1` completo verde sobre `feat/bootstrap-v2`, con SHA anotado.
+6. Cerrar 07/15/19 citando el SHA de `feat/bootstrap-v2` (`- **Status**: closed (...)` en
+   `.scratch/bootstrap-v2/issues/NN-*.md` del worktree v2).
+7. «Lo que dejó la ola 1» en `PARALELISMO-DEL-PROYECTO.md`; `git worktree remove` de los tres (ramas no se borran).
+8. AC pendiente del issue 15 («una corrida real del loop deja el árbol sin cambios»): cumplirlo en el
+   primer review-loop real post-merge comparando `git status --porcelain` + `git stash create` antes y
+   después del fan-out.
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **`main` tiene cambios al paso 5 de `review-loop` que `feat/bootstrap-v2` no tiene** (`51f5e14`,
+  `f73d65b`). v2 también toca el motor del review (issue 15, goldens `step5`/`fan-out`/`agents` en
+  `tools/reseal-step5.ps1`). Antes o después de integrar la ola 1, hay que decidir cómo entra `main` a
+  v2 (merge/rebase de v2 sobre `main`), y eso casi seguro mueve el golden `step5`: resellar SOLO con
+  `tools/reseal-step5.ps1`, mirando el diff. **Preguntar al usuario el orden** (es decisión de flujo).
+- Los agents `slice-review-*` no existen para una sesión abierta en `main` hasta integrar el B y abrir
+  sesión nueva: despachar focos como `general-purpose` con modelo explícito.
+- Editar archivos del carril: son **CRLF en disco** (`i/lf w/crlf`). Esta sesión editó con scripts
+  Python que normalizan a LF, reemplazan con match exacto (abortan si no es 1) y reescriben CRLF.
+- Commits con `git commit -F <archivo>` y releer el mensaje.
+- El hook `review-loop-trigger` no dispara en los commits de los worktrees de carril desde una sesión con
+  cwd en `main`: no depender de él.
+- El clon de upstream para medir (`959a8e9f`, 414 blobs) vive en un scratchpad de otra sesión:
+  `C:\Users\marti\AppData\Local\Temp\claude\C--Repos-PERSONAL-Bootstrap-Skills\72fec20c-1905-4a46-b20c-8066f9fa806a\scratchpad\upstream`
+  (efímero; sin él la herramienta clona sola con red).
+
+## 5. Diff de docs que entregó el carril C (texto original de su reporte; aplicar CON las correcciones de §3.2)
+
+Dos archivos quedan afirmando cosas que la métrica nueva vuelve falsas.
+
+#### `docs/TESTING.md` línea 668 — una palabra
+
+```
+- `tools/recover-skill-bases.py` (125 aserciones sobre un repo de git sintético, sin red). Antes ese
++ `tools/recover-skill-bases.py` (139 aserciones sobre un repo de git sintético, sin red). Antes ese
+```
+
+#### `docs/agents/recuperar-base-de-skills.md` — seis lugares
+
+**(a) línea 66** (costo en el párrafo del pre-flight):
+
+```
+- cuesta entre 81 s y 98 s con el clon ya hecho (medido) y un error de invocación no debe costar eso —
++ cuesta ~6 s con el clon ya hecho (medido el 2026-09-17; eran ~109 s antes de que el issue 19
++ cambiara la métrica) y un error de invocación no debe costar ni eso —
+```
+
+**(b) líneas 80-86**, el bullet **Tiempo**, reemplazo completo:
+
+```
+- **Tiempo.** Medido el 2026-09-17 en la máquina de Martín, contra `mattpocock/skills` en
+  `959a8e9f` (414 blobs `*/SKILL.md` en toda la historia), con el clon ya hecho:
+  - 11 skills: **6,0 / 6,1 / 6,2 s** en tres corridas.
+  - La misma invocación con la herramienta de antes del issue 19 —métrica por carácter— daba
+    **109,1 s**, back-to-back contra el mismo clon. La medición vieja (2026-08-28, `6654f6b`,
+    413 blobs) decía ~1 m 22 s.
+
+  Cada skill local se compara contra los 414 blobs, así que el grueso del tiempo sigue siendo la
+  comparación, no el clon; lo que la abarató es tokenizar por línea.
+```
+
+**(c) líneas 118-120**, el campo `similarity`: donde dice *"el ratio de `difflib.SequenceMatcher` sobre el cuerpo"* → **"el ratio de `difflib.SequenceMatcher` sobre las **líneas** del cuerpo (por carácter si el cuerpo más corto del par tiene menos de 10 líneas; ver *La métrica*)"**.
+
+**(d) toda la sección `### La métrica y su límite: autojunk` (líneas 192-233)** hay que reescribirla: hoy dice *"La similitud es …`.ratio()` con el `autojunk` de la librería activo"*, trae una tabla de `autojunk` on/off y cierra con **"No se apaga … Cambiar la métrica —tokenizar por línea— es el issue 19"**. Las tres cosas son falsas ahora. Texto de reemplazo propuesto:
+
+```markdown
+### La métrica: se compara por línea
+
+La similitud es `difflib.SequenceMatcher(...).ratio()` sobre las **líneas** del cuerpo
+(`cuerpo.splitlines()`), con `autojunk=False`. Cuando el cuerpo **más corto** del par tiene menos de
+**10 líneas** se compara por **carácter**, también con `autojunk=False`.
+
+**Por qué no por carácter.** El `autojunk` de la librería saca del índice los elementos que aparecen
+en más de `len(b)//100 + 1` posiciones de `b` cuando `len(b) >= 200`: sobre markdown comparado
+carácter a carácter, las letras comunes. Esos elementos no pueden **sembrar** un match, y con un
+bloque de prosa **prependido** la alineación no se vuelve a sembrar. Medido sobre el par congelado en
+`tests/fixtures/autojunk-*.txt` (el cuerpo de `setup-matt-pocock-skills`, 6.269 caracteres, con 637
+prependidos): por carácter da **0,3361** —y 0,3347 con los argumentos al revés—, los dos **bajo el
+umbral de 0,60**. El mismo bloque **apendeado** da 0,9517, así que el disparador es la **posición**
+del drift, no su contenido ni el largo del cuerpo. Por línea ese par da **0,9091** en las dos
+direcciones.
+
+**Por qué el piso de 10 líneas.** Con N líneas, una línea distinta mueve el ratio exactamente 1/N.
+Debajo de 10 líneas una sola línea vale más de 0,10 —más de un cuarto de la distancia entre el 1,0
+de un cuerpo intacto y el umbral de 0,60— y con **una sola** línea la comparación por línea deja de
+ser una similitud y pasa a ser una igualdad: 1,0 o 0,0. Es el caso de `zoom-out` (169 caracteres, una
+línea): sin el fallback, el día que alguien le corrija una palabra la herramienta publicaría 0,0 y
+`unmatched`. El piso se mide contra el lado más corto para que la función sea simétrica.
+
+**Por qué `autojunk=False`, y qué cuesta.** Sobre la ruta por línea hoy es inerte: ningún blob
+`*/SKILL.md` de upstream llega a 200 líneas (máximo medido: 176 de 414). Ponerlo evita que se active
+solo cuando upstream crezca. Sobre el **fallback por carácter no es inerte**: medido el 2026-09-17
+sobre el reporte entero, las once similitudes publicadas y las once bases salen idénticas prendido o
+apagado, pero las pistas de sucesor de `zoom-out` cambian de orden y de contenido — prendido encabeza
+`grill-with-docs` con 0,2060 y `wait-what` queda tercera con 0,0591; apagado encabeza `wait-what` con
+0,2273. Cuál de las dos listas orienta mejor a un humano no se midió. Apagarlo cuesta 2,8 s:
+`recover()` en proceso tarda 2,8 s prendido y 5,6 s apagado.
+
+**El número depende de la unidad, no sólo del contenido.** Cambiar la tokenización mueve todos los
+valores publicados sin que cambie un byte de las skills. Al pasar de carácter a línea (2026-09-17,
+contra `959a8e9f`): `review-loop` 0,0284 → 0,2562, `slice-review` 0,0187 → 0,1916, `tdd` 0,7287 →
+0,8052, `to-issues` 0,9466 → 0,9873; las siete de cuerpo idéntico siguen en 1,0. **Ningún veredicto
+se movió**: las nueve `recovered` conservan blob, commit y path, los tres empates son los mismos y el
+`summary` es idéntico.
+```
+
+**(e) líneas 262-265**, las similitudes de los pares del bloque *Lo que la herramienta NO decide*, re-medidas hoy con la métrica nueva:
+
+```
+- `to-issues` ↔ `to-tickets` **0,2449**; `zoom-out` ↔ `wait-what` **0,0591** — y el candidato más
+- parecido a `zoom-out` en el HEAD de upstream no es `wait-what` sino `grill-with-docs`, con 0,2060,
+- que es tan falso como el otro.
++ `to-issues` ↔ `to-tickets` **0,5537**; `zoom-out` ↔ `wait-what` **0,2273** (medido el 2026-09-17
++ con la métrica por línea; con la de carácter daban 0,2449 y 0,0591). Con la métrica nueva
++ `wait-what` **sí** encabeza la lista de `zoom-out`, seguida de `implement` (0,2090) y
++ `grill-with-docs` (0,2060) — con la vieja encabezaba `grill-with-docs`. Que encabece no la
++ confirma: sigue siendo *unconfirmed*, y el mapeo lo firma un humano en ADR-0006.
+```
+
+**(f) líneas 336-345 y 366-367**, la sección *Resultado conocido* y la de verificación:
+
+- La tabla (medida contra `6654f6b`) **no la re-medí**: hay que aclararle a la columna `similitud` que está medida **con la métrica por carácter**, y que los valores de hoy son otros. No inventé los reemplazos.
+- La nota de después del merge del issue 06: *"da para `tdd` … similitud 0,7287"* → **0,8052** (medido hoy, mismo blob `8fc08671`, mismo commit `32165827`).
+- El párrafo que dice *"`review-loop` con 0,0308 … `slice-review` con 0,0202 … **deprimidos por `autojunk`** … sin el heurístico dan 0,1305 y 0,1101"* → hoy dan **0,2562** y **0,1916** con la métrica por línea. Además, medido: el blob que gana para las dos pasa de `d9252f34` (`skills/engineering/wayfinder/SKILL.md`) a un empate entre `c679eecc` y `b1603e5a` (los dos en `skills/productivity/teach/SKILL.md`). **Ese blob no se publica** (una entrada `unmatched` no emite `base`), así que el reporte no cambia por eso.
+- Línea 366-367: `**125 afirmaciones**` → `**139 afirmaciones**`.
+
+---
+
 # Session Handoff — 2026-09-18 (tarde) — **Carril B (issue 15) REVISADO**, cerrado por TOPE con pase de coherencia limpio (`a5f30d9`). Carril C (19) sigue **SIN REVISAR**. **Ningún merge todavía.**
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
