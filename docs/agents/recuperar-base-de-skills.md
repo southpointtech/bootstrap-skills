@@ -347,21 +347,8 @@ Después del merge del issue v2 06, la misma corrida contra `6654f6b` da para `t
 el commit `32165827` (2026-08-19) y similitud 0,7287 (medido el 2026-09-16). La fila de arriba queda
 como registro de antes del merge.
 
-**Después de los issues 07 y 19** (medido el 2026-09-18 contra `959a8e9f`, métrica por línea):
-`to-prd` y `to-issues` adoptaron el cuerpo de upstream (issue 07) y la métrica pasó a línea (issue
-19). Siete skills siguen en 1,0 con la misma base. `tdd` conserva `8fc08671` con 0,8052; `to-prd`
-conserva `e5f11413` con 0,9565.
-
-`to-issues` **cambia de base**: `4a21285c` (`6a34259e`, 2026-08-15) → `e868c831` (`32165827`,
-2026-08-19, *Remove all em-dashes from the repo*), las dos en `skills/engineering/to-tickets/SKILL.md`.
-La nueva es la correcta: `e868c831` es el blob del HEAD de upstream y nuestro cuerpo no tiene ninguno
-de los em-dashes que `32165827` sacó, así que salió de esa versión. La métrica por carácter elegía la
-anterior (0,7793 contra 0,6878 por línea) y con ella quedó sellada al cerrar el issue 07; la de línea
-la corrige. El 0,6878 es bajo para un cuerpo adoptado entero porque le re-aplicamos nuestros nombres
-(`issue` por `ticket`) en muchas líneas: es el límite de la métrica, ver *La métrica*.
-
-Siete cuerpos intactos, y las dos con drift real (`tdd` y `to-issues`) son exactamente las dos
-modificaciones que ya estaban documentadas.
+En la tabla, siete cuerpos intactos, y las dos con drift real (`tdd` y `to-issues`) son exactamente
+las dos modificaciones que ya estaban documentadas.
 
 Tres de las nueve —`handoff`, `to-issues`, `zoom-out`— tienen el mismo cuerpo repartido en dos blobs,
 y las tres reportaban `221ffca9` (2026-06-12), que es el **más nuevo** de los dos. Ese commit toca
@@ -378,6 +365,19 @@ Las skills propias del scaffold que están en el mismo directorio salen `unmatch
 similitud y `slice-review` con 0,0202, medidos con la métrica por carácter, que los deprimía con
 `autojunk`. Con la métrica por línea (2026-09-18) dan 0,2562 y 0,1875. El veredicto es el mismo:
 todos quedan lejos del umbral de 0,60. Ver *La métrica*.
+
+**Después de los issues 07 y 19** (medido el 2026-09-18 contra `959a8e9f`, métrica por línea):
+`to-prd` y `to-issues` adoptaron el cuerpo de upstream (issue 07) y la métrica pasó a línea (issue
+19). Seis skills siguen en 1,0 con la misma base: las siete de la tabla menos `to-prd`. `tdd`
+conserva `8fc08671` con 0,8052; `to-prd` conserva `e5f11413` con 0,9565.
+
+`to-issues` **cambia de base**: `4a21285c` (`6a34259e`, 2026-08-15) → `e868c831` (`32165827`,
+2026-08-19, *Remove all em-dashes from the repo*), las dos en `skills/engineering/to-tickets/SKILL.md`.
+La nueva es la correcta: `e868c831` es el blob del HEAD de upstream y nuestro cuerpo no tiene ninguno
+de los em-dashes que `32165827` sacó, así que salió de esa versión. La métrica por carácter elegía la
+anterior (0,7793 contra 0,6878 por línea) y con ella quedó sellada al cerrar el issue 07; la de línea
+la corrige. El 0,6878 es bajo para un cuerpo adoptado entero porque le re-aplicamos nuestros nombres
+(`issue` por `ticket`) en muchas líneas: es el límite de la métrica, ver *La métrica*.
 
 ## Verificación
 
