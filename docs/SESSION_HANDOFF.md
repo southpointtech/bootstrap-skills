@@ -1,3 +1,78 @@
+# Session Handoff — 2026-09-18 (cierre) — **Ola 1 INTEGRADA y CERRADA** en `feat/bootstrap-v2` (`628c84b` + `73d70d0`), `run-all.ps1` verde. Falta: traer `main` a v2 + un `/review-loop light`.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `0dee1df` + el commit de este handoff
+  (sin pushear). `origin/main` = `dd3fdf6`, tag `v1.0.0`. Untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`73d70d0`**, árbol limpio,
+  **local, sin pushear**:
+  ```
+  73d70d0 docs(carriles): la ola 1 queda cerrada en 628c84b, con lo que dejo
+  628c84b chore(ola-1): integracion de 07, 15 y 19 — docs de la metrica, generados re-sellados y base de to-issues corregida
+  (11 cherry-picks de los carriles A, B, C sobre c6b08fc)
+  ```
+- **Worktrees de carril: REMOVIDOS.** Las ramas `slice/07-to-prd-y-to-issues`, `slice/15-reviewers-agents`,
+  `slice/19-autojunk-similitud` se conservan con los SHAs revisados (`9813b37`, `a5f30d9`, `a5522a1`).
+- **Issues 07, 15, 19: `closed`** citando `628c84b` (en `.scratch/bootstrap-v2/issues/` del worktree v2, gitignoreado).
+- **Estado v2**: cerrados 01–07, 15, 17, 19, 20. Pendientes: 08–12 (desbloqueados), 14 (desbloqueado, va en
+  serie: es `CLAUDE.md`), 21 (sin dependencias), 13 (espera 07–12), 16 (espera 10), 18 (último).
+
+## 1. Qué se hizo en esta sesión (decisión del usuario: ola 1 primero, `main` después)
+
+1. Cherry-pick A → B → C sobre `c6b08fc` en el worktree v2 (no rebase: las ramas de carril quedan como
+   registro). Cero conflictos; `skills-lock.json` (único archivo compartido, A∩B) se auto-mergeó.
+   Suites de cada carril verdes tras cada entrada.
+2. Docs del carril C aplicados con correcciones, **todos los números re-medidos hoy** contra `959a8e9f`
+   (clon en `...\72fec20c-...\scratchpad\upstream`, sigue vivo):
+   `docs/TESTING.md` 125→149; `docs/agents/recuperar-base-de-skills.md`: sección nueva «La métrica: se compara
+   por línea» (incluye límite A: `tdd` `s/test/spec/` 0,4675 línea vs 0,7019 carácter, 15/44 líneas; y empates
+   expuestos a propósito), tiempos 5,6/5,7/5,7 s nueva vs 94,5 s vieja, similitudes, nota «Después de los
+   issues 07 y 19».
+3. **Veredicto que cambió (el handoff anterior predecía que no):** base de `to-issues` `4a21285c` (`6a34259e`)
+   → `e868c831` (`32165827`, HEAD de upstream). La nueva es la correcta: nuestro cuerpo no tiene los
+   em-dashes que `32165827` sacó. El carril A la había sellado mal con la métrica por carácter; la predicción
+   del C se midió sin el A. Seal no movió otra base y conservó el mapeo `upstream-vivo`.
+4. Generados: `recover-skill-bases.py --upstream-clone <clon>` → `skills-lock.ps1 -Action Seal -Bases
+   .scratch/bootstrap-v2/skill-bases.json` + `Verify` OK; `gen-manifest.ps1` ×3 (suman los 7 agents).
+   Goldens `fan-out`/`agents`/`step5`/`tdd-loop` `-Check` OK sin resellar.
+5. `PARALELISMO-DEL-PROYECTO.md`: bloques `fan-out`/`agents` en la lista de goldens; ola 1 marcada cerrada;
+   «Lo que dejó la ola 1» con 4 lecciones.
+
+## 2. Tests
+
+`pwsh -NoProfile -File tests/run-all.ps1` sobre `628c84b`: **SUITE VERDE — 24 suites, 0 rojas, 293 s.**
+`73d70d0` sólo toca un `.md` de datos (no re-corrido). No hay tests rojos conocidos.
+
+## 3. Próximos pasos (en este orden)
+
+1. **Traer `main` a v2** (`51f5e14` + `f73d65b`: reglas de escritura del PARCHE en el paso 5 de
+   `review-loop` ×3 skills + manifests + test; y `dd3fdf6` CHANGELOG). Desde el worktree v2:
+   `git merge main` (v2 ya tiene 3 merge commits propios desde el merge-base `2245efd`, así que un merge es consistente). Conflictos
+   probables: `review-loop` SKILL ×8 copias (v2 los tocó en el issue 15), manifests y `skills-lock.json`
+   (generados: resolver con cualquier lado y re-correr herramienta). **Golden `step5` casi seguro se mueve:
+   resellar SOLO con `tools/reseal-step5.ps1 -Block step5`, mirando el diff.** Después: `Seal` + `Verify`,
+   `gen-manifest` ×3, `run-all.ps1` verde con SHA.
+2. **Un `/review-loop` con `Review-Rigor: light`** sobre `c6b08fc..HEAD` de v2 (integración + merge de main),
+   rango explícito. Motivo: `628c84b` reescribe `docs/agents/recuperar-base-de-skills.md` (archivo que gobierna
+   al agente) con afirmaciones nuevas mías, y nadie lo revisó. Aprovechar para cumplir el **AC pendiente del
+   issue 15**: `git status --porcelain` + `git stash create` antes y después del fan-out → árbol sin cambios.
+   Si la sesión se abre en `main`, los agents `slice-review-*` no existen: despachar `general-purpose`/`Plan` con modelo explícito.
+3. **Planear la ola 2**: 08–12 + 21 (4–6 carriles; incluir 10 porque destraba 16). 14 en serie.
+   Usar `PLAN-DE-OLA` y aprobación del usuario antes de despachar.
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- `recuperar-base-de-skills.md` y `PARALELISMO-DEL-PROYECTO.md` son **LF en disco** en v2; `TESTING.md` CRLF.
+  Editar con script que mide EOL, match exacto (aborta si ≠1) y `os.replace`.
+- `tools/reseal-step5.ps1 -?` **no muestra ayuda: resella `step5`** (pasó hoy; el hash no cambió, sólo EOL, se restauró).
+- `skills-lock.ps1 -Action Seal -Bases` pide la ruta: `-Bases .scratch/bootstrap-v2/skill-bases.json`.
+- Commits con `git commit -F <archivo>` y releer el mensaje.
+- El hook `review-loop-trigger` no dispara en commits de v2 desde una sesión con cwd en `main`.
+- Push de este repo: `! gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703` (lo hace el usuario).
+
+---
+
 # Session Handoff — 2026-09-18 (noche) — **Carril C (issue 19) REVISADO**, cerrado por TOPE con pase de coherencia (`a5522a1`). **Los tres carriles de la ola 1 están revisados. Próximo paso: INTEGRAR.** Ningún merge todavía.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
