@@ -10,6 +10,21 @@
     "head": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260"
   },
   "skills": {
+    "diagnosing-bugs": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/diagnosing-bugs/SKILL.md",
+      "base": {
+        "blob": "061c25a524acaa93d4534e9e08a793c0a5fe45fd",
+        "upstreamPath": "skills/engineering/diagnosing-bugs/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529"
+      }
+    },
     "domain-modeling": {
       "source": "https://github.com/mattpocock/skills.git",
       "upstreamState": "upstream-vivo",
