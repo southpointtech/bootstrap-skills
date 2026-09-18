@@ -123,6 +123,18 @@ foreach ($r in $roots) {
       Assert (($iOpen -gt $iRange) -and ($iAdvance -gt $iOpen)) "$($r.Name): $rel captura slice-open después del rango y antes del advance"
       Assert (($iRange -ge 0) -and ($iReview -gt $iRange)) "$($r.Name): $rel pide el rango antes de la corrida de review"
       Assert (($iReview -ge 0) -and ($iAdvance -gt $iReview) -and ($iFix -gt $iAdvance)) "$($r.Name): $rel avanza el marcador después del review y antes de los fixes"
+      # Las reglas de escritura del paso 5 (reglas 4 y 5b del PARCHE de prosa). Se anclan las
+      # oraciones enteras que mandan, no una palabra: invertir el consejo ("do not make it abort",
+      # "do not `grep`") tiene que romper el match, y un `sed` suelto sobrevive a eso. Y van
+      # DENTRO del paso 5: después del RED y antes de "After step 5".
+      $iAbort  = Idx $steps '0\.\s+Make\s+it\s+abort\s+when\s+the\s+pattern\s+is\s+absent,\s+and\s+`grep`\s+for\s+the\s+old\s+text'
+      $iProse  = Idx $steps 'Write\s+only\s+what\s+you\s+checked:'
+      $iReread = Idx $steps 'Re-read\s+the\s+comment\s+and\s+the\s+commit\s+message\s+\*\*after\*\*\s+the\s+fix\s+is\s+in'
+      $iAfter5 = Idx $steps 'After\s+step\s+5'
+      Assert ($iAbort -ge 0)  "$($r.Name): $rel exige abortar un replace que no matchea y grepear el texto viejo"
+      Assert ($iProse -ge 0)  "$($r.Name): $rel exige escribir solo lo verificado al justificar un fix"
+      Assert ($iReread -ge 0) "$($r.Name): $rel exige releer la prosa del fix después de aplicarlo"
+      Assert ((@($iAbort, $iProse, $iReread) | Where-Object { $_ -le $iFix -or $_ -ge $iAfter5 }).Count -eq 0 -and $iAfter5 -gt $iFix) "$($r.Name): $rel pone las reglas de escritura dentro del paso 5"
       # Los pasos no pueden contradecir a la sección de exit codes, que manda revisar el árbol y
       # dice textualmente "do not reach for `git diff <base>...HEAD`" — en exit 2 la base es
       # justamente lo que no se pudo resolver. El agente ejecuta los pasos numerados, así que la
