@@ -1,3 +1,130 @@
+# Session Handoff — 2026-09-18 (tarde) — **Carril B (issue 15) REVISADO**, cerrado por TOPE con pase de coherencia limpio (`a5f30d9`). Carril C (19) sigue **SIN REVISAR**. **Ningún merge todavía.**
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main`. `origin/main` está en `7796e46` (no en
+  `13ca18b` como decía el handoff anterior). **6 commits de handoff sin pushear** (los 5 anteriores +
+  este). El push lo hace el usuario:
+  `! gh auth switch -u southpointtech && git push && gh auth switch -u MartinDele703`.
+  Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ `c6b08fc`, sin cambios hoy.
+- **Carriles** (todos salieron de `98a8f36`; al integrar hay que rebasar sobre `c6b08fc`):
+
+  | Carril | Issue | Worktree | HEAD | Review |
+  |---|---|---|---|---|
+  | A | 07 | `C:\Repos\PERSONAL\carriles\Bootstrap Skills\slice-07` | `9813b37` | OK cerrado por TOPE + coherencia (sesión anterior) |
+  | B | 15 | `...\slice-15` | **`a5f30d9`** | OK **cerrado por TOPE + coherencia limpia (esta sesión)** |
+  | C | 19 | `...\slice-19` | `a499e25` | 🔴 **SIN REVISAR** ← próximo paso |
+
+- **Marcador de review del slice-15: `fa5d7c1`** (avanzado antes de los fixes del turno 2, como
+  corresponde). Los fixes de `a5f30d9` son del turno tope: **no los revisó ningún turno**. No se
+  corrió `-Action close` (cierre por tope) y no hay ancla `slice-open`.
+- Árboles de los tres worktrees de carril: limpios.
+
+## 1. Review-loop del carril B — lo que pasó
+
+Rigor `standard`. **Rango explícito `98a8f36`**: el marcador del worktree, sin marca propia, caía a
+`2245efd` (merge-base con `main`, **70 commits de más**). Sin `--code-review` (atado al cwd de `main`).
+Los focos se despacharon como `general-purpose` con modelo explícito porque esta sesión corre desde
+`main`, donde `.claude/agents/` no existe (el motor de `main` es el viejo).
+
+| Turno | Rango | Focos | Medium reales | Commit del fix |
+|---|---|---|---|---|
+| 1 | `98a8f36..64aacc1` | 5 + mutación | 5 | `fa5d7c1` |
+| 2 | `64aacc1..fa5d7c1` | 5 | 2 | `a5f30d9` |
+| coherencia | `98a8f36..a5f30d9` | 1 (sonnet) | 0 (el único hallazgo sacó 45 y se descartó) | — |
+
+**Arreglado:**
+- A: Step 3 exige el diff **como texto** (4 de los 5 agents de Step 4 no llevan `Bash`).
+- B+T3: fallback declarado si los `slice-review-*` no resuelven como tipo → despachar el **built-in `Plan`**
+  (su toolset excluye Edit/Write/NotebookEdit) con el body del agent como brief y el `model` del
+  frontmatter pasado explícito. Se rechazaron `general-purpose` (puede escribir) y "frenar" (deja el
+  review sin hacer). **El Agent tool NO acepta `disallowedTools` en el dispatch** (verificado en el schema).
+- E+G: parser del test con `Dictionary` Ordinal, set exacto de 5 claves case-sensitive, cero líneas sueltas.
+- F: la guarda A6 (`tests/regla-de-afirmaciones.tests.ps1`) ahora ancla la orden en el cuerpo de
+  `.claude/agents/slice-review-contracts.md` (4 raíces), no la etiqueta de Step 4.
+- N+O+T2: dos goldens nuevos en `tools/reseal-step5.ps1`: **`-Block fan-out`** (Step 3 + Step 4 de
+  slice-review, 8 copias → `tests/fixtures/fan-out.golden.sha256`) y **`-Block agents`** (los 7 agents
+  enteros concatenados por raíz, 4 raíces → `tests/fixtures/agents.golden.sha256`). Verificados por
+  `tests/reviewer-agents.tests.ps1`. **Editar un agent o Step 3/4 de slice-review exige resellar con la
+  herramienta**, nunca a mano.
+- `skills-lock.json` resellado con `tools/skills-lock.ps1 -Action Seal` en los dos turnos (su suite quedaba roja).
+- Cada fix con su mutante: 9 mutantes, todos muertos con el fix.
+
+**Declarado, pendiente para la integración (orquestador):**
+1. Los 3 `.bootstrap-manifest.json` desfasados (sin los 7 agents ni los hashes nuevos de slice-review).
+   Ninguna suite los mira → se regeneran al integrar.
+2. `docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md` (~l.81-82): sumar `fan-out` y `agents` a la lista de
+   bloques de `reseal-step5.ps1`, y avisar que cualquier carril que toque Step 3/4 de slice-review o un
+   agent mueve esos goldens. No es archivo del carril: lo aplica el orquestador.
+3. AC del issue 15 «una corrida real del loop deja el árbol sin cambios»: sin test. Se puede cumplir
+   corriendo el primer review-loop real con los agents declarados (post-merge) y comparando
+   `git status --porcelain` + `git stash create` antes y después del fan-out.
+4. Techo: ~505 líneas de lógica en el slice original, declarado en el `Slice-Close:` de `fa5d7c1`.
+
+**Low sin tocar (12):** bajo `Plan` los focos sin `Bash` en su frontmatter lo reciben y su brief no dice
+«solo lectura» (el más útil: una cláusula en el fallback lo cierra sin tocar bodies); scorer «the one
+dispatch whose job is to run»; «/code-review is not a general-purpose subagent like the others»
+(l.~186/~378); Step 5 no repite «no pasar model»; Step 5/Coherence no citan el fallback; «otro repo o
+worktree no los tiene» exagera (puede tener su propia versión); `-match 'bloque X'` también matchea el
+modo que escribe (mismo patrón en `slice-review.tests.ps1:~859` y `techo-del-slice.tests.ps1:~125`:
+arreglar los 3 o ninguno); `docs/TESTING.md` sin sección para `reviewer-agents` (también faltan
+`abrir-carril`, `carriles-scaffold`, `shareable-leaks`); chequeo post-copia de los 3 `SKILL.md`
+bootstrap no cuenta `.claude\agents`; `CLAUDE.md:~88` no nombra los `.golden.sha256`; tier label de
+Step 4 sin cruce con el `model:` (ahora lo cubre el golden); `SKILL.md:30` de las 3 skills dice
+«52 files» (preexistente, ahora son 65).
+
+**Sin verificar:** un scorer vio en el binario de Claude Code un schema que dice que `disallowedTools`
+se ignora si hay `tools`; la doc oficial dice lo contrario. Las `tools:` de los agents ya excluyen las
+herramientas que escriben, así que la protección no depende de eso.
+
+## 2. Tests corridos (en `slice-15` @ `a5f30d9`)
+
+Todos exit 0: `skills-lock`, `mirror`, `shareable-leaks`, `slice-review`, `review-loop-incremental`,
+`techo-del-slice`, `reviewer-agents`, `regla-de-afirmaciones`, `temp-hygiene`; `tools/skills-lock.ps1
+-Action Verify` OK; `reseal-step5.ps1 -Block fan-out -Check` y `-Block agents -Check` OK.
+**`run-all.ps1` completo NO se corrió** en ningún carril de esta sesión.
+
+## 3. Próximos pasos
+
+1. **Review-loop del carril C (issue 19)** desde `...\slice-19`, rigor `standard`, **rango explícito
+   `98a8f36`** (no el marcador: cae a `2245efd`). Mismo procedimiento que el B:
+   - contexto compartido en un archivo del scratchpad, con el **texto nuevo de la regla de generados**
+     (`c6b08fc`, en `feat/bootstrap-v2:docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md`, sección
+     «Generados: sin dueño, pero el carril sella lo que su suite mira»), porque el worktree tiene la vieja;
+   - **el diff como TEXTO** en un archivo (usar `System.Diagnostics.Process` con UTF-8 para `git diff`:
+     pwsh decodifica git en cp850), excluyendo las copias espejo de `skills/bootstrap-*/assets/`;
+   - turno 1: 5 focos + mutación, sin `--code-review`; los scorers en lotes temáticos de a 4-5;
+   - `-Action advance` del marcador tras el review y antes de los fixes (en el turno 1 fija `a499e25`);
+   - cada fix con RED antes; resellar generados con su herramienta si su suite se pone roja;
+   - coherencia al cierre sobre `98a8f36..HEAD`.
+   **Antes de empezar**: el carril C entregó **dos diffs de docs que NO están en el repo**
+   (`docs/TESTING.md` 125→139 y `docs/agents/recuperar-base-de-skills.md` en seis lugares, ver el
+   handoff de abajo, sección 3). Confirmá que están en su reporte; si se perdió, hay que re-pedirlos.
+2. **Integrar la ola 1**: A → B → C rebasando sobre `c6b08fc` (reescribe SHAs), cada uno con su suite;
+   aplicar los diffs de docs del C y los agregados a `PARALELISMO-DEL-PROYECTO.md`; **una** corrida de
+   `tools/gen-manifest.ps1 -SkillDir skills/<bootstrap-x>` ×3; **un** `skills-lock.ps1 -Action Seal` +
+   `Verify`; resellar `fan-out`/`agents`/`step5`/`tdd-loop` solo si el test lo pide (mirando el diff);
+   `run-all.ps1` completo verde con SHA anotado; cerrar 07/15/19 citando el SHA de `feat/bootstrap-v2`;
+   «Lo que dejó la ola 1» en `PARALELISMO-DEL-PROYECTO.md`; `git worktree remove` de los tres.
+3. Push de `main` (usuario).
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **Los agents `slice-review-*` no existen para una sesión abierta en `main`** hasta que el carril B
+  se integre y se abra una sesión nueva. Hasta entonces, despachar los focos como `general-purpose`
+  con modelo explícito (o `Plan`, según el fallback nuevo si se usa el SKILL.md del carril).
+- Scripts útiles de esta sesión en el scratchpad de la sesión (efímero): `fix-ab.py`, `fix-t3.py`
+  (edición espejada en 8 copias con match exacto y abort), `mut-fixes.py` (mutantes con backup/restore
+  de bytes). El patrón vale para el C: editar las 8 copias por script que aborte si el patrón no matchea
+  exactamente una vez, preservando CRLF.
+- Los `slice-review` SKILL/command son **CRLF** en disco; los tests y `reseal-step5.ps1` son LF.
+- El commit se hizo con `git commit -F <archivo>` y se releyó el mensaje; sin backticks en el mensaje.
+- El hook `review-loop-trigger` **no disparó** en los commits de `slice-15` (sesión con cwd en `main`:
+  el issue de atribución del hook ya registrado). No depender de él para los carriles.
+
+---
+
 # Session Handoff — 2026-09-17/18 — **Ola 1 de carriles DESPACHADA**. Carril A (issue 07) cerrado por TOPE con pase de coherencia. Carriles B (15) y C (19) entregados y **SIN REVISAR**. **Ningún merge todavía.**
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
