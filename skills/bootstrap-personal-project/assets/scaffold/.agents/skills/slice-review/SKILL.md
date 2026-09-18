@@ -162,10 +162,11 @@ list of findings; every finding must carry `file:line`, what is wrong, and why i
 **If these agents are not among the agent types you can dispatch**, do not improvise. Project
 agents load when a session starts, from its working directory: a session opened before
 `.claude/agents/` existed, or one reviewing another repo or worktree, does not have them. Dispatch
-each focus as a `general-purpose` subagent instead, with the body of its agent file as the brief and
-the `model` its frontmatter declares **passed explicitly**; do the same for the scorer (Step 5) and
-the coherence focus. Say so in the report: in that run the write prohibition rests on Step 3's prose
-alone.
+each focus as the built-in `Plan` subagent instead, whose own declaration already denies Edit, Write
+and NotebookEdit, with the body of its agent file as the brief and the `model` its frontmatter
+declares **passed explicitly**; do the same for the scorer (Step 5) and the coherence focus. Not
+`general-purpose`: it can write, and that would leave the prohibition to Step 3's prose alone. Say
+so in the report: in that run the tools are the built-in type's, which keep `Bash` for every focus.
 
 **Models by focus** — mechanical audits run on a lighter model, judgment calls on the strongest:
 project rules and historical context on **a lighter, faster model**;

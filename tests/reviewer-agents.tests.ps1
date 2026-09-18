@@ -269,5 +269,14 @@ $goldenOut = & pwsh -NoProfile -File $reseal -Block fan-out -Check 2>&1
 Assert ($LASTEXITCODE -eq 0 -and ($goldenOut -join ' ') -match 'bloque fan-out') `
   "golden del fan-out (Step 3 + Step 4): las 8 copias coinciden con el sello -> $($goldenOut -join ' / ')"
 
+# --- 4. Golden de los agents: los 7 archivos enteros, frontmatter y cuerpo --------------------------
+# El golden del fan-out congela a que NOMBRE rutea cada foco, pero lo que cada foco revisa vive en el
+# cuerpo de su agent. Medido en el turno 2 del review de este slice: intercambiar los cuerpos de bugs y
+# rules en las 4 raices, o agregarle al de contratos una linea que desarma la orden de marcar
+# afirmaciones no verificadas, pasaba todas las suites (las 4 copias seguian identicas entre si).
+$agentsOut = & pwsh -NoProfile -File $reseal -Block agents -Check 2>&1
+Assert ($LASTEXITCODE -eq 0 -and ($agentsOut -join ' ') -match 'bloque agents') `
+  "golden de los agents: las 4 raices coinciden con el sello -> $($agentsOut -join ' / ')"
+
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

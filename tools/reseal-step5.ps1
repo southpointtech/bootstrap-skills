@@ -8,6 +8,8 @@
 #             de ADR-0004 (el refactor no es parte del ciclo) y el cierre de slice con su trailer.
 #   fan-out   Step 3 y Step 4 de /slice-review enteros: el contexto compartido, el ruteo de cada foco a
 #             su agent declarado, los modelos por foco y la orden de no pasar el modelo en el dispatch.
+#   agents    los 7 .claude/agents/slice-review-*.md enteros (frontmatter y cuerpo), uno por raiz: lo que
+#             cada foco revisa vive en el cuerpo de su agent, y el fan-out solo congela el nombre.
 #
 # Por que existe: los asserts semanticos de tests/slice-review.tests.ps1 muerden mutantes que EDITAN o
 # BORRAN una oracion anclada, pero son ciegos a los que AÑADEN (medido en el turno 2 del review-loop del
@@ -19,11 +21,19 @@
 # Una sola implementacion, dos modos: el test invoca este mismo script con -Check, asi el sello y la
 # verificacion no pueden divergir (y la suite no necesita dot-sourcear un helper propio, que es lo que
 # tests/temp-hygiene.tests.ps1 prohibe para que nadie cuele un stub).
-param([switch]$Check, [ValidateSet('step5', 'tdd-loop', 'fan-out')][string]$Block = 'step5')
+param([switch]$Check, [ValidateSet('step5', 'tdd-loop', 'fan-out', 'agents')][string]$Block = 'step5')
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 
-if ($Block -eq 'fan-out') {
+if ($Block -eq 'agents') {
+  # Un bloque por RAIZ, no por archivo: los 7 agents son documentos distintos, asi que se concatenan
+  # ordenados por nombre (con el nombre adelante, para que un rename tambien cambie el hash) y se
+  # comparan las 4 raices entre si y contra un solo golden.
+  $goldenPath = Join-Path $repo "tests\fixtures\agents.golden.sha256"
+  $rels = @(".claude\agents")
+  $rx = $null
+  $normalizar = { param($t) $t }
+} elseif ($Block -eq 'fan-out') {
   $goldenPath = Join-Path $repo "tests\fixtures\fan-out.golden.sha256"
   $rels = @(".claude\commands\slice-review.md", ".agents\skills\slice-review\SKILL.md")
   # Del titulo de Step 3 hasta el de Step 5, excluido: una frase agregada en cualquier punto del fan-out
@@ -63,11 +73,18 @@ $faltan = @()
 foreach ($f in $files) {
   $rel = $f.Substring($repo.Length).TrimStart('\')
   if (-not (Test-Path -LiteralPath $f)) { $faltan += $rel; continue }
-  $m = [regex]::Match([IO.File]::ReadAllText($f), $rx)
-  if (-not $m.Success) { $faltan += "$rel (sin bloque)"; continue }
+  if ($Block -eq 'agents') {
+    $agentes = @(Get-ChildItem -LiteralPath $f -File -Filter 'slice-review-*.md' | Sort-Object Name)
+    if ($agentes.Count -eq 0) { $faltan += "$rel (sin agents)"; continue }
+    $texto = ($agentes | ForEach-Object { "==> $($_.Name)`n" + [IO.File]::ReadAllText($_.FullName) }) -join "`n"
+  } else {
+    $m = [regex]::Match([IO.File]::ReadAllText($f), $rx)
+    if (-not $m.Success) { $faltan += "$rel (sin bloque)"; continue }
+    $texto = $m.Value
+  }
   # EOL normalizado: con autocrlf=true el disco y el blob difieren, y un golden atado al EOL da rojo por
   # maquina (el bug de los manifests con hashes mixtos, CLAUDE.md).
-  $norm = (& $normalizar $m.Value) -replace "`r`n", "`n"
+  $norm = (& $normalizar $texto) -replace "`r`n", "`n"
   $sha = [System.Security.Cryptography.SHA256]::Create()
   $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($norm))
   $hashes[$rel] = ([System.BitConverter]::ToString($bytes).Replace("-", "").ToLower())
@@ -80,7 +97,7 @@ if ($faltan.Count -gt 0) {
 
 $distinct = @($hashes.Values | Sort-Object -Unique)
 if ($distinct.Count -ne 1) {
-  Write-Host "El bloque NO es identico en las 8 copias:"
+  Write-Host "El bloque NO es identico en las $($files.Count) copias:"
   $hashes.GetEnumerator() | ForEach-Object { Write-Host ("  {0}  {1}" -f $_.Value.Substring(0, 12), $_.Key) }
   exit 1
 }
@@ -94,7 +111,7 @@ if ($Check) {
     Write-Host "Si el cambio es a proposito, mira el diff y resella: pwsh -NoProfile -File tools/reseal-step5.ps1 -Block $Block"
     exit 1
   }
-  Write-Host "OK: bloque $Block, las 8 copias coinciden con el golden ($($golden.Substring(0,12)))."
+  Write-Host "OK: bloque $Block, las $($files.Count) copias coinciden con el golden ($($golden.Substring(0,12)))."
   exit 0
 }
 
