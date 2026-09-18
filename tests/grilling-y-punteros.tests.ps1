@@ -31,7 +31,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones. Todas las ramas asertan aunque falte el archivo, así que el número no
 # depende de que el árbol esté sano. Sin él, un mutante que BORRA asserts sale en verde.
-$ExpectedChecks = 244
+$ExpectedChecks = 245
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -210,6 +210,11 @@ foreach ($n in $triggers.Keys) {
   $d = Description (Partir $textos["$n|skill|0"])
   Assert ($d.Contains($triggers[$n])) "$n : la description conserva el trigger en español ``$($triggers[$n])``"
 }
+# "grilleame con la documentación" pedía entrevista Y documentación: era el trigger del grill-with-docs
+# viejo. El puntero no lleva triggers, y "grilleame" solo lleva a grilling, que no escribe docs. Tiene
+# que llevarlo la skill que trae la mitad de la documentación.
+$dm = Description (Partir $textos["domain-modeling|skill|0"])
+Assert ($dm.Contains('"grilleame con la documentación"')) "domain-modeling : la description lleva el trigger ``grilleame con la documentación`` que tenía el grill-with-docs viejo"
 
 # El lockfile: las dos nuevas con su path upstream, y la base de los punteros AVANZADA — el cuerpo
 # adoptado es el de upstream de hoy, así que una base vieja le atribuiría al drift propio todo lo que

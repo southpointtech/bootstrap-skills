@@ -1,6 +1,6 @@
 ---
 name: domain-modeling
-description: Build and sharpen a project's domain model — challenge terms against the glossary, update CONTEXT.md inline, and record ADRs as decisions crystallise. Use when discussing codebase terminology, writing or editing a CONTEXT.md, recording or editing an ADR, aligning terminology with the domain model, validating a plan against the existing ADRs/CONTEXT.md, or when the user says "cuestioná esto contra el dominio", "revisá mi plan contra los ADRs", "alineá la terminología con el modelo de dominio", "actualizá el CONTEXT.md", or "registrá esta decisión como ADR".
+description: Build and sharpen a project's domain model — challenge terms against the glossary, update CONTEXT.md inline, and record ADRs as decisions crystallise. Use when discussing codebase terminology, writing or editing a CONTEXT.md, recording or editing an ADR, aligning terminology with the domain model, validating a plan against the existing ADRs/CONTEXT.md, or when the user says "grilleame con la documentación" (together with the grilling skill), "cuestioná esto contra el dominio", "revisá mi plan contra los ADRs", "alineá la terminología con el modelo de dominio", "actualizá el CONTEXT.md", or "registrá esta decisión como ADR".
 ---
 
 # Domain Modeling

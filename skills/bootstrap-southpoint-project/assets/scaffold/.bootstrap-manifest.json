@@ -1,11 +1,11 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-18+53c6f8b",
+  "version": "2026-09-18+9fd1eb5",
   "files": {
     ".agents/skills/domain-modeling/ADR-FORMAT.md": "b7021c31a1c2485b07356a8110fd1fd1ae4facbab3e210983789f425f867d95b",
     ".agents/skills/domain-modeling/CONTEXT-FORMAT.md": "6097d3a11b96be24425091ed6e8a744c53644d3685455b2d828100f1853b9b89",
-    ".agents/skills/domain-modeling/SKILL.md": "7e634e8fa9c2fef94e7ae9724d955499f1ce65bb24671beebf707483a2eb41f6",
+    ".agents/skills/domain-modeling/SKILL.md": "961a7701ecd21c4658f6758cde487490fb2797da1a91c04cd20c8297ea4be144",
     ".agents/skills/grill-me/SKILL.md": "b2a123d26966673c2fe8b7b53a0458ad3d533e63e418e863a5f0674423c58862",
     ".agents/skills/grill-with-docs/SKILL.md": "5ff6eedb711c9d6670ddc517d88ca4827280bbf1639a0cbc99e69c580716f98d",
     ".agents/skills/grilling/SKILL.md": "a39c1e3ae790c0a0bb70934fd5035e6651029e04ed20a8b015173d324a303c70",
@@ -36,7 +36,7 @@
     ".claude/agents/slice-review-rules.md": "31a5d5a8f613aad9bb61299a9b535dcc98ad3c85925890c589f64af51784e7b9",
     ".claude/agents/slice-review-scorer.md": "1f4e5c7200cddefd7db816a22f8d4136c9066b7abbac35e9c11213d840416eb1",
     ".claude/agents/slice-review-tests.md": "b07cd492db48f29b2c093b4c553e2c6e0696e1740ab937f374a258b94fc30617",
-    ".claude/commands/domain-modeling.md": "0c22d4f6ae1332087d3cbe164772a112b8d316f8bd62a09dc770bf87c549427c",
+    ".claude/commands/domain-modeling.md": "c8a14bee64a6aea0f2960361466bb3df4c37577baed078edb354937be5384e61",
     ".claude/commands/grill-me.md": "b2a123d26966673c2fe8b7b53a0458ad3d533e63e418e863a5f0674423c58862",
     ".claude/commands/grill-with-docs.md": "5ff6eedb711c9d6670ddc517d88ca4827280bbf1639a0cbc99e69c580716f98d",
     ".claude/commands/grilling.md": "a39c1e3ae790c0a0bb70934fd5035e6651029e04ed20a8b015173d324a303c70",
@@ -70,6 +70,6 @@
     "docs/ai-workflow/QA_CHECKLIST.md": "f90a8b4858d4d1af451fff9d5083ee94f44e19d0ff0e26a5f9efbfcef1050f04",
     "docs/ai-workflow/RUNBOOK_TEMPLATE.md": "71d33132d6e520e8893a028efd83b066307a27b8874140f6ba1f435b9bec6e17",
     "docs/ai-workflow/TASK_TEMPLATE.md": "2d6f159de29aaa9552e6279e1015fca7b1d686a61bf6c30dd18b673b09b2d8b8",
-    "skills-lock.json": "089c73211ac8ca924ef9a236885cdda37ff0cc153f712c9d9dad954219ddb6d3"
+    "skills-lock.json": "4cdaaf3f687866cb76e108514f0e012bb0a4019b57e950683a0dd374f4df4ea3"
   }
 }
