@@ -159,6 +159,8 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 este plan, sobre `b9a9139` (el arreglo previo del frontmatter de `review-loop`, que Claude Code
 descartaba entero por un `: ` sin comillas).
 
+**Cerrada el 2026-09-19**: integrada en `feat/bootstrap-v2` @ `c7faaa5`, `run-all.ps1` verde (32 suites).
+
 Las olas 1 (07, 15, 19) y 2 (09, 10, 08) cerraron el 2026-09-18 en `628c84b` y `6e1a0e9`; sus
 planes quedaron en el historial de este archivo (`git log -p`) y sus lecciones, abajo.
 
@@ -228,6 +230,29 @@ Lo que cada carril resuelve antes del primer test:
   → decidido en el issue.
 
 ## Lo que dejó la ola N
+
+### Ola 3 (12, 11, 16), cerrada el 2026-09-19
+
+- **Un archivo que un carril escribe antes de que otro traiga un `.gitattributes` queda con el fin
+  de línea viejo en disco.** Git no reescribe archivos existentes cuando cambian los atributos, y el
+  cherry-pick solo toca los paths de cada commit: los `.sh` del carril A quedaron CRLF aunque el
+  índice fuera LF y `git status` estuviera limpio. Se detecta con `git ls-files --eol` (`w/crlf`) y
+  se arregla borrando el archivo y volviendo a sacarlo; `git add --renormalize` arregla el índice,
+  no el disco. Vale para cualquier proyecto: candidata a subir a la mecánica.
+- **El lockfile chocó al integrar el tercer carril y se resolvió con la herramienta, no leyendo.**
+  Tomar un lado, `recover-skill-bases.py` sobre el árbol integrado y `Seal -Bases`: esta vez ningún
+  veredicto se movió respecto de los carriles (a diferencia de la ola 1).
+- **Dos loops cerraron por tope (A y B) y uno limpio (C).** En A y B los Medium del turno 2 fueron
+  prosa que instruye al agente (qué bloquea el guardrail, cuándo parar) y un test que miraba el blob
+  en vez del disco; sus arreglos no tienen review propio.
+- **Los reviewers vuelven a proponer fijar en los tests lo que el lockfile ya sella** (campos de la
+  base, cuerpos adoptados, anclas de reglas). En los cinco casos el scorer lo dejó en Low o lo
+  descartó, por diseño: el lockfile es el golden y re-sellar es el acto revisado. La excepción fue
+  `writing-for-agents`, que vive fuera del lockfile: ahí sí subió a Medium y se fijó por hash.
+- **El foco `--code-review` no corrió en ningún carril**: el fork revisa la cwd de la sesión
+  (`main`), no el worktree del carril. Y `review-marker -Action range`/`slice-base` siguen dando el
+  merge-base con `main` en los worktrees de carril: se usaron rangos explícitos.
+
 
 ### Ola 2 (09, 10, 08), cerrada el 2026-09-18
 
