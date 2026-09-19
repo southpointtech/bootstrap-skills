@@ -42,6 +42,22 @@
         "SKILL.md": "f2233bc197ba6b309902ed8633b66dab445923ca9b5d3ffb9ef2eaed1c9971f6"
       }
     },
+    "git-guardrails-claude-code": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/misc/git-guardrails-claude-code/SKILL.md",
+      "base": {
+        "blob": "58bcdd875b164093b95f436fa32a65c6cb5eb572",
+        "upstreamPath": "skills/misc/git-guardrails-claude-code/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "a20fcf26265bde93ee6dacc3fd696bc2aff461cedf84c50eb97fafb22843001c",
+        "scripts/block-dangerous-git.sh": "234922b83c0a1737ee7300806c21ac0f389b07aaeb65c2d71ccedafbc5e1ea4b"
+      }
+    },
     "grill-me": {
       "source": "https://github.com/mattpocock/skills.git",
       "upstreamState": "upstream-vivo",
@@ -100,6 +116,36 @@
       "forkFiles": [],
       "files": {
         "SKILL.md": "0fec50c26c1131faddde5693be1539d27ce40bf204ab6a29eecb84414273a32a"
+      }
+    },
+    "research": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/research/SKILL.md",
+      "base": {
+        "blob": "fecee97e9457ba039678d2fcf1b1bc9fca78307d",
+        "upstreamPath": "skills/engineering/research/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "c4f84ae54577d7360b3d66e25b1dfc0846f0d8b6416191de022f84e39dc6a6b6"
+      }
+    },
+    "resolving-merge-conflicts": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/resolving-merge-conflicts/SKILL.md",
+      "base": {
+        "blob": "bfb7e5606e231e6808979f623fce76a9aad4b71c",
+        "upstreamPath": "skills/engineering/resolving-merge-conflicts/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "c3c3408086cf765518a3f76621bd09170a9ab715bcaf8072d45a9a91fa67c747"
       }
     },
     "review-loop": {
