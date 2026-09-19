@@ -10,6 +10,16 @@
     "head": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260"
   },
   "skills": {
+    "debug-source-first": {
+      "source": null,
+      "upstreamState": "fork-propio",
+      "upstreamHeadPath": null,
+      "base": null,
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b"
+      }
+    },
     "diagnosing-bugs": {
       "source": "https://github.com/mattpocock/skills.git",
       "upstreamState": "upstream-vivo",
@@ -270,6 +280,16 @@
         "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
         "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
         "SKILL.md": "546b5daa797a9b7fbb3251e28d34fe6736a4fe22b15b7479b22b9f6ffebf3b16"
+      }
+    },
+    "verify-downstream-arrival": {
+      "source": null,
+      "upstreamState": "fork-propio",
+      "upstreamHeadPath": null,
+      "base": null,
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "04614b9cc4744d05a30b0079f88676dc4c6d921384d21a6dac4df4d2cf01307d"
       }
     },
     "wizard": {
