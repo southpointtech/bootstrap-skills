@@ -80,7 +80,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "0da7ebc8fa1a6ff2f903f2c0113335c7cd60f63910a58e5e8610ef22c67846c0"
+        "SKILL.md": "e154ff0623e63c2ce5920e2efff720da3ccf1a0fceda7d7dc928088603b53fc5"
       }
     },
     "grill-with-docs": {
@@ -95,7 +95,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "bacdfeb4b9bc5d4594fffffcc8e4a9f1dc598b2242764b06236b7b018fd011df"
+        "SKILL.md": "c6e9e7f3234801cf930d46be656cd10a343b6982d40ad71542f253cc7af01a53"
       }
     },
     "grilling": {
@@ -125,7 +125,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "0fec50c26c1131faddde5693be1539d27ce40bf204ab6a29eecb84414273a32a"
+        "SKILL.md": "7220271eafc41aea7b06b26bae59135fed6a481c0e56014a79526ee9ad188c01"
       }
     },
     "research": {
@@ -232,7 +232,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "c18ee44ac2d0697a0e4489a86a32a6cb7f3da126eb818994d0b8139cc937d57f"
+        "SKILL.md": "c6545af257fadd043bab7506c3df30da018ccd4b3ef8d06fd53ab1061c876bf8"
       }
     },
     "to-prd": {
@@ -247,7 +247,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "39a971a004e89299f546cdec9f5c2749167dcb686e4b957bb892d2ec7f67b683"
+        "SKILL.md": "6092861eb9529d4053fc07cc2ee6e1cbd5375e3bf12dc1fa8f014bbf3f2ef196"
       }
     },
     "to-questionnaire": {
@@ -279,7 +279,7 @@
       "files": {
         "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
         "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
-        "SKILL.md": "546b5daa797a9b7fbb3251e28d34fe6736a4fe22b15b7479b22b9f6ffebf3b16"
+        "SKILL.md": "da80dabef6c5ccc93085bfcc9dff0fc79acad7ddd711b0858a44459333c8c576"
       }
     },
     "verify-downstream-arrival": {
