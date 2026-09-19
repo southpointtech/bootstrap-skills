@@ -68,6 +68,7 @@ $esperado = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes(
 Assert ($r.exit -eq 0) "tracer: exit 0 (fue $($r.exit); salida: $($r.out))"
 Assert ($despues -ceq $esperado) "tracer: sólo la primera línea Status cambia a done, con CRLF intacto y sin BOM agregado"
 Assert (@($r.rep.marcados) -contains ".scratch/feat-a/issues/01-uno.md") "tracer: el reporte lista el issue en marcados"
+Assert ($r.rep.lineasSliceClose -eq 1 -and @($r.rep.sinRuta).Count -eq 0) "tracer: una línea Slice-Close y ningún valor en sinRuta (cita una ruta)"
 
 # --- Varias rutas: dos en una línea y una en otro Slice-Close del mismo mensaje ---
 $t = New-Repo
@@ -211,6 +212,11 @@ Commit $t "Slice-Close: issue 01 — texto libre`nSlice-Close: .scratch\feat-a\i
 $r = Marcar $t
 Assert ($r.rep.lineasSliceClose -eq 2) "trailer sin ruta: lineasSliceClose cuenta las dos líneas (salida: $($r.out))"
 Assert (@($r.rep.sinRuta) -contains "issue 01 — texto libre" -and @($r.rep.sinRuta) -contains ".scratch\feat-a\issues\01-uno.md") "trailer sin ruta: sinRuta lista los dos valores, la ruta con barras invertidas incluida"
+# Un valor que sólo cita rutas rechazadas (`..`) tampoco cita nada: sin esto, lineasSliceClose 1 con
+# todas las listas vacías no dice por qué no se marcó nada.
+Commit $t "Slice-Close: .scratch/../issues/01-uno.md`nSlice-Close: .scratch/feat-a/issues/01-uno.md y texto" | Out-Null
+$r = Marcar $t
+Assert (@($r.rep.sinRuta).Count -eq 1 -and @($r.rep.sinRuta)[0] -ceq ".scratch/../issues/01-uno.md") "sólo rutas rechazadas: ese valor va a sinRuta, el que cita una válida no (salida: $($r.out))"
 
 # --- Estructura: el rol `done` y el paso que lo escribe, en el repo y en los tres scaffolds ---
 # Anclas diagnósticas: que el script exista no sirve si ninguna skill lo manda a correr, ni que el loop
@@ -223,8 +229,8 @@ $anclas = [ordered]@{
   ".claude/commands/triage.md"     = @('- `done`: implemented; the slice that closed it passed `/review-loop`', '`ready-for-agent` and `ready-for-human` move to `done`')
   "docs/agents/triage-labels.md"   = @('| `done`                     | `done`               |')
   ".agents/skills/setup-matt-pocock-skills/triage-labels.md" = @('| `done`                     | `done`               |')
-  ".agents/skills/review-loop/SKILL.md" = @('**Mark the closed issues `done`**', 'and **before** `-Action close`, if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha $s', 'With a High still open, do not run it', 'List the issues marked `done`')
-  ".claude/commands/review-loop.md"     = @('**Mark the closed issues `done`**', 'and **before** `-Action close`, if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha $s', 'With a High still open, do not run it', 'List the issues marked `done`')
+  ".agents/skills/review-loop/SKILL.md" = @('**Mark the closed issues `done`**', 'if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha <the commit noted on turn 1>', 'Also on the first turn, note the commit that', 'Do not collect commits from `-Action slice-base` or a branch range', 'With a High still open, do not run it', 'List the issues marked `done`')
+  ".claude/commands/review-loop.md"     = @('**Mark the closed issues `done`**', 'if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha <the commit noted on turn 1>', 'Also on the first turn, note the commit that', 'Do not collect commits from `-Action slice-base` or a branch range', 'With a High still open, do not run it', 'List the issues marked `done`')
   ".agents/skills/setup-matt-pocock-skills/SKILL.md" = @('the six canonical triage roles', '`ready-for-human`, `wontfix`, `done`. On **yes**')
   ".claude/commands/setup-matt-pocock-skills.md"     = @('the six canonical triage roles', '`ready-for-human`, `wontfix`, `done`. On **yes**')
   ".agents/skills/tdd/SKILL.md" = @('cite each by its path in the trailer (`Slice-Close: .scratch/<feature>/issues/<NN>-<slug>.md')
@@ -238,11 +244,13 @@ foreach ($r in $raices) {
     $txt = Texto (Join-Path $r $f)
     foreach ($a in $anclas[$f]) { Assert ($txt.Contains($a)) "$etq/$f nombra: $a" }
   }
-  # El orden importa: el paso lista los commits desde el ancla, y `-Action close` la borra.
+  # El paso muta: no puede tomar su rango del ancla, que ante la duda erra hacia MÁS commits.
   foreach ($f in ".agents/skills/review-loop/SKILL.md", ".claude/commands/review-loop.md") {
     $txt = Texto (Join-Path $r $f)
-    $iMarca = $txt.IndexOf('**Mark the closed issues `done`**'); $iClose = $txt.IndexOf('Run `-Action close` on a **clean**')
-    Assert ($iMarca -ge 0 -and $iClose -gt $iMarca) "$etq/$f marca done ANTES del párrafo de -Action close"
+    $i = $txt.IndexOf('**Mark the closed issues `done`**', [StringComparison]::Ordinal)
+    $j = $txt.IndexOf('Run `-Action close` on a **clean**', [StringComparison]::Ordinal)
+    $paso = if ($i -ge 0 -and $j -gt $i) { $txt.Substring($i, $j - $i) } else { "" }
+    Assert ($paso -and $paso -notmatch 'git rev-list|\$base\.\.HEAD') "$etq/$f el paso de marcar done no arma un rango de commits"
   }
   $s = Join-Path $r ".claude/scripts/marcar-done.ps1"
   Assert ((Test-Path -LiteralPath $s) -and (Get-FileHash -LiteralPath $s).Hash -eq $scriptHash) "$etq tiene marcar-done.ps1 idéntico al de southpoint"
