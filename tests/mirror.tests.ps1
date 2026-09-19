@@ -49,10 +49,24 @@ function NormHash($path) {
   [BitConverter]::ToString($sha).Replace("-", "")
 }
 
+# Los archivos sólo-Southpoint salen del set de southpoint antes de comparar, y en las otras dos no
+# pueden estar. Que existan en southpoint también se exige: una entrada que ya no apunta a nada es una
+# excepción declarada que no exceptúa nada y que un archivo nuevo con ese nombre heredaría sin revisión.
+. (Join-Path $PSScriptRoot "lib\solo-southpoint.ps1")
+function MirrorFiles($skill) {
+  $files = @(RelFiles $skill.FullName)
+  if ($skill.Name -eq "bootstrap-southpoint-project") {
+    foreach ($s in $soloSouthpoint) { Assert ($files -contains $s) "$($skill.Name): existe el archivo sólo-Southpoint $s" }
+    return @($files | Where-Object { $soloSouthpoint -notcontains $_ })
+  }
+  foreach ($s in $soloSouthpoint) { Assert ($files -notcontains $s) "$($skill.Name): no tiene el archivo sólo-Southpoint $s" }
+  return $files
+}
+
 $ref = $skills[0]
-$refFiles = @(RelFiles $ref.FullName)
+$refFiles = @(MirrorFiles $ref)
 foreach ($other in ($skills | Select-Object -Skip 1)) {
-  $otherFiles = @(RelFiles $other.FullName)
+  $otherFiles = @(MirrorFiles $other)
   $diffSet = @(Compare-Object $refFiles $otherFiles | ForEach-Object { $_.InputObject })
   Assert ($diffSet.Count -eq 0) "$($other.Name): mismo set de archivos que $($ref.Name) (diff: $($diffSet -join ', '))"
   foreach ($rel in $refFiles) {
