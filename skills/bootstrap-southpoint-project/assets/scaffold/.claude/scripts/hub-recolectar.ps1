@@ -14,8 +14,8 @@
 #     "ongoingSupport": "<Ongoing Support, opcional>",
 #     "devs": { "<nombre>": ["<email>", "<otro email del mismo dev>"] } }
 #
-# Estado por repo en <StateDir>/<repo>-<hash>/: `foto.json` (los SHA ya vistos y, por worktree, los
-# `Status:` de su `.scratch/`) y
+# Estado por repo en <StateDir>/<repo>-<hash>/: `foto.json` (su `schemaVersion`, los SHA ya vistos y,
+# por worktree, el estado de cada issue de su `.scratch/` tal como lo dejó `Read-Scratch`) y
 # `lotes/<momento>.json`. Vive fuera del repo para no ensuciar el árbol de trabajo del dev. El hash es
 # del directorio git común del repo, así que dos repos con el mismo nombre de carpeta no comparten
 # foto, y los worktrees de un mismo repo sí.
@@ -169,14 +169,26 @@ function Read-Scratch([string]$raiz) {
     if (-not (Test-Path -LiteralPath $dirIssues -PathType Container)) { continue }
     foreach ($f in Get-ChildItem -LiteralPath $dirIssues -File | Where-Object { $_.Extension -eq ".md" }) {
       $txt = [IO.File]::ReadAllText($f.FullName)
-      # El estado es la primera palabra, sin backticks ni la nota que la sigue, en minúsculas: la forma
-      # dominante en los repos es `Status: \`needs-info\` — esperando al cliente`. Cambiar sólo la nota
-      # o las mayúsculas no es una transición.
-      $st = [regex]::Match($txt, '(?m)^Status:[ \t]*`?([A-Za-z][A-Za-z-]*)')
+      # El estado se compara como un TOKEN CANÓNICO —sin los backticks, sin la nota que lo sigue, en
+      # minúsculas— para que cambiar sólo la nota o las mayúsculas no cuente como transición. Los dos
+      # corpus de esta máquina mezclan las dos formas (`Status: done` y `Status: \`done\` (…)`), y
+      # `marcar-done` escribe siempre la plana, así que sin canonizar su reescritura sería una
+      # transición fantasma.
+      # La nota empieza donde termina el token: el backtick de cierre, un paréntesis o una raya. Una
+      # coma o una palabra suelta NO la abren, porque CALIFICAN el estado en vez de anotarlo:
+      # `done, pendiente QA manual` dice que el issue no está cerrado, y publicarlo como hito es lo
+      # contrario de lo que su autor escribió. Un valor así —y cualquiera que no sea un token, como
+      # `**§2 IMPLEMENTADA**`— se guarda CRUDO: no mapea a ningún tipo, así que nunca propone nada,
+      # pero queda registrado y su paso posterior a un estado limpio sí se propone. Saltear el archivo
+      # en cambio lo haría parecer nuevo entonces, y ese hito se perdería en silencio.
+      $st = [regex]::Match($txt, '(?m)^Status:([^\r\n]*)')
       if (-not $st.Success) { continue }
+      $val = $st.Groups[1].Value.Trim()
+      if (-not $val) { continue }
+      $tok = [regex]::Match($val, '^`?([A-Za-z][A-Za-z-]*)`?[ \t]*(?:$|\(|[—–])')
       $tit = [regex]::Match($txt, '(?m)^#[ \t]+([^\r\n]+)')
       $issues["$($feat.Name)/$($f.Name)"] = [pscustomobject]@{
-        status = $st.Groups[1].Value.ToLowerInvariant()
+        status = if ($tok.Success) { $tok.Groups[1].Value.ToLowerInvariant() } else { $val }
         titulo = if ($tit.Success) { $tit.Groups[1].Value.Trim() } else { $f.BaseName }
       }
     }
@@ -187,13 +199,13 @@ function Read-Scratch([string]$raiz) {
 # Las transiciones de `.scratch/` contra la foto. `.scratch/` no se versiona, así que cada worktree
 # tiene el suyo: se leen los de TODOS los worktrees del repo (`marcar-done` escribe en el worktree donde
 # corrió el loop, y la tarea programada corre en uno solo), y cada uno se compara con SU sección de la
-# foto. Sin foto, o con una anterior a este tramo, todo fija su línea de base y no se propone nada. Un
-# worktree recién creado (un carril) no tiene sección, pero `abrir-carril` le copió `.scratch/`: el
-# estado anterior de cada issue es el que registran los otros worktrees, y se propone sólo si ninguno
-# ya registraba el estado nuevo. Así un carril que se abre y se cierra entre dos corridas no pierde su
-# hito, y uno copiado de un main que ya estaba en `done` no lo repite. Un issue que sólo existe en el
-# carril nuevo no tiene estado anterior y no se propone. Uno borrado, o cuya carpeta ya no existe, sale
-# de la foto.
+# foto. Sin foto, o con una de otra versión, todo fija su línea de base y no se propone nada. Un
+# worktree recién creado (un carril) no tiene sección, pero `abrir-carril` le copia `.scratch/` salvo
+# que el proyecto declare otra lista: el estado anterior de cada issue es el que registran los otros
+# worktrees, y se propone sólo si NINGUNO ya registraba el estado nuevo. Así un carril abierto y
+# cerrado entre dos corridas no pierde su hito mientras su worktree siga en disco (uno borrado sale de
+# la foto, y con él lo que no se haya leído todavía), y uno copiado de un main que ya estaba en `done`
+# no lo repite. Un issue que sólo existe en el carril nuevo no tiene estado anterior y no se propone.
 $wtList = git -C $RepoDir worktree list --porcelain 2>&1
 if ($LASTEXITCODE -ne 0) { Fallar "git worktree list falló en $RepoDir`: $($wtList -join ' ')" }
 $scratchAhora = [ordered]@{}
@@ -202,7 +214,11 @@ foreach ($l in @($wtList | Where-Object { $_ -is [string] -and $_.StartsWith("wo
   if (-not (Test-Path -LiteralPath $raiz -PathType Container)) { continue }
   $scratchAhora[$raiz.ToLowerInvariant()] = Read-Scratch $raiz
 }
-$scratchAntes = if ($foto -and $foto.PSObject.Properties['scratch']) { $foto.scratch } else { $null }
+# La sección `scratch` de una foto de otra versión NO se compara: la v1 guardaba la línea `Status:`
+# entera y la v2 guarda el token canónico, así que compararlas daría una transición por cada issue.
+# Se re-fija su línea de base. `vistos` se conserva igual: rechazar la foto entera re-propondría el
+# histórico de slices completo, que es mucho peor que perder una transición de `.scratch/`.
+$scratchAntes = if ($foto -and $foto.schemaVersion -eq 2 -and $foto.PSObject.Properties['scratch']) { $foto.scratch } else { $null }
 foreach ($k in $scratchAhora.Keys) {
   if (-not $scratchAntes) { break }
   $antes = $scratchAntes.PSObject.Properties[$k]
@@ -213,10 +229,16 @@ foreach ($k in $scratchAhora.Keys) {
       if (-not $previo -or $previo.Value -ceq $i.status) { continue }
       $de = $previo.Value
     } else {
-      $otros = @($scratchAntes.PSObject.Properties | ForEach-Object { $_.Value.PSObject.Properties[$rel] } |
-        Where-Object { $_ } | ForEach-Object { $_.Value })
+      $conIssue = @($scratchAntes.PSObject.Properties | Where-Object { $_.Value.PSObject.Properties[$rel] })
+      $otros = @($conIssue | ForEach-Object { $_.Value.PSObject.Properties[$rel].Value })
       if (-not $otros.Count -or $otros -ccontains $i.status) { continue }
-      $de = $otros[0]
+      # La guarda mira a TODOS los worktrees, pero el `de` que el PM va a leer sale de UNO: el
+      # principal, que `git worktree list` lista primero (git-worktree(1)), y si él no registra el
+      # issue, el primero que lo registre. Sin este criterio el `de` lo decidiría el orden de las
+      # claves de la foto, que nadie declara.
+      $principal = @($scratchAhora.Keys)[0]
+      $delPrincipal = @($conIssue | Where-Object { $_.Name -eq $principal })
+      $de = if ($delPrincipal.Count) { $delPrincipal[0].Value.PSObject.Properties[$rel].Value } else { $otros[0] }
     }
     # `needs-info` es un riesgo y no un action item: sin LLM no se distinguen, y un riesgo es interno,
     # así que nada llega al cliente si el PM no lo reclasifica.
@@ -254,6 +276,6 @@ foreach ($k in $scratchAhora.Keys) {
   foreach ($rel in $scratchAhora[$k].Keys) { $s[$rel] = $scratchAhora[$k][$rel].status }
   $scratchFoto[$k] = $s
 }
-[IO.File]::WriteAllText($tmp, ([ordered]@{ schemaVersion = 1; vistos = @($todos | ForEach-Object { $_.sha }); scratch = $scratchFoto } | ConvertTo-Json -Depth 5), $utf8)
+[IO.File]::WriteAllText($tmp, ([ordered]@{ schemaVersion = 2; vistos = @($todos | ForEach-Object { $_.sha }); scratch = $scratchFoto } | ConvertTo-Json -Depth 5), $utf8)
 [IO.File]::Move($tmp, $fotoPath, $true)
 Write-Output $archivo
