@@ -62,9 +62,11 @@ $p = New-Issue $t ".scratch/feat-a/issues/01-uno.md"
 $antes = [IO.File]::ReadAllText($p)
 Commit $t "Slice-Close: .scratch/feat-a/issues/01-uno.md — algo" | Out-Null
 $r = Marcar $t
-$despues = [IO.File]::ReadAllText($p)
+# Bytes y no ReadAllText: éste se come el BOM, y un script que agregara uno pasaría en verde.
+$despues = [Convert]::ToBase64String([IO.File]::ReadAllBytes($p))
+$esperado = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($antes.Replace("Status: ready-for-agent`r`n", "Status: done`r`n")))
 Assert ($r.exit -eq 0) "tracer: exit 0 (fue $($r.exit); salida: $($r.out))"
-Assert ($despues -ceq $antes.Replace("Status: ready-for-agent`r`n", "Status: done`r`n")) "tracer: sólo la primera línea Status cambia a done, con CRLF intacto"
+Assert ($despues -ceq $esperado) "tracer: sólo la primera línea Status cambia a done, con CRLF intacto y sin BOM agregado"
 Assert (@($r.rep.marcados) -contains ".scratch/feat-a/issues/01-uno.md") "tracer: el reporte lista el issue en marcados"
 
 # --- Varias rutas: dos en una línea y una en otro Slice-Close del mismo mensaje ---
@@ -170,6 +172,46 @@ Assert ([IO.File]::ReadAllText($a) -match "(?m)^Status: ready-for-agent`r$") "SH
 $r = Marcar $t $cierre
 Assert (@($r.rep.marcados) -contains ".scratch/feat-a/issues/01-uno.md") "-Sha: marca el issue que cita ese commit aunque HEAD no cierre nada"
 
+# --- La línea Slice-Close, con la misma regla que hub-recolectar: sin distinguir mayúsculas, a principio
+# de línea (con sangría o no) y con el valor en la MISMA línea ---
+foreach ($caso in @(
+    @{ n = "minúsculas";      cuerpo = "slice-close: .scratch/feat-a/issues/01-uno.md"; marca = $true },
+    @{ n = "con sangría";     cuerpo = "  Slice-Close: .scratch/feat-a/issues/01-uno.md"; marca = $true },
+    @{ n = "a mitad de frase"; cuerpo = "ver Slice-Close: .scratch/feat-a/issues/01-uno.md"; marca = $false },
+    @{ n = "valor en la línea siguiente"; cuerpo = "Slice-Close:`n.scratch/feat-a/issues/01-uno.md"; marca = $false })) {
+  $t = New-Repo
+  $a = New-Issue $t ".scratch/feat-a/issues/01-uno.md"
+  Commit $t $caso.cuerpo | Out-Null
+  $r = Marcar $t
+  $done = [IO.File]::ReadAllText($a) -match "(?m)^Status: done`r$"
+  Assert ($done -eq $caso.marca) "Slice-Close $($caso.n): $(if ($caso.marca) { 'marca' } else { 'no marca' }) el issue (salida: $($r.out))"
+}
+
+# --- Issue que no es UTF-8 válido (cp1252 con acentos): no se reescribe, va a noUtf8 ---
+# El decodificador no estricto cambiaba cada byte inválido por U+FFFD y la reescritura lo dejaba así,
+# en un archivo gitignoreado sin copia en git.
+$t = New-Repo
+$p = Join-Path $t ".scratch/feat-a/issues/01-ansi.md"
+[IO.Directory]::CreateDirectory((Split-Path $p -Parent)) | Out-Null
+$ansi = [Text.Encoding]::GetEncoding(1252).GetBytes("# migración`r`n`r`nStatus: ready-for-agent`r`n")
+[IO.File]::WriteAllBytes($p, $ansi)
+Commit $t "Slice-Close: .scratch/feat-a/issues/01-ansi.md" | Out-Null
+$r = Marcar $t
+Assert ($r.exit -eq 0) "no UTF-8: exit 0 (fue $($r.exit); salida: $($r.out))"
+Assert (@($r.rep.noUtf8) -contains ".scratch/feat-a/issues/01-ansi.md" -and @($r.rep.marcados).Count -eq 0) "no UTF-8: va a noUtf8, no a marcados"
+Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($p)) -ceq [Convert]::ToBase64String($ansi)) "no UTF-8: el archivo queda byte a byte igual"
+
+# --- Por qué no marcó nada: el reporte distingue sin trailer, trailer sin ruta y ruta con barras invertidas ---
+$t = New-Repo
+New-Issue $t ".scratch/feat-a/issues/01-uno.md" | Out-Null
+Commit $t "sin cierre" | Out-Null
+$r = Marcar $t
+Assert ($r.rep.lineasSliceClose -eq 0 -and @($r.rep.sinRuta).Count -eq 0) "sin trailer: lineasSliceClose 0 y sinRuta vacío (salida: $($r.out))"
+Commit $t "Slice-Close: issue 01 — texto libre`nSlice-Close: .scratch\feat-a\issues\01-uno.md" | Out-Null
+$r = Marcar $t
+Assert ($r.rep.lineasSliceClose -eq 2) "trailer sin ruta: lineasSliceClose cuenta las dos líneas (salida: $($r.out))"
+Assert (@($r.rep.sinRuta) -contains "issue 01 — texto libre" -and @($r.rep.sinRuta) -contains ".scratch\feat-a\issues\01-uno.md") "trailer sin ruta: sinRuta lista los dos valores, la ruta con barras invertidas incluida"
+
 # --- Estructura: el rol `done` y el paso que lo escribe, en el repo y en los tres scaffolds ---
 # Anclas diagnósticas: que el script exista no sirve si ninguna skill lo manda a correr, ni que el loop
 # lo corra si el vocabulario no conoce el rol.
@@ -181,8 +223,10 @@ $anclas = [ordered]@{
   ".claude/commands/triage.md"     = @('- `done`: implemented; the slice that closed it passed `/review-loop`', '`ready-for-agent` and `ready-for-human` move to `done`')
   "docs/agents/triage-labels.md"   = @('| `done`                     | `done`               |')
   ".agents/skills/setup-matt-pocock-skills/triage-labels.md" = @('| `done`                     | `done`               |')
-  ".agents/skills/review-loop/SKILL.md" = @('### Mark the closed issues `done`', 'if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha', 'List the issues marked `done`')
-  ".claude/commands/review-loop.md"     = @('### Mark the closed issues `done`', 'if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha', 'List the issues marked `done`')
+  ".agents/skills/review-loop/SKILL.md" = @('**Mark the closed issues `done`**', 'and **before** `-Action close`, if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha $s', 'With a High still open, do not run it', 'List the issues marked `done`')
+  ".claude/commands/review-loop.md"     = @('**Mark the closed issues `done`**', 'and **before** `-Action close`, if **no High finding is left open**', '.claude/scripts/marcar-done.ps1 -RepoDir . -Sha $s', 'With a High still open, do not run it', 'List the issues marked `done`')
+  ".agents/skills/setup-matt-pocock-skills/SKILL.md" = @('the six canonical triage roles', '`ready-for-human`, `wontfix`, `done`. On **yes**')
+  ".claude/commands/setup-matt-pocock-skills.md"     = @('the six canonical triage roles', '`ready-for-human`, `wontfix`, `done`. On **yes**')
   ".agents/skills/tdd/SKILL.md" = @('cite each by its path in the trailer (`Slice-Close: .scratch/<feature>/issues/<NN>-<slug>.md')
   ".claude/commands/tdd.md"     = @('cite each by its path in the trailer (`Slice-Close: .scratch/<feature>/issues/<NN>-<slug>.md')
   "CLAUDE.md" = @('ready-for-human, wontfix, done)')
@@ -193,6 +237,12 @@ foreach ($r in $raices) {
   foreach ($f in $anclas.Keys) {
     $txt = Texto (Join-Path $r $f)
     foreach ($a in $anclas[$f]) { Assert ($txt.Contains($a)) "$etq/$f nombra: $a" }
+  }
+  # El orden importa: el paso lista los commits desde el ancla, y `-Action close` la borra.
+  foreach ($f in ".agents/skills/review-loop/SKILL.md", ".claude/commands/review-loop.md") {
+    $txt = Texto (Join-Path $r $f)
+    $iMarca = $txt.IndexOf('**Mark the closed issues `done`**'); $iClose = $txt.IndexOf('Run `-Action close` on a **clean**')
+    Assert ($iMarca -ge 0 -and $iClose -gt $iMarca) "$etq/$f marca done ANTES del párrafo de -Action close"
   }
   $s = Join-Path $r ".claude/scripts/marcar-done.ps1"
   Assert ((Test-Path -LiteralPath $s) -and (Get-FileHash -LiteralPath $s).Hash -eq $scriptHash) "$etq tiene marcar-done.ps1 idéntico al de southpoint"

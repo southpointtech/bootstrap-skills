@@ -301,6 +301,27 @@ Name the close before acting on it; the final report states it:
 A stop because you are blocked on a human decision, and an empty range on the first turn, are
 **not** closes.
 
+**Mark the closed issues `done`** after the coherence pass (in `light`, right after the loop ends)
+and **before** `-Action close`, if **no High finding is left open**: any clean or prose-only close,
+and a cap close whose open findings are all Medium. The slice's commits are listed from its anchor,
+which `-Action close` deletes, so run this first:
+
+```powershell
+$base = pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action slice-base
+$shas = @(git rev-list "$base..HEAD" | Where-Object { ((git log -1 --format=%B $_) -join "`n") -match '(?im)^[ \t]*Slice-Close:[ \t]*\S' })
+foreach ($s in $shas) { pwsh -NoProfile -File .claude/scripts/marcar-done.ps1 -RepoDir . -Sha $s }
+```
+
+If `slice-base` hands back a stale anchor (changes you did not make, as in the coherence pass), use
+the slice's real base instead. The `Slice-Close:` trailer cites each issue by its path, e.g.
+`Slice-Close: .scratch/<feature>/issues/07-<slug>.md — <what closed>`. The script rewrites only the
+`Status:` line of each cited issue under `.scratch/<feature>/issues/` and prints a JSON with
+`marcados`, `yaDone`, `noEncontrados`, `sinStatus` and `noUtf8`, plus `lineasSliceClose` and
+`sinRuta`, which say why nothing was marked. `.scratch/` is gitignored, so there is nothing to
+commit. With a High still open, do not run it: the issue stays as it was and the final report says
+why. A trailer that cites no path marks nothing (`sinRuta` lists it). Say so in the report; do not
+guess the issue from free text.
+
 Run `-Action close` on a **clean** or **prose-only** close only, strictly after the coherence pass
 when one runs (a `light` loop has none to wait for). It deletes `slice-open:<branch>` so the next
 slice's first-turn `open` records its own start instead of inheriting this one's. Do **not** run it
@@ -308,25 +329,6 @@ on a cap close, a blocked stop, or a first-turn empty range: each may be followe
 same slice, and keeping the anchor (`open` is write-once) keeps that re-run scoped to the slice's
 real start instead of under-scoping to the advanced marker. Order matters — the coherence pass reads
 the anchor via `-Action slice-base`, so `close` runs strictly after it. See `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`.
-
-### Mark the closed issues `done`
-
-After the coherence pass, if **no High finding is left open** — any clean or prose-only close, and a
-cap close whose open findings are all Medium — mark the issues the slice closed:
-
-```
-pwsh -NoProfile -File .claude/scripts/marcar-done.ps1 -RepoDir . -Sha <commit carrying the Slice-Close:>
-```
-
-Run it once per commit in the slice that carries a `Slice-Close:` (usually one).
-
-The `Slice-Close:` trailer cites each issue by its path, e.g.
-`Slice-Close: .scratch/<feature>/issues/07-<slug>.md — <what closed>`. The script rewrites only the
-`Status:` line of each cited issue under `.scratch/<feature>/issues/`, and prints a JSON with
-`marcados`, `yaDone`, `noEncontrados` and `sinStatus`. `.scratch/` is gitignored, so there is
-nothing to commit. With a High still open, do not run it: the issue stays as it was and the final
-report says why. A trailer that cites no path marks nothing. Say so in the report; do not guess
-the issue from free text.
 
 ## Guardrails
 
