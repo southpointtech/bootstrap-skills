@@ -237,6 +237,52 @@ $r2 = Recolectar $te $ste "2026-09-20T10:00:00Z"
 Assert ($r1.out -and $r2.out -and $r1.out -ne $r2.out) "dos corridas con el mismo momento escriben dos lotes ('$($r1.out)' / '$($r2.out)')"
 Assert ((([IO.File]::ReadAllText($r1.out)) | ConvertFrom-Json).resultado -eq "ok") "el primer lote sigue intacto"
 
+# --- Cómo se lee el Slice-Close: como el hook review-loop-trigger, sin distinguir mayúsculas, y sólo
+# con un valor en la misma línea ---
+$tr = New-HubRepo
+$str = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tr $str "2026-09-19T10:00:00Z" | Out-Null
+$f = New-TestTempPath $script:runRoot "msg" ".txt"
+[IO.File]::WriteAllText($f, "en minúscula`n`nslice-close: 10 minúscula`n`nCo-Authored-By: Claude <noreply@anthropic.com>")
+git -C $tr commit -q --allow-empty --author "Dev <m@x.io>" -F $f; $minus = (git -C $tr rev-parse HEAD).Trim()
+# Un Slice-Close vacío no es un cierre: sin esto el nombre del slice sería la línea siguiente.
+[IO.File]::WriteAllText($f, "vacío con coautor`n`nSlice-Close:`n`nCo-Authored-By: Claude <noreply@anthropic.com>")
+git -C $tr commit -q --allow-empty --author "Dev <m@x.io>" -F $f; $vacio1 = (git -C $tr rev-parse HEAD).Trim()
+[IO.File]::WriteAllText($f, "vacío con rigor`n`nSlice-Close:`nReview-Rigor: light`n`nCo-Authored-By: Claude <noreply@anthropic.com>")
+git -C $tr commit -q --allow-empty --author "Dev <m@x.io>" -F $f; $vacio2 = (git -C $tr rev-parse HEAD).Trim()
+$r = Recolectar $tr $str "2026-09-20T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert (@($p | Where-Object { $_.id -eq "commit:$minus" }).Count -eq 1) "un 'slice-close:' en minúscula se propone, como lo detecta el hook"
+Assert (@($p | Where-Object { $_.id -eq "commit:$vacio1" -or $_.id -eq "commit:$vacio2" }).Count -eq 0) `
+  "un Slice-Close sin valor no se propone (propuestas: $(@($p | ForEach-Object { $_.hechos.sliceClose }) -join ' | '))"
+
+# --- Lo que git escribe en stderr con exit 0 no se mezcla con los commits ---
+# Un repo con `.git/info/grafts` hace que git log imprima hints de deprecación y salga 0.
+$tg = New-HubRepo
+$stg = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tg $stg "2026-09-19T10:00:00Z" | Out-Null
+$conGrafts = Commit $tg "slice con grafts" -slice "11 grafts"
+[IO.File]::WriteAllText((Join-Path $tg ".git/info/grafts"), "$conGrafts`n")
+$r = Recolectar $tg $stg "2026-09-20T10:00:00Z"
+$ids = @(@($r.lote.propuestas) | ForEach-Object { $_.id })
+Assert ($ids.Count -eq 1 -and $ids[0] -ceq "commit:$conGrafts") "con hints de git en stderr, el id sigue siendo el SHA limpio (fue: $($ids -join ' | '))"
+
+# --- Los worktrees de un mismo repo comparten la foto ---
+# Si cada worktree tuviera su propia línea de base, un slice commiteado en uno se perdería para el
+# otro, o se propondría dos veces.
+$tw = New-HubRepo
+$stw = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tw $stw "2026-09-19T10:00:00Z" | Out-Null
+$wt = Join-Path (New-TestWorkspace $script:runRoot "hubrec-wt") "carril"
+git -C $tw worktree add -q -b feat/carril $wt 2>$null
+$enWt = Commit $wt "slice en el worktree" -slice "12 worktree"
+$r = Recolectar $wt $stw "2026-09-20T10:00:00Z"
+$ids = @(@($r.lote.propuestas) | ForEach-Object { $_.id })
+Assert ($r.lote.resultado -eq "ok" -and $ids.Count -eq 1 -and $ids[0] -eq "commit:$enWt") `
+  "desde un worktree se propone el slice nuevo contra la línea de base del repo (fue '$($r.lote.resultado)': $($ids -join ', '))"
+Assert ($r.lote.repo -eq (Split-Path $tw -Leaf)) "el repo del lote es el del checkout principal, no el del worktree (fue '$($r.lote.repo)')"
+Assert (@(Get-ChildItem -LiteralPath $stw -Directory).Count -eq 1) "un solo directorio de estado para el repo y su worktree"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
