@@ -38,3 +38,6 @@ dos capacidades, en un set que ya crece de 11 a 20.
   de tres vías compara contra el archivo equivocado — o contra ninguno, si busca por el nombre viejo en
   un upstream donde ya no existe.
 - La misma regla aplica a `zoom-out`, que upstream eliminó: se conserva marcada como **fork propio**.
+  *Actualización (2026-09-19, ola 3):* la recuperación por similitud le encontró base (`7afa86d`) y el
+  lockfile la sella como `upstream-huerfano`, no como `fork-propio`: colapsarla tiraría esa base
+  (ADR-0005, `tests/skills-lock.tests.ps1`). Lo que sigue valiendo de esta regla es que se conserva.

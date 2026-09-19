@@ -118,8 +118,8 @@ JSON. Por skill:
     y git no detecta renombre (`to-issues`, `zoom-out`). Tampoco es un veredicto: puede haber sucesor
     con otro nombre, y para eso salen los `unconfirmedSuccessorCandidates`.
   El campo existe porque "fork propio" nombraba los dos extremos a la vez: `review-loop` no tiene
-  ninguna base sobre el umbral, mientras que ADR-0006 llama fork propio a `zoom-out`, que **sí** vino
-  de upstream y tiene base recuperada. Son conjuntos disjuntos y el lockfile (issue 05) necesita
+  ninguna base sobre el umbral, mientras que ADR-0006 llamaba fork propio a `zoom-out` (su actualización del
+  2026-09-19 ya la registra como `upstream-huerfano`), que **sí** vino de upstream y tiene base recuperada. Son conjuntos disjuntos y el lockfile (issue 05) necesita
   distinguirlos. **"Fork propio" no lo emite la herramienta**: lo firma un humano mirando esto.
 - `similarity`: el ratio de `difflib.SequenceMatcher` sobre las **líneas** del cuerpo (por carácter
   si el cuerpo más corto del par tiene menos de 10 líneas; ver *La métrica*), redondeado a 4 decimales;

@@ -164,7 +164,7 @@ planes quedaron en el historial de este archivo (`git log -p`) y sus lecciones, 
 
 | Carril | Slice | Dueño de | Caliente escrito a mano |
 |---|---|---|---|
-| **A** (camino crítico) | 12 — `research`, `resolving-merge-conflicts` y `git-guardrails-claude-code` al scaffold; `writing-for-agents` solo en este repo; `zoom-out` | `.agents/skills/{research,resolving-merge-conflicts,git-guardrails-claude-code,writing-for-agents,zoom-out}/` y sus `.claude/commands/` (raíz + 3 scaffolds donde corresponda) | **dueño** de `This delivers:` y de la allowlist `$allow` |
+| **A** (camino crítico) | 12 — `research`, `resolving-merge-conflicts` y `git-guardrails-claude-code` al scaffold; `writing-for-agents` solo en este repo; `zoom-out` | `.agents/skills/{research,resolving-merge-conflicts,git-guardrails-claude-code,zoom-out}/` y sus `.claude/commands/` (raíz + 3 scaffolds), y `.claude/skills/writing-for-agents/` (solo raíz; ver «Correcciones al integrar») | **dueño** de `This delivers:` y de la allowlist `$allow` |
 | **B** (camino crítico) | 11 — `wizard` + `to-questionnaire` | `.agents/skills/{wizard,to-questionnaire}/` y sus `.claude/commands/` (raíz + 3 scaffolds) | no: el diff que necesita en `This delivers:` va en su reporte |
 | **C** | 16 — `verify-downstream-arrival` + `debug-source-first` al scaffold | `.agents/skills/{verify-downstream-arrival,debug-source-first}/` y sus `.claude/commands/`, y la sección `## Where this fits` de `.agents/skills/diagnosing-bugs/` (raíz + 3 scaffolds) | no: diff en su reporte; si necesita marcas nuevas, las agrega al final de `tools/leak-markers.txt` |
 
@@ -194,6 +194,25 @@ similitud (`7afa86d`), y `tests/skills-lock.tests.ps1` exige exactamente eso par
 upstream borró (ADR-0005: colapsarla en `fork-propio` tira su base). El criterio pasa a ser:
 **`zoom-out` sigue como `upstream-huerfano`, y un test verifica que ese estado no se reporta como
 faltante ni se borra.**
+
+Correcciones al integrar (2026-09-19):
+
+- `writing-for-agents` no entró en `.agents/skills/` de la raíz: `tools/skills-lock.ps1 -Action Seal`
+  exige el mismo árbol de skills en las cuatro raíces y se negó a sellar. El dueño del repo eligió
+  instalarla como skill nativa de proyecto en `.claude/skills/writing-for-agents/`, fuera del
+  lockfile y de los scaffolds; el test la fija por hash normalizado contra el blob de upstream.
+- `research`: el carril A midió con `claude -p` que, con una skill de usuario del mismo nombre en
+  `~/.claude/skills/research`, gana la de usuario y la del proyecto no se lista. Lo mismo se espera,
+  sin medir, para `debug-source-first` y `verify-downstream-arrival`. Decisión del dueño: retirar las
+  tres copias de usuario al deployar (nota en el issue 18).
+- `to-questionnaire` entra ya con `disable-model-invocation: true` (decisión delegada al carril B):
+  es una skill nueva, upstream la trae así y el issue 13 la clasifica user-invoked. A diferencia de
+  07 y 08, no cambia la invocación de una skill ya instalada. Nota en el issue 13.
+- `.gitattributes` en la raíz con `*.sh text eol=lf` (carril B, por el review): con
+  `core.autocrlf=true` un checkout escribía los `.sh` con CRLF y bash de WSL no los corre.
+  `tests/sh-eol.tests.ps1` lo verifica en el blob, el atributo y el disco. Al integrar, los `.sh`
+  del carril A quedaron CRLF en disco (git no reescribe archivos existentes al cambiar atributos):
+  se borraron y se volvieron a sacar con `git checkout -- <f>`.
 
 Lo que cada carril resuelve antes del primer test:
 
