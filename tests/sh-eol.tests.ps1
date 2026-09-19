@@ -6,9 +6,12 @@
 # bytes crudos, así que el CRLF llega al proyecto, y un bash de Linux o WSL corta en
 # `set -euo pipefail\r` ("invalid option name"). El `.gitattributes` de la raíz fija `*.sh` en LF.
 #
-# Para CADA `.sh` trackeado verifica las dos puntas: que el atributo resuelva a `eol=lf`, y que lo que
-# un checkout escribiría (`git cat-file --filters HEAD:<f>`) no tenga ni un `\r`. Mira HEAD: un `.sh`
-# nuevo sin commitear no entra hasta que se commitea.
+# Para CADA `.sh` trackeado verifica tres cosas: que el atributo resuelva a `eol=lf`, que lo que un
+# checkout escribiría (`git cat-file --filters HEAD:<f>`) no tenga ni un `\r`, y que el archivo EN DISCO
+# tampoco, porque eso es lo que copian `sync-skills`, `copy-scaffold` e `install.ps1`. Git no reescribe
+# un archivo ya escrito cuando cambian los atributos: un `.sh` escrito con CRLF antes de que llegara el
+# `.gitattributes` (un cherry-pick en un worktree con autocrlf) sigue con CRLF y `git status` limpio.
+# El listado sale de `git ls-files`: un `.sh` que nunca pasó por `git add` no entra.
 #
 # QUÉ NO CUBRE: los `.gitattributes` de los proyectos bootstrapeados. El scaffold no lleva uno.
 $ErrorActionPreference = "Stop"
@@ -53,11 +56,17 @@ foreach ($f in $shs) {
   $blob = GitBytes @("cat-file", "--filters", "HEAD:$f")
   $cr = @($blob.bytes | Where-Object { $_ -eq 13 }).Count
   Assert ($blob.code -eq 0 -and $blob.bytes.Length -gt 0 -and $cr -eq 0) "${f}: lo que un checkout escribe no tiene CR (exit $($blob.code), $($blob.bytes.Length) bytes, $cr CR)"
+  # Reparación medida el 2026-09-19: `git add --renormalize` limpia el índice pero deja el disco con CR,
+  # y `git checkout -- <f>` sobre el archivo sin borrarlo tampoco lo reescribe. Borrarlo antes, sí.
+  $disco = Join-Path $repo $f
+  $bytes = if (Test-Path -LiteralPath $disco) { [IO.File]::ReadAllBytes($disco) } else { [byte[]]@() }
+  $crDisco = @($bytes | Where-Object { $_ -eq 13 }).Count
+  Assert ($bytes.Length -gt 0 -and $crDisco -eq 0) "${f}: en disco no tiene CR ($($bytes.Length) bytes, $crDisco CR). Para repararlo, borrá el archivo y corré git checkout -- <archivo>; git add --renormalize arregla el índice, no el disco"
 }
 
 Write-Host ""
-# El total depende de cuántos .sh haya: 1 + 2 por archivo.
-$esperadas = 1 + 2 * $shs.Count
+# El total depende de cuántos .sh haya: 1 + 3 por archivo.
+$esperadas = 1 + 3 * $shs.Count
 if ($script:checks -ne $esperadas) {
   Write-Host "FAIL: corrieron $($script:checks) aserciones y se esperaban $esperadas"
   $script:failures++
