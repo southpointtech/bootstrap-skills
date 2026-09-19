@@ -34,10 +34,9 @@ $cita = [regex]'(?<![^\s`''"(\[,])\.scratch/([^/\s`''",;)\]]+)/issues/([^/\s`''"
 $vistos = [Collections.Generic.HashSet[string]]::new()
 $rep.lineasSliceClose = $valores.Count
 foreach ($v in $valores) {
-  $citas = $cita.Matches($v)
+  $citas = @($cita.Matches($v) | Where-Object { $_.Groups[1].Value -notin @('.', '..') })
   if ($citas.Count -eq 0) { $rep.sinRuta += $v; continue }
   foreach ($m in $citas) {
-    if ($m.Groups[1].Value -in @('.', '..') -or $m.Groups[2].Value -in @('.', '..')) { continue }
     $rel = $m.Value
     if (-not $vistos.Add($rel)) { continue }
     $p = Join-Path $RepoDir $rel

@@ -1,7 +1,7 @@
 {
   "variant": "ai",
   "generatedFrom": "bootstrap-ai-project",
-  "version": "2026-09-23+653df17",
+  "version": "2026-09-23+5a6ec89",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
@@ -16,7 +16,7 @@
     ".agents/skills/handoff/SKILL.md": "7220271eafc41aea7b06b26bae59135fed6a481c0e56014a79526ee9ad188c01",
     ".agents/skills/research/SKILL.md": "c4f84ae54577d7360b3d66e25b1dfc0846f0d8b6416191de022f84e39dc6a6b6",
     ".agents/skills/resolving-merge-conflicts/SKILL.md": "c3c3408086cf765518a3f76621bd09170a9ab715bcaf8072d45a9a91fa67c747",
-    ".agents/skills/review-loop/SKILL.md": "d8beb4c6c96ce1f0b0e5c00ae628e045493713beaec601ca246a11f7b67358fb",
+    ".agents/skills/review-loop/SKILL.md": "ae867e9233d5ea33db8bcc0dab028120d5216c6421f164b1ed54dfaacdfa0661",
     ".agents/skills/setup-matt-pocock-skills/domain.md": "edc6d6131fdffc4b7135704f5262124fc43355c95f61b7399dc5a4db643e28ca",
     ".agents/skills/setup-matt-pocock-skills/issue-tracker-github.md": "02b8e6445b6514d87c5226373e077ea7f531bd8f7cf1c2fa4be5cf48320b6385",
     ".agents/skills/setup-matt-pocock-skills/issue-tracker-gitlab.md": "1f1e2f178bea28e39753613687e02621e0f7d6f0e29127e13f2ae4a75fa66c70",
@@ -56,7 +56,7 @@
     ".claude/commands/handoff.md": "15f3dcefa6002331f08b4b43d150bd4be7197783a1f2240286e4326b2bbab63c",
     ".claude/commands/research.md": "c4f84ae54577d7360b3d66e25b1dfc0846f0d8b6416191de022f84e39dc6a6b6",
     ".claude/commands/resolving-merge-conflicts.md": "c3c3408086cf765518a3f76621bd09170a9ab715bcaf8072d45a9a91fa67c747",
-    ".claude/commands/review-loop.md": "f867b9a9a127bae802d304c244f4f25c3d123d2fde3816e7ca19a7e4c9357334",
+    ".claude/commands/review-loop.md": "bd391a7471a0db24f6f0ac9f0eb14d3ba9a1b1b5f1841229b557a165f7a28a95",
     ".claude/commands/setup-matt-pocock-skills.md": "1ef236b74f0246833f0f9da09e39f3bb12a8626299d8c1a10384278846de57fa",
     ".claude/commands/slice-review.md": "6fedbd6969c2d7d3d9a9c925469239afd9604341ec624c94d7f3b17e556cf320",
     ".claude/commands/tdd.md": "23a8c3d5eaffe39c32191b7b4e73285fd27fb29009adc0773ed551b41291439d",
@@ -70,7 +70,7 @@
     ".claude/hooks/alignment-gate.ps1": "09e7751ffe376d84282dce49efb7cb2ee0d10599cb88d4fbdfd031d687f8c7e1",
     ".claude/hooks/review-loop-trigger.ps1": "a8abc99fe17da9be4450263aacad1913e731a66639e0a5914e3334e18bcb80a7",
     ".claude/scripts/abrir-carril.ps1": "4695236b910630c00442ed1f5eac744a49163451c3ad841c6663824f550c81d1",
-    ".claude/scripts/marcar-done.ps1": "fd3e4fe4b7d03be4f885748d8834bd4479c7ff587b390b8d8356e74bb43a8c95",
+    ".claude/scripts/marcar-done.ps1": "a403fa4ed526ee3a2d258003a4abdb94c0b1b9ea2064d31a84d8d3394c936841",
     ".claude/scripts/review-marker.ps1": "8a0bb132ec013d2e3f5220ceac478ee527ced63e76c87997faefa0e6e6b5c0a1",
     ".claude/settings.json": "0443bad9b8f815be10b18917ec11f17a72b4a9ef8780dc902f0a6521ff668a12",
     ".gitattributes": "4d9f8b1976c35a2bb47647d06bee0b59f2b8f4c91e27ca6714c2c1bcf3a9db7d",
@@ -90,6 +90,6 @@
     "docs/ai-workflow/QA_CHECKLIST.md": "201ec2c622c402b7f2fb570235332a78581c729bd0fac601969645279ad15875",
     "docs/ai-workflow/RUNBOOK_TEMPLATE.md": "7584db252b3a770d456a54e1931094172d72fdd05867abd16453b48509e9ac38",
     "docs/ai-workflow/TASK_TEMPLATE.md": "4b80a37a1558b7cb6b6f7be414598f9f0653b185b5e097ecbdb412b9fab7d2db",
-    "skills-lock.json": "bd63117e4aaa48244baffc9a049f8a3c33d7d7b94ebc38926b63942d3e139228"
+    "skills-lock.json": "f2a1c9cd3f5f36377e44d422256849e3acbad91dd6bb2ec1a1573b1083d94e56"
   }
 }
