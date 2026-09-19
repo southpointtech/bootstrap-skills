@@ -36,12 +36,12 @@ function Invoke-Git([string]$dir, [string[]]$argv) {
 }
 
 # Commitea $src como repo nuevo, lo clona con autocrlf=true y devuelve cuántos `.sh` hay en el clon
-# y cuántos tienen al menos un CR. `-c core.autocrlf=true` en el clone queda en la config del clon
-# ANTES del checkout, que es cuando se escribe el disco.
+# y cuántos tienen al menos un CR. `clone -c core.autocrlf=true` escribe el setting en la config del
+# clon ANTES del checkout, que es cuando se escribe el disco.
 function Measure-ClonedSh([string]$src, [string]$name) {
   $code = (Invoke-Git $src @("init", "-q")) + (Invoke-Git $src @("add", "-A")) + (Invoke-Git $src @("commit", "-q", "-m", "x"))
   $clone = Join-Path $script:runRoot "$name-clone"
-  & git -c core.autocrlf=true clone -q $src $clone 2>&1 | Out-Null
+  & git clone -q -c core.autocrlf=true $src $clone 2>&1 | Out-Null
   $code += $LASTEXITCODE
   $shs = @(Get-ChildItem -LiteralPath $clone -Recurse -File -Force -Filter "*.sh" |
     Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' })

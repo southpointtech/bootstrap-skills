@@ -14,7 +14,7 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 
 ## Assertions clave (lo que define "pasa")
 
-- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 7 docs ai-workflow, 11 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` y `slice-review` propias), 11 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`. Los conteos se verifican contra el scaffold, no contra estos números.
+- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 11 docs ai-workflow, 21 skills `.agents` (17 de mattpocock vía `skills-lock.json` + `review-loop`, `slice-review`, `verify-downstream-arrival` y `debug-source-first` propias), 21 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `.gitattributes` (`*.sh` en LF), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`. Los conteos se verifican contra el scaffold, no contra estos números.
 - Variante correcta: Southpoint menciona DOMO; personal CERO menciones a DOMO pero conserva Playwright/Firebase/Azure/Zoho.
 - Git: branch `main`, **un solo commit**, autor exacto según variante, config local (global intacta).
 - Sin duplicados anidados (`.agents\.agents`, `.claude\.claude`) — regresión del bug de iter 1.

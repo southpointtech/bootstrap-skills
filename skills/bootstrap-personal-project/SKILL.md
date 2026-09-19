@@ -5,7 +5,7 @@ description: Bootstrap a new personal (non-work) project directory with the AI-a
 
 # Bootstrap Personal Project
 
-Recreates the proven SOUTHPOINTLABS modus operandi for a personal project: the 8-step AI workflow (alignment → PRD → vertical slices → Zoho tasks → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop).
+Recreates the proven SOUTHPOINTLABS modus operandi for a personal project: the 8-step AI workflow (alignment → PRD → vertical slices → Zoho tasks → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (21, among them grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop and slice-review).
 
 This variant drops everything DOMO-specific; Playwright, Firebase, Azure and Zoho conventions persist. The point is that the scaffolding lands **before** requirements or code, so every later session starts governed by the workflow instead of improvising.
 

@@ -76,6 +76,19 @@ $o = Fire $t 'Write' (Join-Path $t 'tsconfig.json') 's1'
 Assert ([string]::IsNullOrEmpty($o)) "archivo .json no dispara"
 Remove-Item -Recurse -Force $t
 
+# 8b. .gitignore y .gitattributes pasan libres, en el hook del scaffold y en el de la raíz del repo
+$hookR = Join-Path $repo ".claude/hooks/alignment-gate.ps1"
+foreach ($h in @($hookP, $hookR)) {
+  foreach ($leaf in @('.gitignore', '.gitattributes')) {
+    $t = New-Repo
+    $evt = @{ session_id = 's1'; cwd = $t; tool_name = 'Write'; tool_input = @{ file_path = (Join-Path $t $leaf) } } | ConvertTo-Json -Compress -Depth 6
+    $o = ($evt | & pwsh -NoProfile -File $h)
+    $cual = if ($h -eq $hookR) { 'raíz' } else { 'scaffold' }
+    Assert ([string]::IsNullOrEmpty($o)) "$leaf no dispara (hook de $cual)"
+    Remove-Item -Recurse -Force $t
+  }
+}
+
 # 9. Espejado: hook personal y southpoint byte-idénticos
 Assert ((Get-FileHash $hookP).Hash -eq (Get-FileHash $hookS).Hash) "alignment-gate.ps1 idéntico en ambos scaffolds"
 

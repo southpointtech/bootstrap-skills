@@ -5,7 +5,7 @@ description: Bootstrap a new SOUTHPOINTLABS client project directory with the fu
 
 # Bootstrap SOUTHPOINTLABS Project
 
-Recreates the proven setup of the Forecasting App in a new project directory: the 8-step AI workflow (alignment → PRD → vertical slices → Zoho tasks → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop).
+Recreates the proven setup of the Forecasting App in a new project directory: the 8-step AI workflow (alignment → PRD → vertical slices → Zoho tasks → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (21, among them grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop and slice-review).
 
 The point of this skill is that the scaffolding lands **before** requirements or code, so every later session starts governed by the workflow instead of improvising.
 

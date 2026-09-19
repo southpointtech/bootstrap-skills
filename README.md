@@ -87,7 +87,7 @@ All three bootstrap skills land the same operating model:
 - **`docs/ai-workflow/`** — the workflow documentation the CLAUDE.md references.
 - **`docs/agents/`** — agent conventions (local issue tracker, triage labels, domain docs).
 - **Custom Claude Code skills** — `grill-me`, `grill-with-docs`, `tdd`, `to-prd`, `to-issues`,
-  `triage`, `handoff`, `zoom-out`, `review-loop`, `slice-review` and their commands.
+  `triage`, `handoff`, `zoom-out`, `review-loop`, `slice-review` and more (21 in all) with their commands.
 - **A configured git repository** — `main` branch, correct identity (the generic `bootstrap-ai-project`
   leaves your existing identity untouched), an initial scaffolding commit, and a
   `.bootstrap-manifest.json` so the project can later be upgraded safely.

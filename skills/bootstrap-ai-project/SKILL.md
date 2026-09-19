@@ -5,7 +5,7 @@ description: Bootstrap a new project directory with an AI-assisted workflow scaf
 
 # Bootstrap AI Project
 
-Installs a proven AI-assisted modus operandi in a project: the 8-step AI workflow (alignment → PRD → vertical slices → task formatting → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop).
+Installs a proven AI-assisted modus operandi in a project: the 8-step AI workflow (alignment → PRD → vertical slices → task formatting → TDD → QA → clean-context review → human approval), the workflow docs it references, the agent conventions (local issue tracker, triage labels, domain docs), and the custom skills (21, among them grill-me, grill-with-docs, tdd, to-prd, to-issues, triage, handoff, zoom-out, review-loop and slice-review).
 
 The point is that the scaffolding lands **before** requirements or code, so every later session starts governed by the workflow instead of improvising.
 

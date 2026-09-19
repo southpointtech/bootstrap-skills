@@ -1,7 +1,7 @@
 # PreToolUse hook (Edit|Write|MultiEdit matcher). Stops the FIRST code Edit/Write of the session
 # and offers the user to align (grill) before coding. Speed bump: once per session
 # (dedup by session_id in .git/alignment-gate-state.json). NON-code files (docs, *.md,
-# .scratch, .agents, .claude, configs, CONTEXT.md, CLAUDE.md, .gitignore) ALWAYS pass through,
+# .scratch, .agents, .claude, configs, CONTEXT.md, CLAUDE.md, .gitignore, .gitattributes) ALWAYS pass through,
 # so aligning/documenting never gets blocked. Any non-applicable path ends in a silent exit 0.
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -28,7 +28,7 @@ function Is-NonCode($p, $cwd) {
     if ($rel.StartsWith('./')) { $rel = $rel.Substring(2) }
     $leaf = Split-Path $rel -Leaf
     if ($leaf -match '\.(md|json|ya?ml|toml)$') { return $true }
-    if (@('CONTEXT.md','CLAUDE.md','.gitignore') -contains $leaf) { return $true }
+    if (@('CONTEXT.md','CLAUDE.md','.gitignore','.gitattributes') -contains $leaf) { return $true }
     foreach ($d in @('docs/', '.scratch/', '.agents/', '.claude/')) {
         if ($rel.ToLower().StartsWith($d)) { return $true }
     }
