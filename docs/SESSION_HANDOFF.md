@@ -1,3 +1,52 @@
+# Session Handoff — 2026-09-19 (noche) — **Slice light de Lows CERRADO** en `feat/bootstrap-v2` @ `25f4bac`, `run-all.ps1` verde (33 suites), review-loop light con clean close. Próximo: ola 4 (13 + 21).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `c25246e` + el commit de este handoff (sin pushear;
+  `origin/main` = `dd3fdf6`, tag `v1.0.0`). Untracked de Codex: ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`25f4bac`** (fast-forward
+  desde `4e321d0`), árbol limpio, **local, sin pushear**. Rama del slice conservada: `slice/lows-v2-light`.
+  Marcador avanzado a `25f4bac` y ancla cerrada (`-Action close`).
+- **Estado v2**: cerrados 01–12, 15, 16, 17, 19, 20, 22 + slice de Lows. Pendientes: **13**, **21** (ola 4),
+  **14** (en serie entre olas), **18** (último, HITL).
+
+## 1. Qué se hizo en esta sesión
+
+1. **Slice `25f4bac`** (`Slice-Close: lows v2`, `Review-Rigor: light`, +36/−23):
+   - `alignment-gate.ps1` (raíz + 3 scaffolds) deja pasar `.gitattributes`; caso 8b en `tests/alignment-gate.tests.ps1`
+     (hook del scaffold y de la raíz; RED 2/4 contra los hooks de HEAD, verde 4/4). Manifests regenerados.
+   - `tests/gitattributes-scaffold.tests.ps1`: `git clone -c core.autocrlf=true` (medido: solo esa forma deja el
+     setting en la config del clon, que es lo que dice el comentario).
+   - Conteos viejos corregidos (21 skills, 17 de mattpocock, 21 comandos, 11 docs ai-workflow): `docs/TESTING.md:17`,
+     `public/README.md:12`, `README.md:90`, `SKILL.md:8` ×3.
+2. **Review-loop light**: Bugs + Tests (Opus, `Plan`); confidence pass con 3 scorers. Sin High ni Medium. **Clean close.**
+
+## 2. Tests
+
+`run-all.ps1` sobre el árbol del commit: **SUITE VERDE — 33 suites, 0 rojas, 325 s.**
+
+## 3. Próximos pasos (en este orden)
+
+1. **Ola 4**: 13 + 21. Plantilla `PLAN-DE-OLA`, aprobación del usuario antes de despachar.
+2. **Push de v2** (lo hace el usuario): `! gh auth switch -u southpointtech && git -C "C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2" push -u origin feat/bootstrap-v2`.
+3. Lows que quedan (para un próximo slice light, o para meterlos en otro slice):
+   - 8b no tiene control positivo sobre el hook de la raíz (un error de sintaxis ahí lo deja verde): sumar
+     `Write src/app.py` → `deny` con `$h` (score 78).
+   - Ningún caso verifica que un archivo no-código no marque la sesión (caso genérico, `.md` → código en la misma sesión).
+   - "custom skills" en `public/README.md:12`, `README.md:90`, `SKILL.md:8` ×3: 17 de 21 son de mattpocock → decir "skills".
+   - Heredados sin tocar: Medium de `frontmatter-yaml` (control positivo); `setup-matt-pocock-skills/domain.md` (skill
+     sincronizada: editarla la desvía del upstream, va con la dieta de skills); Lows de la ola 3; nota `--renormalize`
+     en Step 0b (toca golden).
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **`sed -i` de Git Bash pasa CRLF a LF** (los hooks quedaron "ASCII text" sin CRLF). Usar `perl -pi` (conserva CR) o
+  el Edit tool; medir con `file` después. `perl -pi` sobre varios archivos NO reinicia `$.`: un `if $.==N` solo pega
+  en el primero.
+- El `alignment-gate` frena el primer Edit de código de la sesión aunque el slice esté alineado: reintentar.
+
+---
+
 # Session Handoff — 2026-09-19 (tarde) — **Issue 22 (`.gitattributes` del scaffold) CERRADO** en `feat/bootstrap-v2` @ `4e321d0`, `run-all.ps1` verde (33 suites), review-loop standard con clean close en T1. Próximo: slice light de Lows, o la ola 4 (13 + 21).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
