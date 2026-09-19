@@ -1,8 +1,9 @@
 # .claude/scripts/hub-recolectar.ps1 — recolección de hub-sync (ver docs/adr/0012 en Bootstrap Skills).
 #
-# Lee los commits del dev con trailer `Slice-Close:` y escribe un LOTE JSON por corrida con una
-# propuesta de tipo `update` por slice cerrado. No toca el Hub ni usa un LLM: el lote lo lleva el
-# transporte a `inbox/` y sólo el PM decide qué se publica.
+# Lee los commits del dev con trailer `Slice-Close:` y las transiciones de `Status:` de los issues de
+# `.scratch/`, y escribe un LOTE JSON por corrida: una propuesta `update` por slice cerrado, un `hito`
+# por issue que pasó a `done` y un `riesgo` por issue que pasó a `needs-info`. No toca el Hub ni usa
+# un LLM: el lote lo lleva el transporte a `inbox/` y sólo el PM decide qué se publica.
 #
 #   pwsh -File .claude/scripts/hub-recolectar.ps1 -RepoDir <repo> -Dev <nombre> [-StateDir <dir>] [-Now <iso>]
 #
@@ -13,7 +14,8 @@
 #     "ongoingSupport": "<Ongoing Support, opcional>",
 #     "devs": { "<nombre>": ["<email>", "<otro email del mismo dev>"] } }
 #
-# Estado por repo en <StateDir>/<repo>-<hash>/: `foto.json` (los SHA ya vistos) y
+# Estado por repo en <StateDir>/<repo>-<hash>/: `foto.json` (los SHA ya vistos y, por worktree, los
+# `Status:` de su `.scratch/`) y
 # `lotes/<momento>.json`. Vive fuera del repo para no ensuciar el árbol de trabajo del dev. El hash es
 # del directorio git común del repo, así que dos repos con el mismo nombre de carpeta no comparten
 # foto, y los worktrees de un mismo repo sí.
@@ -155,6 +157,75 @@ if (Test-Path -LiteralPath $fotoPath) {
   })
 }
 
+# Los `Status:` de `.scratch/<feature>/issues/*.md` de un checkout, por `<feature>/<archivo>`. Sólo los
+# issues: el PRD de la feature también lleva `Status:` y no es un avance. Un archivo sin `Status:` no es
+# un issue del workflow.
+function Read-Scratch([string]$raiz) {
+  $issues = [ordered]@{}
+  $sc = Join-Path $raiz ".scratch"
+  if (-not (Test-Path -LiteralPath $sc -PathType Container)) { return $issues }
+  foreach ($feat in Get-ChildItem -LiteralPath $sc -Directory) {
+    $dirIssues = Join-Path $feat.FullName "issues"
+    if (-not (Test-Path -LiteralPath $dirIssues -PathType Container)) { continue }
+    foreach ($f in Get-ChildItem -LiteralPath $dirIssues -File | Where-Object { $_.Extension -eq ".md" }) {
+      $txt = [IO.File]::ReadAllText($f.FullName)
+      $st = [regex]::Match($txt, '(?m)^Status:([^\r\n]*)')
+      if (-not $st.Success -or -not $st.Groups[1].Value.Trim()) { continue }
+      $tit = [regex]::Match($txt, '(?m)^#[ \t]+([^\r\n]+)')
+      $issues["$($feat.Name)/$($f.Name)"] = [pscustomobject]@{
+        status = $st.Groups[1].Value.Trim()
+        titulo = if ($tit.Success) { $tit.Groups[1].Value.Trim() } else { $f.BaseName }
+      }
+    }
+  }
+  return $issues
+}
+
+# Las transiciones de `.scratch/` contra la foto. `.scratch/` no se versiona, así que cada worktree
+# tiene el suyo: se leen los de TODOS los worktrees del repo (`marcar-done` escribe en el worktree donde
+# corrió el loop, y la tarea programada corre en uno solo), y cada uno se compara con SU sección de la
+# foto. Un worktree sin sección (la primera corrida, uno recién creado, o una foto anterior a este
+# tramo) fija su línea de base y no propone nada; uno borrado, o cuya carpeta ya no existe, sale de la
+# foto.
+$wtList = git -C $RepoDir worktree list --porcelain 2>&1
+if ($LASTEXITCODE -ne 0) { Fallar "git worktree list falló en $RepoDir`: $($wtList -join ' ')" }
+$scratchAhora = [ordered]@{}
+foreach ($l in @($wtList | Where-Object { $_ -is [string] -and $_.StartsWith("worktree ") })) {
+  $raiz = [IO.Path]::GetFullPath($l.Substring(9)).TrimEnd('\', '/')
+  if (-not (Test-Path -LiteralPath $raiz -PathType Container)) { continue }
+  $scratchAhora[$raiz.ToLowerInvariant()] = Read-Scratch $raiz
+}
+$scratchAntes = if ($foto -and $foto.PSObject.Properties['scratch']) { $foto.scratch } else { $null }
+foreach ($k in $scratchAhora.Keys) {
+  $antes = if ($scratchAntes) { $scratchAntes.PSObject.Properties[$k] } else { $null }
+  if (-not $antes) { continue }
+  foreach ($rel in $scratchAhora[$k].Keys) {
+    $i = $scratchAhora[$k][$rel]
+    $previo = $antes.Value.PSObject.Properties[$rel]
+    if (-not $previo -or $previo.Value -ceq $i.status) { continue }
+    # `needs-info` es un riesgo y no un action item: sin LLM no se distinguen, y un riesgo es interno,
+    # así que nada llega al cliente si el PM no lo reclasifica.
+    $tipo = @{ "done" = "hito"; "needs-info" = "riesgo" }[$i.status]
+    if (-not $tipo) { continue }
+    # La misma transición vista en dos worktrees es una sola propuesta: el id no nombra el worktree.
+    $id = "issue:${rel}:$($i.status)"
+    if (@($propuestas | Where-Object { $_.id -ceq $id }).Count) { continue }
+    # Los commits del dev cuyo `Slice-Close:` cita este issue por ruta: el hito y el `update` de esos
+    # commits son la misma obra, y el PM los ve juntos. `.md` no puede seguir con `x`, `.x` ni `-`, para
+    # que `01-uno.mdx` no cite a `01-uno.md`; un punto final de oración sí puede seguir.
+    $feat, $archivo = $rel -split '/', 2
+    $cita = '(?<![^\s`''"(\[,])' + [regex]::Escape(".scratch/$feat/issues/$archivo") + '(?!\w|\.\w|-)'
+    $commits = @($slices | Where-Object { $_.sliceClose -match $cita } | ForEach-Object { $_.sha })
+    $propuestas += [ordered]@{
+      id      = $id
+      tipo    = $tipo
+      destino = "delivery"
+      estado  = "nueva"
+      hechos  = [ordered]@{ issue = $rel; titulo = $i.titulo; de = $previo.Value; a = $i.status; commits = $commits }
+    }
+  }
+}
+
 if ($propuestas.Count) { $lote.resultado = "ok"; $lote.propuestas = $propuestas }
 # El lote antes que la foto: si la corrida muere entre las dos, la próxima vuelve a proponer lo mismo
 # y la ingesta lo deduplica por id. Al revés, se perdería.
@@ -162,6 +233,12 @@ $archivo = Write-Lote
 # La foto se escribe aparte y se mueve encima: WriteAllText trunca antes de escribir, y una PC que se
 # apaga a mitad dejaría una foto cortada.
 $tmp = "$fotoPath.tmp"
-[IO.File]::WriteAllText($tmp, ([ordered]@{ schemaVersion = 1; vistos = @($todos | ForEach-Object { $_.sha }) } | ConvertTo-Json -Depth 3), $utf8)
+$scratchFoto = [ordered]@{}
+foreach ($k in $scratchAhora.Keys) {
+  $s = [ordered]@{}
+  foreach ($rel in $scratchAhora[$k].Keys) { $s[$rel] = $scratchAhora[$k][$rel].status }
+  $scratchFoto[$k] = $s
+}
+[IO.File]::WriteAllText($tmp, ([ordered]@{ schemaVersion = 1; vistos = @($todos | ForEach-Object { $_.sha }); scratch = $scratchFoto } | ConvertTo-Json -Depth 5), $utf8)
 [IO.File]::Move($tmp, $fotoPath, $true)
 Write-Output $archivo
