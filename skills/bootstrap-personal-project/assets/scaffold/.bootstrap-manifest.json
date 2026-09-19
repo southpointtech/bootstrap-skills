@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-09-19+274036b",
+  "version": "2026-09-19+336ad50",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "9625fe09cd543e25165066a6e2e1753bd696aa47f1f1179d58552b239d7324cc",
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
@@ -71,7 +71,7 @@
     ".claude/hooks/review-loop-trigger.ps1": "87824bc0c515d6ec1012f9f85cc02158866e241cc58b7d0b5fea0cdf6328c58c",
     ".claude/scripts/abrir-carril.ps1": "fd508b1989b27eae12d68f4d094cd5fdb7a8e3b43cde0c76d21e0fda93d7f63e",
     ".claude/scripts/review-marker.ps1": "f4c23e3451ec38b8595af2c3e4f55ae55f334818e1ed359d58c93644c51b0d4e",
-    ".claude/settings.json": "61ad880e8ba44d027929cb7b3a2e3fa656a9c19270699f48b004155ac17df9b6",
+    ".claude/settings.json": "e05e5669925e0e12a6c552f409b7195198e913cd6422283e1a899b4ed5a58176",
     ".gitattributes": "d7e622c7054c0748b631de9840cbafdd5891f7b17414b950e43e294721171326",
     ".gitignore": "a2f91fb6d7b01f1048c42ac565ebab4500af100763d103f4bbc6e14fcd72629a",
     "CLAUDE.md": "0b5f1acba07ea4884946c4c87b07f747ec25bab789bf05bf49d30f613eda376a",
