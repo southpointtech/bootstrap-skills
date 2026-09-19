@@ -155,79 +155,63 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 
 ## La ola vigente
 
-**Ola 3** · Aprobada por el dueño del repo el 2026-09-19 · Base `feat/bootstrap-v2` en el commit de
-este plan, sobre `b9a9139` (el arreglo previo del frontmatter de `review-loop`, que Claude Code
-descartaba entero por un `: ` sin comillas).
+**Ola 4** · Aprobada por el dueño del repo el 2026-09-19 · Base `feat/bootstrap-v2` @ `25f4bac`
+(slice light de Lows, `run-all.ps1` verde, 33 suites).
 
-**Cerrada el 2026-09-19**: integrada en `feat/bootstrap-v2` @ `c7faaa5`, `run-all.ps1` verde (32 suites).
-
-Las olas 1 (07, 15, 19) y 2 (09, 10, 08) cerraron el 2026-09-18 en `628c84b` y `6e1a0e9`; sus
-planes quedaron en el historial de este archivo (`git log -p`) y sus lecciones, abajo.
+Las olas 1 (07, 15, 19), 2 (09, 10, 08) y 3 (12, 11, 16) cerraron el 2026-09-18 y el 2026-09-19 en
+`628c84b`, `6e1a0e9` y `c7faaa5`; sus planes quedaron en el historial de este archivo
+(`git log -p`) y sus lecciones, abajo.
 
 | Carril | Slice | Dueño de | Caliente escrito a mano |
 |---|---|---|---|
-| **A** (camino crítico) | 12 — `research`, `resolving-merge-conflicts` y `git-guardrails-claude-code` al scaffold; `writing-for-agents` solo en este repo; `zoom-out` | `.agents/skills/{research,resolving-merge-conflicts,git-guardrails-claude-code,zoom-out}/` y sus `.claude/commands/` (raíz + 3 scaffolds), y `.claude/skills/writing-for-agents/` (solo raíz; ver «Correcciones al integrar») | **dueño** de `This delivers:` y de la allowlist `$allow` |
-| **B** (camino crítico) | 11 — `wizard` + `to-questionnaire` | `.agents/skills/{wizard,to-questionnaire}/` y sus `.claude/commands/` (raíz + 3 scaffolds) | no: el diff que necesita en `This delivers:` va en su reporte |
-| **C** | 16 — `verify-downstream-arrival` + `debug-source-first` al scaffold | `.agents/skills/{verify-downstream-arrival,debug-source-first}/` y sus `.claude/commands/`, y la sección `## Where this fits` de `.agents/skills/diagnosing-bugs/` (raíz + 3 scaffolds) | no: diff en su reporte; si necesita marcas nuevas, las agrega al final de `tools/leak-markers.txt` |
+| **A** (camino crítico) | 13 — política de invocación con test declarativo | `.claude/commands/{grill-me,grill-with-docs,to-prd,to-issues,triage,handoff}.md` y `.agents/skills/<esas 6>/SKILL.md` (raíz + 3 scaffolds), y `tests/invocation-policy.tests.ps1` (nuevo) | no |
+| **B** | 21 — el matcher del `review-loop-trigger` no cubre la herramienta PowerShell | `.claude/settings.json` (raíz + 3 scaffolds) y los casos nuevos de `tests/review-loop-trigger.tests.ps1` | **dueño** de `settings.json`, que es config compartida |
 
-Integración: **A → B → C**. C va último porque es el único que edita una skill ya integrada
-(`diagnosing-bugs`), y A primero porque es el dueño de `This delivers:` y `$allow`.
+Integración: **A → B**. A es el más grande y el único que mueve `skills-lock.json`; B rebasa contra
+cuatro líneas de JSON y un test.
 
-Afuera: 13 espera a 11 y 12; 21 no es del camino crítico y va a la ola 4 junto al 13; 14 es
-`CLAUDE.md` y va en serie entre olas; 18 es HITL y va último. Los Lows sueltos de la ola 2 van en
-un slice light después de esta ola.
+Afuera: 14 es `CLAUDE.md` y la norma lo reserva al orquestador, así que va en serie entre olas; 18
+es HITL y va último. Los Lows del slice `25f4bac` van en un slice light después de esta ola.
 
-Medido al repartir (2026-09-19, contra el clon de upstream en `959a8e9`, cuerpo + auxiliares, y
-contra las copias de usuario en `~/.claude/skills/`):
+Medido al repartir (2026-09-19, sobre `25f4bac`):
 
-- `research` 15 líneas (2 archivos), `resolving-merge-conflicts` 17 (2),
-  `git-guardrails-claude-code` 123 (3, con `scripts/block-dangerous-git.sh`), `writing-for-agents`
-  106 (3). `zoom-out` no está en el HEAD de upstream.
-- `wizard` 251 (3, con `template.sh`), `to-questionnaire` 59 (2).
-- `debug-source-first` 167 y `verify-downstream-arrival` 107 (1 archivo cada una), con 11 líneas
-  que nombran herramientas o clientes puntuales. Es el único carril con prosa propia que escribir.
-- Ningún archivo escrito a mano aparece en dos filas. `skills-lock.json` y los tres
-  `.bootstrap-manifest.json` los tocan los tres carriles: son generados, y el orquestador los
-  re-sella sobre el árbol integrado.
-
-Corrección al issue 12, decidida por el orquestador: el issue pide marcar `zoom-out` como fork
-propio sin base, pero el lockfile ya la selló como `upstream-huerfano` con la base que recuperó la
-similitud (`7afa86d`), y `tests/skills-lock.tests.ps1` exige exactamente eso para una skill que
-upstream borró (ADR-0005: colapsarla en `fork-propio` tira su base). El criterio pasa a ser:
-**`zoom-out` sigue como `upstream-huerfano`, y un test verifica que ese estado no se reporta como
-faltante ni se borra.**
-
-Correcciones al integrar (2026-09-19):
-
-- `writing-for-agents` no entró en `.agents/skills/` de la raíz: `tools/skills-lock.ps1 -Action Seal`
-  exige el mismo árbol de skills en las cuatro raíces y se negó a sellar. El dueño del repo eligió
-  instalarla como skill nativa de proyecto en `.claude/skills/writing-for-agents/`, fuera del
-  lockfile y de los scaffolds; el test la fija por hash normalizado contra el blob de upstream.
-- `research`: el carril A midió con `claude -p` que, con una skill de usuario del mismo nombre en
-  `~/.claude/skills/research`, gana la de usuario y la del proyecto no se lista. Lo mismo se espera,
-  sin medir, para `debug-source-first` y `verify-downstream-arrival`. Decisión del dueño: retirar las
-  tres copias de usuario al deployar (nota en el issue 18).
-- `to-questionnaire` entra ya con `disable-model-invocation: true` (decisión delegada al carril B):
-  es una skill nueva, upstream la trae así y el issue 13 la clasifica user-invoked. A diferencia de
-  07 y 08, no cambia la invocación de una skill ya instalada. Nota en el issue 13.
-- `.gitattributes` en la raíz con `*.sh text eol=lf` (carril B, por el review): con
-  `core.autocrlf=true` un checkout escribía los `.sh` con CRLF y bash de WSL no los corre.
-  `tests/sh-eol.tests.ps1` lo verifica en el blob, el atributo y el disco. Al integrar, los `.sh`
-  del carril A quedaron CRLF en disco (git no reescribe archivos existentes al cambiar atributos):
-  se borraron y se volvieron a sacar con `git checkout -- <f>`.
+- Ningún archivo escrito a mano aparece en dos filas: A toca comandos y skills, B toca
+  `settings.json` y el test del hook.
+- Los tres `.bootstrap-manifest.json` los tocan los dos: son generados y el orquestador los
+  re-sella sobre el árbol integrado. `skills-lock.json` lo mueve **solo A** (hashea el `SKILL.md`
+  de cada skill) y su suite se pone roja si no sella: **A sella en su rama antes de entregar**.
+- Tamaño de A: 6 comandos × 2 archivos × 4 raíces = 48 ediciones de frontmatter de una línea, más
+  el test. Tamaño de B: cuatro líneas de `matcher` más los casos del test. Los dos bajo ~400.
+- Listado de skills (descriptions de `.claude/commands/`, que es lo que carga en cada request):
+  hoy **6.667 ch en 18 comandos**; con la regla, **5.709 en 12** (−14 %). Entra en el presupuesto
+  del 1 % de la ventana (~8.000 ch en 200k). El **"+12 %" del issue 13 no se sostiene**: es de
+  antes de las skills de las olas 2 y 3, y contra la línea base del 2026-08-28 (2.996 ch / 11
+  comandos) el release queda en **+91 %**. Las seis descriptions model-invoked más largas suman
+  3.780 ch, el 66 % del listado (`verify-downstream-arrival` 746, `debug-source-first` 666,
+  `domain-modeling` 631, `wizard` 612, `diagnosing-bugs` 583, `grilling` 542). **Decisión del
+  dueño del repo (2026-09-19): la disciplina es de clasificación, no de caracteres — no se
+  recortan; el carril corrige el número en el issue y lo deja anotado.**
+- Restricción del issue 13 verificada antes de repartir: ninguna de las 6 user-invoked es invocada
+  por otra skill ni por un hook. El `alignment-gate` **ofrece** `/grill-me` al usuario (no lo
+  invoca) y las menciones en `setup-matt-pocock-skills` son referencias en prosa.
 
 Lo que cada carril resuelve antes del primer test:
 
-- 12: `research` ya existe como skill de usuario (`~/.claude/skills/research`, 10 líneas). Cuál
-  gana cuando están las dos → técnica: la mide el carril y la deja escrita.
-- 12: el hook de `git-guardrails-claude-code` se engancha solo a la herramienta Bash y no cubre la
-  de PowerShell (la misma clase que el issue 21) → técnica: el carril lo deja dicho; no toca
-  `.claude/settings.json`.
-- 11: `wizard/template.sh` viaja al scaffold o se retira, con el precedente de la plantilla HITL
-  del 10 → técnica: la decide el carril y la deja dicha en la skill y en su reporte.
-- 16: la extensión de `debug-source-first` para valores equivocados sobrevive, y su paso 5 devuelve
-  a `diagnosing-bugs` en vez de a `superpowers:systematic-debugging` (nota de la ola 2 en el issue)
-  → decidido en el issue.
+- 13: el flag va en el comando, en el `SKILL.md`, o en los dos. `.agents/skills/` no lo lee Claude
+  Code, pero las tres skills ya clasificadas (`zoom-out`, `to-questionnaire`,
+  `setup-matt-pocock-skills`) lo llevan en ambos → técnica: el carril sigue ese precedente y el
+  test lee el frontmatter real de los comandos, como pide el issue.
+- 13: las descriptions user-invoked pasan a una línea human-facing, lo que edita el frontmatter de
+  skills sincronizadas de mattpocock y las desvía del upstream → técnica: el carril lo hace, lo
+  declara en su reporte y sella el lockfile en su rama.
+- 21: cómo se llama la herramienta en el campo `tool_name` del evento, y si el matcher acepta la
+  misma alternancia que el `alignment-gate` → técnica: lo mide el carril con un hook de
+  diagnóstico en un directorio temporal, lo pega en el issue y borra el hook y el log.
+- 21: el hook no mira `tool_name` (solo `tool_input.command`), así que el sujeto del test nuevo es
+  el `matcher` de `settings.json` evaluado como regex → técnica: la decide el carril.
+- 21: el hook de `git-guardrails-claude-code` tiene el mismo defecto de clase (anotado por la ola
+  3) → queda **afuera**: el issue prohíbe ensanchar guards de paso.
+
 
 ## Lo que dejó la ola N
 
