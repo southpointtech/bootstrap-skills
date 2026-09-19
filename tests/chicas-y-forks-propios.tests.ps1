@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 155
+$ExpectedChecks = 172
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "chfp"
@@ -168,6 +168,34 @@ foreach ($s in $scaffolds) {
   $etq = Etiqueta $s
   Assert (-not (Test-Path -LiteralPath (Join-Path $s ".agents/skills/writing-for-agents"))) "$etq : writing-for-agents NO está en .agents/skills del scaffold"
   Assert (-not (Test-Path -LiteralPath (Join-Path $s ".claude/commands/writing-for-agents.md"))) "$etq : writing-for-agents NO tiene comando en el scaffold"
+  Assert (-not (Test-Path -LiteralPath (Join-Path $s ".claude/skills/writing-for-agents"))) "$etq : writing-for-agents NO está en .claude/skills del scaffold"
+}
+# En la raíz vive como skill NATIVA de proyecto (`.claude/skills/`), no en `.agents/skills/`: ahí
+# `tools/skills-lock.ps1` exige el mismo árbol en las cuatro raíces y el mismo lockfile, y una skill
+# sólo de la raíz no se puede sellar (medido el 2026-09-19: Seal sale 1 y no escribe). Decisión del
+# dueño del repo: queda FUERA del lockfile.
+$wfaDir = Join-Path $repo ".claude/skills/writing-for-agents"
+$wfaHay = @(if (Test-Path -LiteralPath $wfaDir) {
+  Get-ChildItem -LiteralPath $wfaDir -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($wfaDir.Length + 1).Replace([char]92, [char]47) }
+})
+$wfaHay = @($wfaHay | Sort-Object)
+Assert (($wfaHay -join '|') -ceq 'SKILL-MECHANICS.md|SKILL.md') "repo : .claude/skills/writing-for-agents tiene exactamente SKILL-MECHANICS.md y SKILL.md (tiene: $($wfaHay -join ', '))"
+Assert (-not (Test-Path -LiteralPath (Join-Path $repo ".agents/skills/writing-for-agents"))) "repo : writing-for-agents NO está en .agents/skills (el lockfile no la puede sellar sólo en la raíz)"
+Assert (-not (Test-Path -LiteralPath (Join-Path $repo ".claude/commands/writing-for-agents.md"))) "repo : writing-for-agents no tiene un comando aparte que la duplique"
+$wfa = Texto (Join-Path $wfaDir "SKILL.md")
+$wfaFm = Frontmatter $wfa
+$wfaDesc = 'Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md, or when the user says "escribí una skill", "mejorá esta skill", "revisá la description", "editá el CLAUDE.md", or "cómo le escribo esto a un agente".'
+Assert (@($wfaFm) -ccontains "name: writing-for-agents") "repo : writing-for-agents declara name: writing-for-agents"
+Assert (@($wfaFm) -ccontains "description: $wfaDesc") "repo : writing-for-agents tiene la description propia, con sus triggers en español"
+Assert (-not $wfaDesc.Contains(': ') -and -not $wfaDesc.Contains(' #')) "writing-for-agents : la description es un escalar YAML plano (sin ': ' ni ' #' adentro)"
+foreach ($frase in @('read [`SKILL-MECHANICS.md`](SKILL-MECHANICS.md) for frontmatter, invocation choice, and router skills.', '## Context pointers', '## Pruning')) {
+  Assert ($null -ne $wfa -and $wfa.Contains($frase)) "writing-for-agents/SKILL.md dice ``$frase``"
+}
+Assert ((Texto (Join-Path $wfaDir "SKILL-MECHANICS.md")) -like "# Skill mechanics*") "writing-for-agents/SKILL-MECHANICS.md es el de upstream"
+foreach ($raiz in $raices) {
+  $lk = Texto (Join-Path $raiz "skills-lock.json")
+  $d = if ($null -ne $lk) { $lk | ConvertFrom-Json -AsHashtable } else { $null }
+  Assert ($null -ne $d -and -not $d.skills.Contains("writing-for-agents")) "$(Etiqueta $raiz) : writing-for-agents no figura en skills-lock.json"
 }
 
 # --- C. zoom-out: upstream-huerfano, ni faltante ni borrada --------------------------------------
