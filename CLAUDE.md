@@ -104,7 +104,7 @@ Issues técnicos viven como markdown local en `.scratch/`. Tareas de alto nivel 
 
 ### Triage labels
 
-Vocabulario por defecto (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). Ver `docs/agents/triage-labels.md`.
+Vocabulario por defecto (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix, done). `/review-loop` pone `done` en los issues que el trailer `Slice-Close:` cita por ruta. Ver `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

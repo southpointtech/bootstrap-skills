@@ -42,7 +42,7 @@ When the shape of that interface is itself in question (how deep the module is, 
 After green, before starting the next slice. This is NOT optional and you do NOT ask permission — you run it:
 
 1. Check the diff size: `git --no-pager diff --stat` (or `git --no-pager diff <base>...HEAD --stat` on a feature branch). Generated files, vendored code, lockfiles and snapshots don't count toward the ~400-line guide. The ceiling was already spent when the slice OPENED, so a closing diff well over ~400 lines is **declared in the `Slice-Close:` trailer**, not split here — by now the pieces are interdependent and the review marker is anchored to this range. Record it so the next slice is planned smaller.
-2. Commit. Multi-commit per slice is expected — one commit per green step. Declare the CLOSE of the slice in the last commit message with a `Slice-Close: <what closed>` trailer: that trailer is what fires the loop, so intermediate commits no longer pull a review run each.
+2. Commit. Multi-commit per slice is expected — one commit per green step. Declare the CLOSE of the slice in the last commit message with a `Slice-Close: <what closed>` trailer: that trailer is what fires the loop, so intermediate commits no longer pull a review run each. When the slice implements issues from `.scratch/`, cite each by its path in the trailer (`Slice-Close: .scratch/<feature>/issues/<NN>-<slug>.md — <what closed>`): that is how `/review-loop` knows which issues to mark `done`.
 3. Run `/review-loop` on the unreviewed delta and iterate until it closes (zero medium/high findings, or its turn cap: 2, or 1 under `Review-Rigor: light`). Do NOT mark the slice done until the loop closes.
 4. Only then start the next slice.
 

@@ -309,6 +309,25 @@ same slice, and keeping the anchor (`open` is write-once) keeps that re-run scop
 real start instead of under-scoping to the advanced marker. Order matters — the coherence pass reads
 the anchor via `-Action slice-base`, so `close` runs strictly after it. See `docs/adr/0002-limpieza-del-ancla-de-coherencia.md`.
 
+### Mark the closed issues `done`
+
+After the coherence pass, if **no High finding is left open** — any clean or prose-only close, and a
+cap close whose open findings are all Medium — mark the issues the slice closed:
+
+```
+pwsh -NoProfile -File .claude/scripts/marcar-done.ps1 -RepoDir . -Sha <commit carrying the Slice-Close:>
+```
+
+Run it once per commit in the slice that carries a `Slice-Close:` (usually one).
+
+The `Slice-Close:` trailer cites each issue by its path, e.g.
+`Slice-Close: .scratch/<feature>/issues/07-<slug>.md — <what closed>`. The script rewrites only the
+`Status:` line of each cited issue under `.scratch/<feature>/issues/`, and prints a JSON with
+`marcados`, `yaDone`, `noEncontrados` and `sinStatus`. `.scratch/` is gitignored, so there is
+nothing to commit. With a High still open, do not run it: the issue stays as it was and the final
+report says why. A trailer that cites no path marks nothing. Say so in the report; do not guess
+the issue from free text.
+
 ## Guardrails
 
 - Reviewers produce false positives — don't blindly accept every finding.
@@ -324,3 +343,5 @@ the anchor via `-Action slice-base`, so `close` runs strictly after it. See `doc
 - List the findings resolved this run.
 - State the tests/typechecks run and their result, including which fixes went RED before green.
 - Note any finding deliberately not fixed (with reason) and any blocker that needs a human.
+- List the issues marked `done` (the script's report), or why none was: a High left open, or a
+  `Slice-Close:` that cites no issue path.
