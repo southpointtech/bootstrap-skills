@@ -1,3 +1,101 @@
+# Session Handoff — 2026-09-19 — **Ola 3 (12, 11, 16) INTEGRADA y CERRADA** en `feat/bootstrap-v2` @ `de6ab2e` (integración `c7faaa5`), `run-all.ps1` verde (32 suites). Próximo: slice light de Lows, o la ola 4 (13 + 21).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `05c9c22` + el commit de este handoff (sin
+  pushear; `origin/main` = `dd3fdf6`, tag `v1.0.0`). Untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`de6ab2e`**, árbol
+  limpio, **local, sin pushear**. Commits de esta sesión (sobre `f48233e`):
+  ```
+  de6ab2e docs(carriles): la ola 3 queda cerrada en c7faaa5, con lo que dejo
+  c7faaa5 chore(ola-3): integracion de 12, 11 y 16 — This delivers, manifests y correcciones del plan
+  025a460 (cherry-pick carril C, 16)
+  4a42316 612cdb5 6f73930                       (cherry-picks carril B, 11)
+  94a1ef9 0cb57eb a8ab332 ca97742               (carril A, 12, fast-forward)
+  dff3802 docs(carriles): plan de la ola 3 — 12, 11 y 16 en tres carriles
+  b9a9139 fix(review-loop): la description vuelve a parsear como YAML   (previo a la ola)
+  ```
+- **Ramas de carril conservadas** (worktrees removidos): `slice/12-chicas-y-forks-propios` (`94a1ef9`),
+  `slice/11-wizard-y-to-questionnaire` (`f06c7a0`), `slice/16-bundle-downstream` (`1cec794`),
+  `slice/frontmatter-review-loop` (`b9a9139`), más las de olas anteriores. `carriles\Bootstrap Skills\hub-sync`
+  (`feat/hub-sync`) es de OTRA sesión: no tocar.
+- **Estado v2**: cerrados 01–12, 15, 16, 17, 19, 20. Pendientes: **13** (política de invocación; desbloqueado),
+  **21** (matcher del hook no cubre PowerShell), **14** (`CLAUDE.md`, en serie entre olas), **18** (último, HITL).
+  Issues en `.scratch/bootstrap-v2/issues/` del worktree v2 (gitignoreado).
+
+## 1. Qué se hizo en esta sesión
+
+1. **Arreglo previo `b9a9139`**: la `description` de `review-loop` (SKILL.md + command, raíz + 3 scaffolds) tenía
+   `Review-Rigor: light` sin comillas → YAML inválido → Claude Code mostraba la skill como "Review Loop" sin
+   triggers. Reescrita; suite nueva `tests/frontmatter-yaml.tests.ps1` (lint de escalar plano sobre todo `.md`
+   trackeado). Review light: clean close; **quedó 1 Medium sin arreglar** (el recorrido de archivos reales no
+   tiene control positivo: un mutante que revisa la clave en vez del valor pasa) + 3 Lows.
+   *El handoff anterior decía que `tdd`/`slice-review` también fallaban: medido, no; solo `review-loop`.*
+2. **Plan de la ola 3** (`dff3802`, aprobado por el usuario). Corrección al issue 12: `zoom-out` queda
+   `upstream-huerfano` (base `7afa86d`), no fork propio.
+3. **Carriles** (subagentes en worktrees, reviews orquestados a mano con rangos explícitos):
+   - **A / 12**: `research`, `resolving-merge-conflicts`, `git-guardrails-claude-code` (+`scripts/block-dangerous-git.sh`)
+     al scaffold; `writing-for-agents` **solo raíz en `.claude/skills/writing-for-agents/`** (decisión del usuario;
+     Seal exige el mismo árbol en las 4 raíces), fijada por hash normalizado. Review standard: **cierre por tope**
+     (T1: jq fail-open no documentado + SKILL-MECHANICS sin anclar; T2: force-push sobreestimado + regla de stop
+     del paso 5; los arreglos de T2 sin review propio). Coherencia: ADR-0006 viejo sobre zoom-out → arreglado.
+   - **B / 11**: `wizard` (+`template.sh`, viaja) y `to-questionnaire` (`disable-model-invocation: true`, description
+     en inglés — decisión del usuario). Review standard: **cierre por tope** (T1: Replace vacuo en el link del
+     comando + CRLF en `.sh` → `.gitattributes` raíz `*.sh text eol=lf` y `tests/sh-eol.tests.ps1`; T2: sh-eol no
+     miraba el disco → tercer chequeo). Coherencia limpia.
+   - **C / 16**: `verify-downstream-arrival` + `debug-source-first` al scaffold, sin Domo (también en Southpoint:
+     decisión del usuario), paso 5 → `diagnosing-bugs`, extensión de valor equivocado conservada, `fork-propio`.
+     Review standard: **clean close en T1** + coherencia limpia.
+4. **Integración** `c7faaa5`: lockfile resuelto con `recover-skill-bases.py` + `Seal -Bases` (21 skills, cero
+   diferencias contra los lockfiles de carril); `This delivers:` = 21 skills (17 synced + 4 bundled), 21 commands;
+   manifests regenerados (solo `version` y `skills-lock.json` cambian en entradas existentes); `.sh` del carril A
+   re-sacados como LF; correcciones en PARALELISMO, ADR-0006, `recuperar-base-de-skills.md`; notas en issues 13 y 18.
+
+## 2. Tests
+
+`pwsh -NoProfile -File tests/run-all.ps1` sobre el árbol de `c7faaa5`: **SUITE VERDE — 32 suites, 0 rojas, 245 s.**
+`de6ab2e` solo toca `PARALELISMO-DEL-PROYECTO.md`. Suites nuevas: `frontmatter-yaml`, `chicas-y-forks-propios` (181),
+`wizard-y-to-questionnaire` (127), `sh-eol` (25), `bundle-downstream` (132). No hay rojos conocidos.
+
+## 3. Próximos pasos (en este orden)
+
+1. **Decisión de diseño pendiente del usuario**: ¿el scaffold (y el export público `tools/export-shareable.ps1`)
+   llevan `.gitattributes` con `*.sh text eol=lf`? Hoy solo la raíz de este repo lo tiene; un proyecto bootstrapeado
+   (o un clon del repo público) en Windows con autocrlf recibe los `.sh` en CRLF y bash de WSL falla
+   (`set -euo pipefail\r` → exit 2, medido en WSL kali-linux). No se decidió: preguntar.
+2. **Slice light de Lows** (candidatos, por dueño):
+   - Medium sin arreglar de `frontmatter-yaml` (control positivo del recorrido) + sus 3 Lows.
+   - `setup-matt-pocock-skills/domain.md` nombra `/improve-codebase-architecture`; plantillas de tracker con
+     "Wayfinding operations" (vienen del handoff anterior).
+   - Conteos viejos: `docs/TESTING.md:17`, `public/README.md:12` ("11 custom skills"), `README.md:89-90`,
+     `skills/bootstrap-*/SKILL.md:8` (lista de ejemplos sin las skills nuevas).
+   - Lows de la ola 3 (detalle en los reportes; los más baratos): `debug-source-first` ejemplo de cast
+     ("a cast that truncates to an integer"), paso 4 solo-ausencia, `verify-downstream-arrival` "When NOT" sin ruta
+     para stack trace; anclas exactas de las reglas propias de dsf/vda; `sh-eol` con `check-attr -z`.
+3. **Ola 4**: 13 (política de invocación; leer su "Nota de la ola 3") + 21. Plantilla `PLAN-DE-OLA`, aprobación antes
+   de despachar. 14 va en serie; 18 último (incluye retirar `~/.claude/skills/{research,debug-source-first,verify-downstream-arrival}`).
+4. **Push de v2**: lo hace el usuario (`! gh auth switch -u southpointtech && git -C <v2> push -u origin feat/bootstrap-v2`).
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **Copias de usuario que tapan las del scaffold** (medido con `research`): `~/.claude/skills/{research,debug-source-first,verify-downstream-arrival}`.
+  Decisión del usuario: retirarlas en el issue 18 (nota escrita ahí). La `research` de usuario además está rota
+  (delega en `~/.claude/lib/research.md`, que no existe).
+- **Integrar por cherry-pick deja archivos con el EOL viejo en disco** si el `.gitattributes` llega después:
+  verificar `git ls-files --eol '*.sh'` → `w/lf`; reparar borrando y `git checkout -- <f>` (`--renormalize` no toca el disco).
+- **Reviews en worktrees de carril**: `review-marker -Action range`/`slice-base` devuelven el merge-base con `main`
+  (`227a53d`); usar rangos explícitos. El foco `--code-review` no sirve (el fork revisa la cwd de la sesión, `main`):
+  se omitió en los tres carriles. Los agents `slice-review-*` no están cargados desde `main`: se despachan como
+  `Plan` (lectura) y la mutación como `general-purpose`; mirar `git status` después de cada fan-out.
+- **Techo de concurrencia**: se mantuvo ≤ ~7 agentes a la vez; los reviews de carril se corrieron escalonados.
+- Anclas de review abiertas: A y B cerraron por tope (su `slice-open` queda puesto en sus ramas); C cerrado.
+- `recover-skill-bases.py --upstream-clone C:\Users\marti\AppData\Local\Temp\claude\C--Repos-PERSONAL-Bootstrap-Skills\72fec20c-1905-4a46-b20c-8066f9fa806a\scratchpad\upstream`
+  (clon de `mattpocock/skills` @ `959a8e9`, sigue vivo) → `.scratch/bootstrap-v2/skill-bases.json` → `skills-lock.ps1 -Action Seal -Bases …` → `gen-manifest` ×3.
+- Commits con `git commit -F <archivo>`; editar archivos con script que mide EOL y hace match exacto.
+
+---
+
 # Session Handoff — 2026-09-18 (noche 2) — **Ola 2 (09, 10, 08) INTEGRADA y CERRADA** en `feat/bootstrap-v2` @ `f48233e`, `run-all.ps1` verde (27 suites). `main` ya está mergeado en v2. Próximo: planear la ola 3.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
