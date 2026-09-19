@@ -1,3 +1,73 @@
+# Session Handoff — 2026-09-19 (tarde) — **Issue 22 (`.gitattributes` del scaffold) CERRADO** en `feat/bootstrap-v2` @ `4e321d0`, `run-all.ps1` verde (33 suites), review-loop standard con clean close en T1. Próximo: slice light de Lows, o la ola 4 (13 + 21).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `ac5fd7f` + el commit de este handoff (sin pushear;
+  `origin/main` = `dd3fdf6`, tag `v1.0.0`). Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`,
+  `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`4e321d0`** (fast-forward
+  desde `de6ab2e`), árbol limpio, **local, sin pushear**. Rama del slice conservada: `slice/22-gitattributes-scaffold`
+  (`4e321d0`). Ancla de review del slice cerrada (`-Action close`). `feat/hub-sync` es de OTRA sesión: no tocar.
+- **Estado v2**: cerrados 01–12, 15, 16, 17, 19, 20, **22**. Pendientes: **13** (política de invocación), **21**
+  (matcher del hook no cubre PowerShell), **14** (`CLAUDE.md`, en serie entre olas), **18** (último, HITL).
+  Issues en `.scratch/bootstrap-v2/issues/` del worktree v2 (gitignoreado); el 22 se creó en esta sesión.
+
+## 1. Qué se hizo en esta sesión
+
+1. **Decisión del usuario** (pendiente del handoff anterior): el scaffold lleva `.gitattributes` con `*.sh text eol=lf`.
+2. **Slice 22** (`4e321d0`, `Slice-Close: issue v2 22`):
+   - `skills/bootstrap-{personal,southpoint,ai}-project/assets/scaffold/.gitattributes` **literal** (no
+     `gitattributes.txt`): en el clon del repo público, cuya raíz no lleva `.gitattributes`, el anidado es el que
+     deja los `.sh` del scaffold en LF. Sin mapeo en `copy-scaffold.ps1`/`gen-manifest.ps1`/`upgrade-bootstrap`.
+   - Si el proyecto ya tiene uno: se pisa con respaldo como el `.gitignore`; el Step 0b dice "A `.gitignore` or a
+     `.gitattributes` almost always needs merging" (golden re-sellado con `tools/reseal-step0b.ps1`).
+   - `This delivers:` de las tres SKILL.md lo nombra; manifests regenerados (el `.gitattributes` se re-sacó con
+     `git checkout` para que su hash sea el de los bytes CRLF del checkout, igual que el resto).
+   - `tests/gitattributes-scaffold.tests.ps1` (15 aserciones): commit + clone con `autocrlf=true` para (A) proyecto
+     bootstrapeado y (B) skill anidada en repo sin `.gitattributes` raíz, cada uno con control positivo. RED 5/15
+     antes del fix, verde después. Comentario de `tests/sh-eol.tests.ps1` actualizado.
+3. **Review-loop standard** (rango explícito `de6ab2e..4e321d0`; el marcador en worktree devuelve `227a53d`):
+   5 focos (`Plan`) + mutación (`general-purpose`), `--code-review` omitido. Mutación: 8 mutantes, 5 muertos, 3
+   sobrevivientes equivalentes/inherentes. Confidence pass: los 3 candidatos a Medium cayeron (clon viejo con CRLF
+   = 15: ningún árbol publicado tiene `.sh`, llegan en el mismo pull que el atributo — medido; manifest sin test = 25,
+   hueco previo y se regenera al deployar/exportar; excepción `.txt` sin documentar = 12, el test la guarda).
+   Coherencia: coheres. **Clean close.**
+
+## 2. Tests
+
+`pwsh -NoProfile -File tests/run-all.ps1` sobre `4e321d0`: **SUITE VERDE — 33 suites, 0 rojas, 375 s.** No hay rojos.
+
+## 3. Próximos pasos (en este orden)
+
+1. **Slice light de Lows** (en v2, rama nueva desde `feat/bootstrap-v2`):
+   - Del slice 22: (a) comentario de `tests/gitattributes-scaffold.tests.ps1:38-40` dice que `git -c core.autocrlf=true
+     clone` deja el setting en la config del clon — falso (es por proceso); reescribirlo o usar `git clone -c`.
+     (b) `alignment-gate.ps1:31` (raíz + 3 scaffolds; la raíz está en español, los scaffolds en inglés) no deja pasar
+     `.gitattributes` (sí `.gitignore`); agregarlo + caso en `tests/alignment-gate.tests.ps1` + regenerar manifests.
+     (c) opcional: nota en Step 0b de que los `.sh` propios del proyecto commiteados con CRLF pueden pedir
+     `git add --renormalize .` (tocaría el golden).
+   - Heredados: Medium sin arreglar de `frontmatter-yaml` (control positivo del recorrido) + 3 Lows;
+     `setup-matt-pocock-skills/domain.md` nombra `/improve-codebase-architecture` y plantillas con "Wayfinding
+     operations"; conteos viejos en `docs/TESTING.md:17`, `public/README.md:12`, `README.md:89-90`,
+     `skills/bootstrap-*/SKILL.md:8`; Lows de la ola 3 (`debug-source-first` ejemplo de cast, paso 4 solo-ausencia,
+     `verify-downstream-arrival` "When NOT", anclas de reglas propias, `sh-eol` con `check-attr -z`).
+2. **Ola 4**: 13 + 21. Plantilla `PLAN-DE-OLA`, aprobación del usuario antes de despachar.
+3. **Push de v2**: lo hace el usuario (`! gh auth switch -u southpointtech && git -C "C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2" push -u origin feat/bootstrap-v2`).
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **PowerShell: una función llamada `Git` se llama a sí misma** en vez de a `git.exe` (case-insensitive, las
+  funciones ganan a los ejecutables): recursión infinita, el test colgó 5 min sin procesos git. Nombrar `Invoke-Git`.
+- **`printf` en bash con `\\r` en el texto escribe un CR real** en el archivo; para bytes exactos, escribir desde
+  pwsh con `[IO.File]::WriteAllBytes`.
+- Manifests: hashean bytes crudos de disco (CRLF en este worktree con autocrlf). Un archivo nuevo escrito en LF
+  hay que re-sacarlo (`rm` + `git checkout -- <f>`) antes de `gen-manifest`, o su hash no coincide con el checkout.
+- Reviews en worktree: rangos explícitos; `-Action open/advance/close` sí se corrieron (el `range` no sirve).
+  Los `slice-review-*` se despachan como `Plan` (lectura) + `general-purpose` (mutación); ≤ ~6 agentes a la vez.
+- Commits con `git commit -F <archivo>`; editar con script que mide EOL y hace match exacto.
+
+---
+
 # Session Handoff — 2026-09-19 — **Ola 3 (12, 11, 16) INTEGRADA y CERRADA** en `feat/bootstrap-v2` @ `de6ab2e` (integración `c7faaa5`), `run-all.ps1` verde (32 suites). Próximo: slice light de Lows, o la ola 4 (13 + 21).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
