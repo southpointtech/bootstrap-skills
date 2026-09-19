@@ -13,7 +13,8 @@
 # `.gitattributes` (un cherry-pick en un worktree con autocrlf) sigue con CRLF y `git status` limpio.
 # El listado sale de `git ls-files`: un `.sh` que nunca pasó por `git add` no entra.
 #
-# QUÉ NO CUBRE: los `.gitattributes` de los proyectos bootstrapeados. El scaffold no lleva uno.
+# QUÉ NO CUBRE: los `.sh` fuera de este repo (un proyecto bootstrapeado, un clon del repo público).
+# Esos los cubre `tests/gitattributes-scaffold.tests.ps1`, con el `.gitattributes` que lleva cada scaffold.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $script:failures = 0
