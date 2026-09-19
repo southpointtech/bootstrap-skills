@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 172
+$ExpectedChecks = 178
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "chfp"
@@ -83,7 +83,15 @@ $skills = @(
        "Should exit with code 2 and print a BLOCKED message to stderr.",
        # Lo nuestro: el hook no cubre la herramienta PowerShell (misma clase que el issue 21).
        "## What it does not cover",
-       'a matcher of `Bash` does not match it: a `git push` sent through PowerShell never reaches this hook.') }
+       'a matcher of `Bash` does not match it: a `git push` sent through PowerShell never reaches this hook.',
+       # El script usa `jq`, que Git for Windows no trae: sin él imprime `jq: command not found` y
+       # sale 0, o sea deja pasar todo (medido el 2026-09-19 con bash de Git for Windows).
+       'Without it the script prints `jq: command not found` and exits 0: it lets every command through.',
+       'Before installing, run `command -v jq`',
+       'If the check in step 5 does not exit with code 2, stop and tell the user',
+       # Los patrones son substrings de la línea entera (medido con un stub de `jq`).
+       'with `-C <path>` or `-c <key>=<value>` in between, `push`, `branch -D`, `clean -f`, `checkout .` and `restore .` get through.',
+       'a commit message that mentions `git push`, or `git checkout .gitignore`.') }
 )
 
 foreach ($sk in $skills) {
@@ -191,7 +199,18 @@ Assert (-not $wfaDesc.Contains(': ') -and -not $wfaDesc.Contains(' #')) "writing
 foreach ($frase in @('read [`SKILL-MECHANICS.md`](SKILL-MECHANICS.md) for frontmatter, invocation choice, and router skills.', '## Context pointers', '## Pruning')) {
   Assert ($null -ne $wfa -and $wfa.Contains($frase)) "writing-for-agents/SKILL.md dice ``$frase``"
 }
-Assert ((Texto (Join-Path $wfaDir "SKILL-MECHANICS.md")) -like "# Skill mechanics*") "writing-for-agents/SKILL-MECHANICS.md es el de upstream"
+# Fuera del lockfile nada hashea estos dos archivos: se fija su contenido contra upstream @ 959a8e9
+# (`skills/productivity/writing-for-agents/`), con el hash normalizado de EOL del repo. Los valores
+# salen de `git cat-file -p 959a8e9:<path>` en el clon de upstream, hasheado con Get-NormalizedHash:
+# el archivo entero para SKILL-MECHANICS.md, y `-Scope Body` (sin frontmatter, o sea sin nuestra
+# description) para SKILL.md. Un cambio legítimo de upstream se adopta recalculándolos igual.
+. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")
+$wfaMech = Join-Path $wfaDir "SKILL-MECHANICS.md"
+$wfaSkill = Join-Path $wfaDir "SKILL.md"
+$hMech = if (Test-Path -LiteralPath $wfaMech) { Get-NormalizedHash -Path $wfaMech } else { "<no existe>" }
+$hBody = if (Test-Path -LiteralPath $wfaSkill) { Get-NormalizedHash -Path $wfaSkill -Scope Body } else { "<no existe>" }
+Assert ($hMech -ceq "c768e6307c7c10728c401c213f2c4ba71c542127eeb7ad2956aabd15a0fa0059") "writing-for-agents/SKILL-MECHANICS.md es byte a byte (EOL aparte) el de upstream @ 959a8e9 (hash: $hMech)"
+Assert ($hBody -ceq "393d286f6500fb39fd69b3102680f3591df85257c3f9faf2818d75bd2d77f565") "writing-for-agents/SKILL.md tiene el cuerpo de upstream @ 959a8e9, frontmatter aparte (hash: $hBody)"
 foreach ($raiz in $raices) {
   $lk = Texto (Join-Path $raiz "skills-lock.json")
   $d = if ($null -ne $lk) { $lk | ConvertFrom-Json -AsHashtable } else { $null }

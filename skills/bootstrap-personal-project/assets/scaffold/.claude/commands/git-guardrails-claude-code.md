@@ -21,6 +21,13 @@ When blocked, Claude sees a message telling it that it does not have authority t
 
 The hook is registered with `"matcher": "Bash"`, so it only sees commands sent through Claude Code's Bash tool. On Windows, Claude Code also has a PowerShell tool, and a matcher of `Bash` does not match it: a `git push` sent through PowerShell never reaches this hook. This skill ships no PowerShell version of the hook. When you install it where the agent has the PowerShell tool, tell the user the guardrail does not cover that tool.
 
+The hook needs `jq` on the PATH of the shell that runs Claude Code's hooks, and Git for Windows does not ship it. Without it the script prints `jq: command not found` and exits 0: it lets every command through. Before installing, run `command -v jq`; if it finds nothing, tell the user the hook will not block anything until `jq` is installed. If the check in step 5 does not exit with code 2, stop and tell the user the guardrail is not working.
+
+The patterns are matched as substrings of the whole command line, so:
+
+- A global option between `git` and the subcommand slips past most of them: with `-C <path>` or `-c <key>=<value>` in between, `push`, `branch -D`, `clean -f`, `checkout .` and `restore .` get through. Only `push --force` and `reset --hard` are still blocked, because those patterns also match without the `git ` prefix.
+- It blocks harmless commands that merely contain a pattern, such as a commit message that mentions `git push`, or `git checkout .gitignore`.
+
 ## Steps
 
 ### 1. Ask scope
