@@ -185,8 +185,13 @@ Medido al repartir (2026-09-19, sobre `25f4bac`):
 - Listado de skills (descriptions de `.claude/commands/`, que es lo que carga en cada request):
   hoy **6.667 ch en 18 comandos**; con la regla, **5.709 en 12** (−14 %). Entra en el presupuesto
   del 1 % de la ventana (~8.000 ch en 200k). El **"+12 %" del issue 13 no se sostiene**: es de
-  antes de las skills de las olas 2 y 3, y contra la línea base del 2026-08-28 (2.996 ch / 11
-  comandos) el release queda en **+91 %**. Las seis descriptions model-invoked más largas suman
+  antes de las skills de las olas 2 y 3. **Corregido al integrar el carril A (2026-09-19)**: la
+  línea base del 2026-08-28 no es 2.996 ch / 11 comandos sino **2.062 / 9** —`setup-matt-pocock-
+  skills` y `zoom-out` ya llevaban el flag, así que no cargaban—, y el release queda en **+176,9 %**,
+  no en el +91 % que decía este plan. El 2.996 sale de otro método, que la nota de research no
+  declara: el frontmatter entero menos la línea `name:`, o sea sumándole el `argument-hint` y la
+  propia línea del flag. Está anotado en el encabezado de `tests/invocation-policy.tests.ps1`.
+  Las seis descriptions model-invoked más largas suman
   3.780 ch, el 66 % del listado (`verify-downstream-arrival` 746, `debug-source-first` 666,
   `domain-modeling` 631, `wizard` 612, `diagnosing-bugs` 583, `grilling` 542). **Decisión del
   dueño del repo (2026-09-19): la disciplina es de clasificación, no de caracteres — no se

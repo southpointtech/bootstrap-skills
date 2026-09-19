@@ -14,8 +14,8 @@
 #   después de este slice: 12 comandos model-invoked, 5.709 caracteres  (−14,4 %)
 # La MISMA cuenta sobre el árbol del 2026-08-28 (`00c2160`) da 9 comandos y 2.062 caracteres — no 11
 # y 2.996: `setup-matt-pocock-skills` y `zoom-out` ya llevaban el flag, así que no cargaban. Medido
-# así, el release queda en +176,9 %, no en el +12 % que estimaba el issue antes de tener las nueve
-# skills nuevas en el árbol. El 2.996 de `docs/superpowers/notes/2026-08-28-research-dieta-de-
+# así, el release queda en +176,9 %. (El +12 % que estimaba el issue es de otro método y de antes
+# de tener las nueve skills nuevas: no se compara con éste.) El 2.996 de `docs/superpowers/notes/2026-08-28-research-dieta-de-
 # contexto.md` sale de otro método, que esa nota no declara: el frontmatter entero menos la línea
 # `name:`, o sea sumándole el `argument-hint` y hasta la propia línea `disable-model-invocation:
 # true` — la línea que impide que esa description cargue. No lo compares contra los números de acá.
@@ -35,13 +35,21 @@
 # invocación y la forma de la description que se sigue de ella.
 #
 # LA FORMA DE LA DESCRIPTION SE VERIFICA SÓLO EN `.claude/commands/`, a propósito: es la copia que
-# Claude Code carga en cada request, o sea la que se paga. `.agents/skills/` no la lee Claude Code,
-# y esa copia viaja a otros agentes que no necesariamente honran el flag: si se le sacaran los
-# triggers, ahí quedaría inalcanzable. Por eso sus descriptions conservan la forma de agente aunque
-# lleven el flag. Decidido por el dueño del repo el 2026-09-19. El FLAG sí se compara en las dos
-# copias (más abajo): lo que no puede divergir es la CLASIFICACIÓN. Si algún día se recortan esas
-# descriptions, `merge-triage-handoff-setup` pinea exactas las de `triage`, `handoff` y
-# `setup-matt-pocock-skills`; las de `to-prd`, `to-issues` y `zoom-out` no las pinea nadie.
+# Claude Code carga en cada request, o sea la que se paga. A `.agents/skills/` Claude Code no la
+# DESCUBRE como skills —su `description:` nunca entra a ese listado, aunque sí lea esos archivos
+# cuando un comando linkea a ellos— y esa copia viaja a otros agentes que no necesariamente honran
+# el flag: si se le sacaran los triggers, ahí quedaría inalcanzable. Decidido por el dueño del repo
+# el 2026-09-19. El FLAG sí se compara en las dos copias (más abajo): lo que no puede divergir es la
+# CLASIFICACIÓN.
+# Medido el 2026-09-19 sobre las 9 user-invoked: de las nueve copias de `.agents/skills/`, cinco
+# conservan la forma de agente (`handoff`, `setup-matt-pocock-skills`, `to-issues`, `to-prd`,
+# `triage`), `zoom-out` conserva su disparo sin marcas, y `grill-me`, `grill-with-docs` y
+# `to-questionnaire` no la tienen: las dos primeras son punteros de dos líneas y la tercera
+# simplemente nunca la tuvo. O sea que la exención cubre un surtido, no nueve copias de lo mismo.
+# Si algún día se recortan esas descriptions: `merge-triage-handoff-setup` pinea EXACTAS las de
+# `triage`, `handoff` y `setup-matt-pocock-skills`; las de `to-prd`, `to-issues` y `zoom-out` no las
+# pinea nadie palabra por palabra, pero el hash de `skills-lock.json` las sella, así que recortarlas
+# obliga a re-sellar el lockfile.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $script:failures = 0
@@ -53,7 +61,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 322   # 18 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 9 user-invoked + 2 del ADR-0003)
+$ExpectedChecks = 324   # 20 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 9 user-invoked + 2 del ADR-0003)
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -96,11 +104,19 @@ function Disparadores($d) { return @($disparadores | Where-Object { $d.Contains(
 # la lee él, así que se le habla a él (`Use when you're unfamiliar...`), no a un agente sobre él
 # (`Use when the user wants...`). No es una regla de largo: `setup-matt-pocock-skills` es
 # user-invoked y su description tiene 438 caracteres, y está bien.
-# `Usala ` va acotado a sus dos fórmulas de disparo y NO está el `"` pelado: los dos marcaban texto
-# legítimamente humano (`Usala para armar el handoff...`, una description que entrecomilla un
-# término) con el mensaje equivocado. Lo que marcan es voz de agente, no comillas.
+# `Usala cuando` y `Usala antes` están acá porque son dos de los `$disparadores` de arriba: una
+# user-invoked no necesita decirle al agente cuándo alcanzarla. El `"` PELADO no está, porque
+# marcaría también una description que entrecomilla un término; ninguna lo hacía en el árbol, así
+# que sacarlo no arregló nada que estuviera fallando — y se llevó puesta la única marca que
+# atrapaba a `zoom-out`, cuya forma de agente no dice `the user` ni `user wants` sino que LISTA sus
+# triggers entrecomillados. Eso último se marca por estructura, abajo: dos pares de comillas o más
+# son una lista, uno solo es un término.
 $marcasDeAgente = @('the user', 'user wants', 'el usuario', 'Usala cuando', 'Usala antes', 'Trigger when')
-function MarcasDeAgente($d) { return @($marcasDeAgente | Where-Object { $d.Contains($_) }) }
+function MarcasDeAgente($d) {
+  $m = @($marcasDeAgente | Where-Object { $d.Contains($_) })
+  if (@($d.ToCharArray() | Where-Object { $_ -ceq '"' }).Count -ge 4) { $m += 'lista de triggers entre comillas' }
+  return @($m)
+}
 
 # Una description plegada (`description: >` y el texto indentado abajo) deja a `Description` con el
 # `>` pelado: sin esto, una user-invoked pasaba las marcas sin que nadie leyera su texto.
@@ -123,6 +139,8 @@ Assert ((MarcasDeAgente 'Tell the agent to zoom out. Use when you are unfamiliar
 Assert (-not (EsUserInvoked (Frontmatter "---`nname: x`n---`ndisable-model-invocation: true"))) "Frontmatter no ve un flag que cae DEBAJO del cierre"
 Assert ((Frontmatter "prosa`nname: x`n---`nname: y`n---").Count -eq 0) "Frontmatter no toma por frontmatter un archivo que no abre con ``---``"
 Assert ((Description @('description: una', 'description: otra')) -eq "") "Description no elige entre dos ``description:``"
+Assert ((MarcasDeAgente 'Zoom out. Usala o deci cosas como "zoom out", "aleja la camara".').Count -gt 0) "MarcasDeAgente ve una lista de triggers entre comillas"
+Assert ((MarcasDeAgente 'Mide el ancho del "slice" antes de cerrarlo.').Count -eq 0) "MarcasDeAgente no marca un solo término entrecomillado"
 Assert (-not (EsEscalarPlano '>')) "EsEscalarPlano rechaza una description plegada"
 Assert (EsEscalarPlano 'Una linea sola.') "EsEscalarPlano acepta una description de una línea"
 

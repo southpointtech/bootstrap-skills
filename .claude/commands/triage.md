@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Triage issues through a state machine driven by triage roles — label and prioritise incoming bugs, feature requests and external PRs, and prepare issues for an AFK agent.
+description: Triage issues through a state machine driven by triage roles — label and prioritize incoming bugs and feature requests, external PRs too where the tracker config enables them, and prepare issues for an AFK agent.
 disable-model-invocation: true
 ---
 
