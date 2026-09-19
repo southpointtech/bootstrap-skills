@@ -98,7 +98,7 @@ Technical issues live as local markdown in `.scratch/`. High-level tasks are reg
 
 ### Triage labels
 
-Default vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+Default vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix, done). `/review-loop` sets `done` on the issues the `Slice-Close:` trailer cites by path. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

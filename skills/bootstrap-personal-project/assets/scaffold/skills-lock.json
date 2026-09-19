@@ -109,7 +109,7 @@
       "base": null,
       "forkFiles": [],
       "files": {
-        "SKILL.md": "cccaa3b2913adc7ef6f7cdde3c5fe0543fdcb30b3991f16556772b92725752e0"
+        "SKILL.md": "d88526752f85cebe0716d6955891a4e248322cccdac6a492347a984dc6b722fe"
       }
     },
     "setup-matt-pocock-skills": {
@@ -129,7 +129,7 @@
         "issue-tracker-github.md": "02b8e6445b6514d87c5226373e077ea7f531bd8f7cf1c2fa4be5cf48320b6385",
         "issue-tracker-gitlab.md": "1f1e2f178bea28e39753613687e02621e0f7d6f0e29127e13f2ae4a75fa66c70",
         "issue-tracker-local.md": "e16b3fe28ad6e389887e001b4da82fd8751ca12f95b355c432a2b39b8c0bff4a",
-        "triage-labels.md": "4f53c9b40ce2651e3611aa090eaedbd6dbc9b71ef8c5f7e65eac0d8263190d0d"
+        "triage-labels.md": "516369386797e4587a507966c570538d87d1de3de2c24f41b1f9a9640313c0ab"
       }
     },
     "slice-review": {
@@ -157,7 +157,7 @@
         "interface-design.md"
       ],
       "files": {
-        "SKILL.md": "d5e60409b211964160d532662293bdf70a139491acf218291fa40118450792b1",
+        "SKILL.md": "6bc65496574a5f34efc5180f4572fde8a4844b0f131cc46c26ad72053828e21c",
         "deep-modules.md": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32",
         "interface-design.md": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d",
         "mocking.md": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef",
@@ -208,7 +208,7 @@
       "files": {
         "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
         "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
-        "SKILL.md": "546b5daa797a9b7fbb3251e28d34fe6736a4fe22b15b7479b22b9f6ffebf3b16"
+        "SKILL.md": "60ab8fbbcb1c3c3ecb1c8f7006aaeb9f228d804c4fb2b21d7f176d86308a47bb"
       }
     },
     "zoom-out": {
