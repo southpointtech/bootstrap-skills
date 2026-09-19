@@ -112,16 +112,20 @@ if ($decl.ongoingSupport) { $lote.ongoingSupport = $decl.ongoingSupport }
 # Los commits con `Slice-Close:`, en todas las ramas.
 # El cuerpo entero (%B) y no `%(trailers)`: el parser de trailers de git sólo lee el ÚLTIMO párrafo, y
 # el commit estándar del workflow cierra con `Co-Authored-By:` tras una línea en blanco, así que el
-# `Slice-Close:` queda en el penúltimo y git no lo ve. Es la misma regex que usa el hook
-# review-loop-trigger para detectar el cierre. Un registro por commit, separado por \x1e, porque el
-# cuerpo trae saltos de línea.
+# `Slice-Close:` queda en el penúltimo y git no lo ve. Detecta la línea como el hook
+# review-loop-trigger (a principio de línea, sin distinguir mayúsculas), pero además exige un valor en
+# la misma línea: un `Slice-Close:` vacío no es un cierre, y con `\s*` el valor sería la línea
+# siguiente. Un registro por commit, separado por \x1e, porque el cuerpo trae saltos de línea.
 $log = git -C $RepoDir log --all --format="%H%x1f%ae%x1f%aI%x1f%s%x1f%B%x1e" 2>&1
 if ($LASTEXITCODE -ne 0) { Fallar "git log falló en $RepoDir`: $($log -join ' ')" }
-$todos = @(($log -join "`n") -split "`u{1e}" |
+# Sólo stdout: con `2>&1` lo que git escribe en stderr aunque salga 0 (p.ej. los hints de grafts)
+# llega como ErrorRecord, y unido al texto quedaría pegado delante de un SHA.
+$stdout = @($log | Where-Object { $_ -is [string] })
+$todos = @(($stdout -join "`n") -split "`u{1e}" |
   ForEach-Object {
     $c = $_.TrimStart("`n") -split "`u{1f}"
-    if ($c.Count -lt 5) { return }
-    $valores = @([regex]::Matches($c[4], '(?m)^\s*Slice-Close:\s*(.*?)\s*$') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ })
+    if ($c.Count -lt 5 -or $c[0] -notmatch '^[0-9a-f]{40}$') { return }
+    $valores = @([regex]::Matches($c[4], '(?im)^[ \t]*Slice-Close:[ \t]*(\S.*?)[ \t\r]*$') | ForEach-Object { $_.Groups[1].Value })
     if ($valores.Count) {
       [pscustomobject]@{ sha = $c[0]; email = $c[1]; fecha = $c[2]; asunto = $c[3]; sliceClose = $valores -join ", " }
     }
