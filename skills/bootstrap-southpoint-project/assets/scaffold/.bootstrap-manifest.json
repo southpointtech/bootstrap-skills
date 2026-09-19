@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-19+82b111a",
+  "version": "2026-09-19+8c80baa",
   "files": {
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
     ".agents/skills/domain-modeling/ADR-FORMAT.md": "b7021c31a1c2485b07356a8110fd1fd1ae4facbab3e210983789f425f867d95b",
@@ -54,7 +54,7 @@
     ".claude/hooks/alignment-gate.ps1": "8d4006eb57ebd681a3cde1e02baf53f2b79ad8c976aa7e72458bde79eaaef006",
     ".claude/hooks/review-loop-trigger.ps1": "87824bc0c515d6ec1012f9f85cc02158866e241cc58b7d0b5fea0cdf6328c58c",
     ".claude/scripts/abrir-carril.ps1": "4695236b910630c00442ed1f5eac744a49163451c3ad841c6663824f550c81d1",
-    ".claude/scripts/hub-recolectar.ps1": "915e0c526bef9d83efb62f1f243651ba7d23af5720e1c88c9ca0f335b7d7925d",
+    ".claude/scripts/hub-recolectar.ps1": "33f7534580ad7f4a87fb4fe730eff4c6ad3bebb8ee5b2863f2f2b5c646622a95",
     ".claude/scripts/review-marker.ps1": "f4c23e3451ec38b8595af2c3e4f55ae55f334818e1ed359d58c93644c51b0d4e",
     ".claude/settings.json": "61ad880e8ba44d027929cb7b3a2e3fa656a9c19270699f48b004155ac17df9b6",
     ".gitignore": "a2f91fb6d7b01f1048c42ac565ebab4500af100763d103f4bbc6e14fcd72629a",

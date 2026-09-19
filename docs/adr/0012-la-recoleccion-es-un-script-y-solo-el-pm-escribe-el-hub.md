@@ -12,8 +12,9 @@ creates, y un Update publicado notifica en el acto — borrarlo no deshace la no
 ## Decisión
 
 - La **recolección** corre a diario en la PC de cada dev y es un **script sin LLM**: lee los commits del
-  propio dev (sus emails declarados, sin `git fetch`) desde el último SHA leído y el diff de los `Status:`
-  de `.scratch/` contra una foto local. Produce **propuestas** con hechos técnicos, no texto para el cliente.
+  propio dev (sus emails declarados, sin `git fetch`) en todas las refs, descartando los SHA que la foto
+  local ya vio, y el diff de los `Status:` de `.scratch/` contra esa foto. La foto guarda SHA y no una
+  posición porque "desde el último SHA leído" se rompía al cambiar de rama. Produce **propuestas** con hechos técnicos, no texto para el cliente.
 - Las propuestas viajan **por git**: cada recolección pushea un JSON a `inbox/<dev>/<repo>/` del repo
   PROJECT MANAGEMENT. La PC del PM las ingiere a la bandeja de propuestas (un artifact).
 - Solo el PM **aprueba** y solo su PC **escribe** el Hub: ahí se compara contra el estado actual del Hub,
@@ -37,4 +38,4 @@ creates, y un Update publicado notifica en el acto — borrarlo no deshace la no
   PROJECT MANAGEMENT a la vez.
 - Un cierre sin trailer `Slice-Close:` no se propone. Es a propósito: es la señal declarada del workflow.
 - La bandeja no es instantánea: se actualiza cuando corre la ingesta del PM.
-- Lo que un dev commitea con una identidad no declarada queda invisible; la ingesta deduplica por SHA.
+- Lo que un dev commitea con una identidad no declarada queda invisible; la ingesta deduplica por id de propuesta (para un commit, derivado de su SHA).

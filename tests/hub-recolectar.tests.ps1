@@ -23,8 +23,9 @@ if (-not (Test-Path -LiteralPath $recol)) {
 # motivo que en review-marker.tests.ps1).
 # `-SinDeclaracion` y no `-decl ""`: un `[string]` nunca es $null en PowerShell (se coacciona a ""),
 # así que "sin declaración" necesita su propio switch.
-function New-HubRepo([string]$decl = "", [switch]$SinDeclaracion) {
-  $t = New-TestWorkspace $script:runRoot "hubrec-repo"
+# `-Dir` fija la carpeta del repo: el caso de dos repos con el mismo nombre de carpeta la necesita.
+function New-HubRepo([string]$decl = "", [switch]$SinDeclaracion, [string]$Dir = "") {
+  $t = if ($Dir) { [IO.Directory]::CreateDirectory($Dir).FullName } else { New-TestWorkspace $script:runRoot "hubrec-repo" }
   git -C $t init -q -b master
   git -C $t config user.email otro@x.io
   git -C $t config user.name otro
@@ -42,9 +43,14 @@ function New-HubRepo([string]$decl = "", [switch]$SinDeclaracion) {
   git -C $t add -A; git -C $t commit -q -m base
   return $t
 }
-# Un commit vacío con autor explícito y, opcionalmente, el trailer.
-function Commit([string]$t, [string]$subject, [string]$email = "m@x.io", [string]$slice = $null) {
-  $msg = if ($slice) { "$subject`n`nSlice-Close: $slice" } else { $subject }
+# Un commit vacío con autor explícito y, opcionalmente, el trailer. Por defecto con la forma real del
+# workflow: `Slice-Close:` y después, tras una línea en blanco, el `Co-Authored-By:`. Ahí el
+# `Slice-Close:` queda en el penúltimo párrafo, donde el parser de trailers de git no lo ve. Con
+# `-TrailerAlFinal` va en el último párrafo, la forma que sí ve.
+function Commit([string]$t, [string]$subject, [string]$email = "m@x.io", [string]$slice = $null, [switch]$TrailerAlFinal) {
+  $msg = if (-not $slice) { $subject }
+         elseif ($TrailerAlFinal) { "$subject`n`nSlice-Close: $slice" }
+         else { "$subject`n`nSlice-Close: $slice`n`nCo-Authored-By: Claude <noreply@anthropic.com>" }
   $f = New-TestTempPath $script:runRoot "msg" ".txt"
   [IO.File]::WriteAllText($f, $msg)
   git -C $t commit -q --allow-empty --author "Dev <$email>" -F $f
@@ -80,6 +86,10 @@ Assert ($r.lote.schemaVersion -eq 1 -and $r.lote.dev -eq "martin" -and $r.lote.m
   "el lote lleva schemaVersion, dev y momento"
 Assert ($r.lote.hubProject -eq "Proyecto X" -and $r.lote.repo -eq (Split-Path $t -Leaf)) `
   "el lote lleva el repo y el hubProject de la declaración (fue '$($r.lote.hubProject)')"
+# El nombre del lote sale del momento: es lo que el transporte (issue 04) usa para no pisar lotes.
+Assert ((Split-Path $r.out -Leaf) -eq "20260919T100000Z.json" -and (Split-Path (Split-Path $r.out -Parent) -Leaf) -eq "lotes") `
+  "el lote se llama por su momento, dentro de lotes/ (fue '$($r.out)')"
+Assert ($null -eq $r.lote.PSObject.Properties['ongoingSupport']) "sin ongoingSupport declarado, el lote no lo lleva"
 
 # --- Un Slice-Close del dev después de la línea de base es una propuesta `update` ---
 # El asunto lleva acentos a propósito: pwsh decodifica la salida de git con la página de códigos de la
@@ -100,7 +110,7 @@ Assert ($p[0].hechos.fecha -match '^\d{4}-\d{2}-\d{2}T') "los hechos traen la fe
 # Varios días sin correr (la PC apagada) salen juntos en el lote siguiente.
 $sinTrailer = Commit $t "sin trailer"
 $ajeno      = Commit $t "de otro dev" -email "otro@x.io" -slice "04 ajeno"
-$alt        = Commit $t "desde la otra cuenta" -email "m.alt@x.io" -slice "05 alt"
+$alt        = Commit $t "desde la otra cuenta" -email "m.alt@x.io" -slice "05 alt" -TrailerAlFinal
 $propio     = Commit $t "otro slice" -slice "06 propio"
 $r = Recolectar $t $state "2026-09-23T10:00:00Z"
 $ids = @(@($r.lote.propuestas) | ForEach-Object { $_.id })
@@ -145,6 +155,14 @@ $invalidas = @(
   @{ caso = "sin devs";             decl = '{ "schemaVersion": 1, "hubProject": "P" }';                          nombra = "devs" }
   @{ caso = "dev sin emails";       decl = '{ "schemaVersion": 1, "hubProject": "P", "devs": { "martin": [] } }'; nombra = "martin" }
   @{ caso = "schemaVersion ajeno";  decl = '{ "schemaVersion": 2, "hubProject": "P", "devs": { "martin": ["m@x.io"] } }'; nombra = "schemaVersion" }
+  # Un devs que no es objeto no puede pasar por "dev ausente" (exit 0 sin lote): sería una declaración
+  # rota que nunca se pone en rojo.
+  @{ caso = "devs como lista";      decl = '{ "schemaVersion": 1, "hubProject": "P", "devs": ["m@x.io"] }';     nombra = "devs" }
+  @{ caso = "devs como texto";      decl = '{ "schemaVersion": 1, "hubProject": "P", "devs": "martin" }';       nombra = "devs" }
+  # Emails en blanco no matchean ningún commit: sin esto la corrida daría `sin cambios` para siempre.
+  @{ caso = "email vacío";          decl = '{ "schemaVersion": 1, "hubProject": "P", "devs": { "martin": [""] } }';  nombra = "martin" }
+  @{ caso = "email en blanco";      decl = '{ "schemaVersion": 1, "hubProject": "P", "devs": { "martin": ["  "] } }'; nombra = "martin" }
+  @{ caso = "ongoingSupport objeto"; decl = '{ "schemaVersion": 1, "hubProject": "P", "ongoingSupport": { "a": 1 }, "devs": { "martin": ["m@x.io"] } }'; nombra = "ongoingSupport" }
 )
 foreach ($c in $invalidas) {
   $ti = New-HubRepo $c.decl
@@ -153,7 +171,8 @@ foreach ($c in $invalidas) {
   Assert ($r.exit -eq 1) "$($c.caso): exit 1 (fue $($r.exit))"
   Assert ($r.lote.resultado -eq "falló" -and @($r.lote.propuestas).Count -eq 0) "$($c.caso): lote 'falló' sin propuestas (fue '$($r.lote.resultado)')"
   Assert ("$($r.lote.motivo)" -match [regex]::Escape($c.nombra)) "$($c.caso): el motivo nombra '$($c.nombra)' (fue '$($r.lote.motivo)')"
-  Assert (-not (Test-Path -LiteralPath (Join-Path $sti "$(Split-Path $ti -Leaf)/foto.json"))) "$($c.caso): no fija línea de base"
+  # Se busca en todo el StateDir: la carpeta del repo adentro no es su nombre a secas.
+  Assert (@(Get-ChildItem -LiteralPath $sti -Recurse -Filter foto.json).Count -eq 0) "$($c.caso): no fija línea de base"
 }
 # Declaración válida en un directorio que no es un repo git: el motivo es de git, no de la declaración.
 $noGit = New-TestWorkspace $script:runRoot "hubrec-repo"
@@ -162,6 +181,61 @@ $noGit = New-TestWorkspace $script:runRoot "hubrec-repo"
 $r = Recolectar $noGit (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z"
 Assert ($r.exit -eq 1 -and $r.lote.resultado -eq "falló" -and "$($r.lote.motivo)" -match 'git') `
   "sin repo git: lote 'falló' con motivo de git (exit $($r.exit), motivo '$($r.lote.motivo)')"
+
+# --- ongoingSupport declarado llega al lote ---
+$tos = New-HubRepo '{ "schemaVersion": 1, "hubProject": "P", "ongoingSupport": "OS X", "devs": { "martin": ["m@x.io"] } }'
+$r = Recolectar $tos (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z"
+Assert ($r.exit -eq 0 -and $r.lote.ongoingSupport -eq "OS X") "el ongoingSupport declarado llega al lote (fue '$($r.lote.ongoingSupport)')"
+
+# --- Una foto ilegible es una corrida fallida con lote, no una muerte sin rastro ---
+# Una foto a medio escribir (la PC se apagó) no puede trabar el repo en silencio: el tablero sólo ve
+# lotes. Y la foto rota no se pisa: re-fijar la línea de base en silencio perdería los slices pendientes.
+$tf = New-HubRepo
+$stf = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tf $stf "2026-09-19T10:00:00Z" | Out-Null
+$foto = @(Get-ChildItem -LiteralPath $stf -Recurse -Filter foto.json)[0].FullName
+[IO.File]::WriteAllText($foto, '{ "schemaVersion": 1, "vistos": [')
+Commit $tf "slice pendiente" -slice "08 pendiente" | Out-Null
+$r = Recolectar $tf $stf "2026-09-20T10:00:00Z"
+Assert ($r.exit -eq 1 -and $r.lote.resultado -eq "falló" -and "$($r.lote.motivo)" -match 'foto') `
+  "foto ilegible: lote 'falló' con motivo que nombra la foto (exit $($r.exit), motivo '$($r.lote.motivo)')"
+Assert ([IO.File]::ReadAllText($foto) -eq '{ "schemaVersion": 1, "vistos": [') "foto ilegible: no se pisa"
+
+# --- Dos repos con el mismo nombre de carpeta no comparten la foto ---
+$pa = New-TestWorkspace $script:runRoot "hubrec-pa"
+$pb = New-TestWorkspace $script:runRoot "hubrec-pb"
+$ra = New-HubRepo -Dir (Join-Path $pa "app")
+$rb = New-HubRepo -Dir (Join-Path $pb "app")
+Commit $rb "histórico de b" -slice "01 b viejo" | Out-Null
+$stab = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $ra $stab "2026-09-19T10:00:00Z" | Out-Null
+$r = Recolectar $rb $stab "2026-09-19T10:00:01Z"
+Assert ($r.lote.resultado -eq "sin cambios") "otro repo con el mismo nombre de carpeta fija su propia línea de base (fue '$($r.lote.resultado)', $(@($r.lote.propuestas).Count) propuestas)"
+$nuevoA = Commit $ra "slice de a" -slice "02 a"
+$r = Recolectar $ra $stab "2026-09-20T10:00:00Z"
+$ids = @(@($r.lote.propuestas) | ForEach-Object { $_.id })
+Assert ($ids.Count -eq 1 -and $ids[0] -eq "commit:$nuevoA") "cada repo propone sólo lo suyo nuevo (fueron: $($ids -join ', '))"
+
+# --- Agregar un email a la declaración no re-propone el histórico de esa cuenta ---
+$td = New-HubRepo
+Commit $td "slice viejo desde otra cuenta" -email "c@d.io" -slice "01 viejo" | Out-Null
+$std = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $td $std "2026-09-19T10:00:00Z" | Out-Null
+[IO.File]::WriteAllText((Join-Path $td ".claude/hub-sync.json"), '{ "schemaVersion": 1, "hubProject": "Proyecto X", "devs": { "martin": ["m@x.io", "c@d.io"] } }')
+$r = Recolectar $td $std "2026-09-20T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "un email agregado después de la línea de base no re-propone su histórico (fue '$($r.lote.resultado)')"
+
+# --- Dos corridas con el mismo momento no se pisan el lote ---
+# Si la segunda (`sin cambios`) pisara a la primera (`ok`), sus propuestas se perderían: la foto ya las
+# marcó como vistas.
+$te = New-HubRepo
+$ste = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $te $ste "2026-09-19T10:00:00Z" | Out-Null
+Commit $te "slice" -slice "09 mismo segundo" | Out-Null
+$r1 = Recolectar $te $ste "2026-09-20T10:00:00Z"
+$r2 = Recolectar $te $ste "2026-09-20T10:00:00Z"
+Assert ($r1.out -and $r2.out -and $r1.out -ne $r2.out) "dos corridas con el mismo momento escriben dos lotes ('$($r1.out)' / '$($r2.out)')"
+Assert ((([IO.File]::ReadAllText($r1.out)) | ConvertFrom-Json).resultado -eq "ok") "el primer lote sigue intacto"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
