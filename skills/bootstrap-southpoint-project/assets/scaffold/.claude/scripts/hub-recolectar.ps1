@@ -169,11 +169,14 @@ function Read-Scratch([string]$raiz) {
     if (-not (Test-Path -LiteralPath $dirIssues -PathType Container)) { continue }
     foreach ($f in Get-ChildItem -LiteralPath $dirIssues -File | Where-Object { $_.Extension -eq ".md" }) {
       $txt = [IO.File]::ReadAllText($f.FullName)
-      $st = [regex]::Match($txt, '(?m)^Status:([^\r\n]*)')
-      if (-not $st.Success -or -not $st.Groups[1].Value.Trim()) { continue }
+      # El estado es la primera palabra, sin backticks ni la nota que la sigue, en minúsculas: la forma
+      # dominante en los repos es `Status: \`needs-info\` — esperando al cliente`. Cambiar sólo la nota
+      # o las mayúsculas no es una transición.
+      $st = [regex]::Match($txt, '(?m)^Status:[ \t]*`?([A-Za-z][A-Za-z-]*)')
+      if (-not $st.Success) { continue }
       $tit = [regex]::Match($txt, '(?m)^#[ \t]+([^\r\n]+)')
       $issues["$($feat.Name)/$($f.Name)"] = [pscustomobject]@{
-        status = $st.Groups[1].Value.Trim()
+        status = $st.Groups[1].Value.ToLowerInvariant()
         titulo = if ($tit.Success) { $tit.Groups[1].Value.Trim() } else { $f.BaseName }
       }
     }
@@ -184,9 +187,13 @@ function Read-Scratch([string]$raiz) {
 # Las transiciones de `.scratch/` contra la foto. `.scratch/` no se versiona, así que cada worktree
 # tiene el suyo: se leen los de TODOS los worktrees del repo (`marcar-done` escribe en el worktree donde
 # corrió el loop, y la tarea programada corre en uno solo), y cada uno se compara con SU sección de la
-# foto. Un worktree sin sección (la primera corrida, uno recién creado, o una foto anterior a este
-# tramo) fija su línea de base y no propone nada; uno borrado, o cuya carpeta ya no existe, sale de la
-# foto.
+# foto. Sin foto, o con una anterior a este tramo, todo fija su línea de base y no se propone nada. Un
+# worktree recién creado (un carril) no tiene sección, pero `abrir-carril` le copió `.scratch/`: el
+# estado anterior de cada issue es el que registran los otros worktrees, y se propone sólo si ninguno
+# ya registraba el estado nuevo. Así un carril que se abre y se cierra entre dos corridas no pierde su
+# hito, y uno copiado de un main que ya estaba en `done` no lo repite. Un issue que sólo existe en el
+# carril nuevo no tiene estado anterior y no se propone. Uno borrado, o cuya carpeta ya no existe, sale
+# de la foto.
 $wtList = git -C $RepoDir worktree list --porcelain 2>&1
 if ($LASTEXITCODE -ne 0) { Fallar "git worktree list falló en $RepoDir`: $($wtList -join ' ')" }
 $scratchAhora = [ordered]@{}
@@ -197,12 +204,20 @@ foreach ($l in @($wtList | Where-Object { $_ -is [string] -and $_.StartsWith("wo
 }
 $scratchAntes = if ($foto -and $foto.PSObject.Properties['scratch']) { $foto.scratch } else { $null }
 foreach ($k in $scratchAhora.Keys) {
-  $antes = if ($scratchAntes) { $scratchAntes.PSObject.Properties[$k] } else { $null }
-  if (-not $antes) { continue }
+  if (-not $scratchAntes) { break }
+  $antes = $scratchAntes.PSObject.Properties[$k]
   foreach ($rel in $scratchAhora[$k].Keys) {
     $i = $scratchAhora[$k][$rel]
-    $previo = $antes.Value.PSObject.Properties[$rel]
-    if (-not $previo -or $previo.Value -ceq $i.status) { continue }
+    if ($antes) {
+      $previo = $antes.Value.PSObject.Properties[$rel]
+      if (-not $previo -or $previo.Value -ceq $i.status) { continue }
+      $de = $previo.Value
+    } else {
+      $otros = @($scratchAntes.PSObject.Properties | ForEach-Object { $_.Value.PSObject.Properties[$rel] } |
+        Where-Object { $_ } | ForEach-Object { $_.Value })
+      if (-not $otros.Count -or $otros -ccontains $i.status) { continue }
+      $de = $otros[0]
+    }
     # `needs-info` es un riesgo y no un action item: sin LLM no se distinguen, y un riesgo es interno,
     # así que nada llega al cliente si el PM no lo reclasifica.
     $tipo = @{ "done" = "hito"; "needs-info" = "riesgo" }[$i.status]
@@ -221,7 +236,7 @@ foreach ($k in $scratchAhora.Keys) {
       tipo    = $tipo
       destino = "delivery"
       estado  = "nueva"
-      hechos  = [ordered]@{ issue = $rel; titulo = $i.titulo; de = $previo.Value; a = $i.status; commits = $commits }
+      hechos  = [ordered]@{ issue = $rel; titulo = $i.titulo; de = $de; a = $i.status; commits = $commits }
     }
   }
 }
