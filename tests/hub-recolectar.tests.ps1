@@ -392,12 +392,12 @@ Recolectar $tm $stm "2026-09-19T10:00:00Z" | Out-Null
 Set-Issue $wa "feat-w/issues/01-w.md" "done"
 $r = Recolectar $tm $stm "2026-09-20T10:00:00Z"
 Assert (((Ids $r) -join ',') -ceq "issue:feat-w/01-w.md:done") "una transición en el .scratch/ de otro worktree se propone (fue: $((Ids $r) -join ', '))"
-# Un worktree nuevo fija su línea de base: sus `done` no son transiciones.
+# Un issue que sólo existe en un worktree nuevo no tiene estado anterior con qué compararlo.
 $wb = Join-Path $wtBase "carril-b"
 git -C $tm worktree add -q -b feat/b $wb 2>$null
 Set-Issue $wb "feat-n/issues/01-n.md" "done"
 $r = Recolectar $wa $stm "2026-09-21T10:00:00Z"
-Assert ($r.lote.resultado -eq "sin cambios") "un worktree nuevo fija su línea de base, corra desde donde corra (fue '$($r.lote.resultado)': $((Ids $r) -join ', '))"
+Assert ($r.lote.resultado -eq "sin cambios") "un issue que sólo existe en un carril nuevo no se propone, corra desde donde corra (fue '$($r.lote.resultado)': $((Ids $r) -join ', '))"
 # La misma transición en dos worktrees es una sola propuesta.
 Set-Issue $tm "feat-a/issues/01-uno.md" "needs-info"
 Set-Issue $wa "feat-a/issues/01-uno.md" "needs-info"
@@ -406,8 +406,8 @@ Assert (((Ids $r) -join ',') -ceq "issue:feat-a/01-uno.md:needs-info") "la misma
 
 # --- Cada worktree contra SU sección, aunque el mismo issue diverja entre worktrees ---
 # `marcar-done` escribe sólo en el carril: el mismo issue queda en estados distintos. Main en
-# `needs-info` y el carril en `done`: una corrida quieta no propone nada, y si cambia main (el primero
-# de `git worktree list`) se propone su transición.
+# `needs-info` y el carril en `done`, cada uno con su propia sección en la foto: una corrida quieta no
+# propone nada, y cuando main cambia se propone SU transición, con su propio `de`.
 $td2 = New-HubRepo
 Set-Issue $td2 "feat-d/issues/01-div.md" "needs-info"
 $wd = Join-Path (New-TestWorkspace $script:runRoot "hubrec-wt") "carril-d"
@@ -419,7 +419,9 @@ $r = Recolectar $td2 $std2 "2026-09-20T10:00:00Z"
 Assert ($r.lote.resultado -eq "sin cambios") "el mismo issue en estados distintos en dos worktrees: una corrida quieta no propone (fue: $((Ids $r) -join ', '))"
 Set-Issue $td2 "feat-d/issues/01-div.md" "done"
 $r = Recolectar $td2 $std2 "2026-09-21T10:00:00Z"
+$p = @($r.lote.propuestas)
 Assert (((Ids $r) -join ',') -ceq "issue:feat-d/01-div.md:done") "la transición del worktree principal se propone aunque el carril ya estuviera en done (fue: $((Ids $r) -join ', '))"
+Assert ($p.Count -eq 1 -and $p[0].hechos.de -ceq "needs-info") "su 'de' es el estado que registraba SU sección, no el del carril (fue '$($p[0].hechos.de)')"
 
 # --- Un carril que se abre y se cierra entre dos corridas no pierde su hito ---
 # `abrir-carril` copia `.scratch/` al carril, y `marcar-done` escribe `done` sólo ahí. La primera vez
@@ -444,7 +446,8 @@ $r = Recolectar $tl $stl "2026-09-21T10:00:00Z"
 Assert ($r.lote.resultado -eq "sin cambios") "la corrida siguiente no lo repite (fue: $((Ids $r) -join ', '))"
 
 # --- El estado como lo escriben los repos reales: con backticks, con una nota detrás, en mayúsculas ---
-# `Status: \`needs-info\` — esperando al cliente` es la forma dominante en los repos del workflow.
+# Los repos mezclan la forma plana (`Status: done`) con la de backticks y nota; `marcar-done` escribe
+# siempre la plana, así que sin canonizar su reescritura sería una transición fantasma.
 $tb = New-HubRepo
 $fb = Join-Path $tb ".scratch/feat-b/issues/01-bt.md"
 [IO.Directory]::CreateDirectory((Split-Path $fb -Parent)) | Out-Null
@@ -474,6 +477,102 @@ Assert ([IO.File]::ReadAllText($r.out) -match ('"commits":\s*\[\s*"' + $c1 + '"\
 Set-Issue $ts "feat-a/issues/01-uno.md" "needs-info"
 $r = Recolectar $ts $sts "2026-09-28T10:00:00Z"
 Assert ([IO.File]::ReadAllText($r.out) -match '"commits":\s*\[\s*\]') "commits sin ningún SHA sale como lista vacía en el JSON"
+
+# --- Un estado CALIFICADO no es ese estado: se registra, pero no propone nada ---
+# Formas medidas en `C:\Repos\Outsourcing Development\.scratch\feedback-ali-2026-07-28\issues\`:
+# `Status: \`done, pendiente QA manual en web\` (…)` y `\`done en código, pendiente validación\` (…)`.
+# El calificador dice que el issue NO está cerrado, así que su primera palabra no es su estado. Y
+# saltear el archivo perdería su cierre real: queda registrado con el valor crudo, que no mapea a
+# ningún tipo, y su paso posterior a un estado limpio sí se propone.
+$tq = New-HubRepo
+$fq = Join-Path $tq ".scratch/feat-q/issues/01-q.md"
+[IO.Directory]::CreateDirectory((Split-Path $fq -Parent)) | Out-Null
+[IO.File]::WriteAllText($fq, "# calificado`r`n`r`nStatus: ``ready-for-agent```r`n")
+$stq = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tq $stq "2026-09-19T10:00:00Z" | Out-Null
+[IO.File]::WriteAllText($fq, "# calificado`r`n`r`nStatus: ``done, pendiente QA manual en web`` (2026-08-07)`r`n")
+$r = Recolectar $tq $stq "2026-09-20T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "pasar a un done CALIFICADO no propone un hito (fue: $((Ids $r) -join ', '))"
+[IO.File]::WriteAllText($fq, "# calificado`r`n`r`nStatus: ``done en código, pendiente validación`` (branch x)`r`n")
+$r = Recolectar $tq $stq "2026-09-21T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "pasar de un calificado a otro tampoco (fue: $((Ids $r) -join ', '))"
+[IO.File]::WriteAllText($fq, "# calificado`r`n`r`nStatus: ``done`` (2026-09-22)`r`n")
+$r = Recolectar $tq $stq "2026-09-22T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert (((Ids $r) -join ',') -ceq "issue:feat-q/01-q.md:done") "el cierre real posterior a un estado calificado sí se propone (fue: $((Ids $r) -join ', '))"
+Assert ($p.Count -eq 1 -and $p[0].hechos.de -ceq "``done en código, pendiente validación`` (branch x)") `
+  "el 'de' de esa transición es el valor crudo que el estado calificado dejó registrado (fue '$($p[0].hechos.de)')"
+
+# --- Un `Status:` que no es un token limpio se registra crudo, no se descarta ---
+# Forma medida en `C:\Repos\SOUTHPOINTLABS\Forecasting App\.scratch\bug-report-form\issues\`:
+# `Status: **§2 IMPLEMENTADA** (2026-08-16, …)`. Descartar el archivo lo haría parecer nuevo cuando
+# después pase a `done`, y ese hito se perdería en silencio.
+$tn2 = New-HubRepo
+$fn2 = Join-Path $tn2 ".scratch/feat-n2/issues/01-n2.md"
+[IO.Directory]::CreateDirectory((Split-Path $fn2 -Parent)) | Out-Null
+[IO.File]::WriteAllText($fn2, "# en negrita`r`n`r`nStatus: **§2 IMPLEMENTADA** (2026-08-16)`r`n")
+$stn2 = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tn2 $stn2 "2026-09-19T10:00:00Z" | Out-Null
+[IO.File]::WriteAllText($fn2, "# en negrita`r`n`r`nStatus: done`r`n")
+$r = Recolectar $tn2 $stn2 "2026-09-20T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert (((Ids $r) -join ',') -ceq "issue:feat-n2/01-n2.md:done") "un Status en negrita queda registrado: su done posterior se propone (fue: $((Ids $r) -join ', '))"
+Assert ($p.Count -eq 1 -and $p[0].hechos.de -ceq "**§2 IMPLEMENTADA** (2026-08-16)") "el 'de' es el valor crudo del Status que no era un token (fue '$($p[0].hechos.de)')"
+
+# --- La plantilla sin completar (`Status:` en blanco) no es un estado ---
+# No fue RED: fija la decisión y mata el mutante que cruza el salto de línea (si el estado se tomara
+# de la línea siguiente, `Repo: X`, el paso a `done` sería una transición `repo → done`, un hito falso).
+$te = New-HubRepo
+Set-Issue $te "feat-e/issues/01-e.md" ""
+$ste = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $te $ste "2026-09-19T10:00:00Z" | Out-Null
+Set-Issue $te "feat-e/issues/01-e.md" "done"
+$r = Recolectar $te $ste "2026-09-20T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "un issue con el Status en blanco no deja estado anterior: su done no se propone (fue: $((Ids $r) -join ', '))"
+
+# --- Una foto de otra versión no se compara contra el formato de hoy ---
+# Hasta la v1 la foto guardaba la línea `Status:` entera; hoy guarda el token canónico. Compararlas
+# daría un hito por cada issue ya cerrado. Se re-fija la línea de base de `.scratch/` y los SHA ya
+# vistos se conservan: rechazar la foto entera re-propondría el histórico de slices completo.
+$tf = New-HubRepo
+$cf = Commit $tf "cierra el f" -slice ".scratch/feat-f/issues/01-f.md — el f"
+Set-Issue $tf "feat-f/issues/01-f.md" "done"
+$stf = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tf $stf "2026-09-19T10:00:00Z" | Out-Null
+$fotoF = @(Get-ChildItem -LiteralPath $stf -Recurse -Filter foto.json)[0].FullName
+$jf = [IO.File]::ReadAllText($fotoF) | ConvertFrom-Json
+$wtF = @($jf.scratch.PSObject.Properties)[0].Name
+[IO.File]::WriteAllText($fotoF, (@{ schemaVersion = 1; vistos = @($jf.vistos)
+  scratch = @{ $wtF = @{ "feat-f/01-f.md" = "``done`` — cerrado el viernes" } } } | ConvertTo-Json -Depth 5))
+$r = Recolectar $tf $stf "2026-09-20T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") `
+  "una foto de otra versión re-fija la línea de base de .scratch/ sin re-proponer, y no repite los SHA vistos (fue: $((Ids $r) -join ', '))"
+Set-Issue $tf "feat-f/issues/01-f.md" "needs-info"
+$r = Recolectar $tf $stf "2026-09-21T10:00:00Z"
+Assert (((Ids $r) -join ',') -ceq "issue:feat-f/01-f.md:needs-info") "tras re-fijar esa línea de base, la transición siguiente sí se propone (fue: $((Ids $r) -join ', '))"
+
+# --- Con varios worktrees viejos: la guarda mira a TODOS y el `de` sale del principal ---
+# Con un solo "otro" worktree no se distingue "ninguno ya registraba el estado nuevo" de "el primero no
+# lo registraba", ni "el `de` sale del principal" de "sale del último". Acá el `done` del 01 lo registra
+# un worktree que NO es el primero, y en el 02 el principal y el carril viejo discrepan.
+$tz = New-HubRepo
+Set-Issue $tz "feat-z/issues/01-guard.md" "ready-for-agent"
+Set-Issue $tz "feat-z/issues/02-de.md" "ready-for-agent"
+$wz1 = Join-Path (New-TestWorkspace $script:runRoot "hubrec-wt") "carril-z1"
+git -C $tz worktree add -q -b feat/z1 $wz1 2>$null
+Set-Issue $wz1 "feat-z/issues/01-guard.md" "done"
+Set-Issue $wz1 "feat-z/issues/02-de.md" "needs-info"
+$stz = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tz $stz "2026-09-19T10:00:00Z" | Out-Null
+$wz2 = Join-Path (New-TestWorkspace $script:runRoot "hubrec-wt") "carril-z2"
+git -C $tz worktree add -q -b feat/z2 $wz2 2>$null
+Set-Issue $wz2 "feat-z/issues/01-guard.md" "done"
+Set-Issue $wz2 "feat-z/issues/02-de.md" "done"
+$r = Recolectar $tz $stz "2026-09-20T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert (((Ids $r) -join ',') -ceq "issue:feat-z/02-de.md:done") `
+  "el carril nuevo no re-propone el done que ya registraba otro worktree, aunque no sea el primero (fue: $((Ids $r) -join ', '))"
+Assert ($p.Count -eq 1 -and $p[0].hechos.de -ceq "ready-for-agent") "el 'de' de un carril nuevo sale del worktree principal, no de cualquiera (fue '$($p[0].hechos.de)')"
 
 # --- Sin `.scratch/` no hay nada que proponer, y no es una falla ---
 $tn = New-HubRepo
