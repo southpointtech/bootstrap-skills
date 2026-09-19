@@ -24,7 +24,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 111
+$ExpectedChecks = 127
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -146,10 +146,30 @@ Assert ($posNota -gt (PosLinea $wz '# Wizard') -and $posNota -lt (PosLinea $wz '
 Assert ($null -ne $wz -and $wz.Contains("- Don't run it end-to-end yourself: it opens browsers and blocks on human input.")) "wizard conserva la orden de upstream de no correr el wizard de punta a punta"
 Assert ($null -ne $tpl -and ($tpl -split "`n")[0] -ceq '#!/usr/bin/env bash') "template.sh arranca con el shebang de bash"
 Assert ($null -ne $tpl -and $tpl.Contains("`n# STAGES: author this section. One stage() per step the human takes.`n")) "template.sh conserva el marcador STAGES que separa la librería de las etapas"
-# Cada helper que el paso 3 de la skill manda usar existe en la plantilla: si upstream renombra uno, se ve acá.
+# Una lista FIJA de helpers: los que nombra el paso 3 de la skill, más `finish` y `banner`, que usa la
+# sección de etapas de ejemplo de la plantilla. Cada uno tiene que estar definido como función.
 $helpers = @('stage', 'say', 'step', 'open_url', 'ask', 'ask_secret', 'write_env', 'set_secret', 'set_var', 'pause', 'confirm', 'finish', 'banner')
 $sinDefinir = @($helpers | Where-Object { $null -eq $tpl -or -not ([regex]::IsMatch($tpl, '(?m)^' + [regex]::Escape($_) + '\(\)\s*\{')) })
-Assert ($sinDefinir.Count -eq 0) "template.sh define los helpers que la skill nombra (faltan: $($sinDefinir -join ', '))"
+Assert ($sinDefinir.Count -eq 0) "template.sh define como función los $($helpers.Count) helpers de la lista fija (faltan: $($sinDefinir -join ', '))"
+
+# El comando de wizard no vive en la carpeta de la skill: lo que apunta a template.sh tiene que resolver
+# desde la raíz del proyecto. La igualdad comando == comoComando(skill) no alcanza sola: si la skill
+# deja de contener la cadena fuente, los .Replace() no hacen nada y comando == skill pasa igual.
+$fuentes = @('[template.sh](template.sh)', 'Copy `template.sh` to the target path')
+foreach ($raiz in $raices) {
+  $etq = Etiqueta $raiz
+  $s = Texto (Join-Path $raiz ".agents/skills/wizard/SKILL.md")
+  $c = Texto (Join-Path $raiz ".claude/commands/wizard.md")
+  foreach ($f in $fuentes) {
+    $veces = if ($null -ne $s) { [regex]::Matches($s, [regex]::Escape($f)).Count } else { 0 }
+    Assert ($veces -eq 1) "$etq : la skill wizard contiene ``$f`` exactamente una vez ($veces)"
+  }
+  $apunta = if ($null -ne $c) { [regex]::Matches($c, [regex]::Escape('.agents/skills/wizard/template.sh')).Count } else { 0 }
+  Assert ($apunta -eq 2) "$etq : el comando wizard nombra .agents/skills/wizard/template.sh exactamente dos veces ($apunta)"
+  $links = @(if ($null -ne $c) { [regex]::Matches($c, '\]\(([^)\s]+)\)') | ForEach-Object { $_.Groups[1].Value } })
+  $rotos = @($links | Where-Object { -not (Test-Path -LiteralPath (Join-Path $raiz $_) -PathType Leaf) })
+  Assert ($links.Count -gt 0 -and $rotos.Count -eq 0) "$etq : todo link del comando wizard resuelve desde la raíz del proyecto (links: $($links.Count), rotos: $($rotos -join ', '))"
+}
 
 # El lockfile registra las dos con su base y su path upstream, en las cuatro copias. El commit base NO
 # se fija acá: avanza con cada merge de tres vías, y eso lo sella la herramienta, no este test.
