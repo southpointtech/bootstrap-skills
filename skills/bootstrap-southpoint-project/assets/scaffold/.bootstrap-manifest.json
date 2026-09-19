@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-19+bb99de8",
+  "version": "2026-09-19+61c5c9f",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "9625fe09cd543e25165066a6e2e1753bd696aa47f1f1179d58552b239d7324cc",
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
@@ -63,7 +63,7 @@
     ".claude/commands/to-issues.md": "2b14591af1939b9f7ad68f0271420e2d2f75bccc04656ae80cd20851c79fe8ad",
     ".claude/commands/to-prd.md": "35589cdfa92cbcab5583a91097bc4ad7ab8d4b246662929bcecdb4170ebf3e38",
     ".claude/commands/to-questionnaire.md": "77825120815c21400f82e2794faf342d1d1a4ab1493be3fe061857885d26b768",
-    ".claude/commands/triage.md": "bddb9d0d13b593a1864f3497ee672c695cb5c73729e230b889c3d8e49546cd15",
+    ".claude/commands/triage.md": "eb3bb3cc84dc76da0166b454513f9e1f766bda642b82a0b65b4a96cb24295e8d",
     ".claude/commands/verify-downstream-arrival.md": "bf93f8d44207acc325e46f50ebeaef46a2812b477ebc78644fea29a236022386",
     ".claude/commands/wizard.md": "cc9d39d5e7e42d8c72bc426ea2484c04d0fa16061550779d5c893c11de468d35",
     ".claude/commands/zoom-out.md": "4fc05cfa89129515f6f01f52a31bbe36f327c54b322dbd3cb2c31f46a824b002",

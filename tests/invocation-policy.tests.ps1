@@ -12,8 +12,13 @@
 # la línea `description:` de cada comando que NO lleva el flag, sin el prefijo `description: `):
 #   antes de este slice  : 18 comandos model-invoked, 6.667 caracteres
 #   después de este slice: 12 comandos model-invoked, 5.709 caracteres  (−14,4 %)
-# Contra la línea base del 2026-08-28 (11 comandos, 2.996 caracteres) el release queda en +90,6 %,
-# no en el +12 % que estimaba el issue antes de tener las nueve skills nuevas en el árbol.
+# La MISMA cuenta sobre el árbol del 2026-08-28 (`00c2160`) da 9 comandos y 2.062 caracteres — no 11
+# y 2.996: `setup-matt-pocock-skills` y `zoom-out` ya llevaban el flag, así que no cargaban. Medido
+# así, el release queda en +176,9 %, no en el +12 % que estimaba el issue antes de tener las nueve
+# skills nuevas en el árbol. El 2.996 de `docs/superpowers/notes/2026-08-28-research-dieta-de-
+# contexto.md` sale de otro método, que esa nota no declara: el frontmatter entero menos la línea
+# `name:`, o sea sumándole el `argument-hint` y hasta la propia línea `disable-model-invocation:
+# true` — la línea que impide que esa description cargue. No lo compares contra los números de acá.
 #
 # LAS DOS ROTURAS QUE ATAJA:
 #   1. Clasificar mal una que el agente necesita alcanzar: `review-loop` la ordena el hook
@@ -28,6 +33,15 @@
 # suites de cada slice (`grilling-y-punteros`, `merge-triage-handoff-setup`, `nombres-propios-de-
 # skills`, `wizard-y-to-questionnaire`) y el golden por hash del lockfile. Acá va SÓLO la política de
 # invocación y la forma de la description que se sigue de ella.
+#
+# LA FORMA DE LA DESCRIPTION SE VERIFICA SÓLO EN `.claude/commands/`, a propósito: es la copia que
+# Claude Code carga en cada request, o sea la que se paga. `.agents/skills/` no la lee Claude Code,
+# y esa copia viaja a otros agentes que no necesariamente honran el flag: si se le sacaran los
+# triggers, ahí quedaría inalcanzable. Por eso sus descriptions conservan la forma de agente aunque
+# lleven el flag. Decidido por el dueño del repo el 2026-09-19. El FLAG sí se compara en las dos
+# copias (más abajo): lo que no puede divergir es la CLASIFICACIÓN. Si algún día se recortan esas
+# descriptions, `merge-triage-handoff-setup` pinea exactas las de `triage`, `handoff` y
+# `setup-matt-pocock-skills`; las de `to-prd`, `to-issues` y `zoom-out` no las pinea nadie.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $script:failures = 0
@@ -39,7 +53,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 281
+$ExpectedChecks = 322   # 18 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 9 user-invoked + 2 del ADR-0003)
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -82,8 +96,15 @@ function Disparadores($d) { return @($disparadores | Where-Object { $d.Contains(
 # la lee él, así que se le habla a él (`Use when you're unfamiliar...`), no a un agente sobre él
 # (`Use when the user wants...`). No es una regla de largo: `setup-matt-pocock-skills` es
 # user-invoked y su description tiene 438 caracteres, y está bien.
-$marcasDeAgente = @('the user', 'user wants', 'el usuario', 'Usala ', 'Trigger when', '"')
+# `Usala ` va acotado a sus dos fórmulas de disparo y NO está el `"` pelado: los dos marcaban texto
+# legítimamente humano (`Usala para armar el handoff...`, una description que entrecomilla un
+# término) con el mensaje equivocado. Lo que marcan es voz de agente, no comillas.
+$marcasDeAgente = @('the user', 'user wants', 'el usuario', 'Usala cuando', 'Usala antes', 'Trigger when')
 function MarcasDeAgente($d) { return @($marcasDeAgente | Where-Object { $d.Contains($_) }) }
+
+# Una description plegada (`description: >` y el texto indentado abajo) deja a `Description` con el
+# `>` pelado: sin esto, una user-invoked pasaba las marcas sin que nadie leyera su texto.
+function EsEscalarPlano($d) { return ($d.Length -gt 0 -and $d[0] -notin @('>', '|', '"', "'")) }
 
 # --- Anclas de los chequeadores ---
 # Sin esto, un `EsUserInvoked` que devuelve siempre $false (o un `Disparadores` que devuelve siempre
@@ -96,6 +117,14 @@ Assert ((Disparadores 'Use when the user wants X.').Count -gt 0) "Disparadores v
 Assert ((Disparadores 'Compact the current conversation into a handoff document.').Count -eq 0) "Disparadores no inventa un disparo donde no hay"
 Assert ((MarcasDeAgente 'Use when user wants to create an issue.').Count -gt 0) "MarcasDeAgente ve ``user wants``"
 Assert ((MarcasDeAgente 'Tell the agent to zoom out. Use when you are unfamiliar with a section of code.').Count -eq 0) "MarcasDeAgente no marca una description que le habla al humano"
+# Los dos parsers también van anclados: sin esto, un `Frontmatter` que devuelve el archivo entero
+# deja la suite en verde, y es EXACTAMENTE el bug que ya se coló una vez acá (una description
+# debajo del cierre dada por buena, `nombres-propios-de-skills.tests.ps1`).
+Assert (-not (EsUserInvoked (Frontmatter "---`nname: x`n---`ndisable-model-invocation: true"))) "Frontmatter no ve un flag que cae DEBAJO del cierre"
+Assert ((Frontmatter "prosa`nname: x`n---`nname: y`n---").Count -eq 0) "Frontmatter no toma por frontmatter un archivo que no abre con ``---``"
+Assert ((Description @('description: una', 'description: otra')) -eq "") "Description no elige entre dos ``description:``"
+Assert (-not (EsEscalarPlano '>')) "EsEscalarPlano rechaza una description plegada"
+Assert (EsEscalarPlano 'Una linea sola.') "EsEscalarPlano acepta una description de una línea"
 
 # --- La lista DECLARADA ---
 # $true = user-invoked (sólo la escribe un humano: lleva `disable-model-invocation: true`).
@@ -166,6 +195,7 @@ foreach ($raiz in $raices) {
     if ($esperadoUser) {
       $marcas = @(MarcasDeAgente $d)
       Assert ($d.Length -gt 0 -and $marcas.Count -eq 0) "$etq : la description de $n le habla al humano que la escribe (marcas de agente: $($marcas -join ' | '))"
+      Assert (EsEscalarPlano $d) "$etq : la description de $n es una línea plana — plegada (``>``/``|``) no la lee ni este test ni el humano en el selector"
     } else {
       $disp = @(Disparadores $d)
       Assert ($disp.Count -gt 0) "$etq : la description de $n conserva su fórmula de disparo ($($disparadores -join ' / ')) — sin ella el agente no la alcanza y la paga igual"
