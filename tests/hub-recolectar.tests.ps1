@@ -1,6 +1,6 @@
 # tests/hub-recolectar.tests.ps1 — runner sin Pester. Correr: pwsh -NoProfile -File tests/hub-recolectar.tests.ps1
-# El recolector de hub-sync (issue 03): lee los commits del dev con trailer `Slice-Close:` y escribe
-# un lote JSON por corrida. Fixtures: repos git temporales con su declaración `.claude/hub-sync.json`.
+# El recolector de hub-sync (issues 03 y 08): lee los commits del dev con trailer `Slice-Close:` y las
+# transiciones de `Status:` de `.scratch/`, y escribe un lote JSON por corrida. Fixtures: repos git temporales con su declaración `.claude/hub-sync.json`.
 $ErrorActionPreference = "Stop"
 $repo  = Split-Path $PSScriptRoot -Parent
 $recol = Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/scripts/hub-recolectar.ps1"
@@ -282,6 +282,134 @@ Assert ($r.lote.resultado -eq "ok" -and $ids.Count -eq 1 -and $ids[0] -eq "commi
   "desde un worktree se propone el slice nuevo contra la línea de base del repo (fue '$($r.lote.resultado)': $($ids -join ', '))"
 Assert ($r.lote.repo -eq (Split-Path $tw -Leaf)) "el repo del lote es el del checkout principal, no el del worktree (fue '$($r.lote.repo)')"
 Assert (@(Get-ChildItem -LiteralPath $stw -Directory).Count -eq 1) "un solo directorio de estado para el repo y su worktree"
+
+# ===== Issue 08: transiciones de `Status:` en `.scratch/` =====
+# Un issue de `.scratch/<feature>/issues/`, con el formato real: título, línea en blanco, `Status:`.
+function Set-Issue([string]$t, [string]$rel, [string]$status, [string]$titulo = "Un issue") {
+  $p = Join-Path $t ".scratch/$rel"
+  [IO.Directory]::CreateDirectory((Split-Path $p -Parent)) | Out-Null
+  [IO.File]::WriteAllText($p, "# $titulo`r`n`r`nStatus: $status`r`nRepo: X`r`n")
+}
+function Ids($r) { @(@($r.lote.propuestas) | ForEach-Object { $_.id }) }
+
+# --- Tracer: un issue que pasa a `done` entre dos corridas es una propuesta `hito` ---
+$ts = New-HubRepo
+Set-Issue $ts "feat-a/issues/01-uno.md" "ready-for-agent" "01 — el primero"
+$sts = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $ts $sts "2026-09-19T10:00:00Z" | Out-Null
+Set-Issue $ts "feat-a/issues/01-uno.md" "done" "01 — el primero"
+$r = Recolectar $ts $sts "2026-09-20T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "ok" -and $p.Count -eq 1) "→ done: una propuesta y resultado 'ok' (fue '$($r.lote.resultado)', $($p.Count) propuestas, exit $($r.exit))"
+Assert ($p[0].id -ceq "issue:feat-a/01-uno.md:done") "→ done: id estable issue + transición (fue '$($p[0].id)')"
+Assert ($p[0].tipo -eq "hito" -and $p[0].destino -eq "delivery" -and $p[0].estado -eq "nueva") "→ done: hito nuevo con destino delivery (fue '$($p[0].tipo)'/'$($p[0].destino)'/'$($p[0].estado)')"
+Assert ($p[0].hechos.issue -ceq "feat-a/01-uno.md" -and $p[0].hechos.titulo -ceq "01 — el primero" -and
+        $p[0].hechos.de -ceq "ready-for-agent" -and $p[0].hechos.a -ceq "done") "→ done: los hechos traen issue, título, de y a"
+
+# --- `→ needs-info` es un `riesgo`: interno hasta que el PM lo reclasifique ---
+Set-Issue $ts "feat-a/issues/02-dos.md" "ready-for-agent"
+Recolectar $ts $sts "2026-09-21T10:00:00Z" | Out-Null
+Set-Issue $ts "feat-a/issues/02-dos.md" "needs-info"
+$r = Recolectar $ts $sts "2026-09-22T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert ($p.Count -eq 1 -and $p[0].id -ceq "issue:feat-a/02-dos.md:needs-info" -and $p[0].tipo -eq "riesgo" -and $p[0].destino -eq "delivery") `
+  "→ needs-info: una propuesta riesgo con destino delivery (fue: $(@($p | ForEach-Object { "$($_.id)/$($_.tipo)" }) -join ', '))"
+
+# --- Lo que no es una transición propuesta ---
+# Un issue nuevo no tiene transición aunque ya llegue en `done`: no hay estado anterior con qué
+# compararlo. Otros estados, el PRD de la feature (que también lleva `Status:`) y un issue sin
+# `Status:` no proponen nada. Uno borrado no rompe la corrida.
+Set-Issue $ts "feat-b/issues/01-nuevo.md" "done"
+Set-Issue $ts "feat-a/issues/03-tres.md" "ready-for-agent"
+Set-Issue $ts "feat-a/issues/04-cuatro.md" "ready-for-agent"
+Set-Issue $ts "feat-a/PRD.md" "ready-for-agent"
+$r = Recolectar $ts $sts "2026-09-23T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "un issue nuevo no se propone, aunque ya llegue en done (fue '$($r.lote.resultado)': $((Ids $r) -join ', '))"
+$r = Recolectar $ts $sts "2026-09-24T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "sin transiciones nuevas, lo ya propuesto no se repite (fue '$($r.lote.resultado)': $((Ids $r) -join ', '))"
+Set-Issue $ts "feat-a/issues/03-tres.md" "ready-for-human"
+Set-Issue $ts "feat-a/PRD.md" "done"
+[IO.File]::WriteAllText((Join-Path $ts ".scratch/feat-a/issues/04-cuatro.md"), "# sin estado`r`n")
+Remove-Item -LiteralPath (Join-Path $ts ".scratch/feat-a/issues/02-dos.md")
+$r = Recolectar $ts $sts "2026-09-25T10:00:00Z"
+Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "sin cambios") `
+  "otro estado, el PRD, un issue sin Status y uno borrado no proponen nada (fue '$($r.lote.resultado)', exit $($r.exit): $((Ids $r) -join ', '))"
+Set-Issue $ts "feat-b/issues/01-nuevo.md" "needs-info"
+$r = Recolectar $ts $sts "2026-09-26T10:00:00Z"
+Assert ((Ids $r) -contains "issue:feat-b/01-nuevo.md:needs-info") "un issue que nació en la corrida anterior ya se sigue en la siguiente (fue: $((Ids $r) -join ', '))"
+
+# --- Una foto del tramo anterior (sin sección de `.scratch/`) fija la línea de base de `.scratch/` ---
+# Los issues que ya estaban en `done` antes de actualizar el recolector no se proponen de golpe.
+$tv = New-HubRepo
+Set-Issue $tv "feat-a/issues/01-uno.md" "done"
+Set-Issue $tv "feat-a/issues/02-dos.md" "ready-for-agent"
+$stv = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tv $stv "2026-09-19T10:00:00Z" | Out-Null
+$fotoV = @(Get-ChildItem -LiteralPath $stv -Recurse -Filter foto.json)[0].FullName
+$vistos = @(([IO.File]::ReadAllText($fotoV) | ConvertFrom-Json).vistos)
+[IO.File]::WriteAllText($fotoV, (@{ schemaVersion = 1; vistos = $vistos } | ConvertTo-Json))
+$r = Recolectar $tv $stv "2026-09-20T10:00:00Z"
+Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "sin cambios") "foto sin sección de .scratch/: fija la línea de base sin proponer (fue '$($r.lote.resultado)', exit $($r.exit): $((Ids $r) -join ', '))"
+Set-Issue $tv "feat-a/issues/02-dos.md" "done"
+$r = Recolectar $tv $stv "2026-09-21T10:00:00Z"
+Assert (((Ids $r) -join ',') -ceq "issue:feat-a/02-dos.md:done") "tras esa línea de base, la transición siguiente se propone (fue: $((Ids $r) -join ', '))"
+
+# --- Con Ongoing Support declarado, el destino sugerido sigue siendo delivery: lo confirma el PM ---
+$to = New-HubRepo '{ "schemaVersion": 1, "hubProject": "P", "ongoingSupport": "OS X", "devs": { "martin": ["m@x.io"] } }'
+Set-Issue $to "feat-a/issues/01-uno.md" "ready-for-agent"
+$sto = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $to $sto "2026-09-19T10:00:00Z" | Out-Null
+Set-Issue $to "feat-a/issues/01-uno.md" "needs-info"
+$r = Recolectar $to $sto "2026-09-20T10:00:00Z"
+Assert (@($r.lote.propuestas).Count -eq 1 -and @($r.lote.propuestas)[0].destino -eq "delivery") "con ongoingSupport declarado, el destino sugerido es delivery (fue '$(@($r.lote.propuestas)[0].destino)')"
+
+# --- El hito trae los commits que cerraron el issue: es la misma obra que su `update` ---
+# El `Slice-Close:` cita el issue por ruta (issue 07). Sólo los commits del dev, como los `update`.
+$tk = New-HubRepo
+Set-Issue $tk "feat-a/issues/01-uno.md" "ready-for-agent"
+$stk = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tk $stk "2026-09-19T10:00:00Z" | Out-Null
+$c1 = Commit $tk "cierra el 01" -slice ".scratch/feat-a/issues/01-uno.md — el uno"
+$cAjeno = Commit $tk "otro dev cita el 01" -email "otro@x.io" -slice ".scratch/feat-a/issues/01-uno.md — ajeno"
+$cOtro = Commit $tk "cierra otro" -slice ".scratch/feat-a/issues/01-uno.mdx — no es el 01"
+Set-Issue $tk "feat-a/issues/01-uno.md" "done"
+$r = Recolectar $tk $stk "2026-09-20T10:00:00Z"
+$h = @(@($r.lote.propuestas) | Where-Object { $_.tipo -eq "hito" })
+Assert ($h.Count -eq 1 -and (@($h[0].hechos.commits) -join ',') -ceq $c1) `
+  "el hito trae sólo los commits del dev cuyo Slice-Close cita el issue (fue: $(@($h[0].hechos.commits) -join ', '))"
+
+# --- `.scratch/` es por worktree: se leen todos los del repo, cada uno contra su propia sección ---
+# `marcar-done` escribe en el worktree donde corrió el loop, y la tarea programada corre en uno solo.
+$tm = New-HubRepo
+Set-Issue $tm "feat-a/issues/01-uno.md" "ready-for-agent"
+$wtBase = New-TestWorkspace $script:runRoot "hubrec-wt"
+$wa = Join-Path $wtBase "carril-a"
+git -C $tm worktree add -q -b feat/a $wa 2>$null
+Set-Issue $wa "feat-w/issues/01-w.md" "ready-for-agent"
+Set-Issue $wa "feat-a/issues/01-uno.md" "ready-for-agent"
+$stm = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tm $stm "2026-09-19T10:00:00Z" | Out-Null
+Set-Issue $wa "feat-w/issues/01-w.md" "done"
+$r = Recolectar $tm $stm "2026-09-20T10:00:00Z"
+Assert (((Ids $r) -join ',') -ceq "issue:feat-w/01-w.md:done") "una transición en el .scratch/ de otro worktree se propone (fue: $((Ids $r) -join ', '))"
+# Un worktree nuevo fija su línea de base: sus `done` no son transiciones.
+$wb = Join-Path $wtBase "carril-b"
+git -C $tm worktree add -q -b feat/b $wb 2>$null
+Set-Issue $wb "feat-n/issues/01-n.md" "done"
+$r = Recolectar $wa $stm "2026-09-21T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "un worktree nuevo fija su línea de base, corra desde donde corra (fue '$($r.lote.resultado)': $((Ids $r) -join ', '))"
+# La misma transición en dos worktrees es una sola propuesta.
+Set-Issue $tm "feat-a/issues/01-uno.md" "needs-info"
+Set-Issue $wa "feat-a/issues/01-uno.md" "needs-info"
+$r = Recolectar $tm $stm "2026-09-22T10:00:00Z"
+Assert (((Ids $r) -join ',') -ceq "issue:feat-a/01-uno.md:needs-info") "la misma transición en dos worktrees sale una sola vez (fue: $((Ids $r) -join ', '))"
+
+# --- Sin `.scratch/` no hay nada que proponer, y no es una falla ---
+$tn = New-HubRepo
+$stn = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tn $stn "2026-09-19T10:00:00Z" | Out-Null
+$r = Recolectar $tn $stn "2026-09-20T10:00:00Z"
+Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "sin cambios") "sin .scratch/: lote 'sin cambios' y exit 0 (fue '$($r.lote.resultado)', exit $($r.exit))"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
