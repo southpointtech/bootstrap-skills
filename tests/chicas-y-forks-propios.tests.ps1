@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 178
+$ExpectedChecks = 181
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "chfp"
@@ -87,10 +87,14 @@ $skills = @(
        # El script usa `jq`, que Git for Windows no trae: sin él imprime `jq: command not found` y
        # sale 0, o sea deja pasar todo (medido el 2026-09-19 con bash de Git for Windows).
        'Without it the script prints `jq: command not found` and exits 0: it lets every command through.',
-       'Before installing, run `command -v jq`',
-       'If the check in step 5 does not exit with code 2, stop and tell the user',
+       'Run `command -v jq` and the check in step 5 with the Bash tool, not the PowerShell tool',
+       'or if the hook itself blocks that Bash call',
+       'stop, leave the installed files in place and tell the user which ones they are',
        # Los patrones son substrings de la línea entera (medido con un stub de `jq`).
        'with `-C <path>` or `-c <key>=<value>` in between, `push`, `branch -D`, `clean -f`, `checkout .` and `restore .` get through.',
+       # Con la opción global en el medio sólo matchean las secuencias literales (medido: `push -f` y
+       # `push origin main --force` salen 0, `push --force` sale 2).
+       '`push -f` and a `--force` placed after the remote or branch (`push origin main --force`) get through, so a force-push is not reliably blocked.',
        'a commit message that mentions `git push`, or `git checkout .gitignore`.') }
 )
 
@@ -143,6 +147,11 @@ foreach ($sk in $skills) {
   }
   foreach ($frase in $sk.presentes) { Assert ($skillTxt.Contains($frase)) "$n/SKILL.md dice ``$frase``" }
 }
+# La versión anterior de la sección decía que el force-push seguía bloqueado con una opción global en
+# el medio; sólo lo está la secuencia literal `push --force`.
+$gg = Texto (Join-Path $repo ".agents/skills/git-guardrails-claude-code/SKILL.md")
+Assert ($null -ne $gg -and -not $gg.Contains('Only `push --force` and `reset --hard` are still blocked')) "git-guardrails-claude-code/SKILL.md ya NO dice que push --force y reset --hard se siguen atajando sin más"
+
 # El script del hook: el de upstream @ 959a8e9, con sus patrones. Si alguien lo edita, el lockfile
 # lo delata; esta ancla dice qué patrón se perdió.
 $sh = Texto (Join-Path $repo ".agents/skills/git-guardrails-claude-code/scripts/block-dangerous-git.sh")
