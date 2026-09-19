@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /slice-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or the turn cap is hit (2 turns; 1 when the slice declares `Review-Rigor: light`). Trigger when the user says "pasá el review-loop", "revisá y arreglá este diff hasta que quede limpio", "loop de code-review sobre el PR", "dejá el PR sin findings", or wants an iterative review→fix cycle on a finished slice. Adapts the Greptile "greploop" / GP-loop to a local, agent-invocable reviewer (no external paid service, no PR/remote required).
+description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /slice-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or the turn cap is hit (2 turns; 1 when the slice declares light rigor in its `Review-Rigor` trailer). Trigger when the user says "pasá el review-loop", "revisá y arreglá este diff hasta que quede limpio", "loop de code-review sobre el PR", "dejá el PR sin findings", or wants an iterative review→fix cycle on a finished slice. Adapts the Greptile "greploop" / GP-loop to a local, agent-invocable reviewer (no external paid service, no PR/remote required).
 ---
 
 # Review Loop
