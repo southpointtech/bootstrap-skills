@@ -404,6 +404,77 @@ Set-Issue $wa "feat-a/issues/01-uno.md" "needs-info"
 $r = Recolectar $tm $stm "2026-09-22T10:00:00Z"
 Assert (((Ids $r) -join ',') -ceq "issue:feat-a/01-uno.md:needs-info") "la misma transición en dos worktrees sale una sola vez (fue: $((Ids $r) -join ', '))"
 
+# --- Cada worktree contra SU sección, aunque el mismo issue diverja entre worktrees ---
+# `marcar-done` escribe sólo en el carril: el mismo issue queda en estados distintos. Main en
+# `needs-info` y el carril en `done`: una corrida quieta no propone nada, y si cambia main (el primero
+# de `git worktree list`) se propone su transición.
+$td2 = New-HubRepo
+Set-Issue $td2 "feat-d/issues/01-div.md" "needs-info"
+$wd = Join-Path (New-TestWorkspace $script:runRoot "hubrec-wt") "carril-d"
+git -C $td2 worktree add -q -b feat/d $wd 2>$null
+Set-Issue $wd "feat-d/issues/01-div.md" "done"
+$std2 = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $td2 $std2 "2026-09-19T10:00:00Z" | Out-Null
+$r = Recolectar $td2 $std2 "2026-09-20T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "el mismo issue en estados distintos en dos worktrees: una corrida quieta no propone (fue: $((Ids $r) -join ', '))"
+Set-Issue $td2 "feat-d/issues/01-div.md" "done"
+$r = Recolectar $td2 $std2 "2026-09-21T10:00:00Z"
+Assert (((Ids $r) -join ',') -ceq "issue:feat-d/01-div.md:done") "la transición del worktree principal se propone aunque el carril ya estuviera en done (fue: $((Ids $r) -join ', '))"
+
+# --- Un carril que se abre y se cierra entre dos corridas no pierde su hito ---
+# `abrir-carril` copia `.scratch/` al carril, y `marcar-done` escribe `done` sólo ahí. La primera vez
+# que la corrida ve el carril, el issue ya está en `done`: su estado anterior es el de los otros
+# worktrees. Un carril copiado de un main que ya estaba en `done` no propone nada; un issue que sólo
+# existe en el carril tampoco (no hay estado anterior con qué compararlo).
+$tl = New-HubRepo
+Set-Issue $tl "feat-l/issues/01-l.md" "ready-for-agent" "01 — del carril"
+Set-Issue $tl "feat-l/issues/02-ya.md" "done"
+$stl = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tl $stl "2026-09-19T10:00:00Z" | Out-Null
+$wl = Join-Path (New-TestWorkspace $script:runRoot "hubrec-wt") "carril-l"
+git -C $tl worktree add -q -b feat/l $wl 2>$null
+Set-Issue $wl "feat-l/issues/01-l.md" "done" "01 — del carril"
+Set-Issue $wl "feat-l/issues/02-ya.md" "done"
+Set-Issue $wl "feat-l/issues/03-solo.md" "done"
+$r = Recolectar $tl $stl "2026-09-20T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert (((Ids $r) -join ',') -ceq "issue:feat-l/01-l.md:done") "un carril nuevo propone su done contra el estado de los otros worktrees, y nada más (fue: $((Ids $r) -join ', '))"
+Assert ($p.Count -eq 1 -and $p[0].hechos.de -ceq "ready-for-agent") "el 'de' de un carril nuevo es el estado que registraba otro worktree (fue '$($p[0].hechos.de)')"
+$r = Recolectar $tl $stl "2026-09-21T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "la corrida siguiente no lo repite (fue: $((Ids $r) -join ', '))"
+
+# --- El estado como lo escriben los repos reales: con backticks, con una nota detrás, en mayúsculas ---
+# `Status: \`needs-info\` — esperando al cliente` es la forma dominante en los repos del workflow.
+$tb = New-HubRepo
+$fb = Join-Path $tb ".scratch/feat-b/issues/01-bt.md"
+[IO.Directory]::CreateDirectory((Split-Path $fb -Parent)) | Out-Null
+[IO.File]::WriteAllText($fb, "# con backticks`r`n`r`nStatus: ``ready-for-agent`` — arranca el lunes`r`n")
+$stb = New-TestWorkspace $script:runRoot "hubrec-state"
+Recolectar $tb $stb "2026-09-19T10:00:00Z" | Out-Null
+[IO.File]::WriteAllText($fb, "# con backticks`r`n`r`nStatus: ``needs-info`` — esperando al cliente`r`n")
+$r = Recolectar $tb $stb "2026-09-20T10:00:00Z"
+$p = @($r.lote.propuestas)
+Assert ($p.Count -eq 1 -and $p[0].id -ceq "issue:feat-b/01-bt.md:needs-info" -and $p[0].tipo -eq "riesgo" -and $p[0].hechos.de -ceq "ready-for-agent") `
+  "un Status con backticks y nota es el estado de su primera palabra (fue: $(@($p | ForEach-Object { "$($_.id) de '$($_.hechos.de)'" }) -join ', '))"
+[IO.File]::WriteAllText($fb, "# con backticks`r`n`r`nStatus: ``needs-info`` — sigue esperando`r`n")
+$r = Recolectar $tb $stb "2026-09-21T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "cambiar sólo la nota del Status no es una transición (fue: $((Ids $r) -join ', '))"
+[IO.File]::WriteAllText($fb, "# con backticks`r`n`r`nStatus: Done`r`n")
+$r = Recolectar $tb $stb "2026-09-22T10:00:00Z"
+Assert (((Ids $r) -join ',') -ceq "issue:feat-b/01-bt.md:done") "un Status en mayúsculas da el id canónico en minúsculas (fue: $((Ids $r) -join ', '))"
+[IO.File]::WriteAllText($fb, "# con backticks`r`n`r`nStatus: done`r`n")
+$r = Recolectar $tb $stb "2026-09-23T10:00:00Z"
+Assert ($r.lote.resultado -eq "sin cambios") "cambiar sólo las mayúsculas no es una transición (fue: $((Ids $r) -join ', '))"
+
+# --- `commits` es siempre una lista en el JSON del lote: la ingesta es otro proceso ---
+# Se mira el texto crudo: ConvertFrom-Json + @() no distingue `["sha"]` de `"sha"`, ni `[]` de `null`.
+Set-Issue $tk "feat-a/issues/01-uno.md" "needs-info"
+$r = Recolectar $tk $stk "2026-09-22T10:00:00Z"
+Assert ([IO.File]::ReadAllText($r.out) -match ('"commits":\s*\[\s*"' + $c1 + '"\s*\]')) "commits con un solo SHA sale como lista en el JSON"
+Set-Issue $ts "feat-a/issues/01-uno.md" "needs-info"
+$r = Recolectar $ts $sts "2026-09-28T10:00:00Z"
+Assert ([IO.File]::ReadAllText($r.out) -match '"commits":\s*\[\s*\]') "commits sin ningún SHA sale como lista vacía en el JSON"
+
 # --- Sin `.scratch/` no hay nada que proponer, y no es una falla ---
 $tn = New-HubRepo
 $stn = New-TestWorkspace $script:runRoot "hubrec-state"
