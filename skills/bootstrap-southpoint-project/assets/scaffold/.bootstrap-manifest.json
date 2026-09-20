@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-19+2d55e88",
+  "version": "2026-09-20+7cc3aa1",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "9625fe09cd543e25165066a6e2e1753bd696aa47f1f1179d58552b239d7324cc",
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
@@ -74,11 +74,11 @@
     ".claude/settings.json": "e05e5669925e0e12a6c552f409b7195198e913cd6422283e1a899b4ed5a58176",
     ".gitattributes": "d7e622c7054c0748b631de9840cbafdd5891f7b17414b950e43e294721171326",
     ".gitignore": "a2f91fb6d7b01f1048c42ac565ebab4500af100763d103f4bbc6e14fcd72629a",
-    "CLAUDE.md": "02d527b748712bb4fd53c2d7c61c1afd8034d90d25af74b920c49e71e6d04b4c",
+    "CLAUDE.md": "647506562f5973c4e3b9602e54fc8177d3bcdaf4673f9966b8d7e6c04e2203b4",
     "docs/agents/domain.md": "74d9fd35f35245683160091d53dd9ccfa017cf53534339992bab47c0ffb69cee",
     "docs/agents/issue-tracker.md": "810cf0b23f856995ae2e943de7752a97b19892830718bd0cbe884dd7ff758ec6",
     "docs/agents/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
-    "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "161f27aa5e24c2de418aa103868bd11b447ae455d84eff8361358bc153f23818",
+    "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "be5cc057ce4719a9200905f5fb28effeb1a17fc66af01c9da7ee299716511c94",
     "docs/ai-workflow/BRIEF-DE-CARRIL.md": "5a5b6b56b5e84771ac30439b61be1fc47a849284c5133323946cb192d664a192",
     "docs/ai-workflow/DEPLOYMENT_RULES.md": "75c7b5ef58e254763fefa60f43e6d41f5d3068b3e7c81bebe22fb5872365f984",
     "docs/ai-workflow/ESTIMATION_GUIDE.md": "bfb46007f67762f2c4969992a06efa78eb290b41dbd97171ce80b28eabbe2fc8",

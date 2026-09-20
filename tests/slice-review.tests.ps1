@@ -543,8 +543,10 @@ function Get-PrecEdges([string]$s1) {
   (@($e | Sort-Object) -join ',')
 }
 $expPrec = (@('--light>--mutation', '--light>--code-review', '--coherence>--light') | Sort-Object) -join ','
-$claudeGov = Get-GovList ([IO.File]::ReadAllText((Join-Path $repo "CLAUDE.md")))
-Assert ($claudeGov -ne '') "el CLAUDE.md declara la lista de rutas que gobiernan al agente ($claudeGov)"
+# La lista vive en el doc del flujo desde el issue 14 (dieta del CLAUDE.md): el CLAUDE.md conserva
+# la regla y un puntero, y el mecanismo enumerado se mudo a AI_DEVELOPMENT_WORKFLOW.md.
+$claudeGov = Get-GovList ([IO.File]::ReadAllText((Join-Path $repo "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md")))
+Assert ($claudeGov -ne '') "el AI_DEVELOPMENT_WORKFLOW.md declara la lista de rutas que gobiernan al agente ($claudeGov)"
 
 # Los tres slices de review-cost-split cerraron por el techo de 5 turnos: la prosa nacia Medium y cada
 # fix de prosa era delta nuevo para el turno siguiente. El loop pasa a techo de 2 turnos (1 en `light`),
@@ -573,7 +575,7 @@ foreach ($p in $slicePairs) {
     Assert ($s5 -match '(?is)only prose.*is \*\*Low\*\*.*Medium only when.*end user') `
       "$($p.label)/${rel}: la regla de prosa conserva su excepcion (Medium si llega a un usuario final)"
     # Una instruccion en un archivo que gobierna al agente es comportamiento, no prosa.
-    Assert ((Get-GovList $s5) -eq $claudeGov) "$($p.label)/${rel}: la lista de gobierno del Step 5 es la del CLAUDE.md"
+    Assert ((Get-GovList $s5) -eq $claudeGov) "$($p.label)/${rel}: la lista de gobierno del Step 5 es la del AI_DEVELOPMENT_WORKFLOW.md"
     Assert ($s5 -match '(?is)\*\*Instructions are not prose\*\*.{0,500}?is behavior and is classified like code') `
       "$($p.label)/${rel}: Step 5 clasifica como codigo las instrucciones de los archivos que gobiernan al agente"
   }
@@ -669,7 +671,7 @@ foreach ($p in $loopPairs) {
     Assert ($theLoop -match '(?is)do not re-edit.*unless the new finding about it scored Medium or High') `
       "$($p.label)/${rel}: la prohibicion de re-editar prosa de un turno previo cede ante un Medium"
     # El cierre por prosa excluye los archivos que gobiernan al agente.
-    Assert ((Get-GovList $theLoop) -eq $claudeGov) "$($p.label)/${rel}: la condicion de corte por prosa excluye la lista del CLAUDE.md"
+    Assert ((Get-GovList $theLoop) -eq $claudeGov) "$($p.label)/${rel}: la condicion de corte por prosa excluye la lista del AI_DEVELOPMENT_WORKFLOW.md"
     Assert ($theLoop -match '(?is)governing file is behavior,?\s+so it\s+keeps the next turn') `
       "$($p.label)/${rel}: editar un archivo que gobierna al agente mantiene el turno siguiente"
     # light tambien ancla el slice, y todo cierre que no sea por cap limpia el ancla.
@@ -725,14 +727,14 @@ foreach ($pre in $capRoots) {
   Assert ($txt -match 'scored per `/slice-review` Step 5') "${rel}: la regla de prosa remite al Step 5 de /slice-review"
   Assert ($txt -notmatch '(?i)only prose is Low and never blocks') "${rel}: no afirma que toda prosa es Low sin excepcion"
 }
-# La lista de gobierno del CLAUDE.md es la que clasifica el hook, en cada raiz; y el hook no le dice al
+# La lista de gobierno del doc del flujo es la que clasifica el hook, en cada raiz; y el hook no le dice al
 # agente que el rigor sale de "el commit": sale del slice, sobre todo el rango.
 foreach ($pre in $capRoots) {
-  $cF = Join-Path $pre "CLAUDE.md"; $hF = Join-Path $pre ".claude\hooks\review-loop-trigger.ps1"
-  if (-not (Test-Path -LiteralPath $cF) -or -not (Test-Path -LiteralPath $hF)) { Assert $false "existe CLAUDE.md/hook en $pre"; continue }
+  $cF = Join-Path $pre "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md"; $hF = Join-Path $pre ".claude\hooks\review-loop-trigger.ps1"
+  if (-not (Test-Path -LiteralPath $cF) -or -not (Test-Path -LiteralPath $hF)) { Assert $false "existe AI_DEVELOPMENT_WORKFLOW.md/hook en $pre"; continue }
   $hTxt = [IO.File]::ReadAllText($hF)
   $cg = Get-GovList ([IO.File]::ReadAllText($cF))
-  Assert ($cg -ne '' -and $cg -eq (Get-HookGov $hTxt)) "${pre}: la lista de gobierno del CLAUDE.md coincide con `$govern del hook ($cg)"
+  Assert ($cg -ne '' -and $cg -eq (Get-HookGov $hTxt)) "${pre}: la lista de gobierno del AI_DEVELOPMENT_WORKFLOW.md coincide con `$govern del hook ($cg)"
   Assert ($hTxt -match "(?i)(si el slice declara|if the slice declares) 'Review-Rigor: light'") "${pre}: el hook atribuye el rigor al slice"
   Assert ($hTxt -notmatch "(?i)(si el commit declara|if the commit declares)") "${pre}: el hook no atribuye el rigor a un commit"
 }

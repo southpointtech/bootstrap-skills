@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-09-19+f90d244",
+  "version": "2026-09-20+91feb9f",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "9625fe09cd543e25165066a6e2e1753bd696aa47f1f1179d58552b239d7324cc",
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
@@ -74,11 +74,11 @@
     ".claude/settings.json": "e05e5669925e0e12a6c552f409b7195198e913cd6422283e1a899b4ed5a58176",
     ".gitattributes": "d7e622c7054c0748b631de9840cbafdd5891f7b17414b950e43e294721171326",
     ".gitignore": "a2f91fb6d7b01f1048c42ac565ebab4500af100763d103f4bbc6e14fcd72629a",
-    "CLAUDE.md": "0b5f1acba07ea4884946c4c87b07f747ec25bab789bf05bf49d30f613eda376a",
+    "CLAUDE.md": "fa5ede4e542dd9be6bd99880ddb731bac6901613eb12da1f69806883413fadba",
     "docs/agents/domain.md": "74d9fd35f35245683160091d53dd9ccfa017cf53534339992bab47c0ffb69cee",
     "docs/agents/issue-tracker.md": "810cf0b23f856995ae2e943de7752a97b19892830718bd0cbe884dd7ff758ec6",
     "docs/agents/triage-labels.md": "493d08d7a8007d3604cdf64d45717045034a5037c9e9917bae1ad9340fad75b8",
-    "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "c604461baef538829246970b701eab583c7e75dcc3f7fd611249986eb5d07837",
+    "docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md": "c8b93af66bdb01618cbccdae4f792e23e17a2c55a699d90f968eaf2983f00a53",
     "docs/ai-workflow/BRIEF-DE-CARRIL.md": "5a5b6b56b5e84771ac30439b61be1fc47a849284c5133323946cb192d664a192",
     "docs/ai-workflow/DEPLOYMENT_RULES.md": "bbddc0f969eac7ab6e571d0ce5bcdd8540bdea087c2332425f1a4d26e15cbece",
     "docs/ai-workflow/ESTIMATION_GUIDE.md": "bfb46007f67762f2c4969992a06efa78eb290b41dbd97171ce80b28eabbe2fc8",
