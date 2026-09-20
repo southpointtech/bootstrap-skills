@@ -158,6 +158,12 @@ worktree, e integra el orquestador con `git -C` sobre él. El hook no dispara de
 **Ola 4** · Aprobada por el dueño del repo el 2026-09-19 · Base `feat/bootstrap-v2` @ `25f4bac`
 (slice light de Lows, `run-all.ps1` verde, 33 suites).
 
+**Cerrada el 2026-09-19**: integrada en `feat/bootstrap-v2` @ `5151ce4`, `run-all.ps1` verde (34
+suites) sobre el árbol integrado. Dejó dos issues nuevos, los dos fuera del alcance de sus slices y
+verificados por el confidence pass: **23** (`merge-settings.ps1` reconcilia comandos, nunca el
+`matcher` de una entrada que ya existe) y **24** (`Hide-Literals` parsea comillas de bash y pierde
+un cierre declarado desde PowerShell con rutas de Windows).
+
 Las olas 1 (07, 15, 19), 2 (09, 10, 08) y 3 (12, 11, 16) cerraron el 2026-09-18 y el 2026-09-19 en
 `628c84b`, `6e1a0e9` y `c7faaa5`; sus planes quedaron en el historial de este archivo
 (`git log -p`) y sus lecciones, abajo.
