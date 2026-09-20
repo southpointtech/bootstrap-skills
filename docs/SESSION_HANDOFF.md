@@ -1,3 +1,85 @@
+# Session Handoff — 2026-09-19 (noche) — **Ola 4 (13 + 21) CERRADA e integrada** en `feat/bootstrap-v2` @ `8d857a3`, `run-all.ps1` verde (34 suites). Pendientes de v2: 14, 18. Nuevos: 23 y 24.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `44e02e8` + el commit de este handoff
+  (sin pushear; `origin/main` = `dd3fdf6`, tag `v1.0.0`). Untracked de Codex: ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`8d857a3`**,
+  árbol limpio, **local, sin pushear**. Worktrees de carril borrados; ramas conservadas
+  (`slice/13-politica-de-invocacion`, `slice/21-matcher-powershell`, `slice/lows-v2-light`).
+  `feat/hub-sync` es de OTRA sesión: no tocar.
+- **Estado v2**: cerrados 01–13, 15, 16, 17, 19, 20, 21, 22 + slice light de Lows. Pendientes:
+  **14** (dieta del `CLAUDE.md`, va solo, lo reserva el orquestador), **18** (deploy/rollout, HITL,
+  último). **Nuevos de esta ola**: **23** y **24**, los dos `needs-triage`, fuera de v2.
+
+## 1. Qué se hizo en esta sesión
+
+1. **Slice light de Lows** (`25f4bac`): `.gitattributes` pasa por el alignment-gate en las 4 copias
+   (caso 8b, rojo 2/4 antes), `git clone -c` en el test de `.gitattributes` (medido: solo esa forma
+   deja el setting en la config del clon), y conteos viejos corregidos (21 skills, 21 comandos, 11
+   docs). Review-loop light: clean close.
+2. **Ola 4 planeada, aprobada y ejecutada** en dos carriles paralelos:
+   - **A / issue 13** (`0ae9cce` + 2 commits de fixes): política de invocación. Las 6 user-invoked
+     (`grill-me`, `grill-with-docs`, `to-prd`, `to-issues`, `triage`, `handoff`) llevan
+     `disable-model-invocation: true` en las 4 raíces y en las dos copias, más
+     `tests/invocation-policy.tests.ps1` (322 aserciones). Review-loop standard: **cerró por tope**,
+     coherencia limpia.
+   - **B / issue 21** (`0216e70` + 2 commits de fixes): el matcher del `review-loop-trigger` pasa a
+     `Bash|PowerShell` en las 4 raíces. Review-loop standard: **cierre limpio**; la coherencia
+     encontró el criterio 1 sin cumplir (la medición no estaba en el issue del repo) y se arregló.
+   - **Cierre**: re-sellado sobre el árbol integrado (`5151ce4`), lecciones (`2790e57`), marcador de
+     cierre (`8d857a3`).
+3. **Dos issues nuevos**, sacados de los slices por el confidence pass (los dos con reproducción):
+   - **23**: `merge-settings.ps1` de `upgrade-bootstrap` identifica los hooks por su `command`, así
+     que un cambio de solo-`matcher` no llega a un proyecto con `settings.json` propio, y el script
+     informa éxito. **Medido**: los 11 proyectos de la máquina tienen el archivo sin personalizar y
+     caen en la rama que se pisa, así que HOY sí reciben el fix.
+   - **24**: `Hide-Literals` parsea comillas de bash; ahora que llegan comandos de PowerShell, un
+     `git -C "C:\repo\" commit` pierde el cierre en silencio. Los dos fixes obvios se probaron en el
+     review y ponen en rojo los fixtures de falso positivo; el camino es elegir gramática por
+     `tool_name`.
+
+## 2. Tests
+
+`pwsh -NoProfile -File tests/run-all.ps1` sobre `8d857a3`: **SUITE VERDE — 34 suites, 0 rojas, 252 s.**
+
+## 3. Próximos pasos (en este orden)
+
+1. **Issue 14** (dieta del `CLAUDE.md`): va solo, entre olas, y `CLAUDE.md` lo reserva el
+   orquestador. Es el último de v2 antes del 18.
+2. **Issue 18** (deploy, rollout y re-sellado): HITL, lo corrés vos. Ojo con la nota de la ola 3:
+   retirar las copias de usuario de `research`, `debug-source-first` y `verify-downstream-arrival`
+   de `~/.claude/skills` al deployar, porque ganan sobre las del proyecto.
+3. **Push de v2** (lo hacés vos):
+   `! gh auth switch -u southpointtech && git -C "C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2" push -u origin feat/bootstrap-v2`
+4. **Lows sin arreglar**, para un slice light: el `-ceq` del matcher mira `$matchers[0]` en vez de
+   nombrar la raíz que difiere; `:12-13`, `:407` y `:418` del hook siguen diciendo "de bash" y no
+   los cubre ningún issue; el AC del issue 24 manda a un comentario que vive en los tests y en dos
+   docs, no en el hook; una línea en blanco de más en la lista de `docs/TESTING.md`; y los heredados
+   (Medium de `frontmatter-yaml`, Lows de la ola 3).
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **Un dato que el orquestador le pasa a un carril entra al repo con la firma del carril.** La línea
+  base "2.996 ch / 11 comandos" salió de la memoria del proyecto, el carril la escribió en tres
+  lugares y el review probó que sale de un método sin declarar. Bajo el método declarado son
+  **2.062 / 9**, y el release queda en **+176,9 %**, no +90,6 %. Si el brief trae un número, el
+  brief tiene que decir de dónde sale.
+- **Al retractar un dato, la lista de lugares se arma con `grep`, no de memoria**: corregirlo solo
+  en el test dejó el viejo en el plan de la ola y en el issue, y lo encontró el turno siguiente.
+- **Relajar una heurística puede matar la guarda que sostenía**: sacar el `"` pelado de las marcas
+  de agente se llevó puesta la única que atrapaba a `zoom-out`.
+- **`.scratch/` es por worktree y no viaja en el merge**: lo que un carril escribe ahí lo copia el
+  orquestador al integrar, o se pierde.
+- **El matcher de Claude Code es case-sensitive y ANCLADO** (medido con 12 sondas y `claude -p`).
+  `-match`/`-notmatch` de PowerShell son case-insensitive y sin anclar: no sirven como oráculo.
+- **`perl -pi` interpola `$l`, `$i`, `$d` del texto PowerShell** y corrompe el archivo; para mutar
+  código en tests, Python con `str.replace` y revert explícito. El `sed -i` de Git Bash pasa CRLF a
+  LF. En heredocs de Python, `\r` dentro de un string normal escribe un retorno de carro real.
+- `printf` de bash se come los `%`: los mensajes de commit largos van por archivo (`git commit -F`).
+
+---
+
 # Session Handoff — 2026-09-19 (noche) — **Slice light de Lows CERRADO** en `feat/bootstrap-v2` @ `25f4bac`, `run-all.ps1` verde (33 suites), review-loop light con clean close. Próximo: ola 4 (13 + 21).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
