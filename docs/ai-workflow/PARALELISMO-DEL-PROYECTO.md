@@ -220,6 +220,39 @@ Lo que cada carril resuelve antes del primer test:
 
 ## Lo que dejó la ola N
 
+### Ola 4 (13, 21), cerrada el 2026-09-19
+
+- **El número que el orquestador le pasa a un carril entra al repo con su firma.** El brief del
+  carril A llevaba una línea base sacada de la memoria del proyecto (2.996 ch / 11 comandos); el
+  carril la escribió en un comentario, en el issue y en el mensaje del commit, y el review demostró
+  que sale de un método que ninguna nota declara —el frontmatter entero menos la línea `name:`, que
+  suma el `argument-hint` y hasta la propia línea `disable-model-invocation: true`—. Bajo el método
+  que el slice declara son 2.062 / 9. Un dato heredado no está verificado por haber sido heredado;
+  si el brief lo trae, el brief tiene que decir de dónde sale. Vale para cualquier proyecto.
+- **Corregir un número en un solo lugar deja el repo contradiciéndose.** El turno 1 lo arregló en el
+  test; el turno 2 encontró el viejo todavía en `PARALELISMO-DEL-PROYECTO.md` (este archivo) y en el
+  issue. Al retractar un dato, la lista de lugares se arma ANTES de editar: `grep` del número, no
+  memoria.
+- **Un fix de prosa puede matar una guarda.** Sacar el `"` pelado de la lista de marcas de agente
+  —para evitar un falso positivo que no existía en el árbol— se llevó puesta la única marca que
+  atrapaba a `zoom-out`. Antes de relajar una heurística: qué positivo verdadero estaba sosteniendo.
+  La reemplazó una marca estructural (dos pares de comillas o más = lista de triggers).
+- **`.scratch/` es por worktree y no viaja en el merge.** El carril B midió el `tool_name` y lo pegó
+  en el issue de SU worktree; el criterio de aceptación pedía el issue del repo. El coherence pass
+  lo encontró. Lo que un carril escribe en `.scratch/` lo copia el orquestador al integrar, o se
+  pierde.
+- **Medir antes de creerle a un hallazgo repetido.** Cuatro reviewers reportaron como mutante vivo
+  una skill sin clasificar; el confidence pass mostró que muere en la suite del lockfile. Y dos
+  reviewers del turno 2 propusieron "corregir" 12 sondas a 11: el 12 era correcto y la enumeración
+  estaba incompleta. Un hallazgo repetido no es un hallazgo verificado.
+- **El reviewer mide lo que el carril no midió.** El carril B declaró abiertamente que no sabía si
+  el matcher era anclado o case-sensitive; un scorer lo midió con 12 sondas y dos corridas de
+  `claude -p`: es **case-sensitive y anclado**. Eso convirtió el oráculo del test (que usaba
+  `-notmatch`, case-insensitive y sin anclar) en un fix necesario.
+- Los dos carriles cerraron el review-loop en dos turnos: A por tope (el turno 2 encontró Medium en
+  los fixes del turno 1), B limpio. Los dos con coherencia corrida; la de B encontró el criterio de
+  aceptación sin cumplir.
+
 ### Ola 3 (12, 11, 16), cerrada el 2026-09-19
 
 - **Un archivo que un carril escribe antes de que otro traiga un `.gitattributes` queda con el fin
