@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-19+2f20d9f",
+  "version": "2026-09-19+8cc3225",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "9625fe09cd543e25165066a6e2e1753bd696aa47f1f1179d58552b239d7324cc",
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
@@ -68,7 +68,7 @@
     ".claude/commands/wizard.md": "cc9d39d5e7e42d8c72bc426ea2484c04d0fa16061550779d5c893c11de468d35",
     ".claude/commands/zoom-out.md": "4fc05cfa89129515f6f01f52a31bbe36f327c54b322dbd3cb2c31f46a824b002",
     ".claude/hooks/alignment-gate.ps1": "4b573d9b069c7a5dab3cfcd9d06125f2d570c2b5a0658b3d27e8ee66ab20c17d",
-    ".claude/hooks/review-loop-trigger.ps1": "87824bc0c515d6ec1012f9f85cc02158866e241cc58b7d0b5fea0cdf6328c58c",
+    ".claude/hooks/review-loop-trigger.ps1": "91c73da6d32fdc45d722dcf0b2bc0cc0cd60dbeb3cc14e1bdbd89543f47da0d8",
     ".claude/scripts/abrir-carril.ps1": "fd508b1989b27eae12d68f4d094cd5fdb7a8e3b43cde0c76d21e0fda93d7f63e",
     ".claude/scripts/review-marker.ps1": "f4c23e3451ec38b8595af2c3e4f55ae55f334818e1ed359d58c93644c51b0d4e",
     ".claude/settings.json": "e05e5669925e0e12a6c552f409b7195198e913cd6422283e1a899b4ed5a58176",

@@ -1,4 +1,4 @@
-# PostToolUse hook (Bash matcher). Injects into Claude the order to run /review-loop over the
+# PostToolUse hook (`Bash|PowerShell` matcher: the Bash tool and the PowerShell one). Injects into Claude the order to run /review-loop over the
 # unreviewed delta when a slice closes on a branch that is NOT the base. It fires on `gh pr create`,
 # on `git push`, and on a `git commit` that DECLARES the close with a `Slice-Close:` trailer — a
 # commit without the trailer fires only as a safety net, once the unreviewed delta passes the

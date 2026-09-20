@@ -1,4 +1,4 @@
-# Hook PostToolUse (matcher Bash). Inyecta a Claude la orden de correr /review-loop sobre el delta
+# Hook PostToolUse (matcher `Bash|PowerShell`: la herramienta Bash y la de PowerShell). Inyecta a Claude la orden de correr /review-loop sobre el delta
 # sin revisar cuando se cierra un slice en un branch que NO es la base. Dispara en `gh pr create`,
 # en `git push`, y en un `git commit` que DECLARA el cierre con un trailer `Slice-Close:` — un
 # commit sin el trailer dispara sólo como red de seguridad, cuando el delta sin revisar pasa el

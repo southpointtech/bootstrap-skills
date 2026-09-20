@@ -614,11 +614,20 @@ Remove-Item -Recurse -Force $t
 #   - herramienta PowerShell -> `"tool_name":"PowerShell"`, `tool_input.command` = "Get-Date".
 #     Dispararon `.*` y `Bash|PowerShell`; `Bash` pelado NO dejo log. <- el falso negativo.
 #   - herramienta Bash       -> `"tool_name":"Bash"`. Dispararon las TRES.
-# O sea: la alternancia que ya usa el alignment-gate (`Edit|Write|MultiEdit`) se acepta igual aca, y
-# la forma del evento es la misma para las dos herramientas, asi que la logica del hook no cambia.
+# O sea: la alternancia que ya usa el alignment-gate (`Edit|Write|MultiEdit`) se acepta igual aca.
 #
-# `-notmatch` de PowerShell es regex sin anclar, igual que lo medido: "PowerShell" no empareja con
-# "Bash" y si con "Bash|PowerShell".
+# MEDIDO otra vez el 2026-09-19, en el review de este slice, con 12 matchers de sonda y dos corridas
+# de `claude -p`: el matcher es **case-sensitive y ANCLADO** (full match). Dispararon `PowerShell`,
+# `^PowerShell$`, `Power.*`, `.*` y `Bash|PowerShell`; NO dispararon `Powershell`, `powershell`,
+# `(?i)powershell`, `Power`, `owerShell` ni `PowerShel`. Por eso el oraculo de abajo usa
+# `[regex]::IsMatch` anclado (case-sensitive por default) y NO `-notmatch`, que en PowerShell es
+# case-INSENSITIVE y sin anclar: con `-notmatch`, un matcher tipeado `Bash|Powershell` pasaba estos
+# asserts sin despachar nada en la realidad — el mismo falso negativo que el slice vino a matar.
+#
+# Lo que el evento NO dice es que la GRAMATICA sea la misma. `tool_input.command` es un string en
+# las dos herramientas, pero `Hide-Literals` lo parsea con comillas de BASH, donde `\` escapa: un
+# `git -C "C:\repo\" commit` hecho desde PowerShell pierde el cierre en silencio (reproducido en el
+# review de este slice; queda en el issue 24). Este slice ensancha el DESPACHO, no esa gramatica.
 function Get-TriggerMatcher($settingsPath) {
   $j = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
   $entry = @($j.hooks.PostToolUse | Where-Object { ($_.hooks | ConvertTo-Json -Depth 8) -match 'review-loop-trigger' })
@@ -631,7 +640,7 @@ function Get-TriggerMatcher($settingsPath) {
 function Fire-Tool($repo, $cmd, $toolName) {
   $m = Get-TriggerMatcher $canon
   if (-not $m) { return "" }
-  if ($toolName -notmatch $m) { return "" }
+  if (-not [regex]::IsMatch($toolName, "^(?:$m)$")) { return "" }
   return (Fire $repo $cmd)
 }
 
@@ -667,6 +676,10 @@ $rootsSettings = @(
 $matchers = @($rootsSettings | ForEach-Object { Get-TriggerMatcher $_ })
 Assert ((@($matchers | Where-Object { $_ }).Count) -eq 4) "las 4 raices declaran exactamente un PostToolUse de review-loop-trigger"
 Assert ((@($matchers | Select-Object -Unique).Count) -eq 1) "el matcher del review-loop-trigger es identico en las 4 raices (es: $($matchers -join ' | '))"
+# `-Unique` distingue mayusculas, asi que el assert de arriba atrapa que UNA raiz difiera — pero no
+# que las cuatro tengan el mismo error de tipeo. El matcher real es case-sensitive: `Bash|Powershell`
+# en las cuatro no despacharia nada. Por eso va tambien el valor exacto, con `-ceq`.
+Assert ($matchers[0] -ceq "Bash|PowerShell") "el matcher es exactamente ``Bash|PowerShell`` (case-sensitive: es: $($matchers[0]))"
 
 # Guard de la prohibicion del issue 21: ensanchar ESTE matcher no puede arrastrar al del
 # alignment-gate, que es otro hook con otra ventana y otro estado. Si alguien lo ensancha de paso,
@@ -674,7 +687,7 @@ Assert ((@($matchers | Select-Object -Unique).Count) -eq 1) "el matcher del revi
 foreach ($sp21 in $rootsSettings) {
   $j21 = Get-Content -LiteralPath $sp21 -Raw | ConvertFrom-Json
   $ag  = @($j21.hooks.PreToolUse | Where-Object { ($_.hooks | ConvertTo-Json -Depth 8) -match 'alignment-gate' })
-  Assert (($ag.Count -eq 1) -and ($ag[0].matcher -eq "Edit|Write|MultiEdit")) "el matcher del alignment-gate sigue intacto en $([IO.Path]::GetRelativePath($repo, $sp21))"
+  Assert (($ag.Count -eq 1) -and ($ag[0].matcher -ceq "Edit|Write|MultiEdit")) "el matcher del alignment-gate sigue intacto en $([IO.Path]::GetRelativePath($repo, $sp21))"
 }
 
 # --- Merge de settings (proyecto con settings.json propio, p. ej. enabledPlugins) ---
