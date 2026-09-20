@@ -618,8 +618,9 @@ Remove-Item -Recurse -Force $t
 #
 # MEDIDO otra vez el 2026-09-19, en el review de este slice, con 12 matchers de sonda y dos corridas
 # de `claude -p`: el matcher es **case-sensitive y ANCLADO** (full match). Dispararon `PowerShell`,
-# `^PowerShell$`, `Power.*`, `.*` y `Bash|PowerShell`; NO dispararon `Powershell`, `powershell`,
-# `(?i)powershell`, `Power`, `owerShell` ni `PowerShel`. Por eso el oraculo de abajo usa
+# `^PowerShell$`, `Power.*`, `.*` y `Bash|PowerShell`; NO dispararon `Bash` pelado, `Powershell`,
+# `powershell`, `(?i)powershell`, `Power`, `owerShell` ni `PowerShel` (5 + 7 = 12; el `Bash` pelado
+# es el mismo de la medicion de arriba). Por eso el oraculo de abajo usa
 # `[regex]::IsMatch` anclado (case-sensitive por default) y NO `-notmatch`, que en PowerShell es
 # case-INSENSITIVE y sin anclar: con `-notmatch`, un matcher tipeado `Bash|Powershell` pasaba estos
 # asserts sin despachar nada en la realidad — el mismo falso negativo que el slice vino a matar.
@@ -634,13 +635,19 @@ function Get-TriggerMatcher($settingsPath) {
   if ($entry.Count -ne 1) { return $null }
   return $entry[0].matcher
 }
-# Reproduce el DESPACHO real: Claude Code invoca el hook solo si el matcher empareja el tool_name.
+# Modela el DESPACHO real: Claude Code invoca el hook solo si el matcher empareja el tool_name.
 # Si no empareja, el hook no corre nunca y la salida es vacia — que es exactamente el falso negativo
 # (el cierre declarado se pierde en silencio), no un "no aplica".
+# Es un MODELO, no el motor real: `[regex]::IsMatch` es .NET y acepta cosas que el de Claude Code
+# rechaza. El caso medido es `(?i)powershell`, que aca empareja y alla no disparo — un matcher asi
+# pasaria estos tres asserts sin despachar nada. Lo que cubre esa clase es el assert del valor
+# exacto (`-ceq`), no este oraculo. Un matcher que ni siquiera compile tampoco despacha: por eso el
+# `catch` devuelve vacio en vez de tumbar la corrida.
 function Fire-Tool($repo, $cmd, $toolName) {
   $m = Get-TriggerMatcher $canon
   if (-not $m) { return "" }
-  if (-not [regex]::IsMatch($toolName, "^(?:$m)$")) { return "" }
+  $empareja = try { [regex]::IsMatch($toolName, "^(?:$m)$") } catch { $false }
+  if (-not $empareja) { return "" }
   return (Fire $repo $cmd)
 }
 
