@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /slice-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or the turn cap is hit (2 turns; 1 when the slice declares `Review-Rigor: light`). Adapts the Greptile "greploop" / GP-loop to a local, agent-invocable reviewer (no external paid service, no PR/remote required).
+description: Use when a small, finished vertical slice or PR is ready for review and you want to iterate review→fix→re-review until it is clean. Runs /slice-review on the diff, fixes only real findings, re-reviews, and repeats until no medium/high-severity findings remain or the turn cap is hit (2 turns; 1 when the slice declares light rigor in its `Review-Rigor` trailer). Adapts the Greptile "greploop" / GP-loop to a local, agent-invocable reviewer (no external paid service, no PR/remote required).
 ---
 
 # Review Loop
@@ -83,7 +83,7 @@ so a bare `git diff --stat` prints nothing and the size rule silently never appl
 git --no-pager diff --stat <range>
 ```
 
-If the change approaches or exceeds ~400 lines of diff, stop and split it into smaller slices / stacked PRs first (matching the project's PR-size rule). The loop loses accuracy on large diffs — both the reviewer and the coding agent.
+If the change approaches or exceeds ~400 lines of diff, say so in the final report — do NOT split the slice here. The project's PR-size ceiling is measured when the slice OPENS, and by this point the slice is already closed; splitting mid-loop breaks the loop, whose every turn reviews a range anchored to the review marker. Lines this loop adds while fixing its own findings are exempt from that ceiling. The loop still loses accuracy on large diffs — both the reviewer and the coding agent — so report how big this range is. Stop at the size: never turn it into a verdict about how the slice was planned. No range measured here can establish that — not on turn 2 onward, where the range IS the loop's own fixes, and not on turn 1 either, where it is the closing diff and the ceiling was spent at open. It says nothing about what the slice projected when it opened.
 
 ## The range: review the unreviewed delta, not the whole branch
 
@@ -254,9 +254,9 @@ After step 5, begin the next turn back at step 1 — which now reviews only the 
   cap or blocked close, never a clean one. On the first turn no reviewer ran this loop: stop, with
   no coherence pass and no `-Action close`.
 - The unreviewed delta is only prose with no behavior change: comments, docstrings, or `.md` files
-  **outside** the paths `CLAUDE.md` says govern the agent (`CLAUDE.md` anywhere, `.claude/`,
-  `.agents/`, `docs/ai-workflow/`, `docs/agents/`). An edit to a governing file is behavior, so it
-  keeps the next turn.
+  **outside** the paths `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` § 7 lists as governing the
+  agent (`CLAUDE.md` anywhere, `.claude/`, `.agents/`, `docs/ai-workflow/`, `docs/agents/`).
+  An edit to a governing file is behavior, so it keeps the next turn.
 - The turn cap in the **Rigor** table has run (a promoted slice has the `standard` cap).
 - You are blocked by a decision that needs a human → stop and report.
 

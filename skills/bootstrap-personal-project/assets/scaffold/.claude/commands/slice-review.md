@@ -117,8 +117,11 @@ git --no-pager diff <range> --stat
 ```
 
 If the change approaches or exceeds ~400 lines of logic diff, say so: reviewer accuracy drops
-sharply on large diffs. Review it anyway, but flag in the final report that the slice should have
-been split.
+sharply on large diffs. Review it anyway, and flag in the final report **how large the reviewed
+range is**. Stop at the size: never turn it into a verdict about how the slice was planned. No
+range measured here can establish that — not on turn 2 onward, where the range IS the loop's own fix
+turns, which the ceiling exempts, and not on turn 1 either, where it is the closing diff and the
+ceiling was spent at open. Its size says nothing about what the slice projected.
 
 If the diff is only a deliberately failing test (TDD RED) with no implementation yet, close with no
 findings — there is nothing to review.
@@ -127,10 +130,12 @@ findings — there is nothing to review.
 
 Collect this and hand it to every reviewer, so none of them re-derives it:
 
-- The diff itself (`git diff <range>`), **plus the contents of the untracked files** — they are
-  part of the change and appear in no diff.
+- The diff itself **as text** — the output of `git diff <range>`, pasted in or written to a file
+  whose absolute path you hand over — **plus the contents of the untracked files**: they are part
+  of the change and appear in no diff. A range or a `git` command is not enough: four of the five
+  Step 4 agents carry no `Bash`, so they cannot run it and would review blind.
 - The list of changed files.
-- Paths of the relevant `CLAUDE.md` files: the root one, plus any in the directories touched.
+- Paths of the rule files: the relevant `CLAUDE.md` files (the root one, plus any in the directories touched) and `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`, which the `CLAUDE.md` declares required reading and where the mechanism behind its rules lives.
 - The slice's intent: the task/PRD/commit message it implements.
 
 Put this instruction verbatim at the top of that shared context, so every focus receives it **once**
@@ -141,40 +146,47 @@ instead of it being re-pasted into each prompt by hand:
 > the tree corrupts the diff every other parallel reviewer is reading, and the confidence pass then
 > scores those mutations as findings.
 
-In a measured run, 84 of 345 reviewers used Write/Edit despite the prose telling them not to;
-declaring the prohibition once, in the context all focuses share, is what stops it.
+In a measured run, 84 of 345 reviewers used Write/Edit despite the prose telling them not to. That is
+why the prohibition is no longer only this paragraph: every read-only focus is a **declared agent**
+whose frontmatter denies the file-mutating tools (Step 4). The paragraph stays because a declaration
+does not cover everything — a shell command can still write — and because the Mutation focus and the
+built-in `/code-review` are not those agents.
 
 ## Step 4 — Fan out parallel reviewers
 
-Dispatch these as **parallel subagents** (`general-purpose`), all in a single message so they run
-concurrently. Give each one the shared context from Step 3 and its own focus. Each returns a list
-of findings; every finding must carry `file:line`, what is wrong, and why it matters.
+Each focus is a **declared agent** under `.claude/agents/`. Dispatch them **by name**, all in a
+single message so they run concurrently, and give each one the shared context from Step 3. Its focus
+and its model already live in its declaration, so there is nothing else to paste in. Each returns a
+list of findings; every finding must carry `file:line`, what is wrong, and why it matters.
+
+**If these agents are not among the agent types you can dispatch**, do not improvise. Project
+agents load when a session starts, from its working directory: a session opened before
+`.claude/agents/` existed, or one reviewing another repo or worktree, does not have them. Dispatch
+each focus as the built-in `Plan` subagent instead, whose own declaration already denies Edit, Write
+and NotebookEdit, with the body of its agent file as the brief and the `model` its frontmatter
+declares **passed explicitly**; do the same for the scorer (Step 5) and the coherence focus. Not
+`general-purpose`: it can write, and that would leave the prohibition to Step 3's prose alone. Say
+so in the report: in that run the tools are the built-in type's, which keep `Bash` for every focus.
 
 **Models by focus** — mechanical audits run on a lighter model, judgment calls on the strongest:
 project rules and historical context on **a lighter, faster model**;
-bugs, contracts and tests on **the most capable model available**. Do not pin a version — pick
-whichever of the models you are running is the lightest or the most capable. Pass the model
-explicitly when you dispatch each subagent, so the run does not silently default all five focuses to
-one model. The split is why this step got cheaper without losing precision: the two
+bugs, contracts and tests on **the most capable model available**. Each agent fixes its own model in
+its declaration — the one place in this flow where a model is fixed at all. **Do not pass a model
+when you dispatch one of these agents**: a model given at dispatch overrides the declaration, which
+is how the run silently defaults all the focuses to one model again. The split is why this step got
+cheaper without losing precision: the two
 audits that are pattern-matching against a file (`CLAUDE.md` rules, `git log`) do not need the
 strongest model; the three that require reading logic and predicting failure do.
 
-1. **Bugs** *(most capable model)* — read the changed lines and hunt for real defects: wrong logic, unhandled
-   errors, null/undefined paths, off-by-one, race conditions, resource leaks, broken async. Focus
-   on the change itself, not the whole codebase. Skip nitpicks.
-2. **Project rules** *(lighter model)* — audit the change against the `CLAUDE.md` files. Flag only rules
-   the file actually states, quoting the rule. `CLAUDE.md` is guidance for writing code, so not
-   every line is a review criterion.
-3. **Historical context** *(lighter model)* — read `git log`/`git blame` for the modified regions. Flag
-   anything that reintroduces a previously fixed bug, contradicts a deliberate past decision, or
-   repeats a pattern that was already corrected here.
-4. **Contracts and callers** *(most capable model)* — check the change against the code around it: callers of
-   every modified signature, comments and docstrings that state invariants, and existing types.
-   Flag silent breaks in behavior a caller depends on. Also flag **unverified assertions** — a
-   comment, docstring, or commit message that states as fact something the diff does not support.
-5. **Tests** *(most capable model)* — is the changed logic actually covered? Flag risky logic shipped with no
-   test, tests asserting on mocks instead of behavior, and tests that would pass even if the feature
-   broke.
+1. **Bugs** *(most capable model)* — agent `slice-review-bugs`: real defects in the changed lines.
+2. **Project rules** *(lighter model)* — agent `slice-review-rules`: the change against the rule files (the `CLAUDE.md` files and the workflow doc).
+3. **Historical context** *(lighter model)* — agent `slice-review-history`: `git log`/`git blame` on the modified regions.
+4. **Contracts and callers** *(most capable model)* — agent `slice-review-contracts`: callers, invariants, types, and unverified assertions.
+5. **Tests** *(most capable model)* — agent `slice-review-tests`: whether the changed logic is actually covered.
+
+Each agent's brief lives in its own file, not here: a focus explained in two places drifts in one of
+them. What the declaration buys over the prose is the write prohibition — those agents deny the
+file-mutating tools, and only the ones that need a `git` read carry `Bash` at all.
 
 **If `--mutation` was passed** — only `/review-loop`'s first turn does, or a standalone opt-in —
 dispatch a **sixth focus** in the same parallel message: the **Mutation focus** (see its section
@@ -202,8 +214,8 @@ collapse duplicates first, then score what remains. Without it the report double
 fixes the same thing twice.
 
 Reviewers over-report. For each finding returned by the reviewers — Step 4's focuses, or the
-coherence focus — dispatch a **parallel** subagent that
-receives the finding plus the diff and scores it 0-100 —
+coherence focus — dispatch the declared agent `slice-review-scorer`, one per finding and all in
+parallel. It receives the finding plus the diff and scores it 0-100 —
 **the confidence pass runs on the most capable model available**, the
 same as the judgment reviewers: it is the only filter for false positives, costs ~3% of the run, and
 is not where to save tokens. Give it this rubric verbatim:
@@ -212,10 +224,10 @@ is not where to save tokens. Give it this rubric verbatim:
 - **70-89** — Likely. Strong evidence, small chance context elsewhere makes it moot.
 - **40-69** — Speculative. Plausible reading, but the reviewer did not prove it.
 - **0-39** — False positive: already handled elsewhere, misread code, out of scope for this diff,
-  or a rule the `CLAUDE.md` never actually states.
+  or a rule no rule file actually states.
 
 The scorer must check the claim against the real code, not just judge whether it sounds plausible.
-For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
+For rule violations, it must confirm the rule literally exists in a rule file: a `CLAUDE.md` or `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`.
 
 **Score the FIX, not only the finding.** A finding can be perfectly true and its suggested fix still
 make the code worse. Alongside the rubric above, the scorer must answer three questions and say so in
@@ -253,8 +265,9 @@ docstring, commit message or internal doc) is **Low**, whichever rule it violate
 assertion rule included. It is Medium only when the text reaches an end user (UI copy, help output,
 a generated report, a persisted string) or contradicts the code in a way that would mislead whoever
 changes that code next. **Instructions are not prose**: in a file that governs the agent (the
-paths `CLAUDE.md` lists as never documentation: `CLAUDE.md` anywhere, `.claude/`, `.agents/`,
-`docs/ai-workflow/`, `docs/agents/`), a sentence that tells the agent what to do (a step, a
+paths `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` § 7 lists as never documentation:
+`CLAUDE.md` anywhere, `.claude/`, `.agents/`, `docs/ai-workflow/`, `docs/agents/`), a sentence that
+tells the agent what to do (a step, a
 condition, a flag, a threshold, an ordering or a stop rule) is behavior and is classified like code.
 Rationale and history in those files stay prose. Before this rule, loose comments scored Medium, their fixes were more prose
 for the next turn, and loops kept ending at the turn cap instead of clean.
@@ -308,8 +321,11 @@ making the loop expensive:
 - **Only the logic lines the slice changed** — not the whole module, not the whole file.
 - **Only the relevant test file**, never the whole suite.
 
-Dispatch it on **the most capable model available** — do not pin a version (the strongest model you
-are running). Give it the shared context from Step 3, with one
+Dispatch it as a **`general-purpose`** subagent — deliberately not one of Step 4's declared reviewer
+agents, since those deny the file-editing tools this one exists to use — on
+**the most capable model available**, passed at dispatch because there is no declaration to read it
+from, and do not pin a version (the strongest model you are running).
+Give it the shared context from Step 3, with one
 **exception to the write prohibition**: this focus **may** use file-editing tools (Edit, or a
 shell command) to apply its mutations, **only inside its isolated worktree `$tmp`** (below). The
 ban stays absolute for the user's tree and for the shared diff every other reviewer is reading —
@@ -447,8 +463,9 @@ It differs from the per-turn review in four ways:
   stale snapshot (it resolved — that is this case's premise). Get the branch base from **`-Action
   base`** instead (`git diff <base>...HEAD`, where `<base>` is what `base` prints — an ancestor of
   HEAD here, so it does resolve, unlike the exit-2 case).
-- **A single read-only focus**, not the five-way fan-out. Dispatch **one** subagent on
-  **a lighter, faster model**,
+- **A single read-only focus**, not the five-way fan-out. Dispatch the declared agent
+  `slice-review-coherence` — **one** subagent, on **a lighter, faster model** fixed in its own
+  declaration,
   with the shared context from Step 3 (including the same write prohibition it carries), and this
   focus: read the slice as a unit against **its declared intent** — the task, the PRD, or the
   commit message it implements — and flag where the pieces do not add up to that intent: an

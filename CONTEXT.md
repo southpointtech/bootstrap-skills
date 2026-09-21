@@ -62,6 +62,44 @@ _Avoid_: mutation testing, mutation run
 Un enunciado verificable escrito en un comentario, docstring o mensaje de commit. Se escribe solo si se verificó; si no se verificó, no se escribe.
 _Avoid_: claim, aserción, nota
 
+### Las skills externas
+
+**Base de merge**:
+La versión de una skill externa de la que salió nuestra copia. El lockfile no la declara: se recupera identificando la versión histórica de upstream que minimiza el diff contra la nuestra. Sin base no hay merge de tres vías, solo adopción a ciegas.
+_Avoid_: versión original, upstream viejo, el commit del que salió
+
+**Drift**:
+La distancia entre nuestra copia de una skill externa y su base de merge. Es exactamente lo que hay que volver a aplicar después de adoptar una versión nueva de upstream.
+_Avoid_: customización, cambios locales, parche
+
+**Fork propio**:
+El veredicto —humano, firmado en el lockfile— de que una skill ya no se merge contra upstream: se marca así para que ningún merge futuro la busque, la reporte como faltante ni la borre en silencio. Es una conclusión, no una medición: la herramienta que recupera bases **no lo emite**, porque las dos situaciones que lo justifican son distintas y ninguna lo prueba sola.
+_Avoid_: skill vieja, skill customizada, huérfana, orphaned
+
+**Sin base sobre el umbral** (`no-match-above-threshold`):
+Ninguna versión histórica de upstream supera el umbral de similitud contra nuestra copia. Es todo lo que se midió: un cuerpo con suficiente drift cae por debajo igual, así que no prueba que la skill nunca haya salido de upstream.
+_Avoid_: never-upstream, nunca salió de upstream, skill nuestra
+
+**Ausente del HEAD de upstream** (`gone-from-upstream-head`):
+La skill tiene base de merge recuperada, pero su path ya no está en el HEAD de upstream y git no detecta renombre. No dice que upstream la haya borrado y listo: puede haber sucesor con otro nombre, y confirmarlo es decisión humana.
+_Avoid_: orphaned, huérfana, skill borrada
+
+**Skill puntero**:
+Una skill cuyo cuerpo es una invocación a otra y cuyo único aporte propio es su description. Deja que el contenido evolucione en un solo lugar mientras el nombre y los triggers en español siguen siendo los que usan los proyectos.
+_Avoid_: alias, wrapper, redirect
+
+**Skill model-invoked**:
+Una skill cuya description queda cargada en el contexto de cada request para que el agente —u otra skill— pueda alcanzarla solo. Se paga contexto permanente a cambio de auto-invocación; se justifica únicamente cuando el agente debe llegar a ella sin que un humano la tipee.
+_Avoid_: skill automática, skill con triggers
+
+**Skill user-invoked**:
+Una skill que solo puede invocar el humano tipeando su nombre. Su description no entra al contexto y ninguna otra skill puede llamarla. Es el default para todo lo que en el flujo se *sugiere* al usuario en vez de ejecutarse solo.
+_Avoid_: comando manual, skill oculta
+
+**Cache de mecanismo**:
+Texto del `CLAUDE.md` que restata lo que un hook, un config o un script ya hacen cumplir por sí mismos. Se carga en cada request sin agregar comportamiento; la fuente de verdad es el mecanismo. Se reduce a lo que el agente debe hacer más un pointer a la documentación.
+_Avoid_: explicación del hook, contexto de fondo
+
 ### El bootstrap
 
 **Scaffold**:
@@ -79,6 +117,36 @@ _Avoid_: archivo del usuario, custom, local
 **Pisado**:
 El archivo propio sobre el que la copia escribió. Toda copia que pisa deja primero un respaldo, así que pisar no es perder.
 _Avoid_: sobrescrito, conflicto, clobber
+
+### Los carriles
+
+**Orquestador**:
+La única terminal que habla con el humano cuando se trabaja en paralelo. Planea la ola, abre los worktrees, despacha los carriles, revisa e integra en serie.
+_Avoid_: agente principal, coordinador
+
+**Carril**:
+Un subagente que implementa un solo slice en su propio worktree, durante una sola ola. No habla con el humano ni con otros carriles.
+_Avoid_: agente paralelo, worker, lane
+
+**Ola**:
+Hasta tres carriles que corren a la vez. Termina cuando todas sus ramas están integradas y la suite completa pasó sobre la base.
+_Avoid_: tanda, batch, sprint
+
+**Mecánica de carriles**:
+Las reglas de trabajo en paralelo que valen para cualquier proyecto. Llegan igual a todos por el scaffold y ningún proyecto las edita. Una lección de una ola que vale para cualquier proyecto se sube a la mecánica, no se queda en el proyecto donde apareció.
+_Avoid_: norma del proyecto, plantilla de paralelismo
+
+**Datos del proyecto** (de carriles):
+Lo que la mecánica necesita saber de un proyecto concreto: camino crítico, archivos calientes, recursos por carril, carpeta de worktrees, guardas transversales, la ola vigente y lo que dejó cada ola. Llega con marcas sin rellenar y se completa recién cuando el proyecto tiene issues y va a abrir su primera ola.
+_Avoid_: configuración, plantilla rellenada
+
+**Marca sin rellenar**:
+Un `{{…}}` que sigue en los datos del proyecto. Mientras quede una, no se despacha ninguna ola: una marca vacía no puede pasar por un dato.
+_Avoid_: placeholder, TODO
+
+**Archivo caliente**:
+El archivo que casi todos los slices de una ola necesitan tocar (entrypoint, router, registro). Tiene un solo dueño por ola; los demás carriles le pasan su diff al orquestador.
+_Avoid_: archivo compartido, hotspot
 
 ## Flagged ambiguities
 

@@ -1,0 +1,529 @@
+# Recuperar la base de merge de las skills externas
+
+Herramienta: `tools/recover-skill-bases.py`.
+
+Nueve de las skills del scaffold salieron de `mattpocock/skills`. La **base de merge** de cada una
+—la versión de upstream de la que salió nuestra copia— no está declarada en ningún lado y **no se
+recupera por hash**: los `computedHash` del lockfile viejo son fabricados (ADR-0005, medido: 24.738
+hashes probados contra toda la historia publicada de upstream, cero coincidencias).
+
+Sí se recupera **por similitud**: la base es la versión histórica de upstream que maximiza la
+similitud contra nuestra copia, medida sobre el **cuerpo sin frontmatter**, porque el drift propio
+vive casi todo en la `description`.
+
+Esta herramienta hace esa recuperación. Es de **mantenimiento, invocada a mano** cuando una base se
+pierde.
+
+## Cómo se corre
+
+Con un clon de upstream ya hecho (lo normal si venís de otra corrida):
+
+```
+py tools/recover-skill-bases.py --upstream-clone <ruta al clon>
+```
+
+Sin clon: lo clona solo en un directorio temporal e imprime la ruta para reusarla.
+
+```
+py tools/recover-skill-bases.py
+```
+
+Otras opciones:
+
+| Opción | Para qué |
+| --- | --- |
+| `--skills-dir PATH` | Otro árbol de skills. Por defecto, el de `bootstrap-ai-project`. |
+| `--skill NOMBRE` | Repetible. Por defecto recorre todas las skills del directorio. |
+| `--out PATH` | Por defecto `.scratch/bootstrap-v2/skill-bases.json`. |
+| `--stdout` | Imprime el JSON en vez de escribirlo. |
+| `--threshold FLOAT` | Umbral de similitud mínima para aceptar una base (default `0.60`). |
+| `--upstream-url URL` | Qué clonar cuando no le pasás `--upstream-clone`. |
+| `--self-test` | Verificación offline contra un repo de fixture sintético. No toca la red. |
+
+`--upstream-clone` acepta un clon normal, uno `--bare` y un worktree: lo resuelve preguntándole a
+git (`--is-bare-repository`, y después `--absolute-git-dir` o `--show-toplevel`), no mirando si hay
+un `.git` que sea directorio. Tiene que ser la **raíz**: `git rev-parse` sube por el árbol, así que
+sin comparar contra la raíz cualquier carpeta de adentro de un repo pasaba por clon — un
+`--upstream-clone` mal tipeado que cayera adentro de este repo lo analizaba a él —que tiene más de
+cien blobs `*/SKILL.md` propios— y emitía bases con similitud 1.0 citando commits nuestros. Un
+subdirectorio, y también `<clon>/.git`, se rechazan con `No es un clon de git`. (La cifra exacta no
+se fija acá a propósito: se midió 109, 116 y 118 en tres momentos distintos de la misma semana, y
+además depende de qué refs tengas localmente — 118 con `--all`, 100 alcanzables solo desde un commit.
+Si la necesitás al día: `git rev-list --objects --all` filtrando por `SKILL.md`.)
+
+### Exit codes
+
+| código | qué pasó |
+|---|---|
+| 0 | terminó bien: escribió el reporte, o lo imprimió con `--stdout`, o el `--self-test` pasó |
+| 1 | solo con `--self-test`: alguna aserción falló |
+| 2 | error de invocación, **detectado antes de trabajar**: `--upstream-clone` que no es la raíz de un clon, `--skills-dir` inexistente, un `--skill` sin `SKILL.md`, o un `--out` que no se va a poder escribir. También es el que usa argparse para una opción inválida |
+| 3 | la recuperación salió bien pero la escritura de `--out` falló igual (permisos, disco lleno, ruta de red). El reporte sale por **stdout** para no perderlo, y el destino que ya estaba queda intacto |
+| 4 | no se pudo clonar upstream (sin red, URL mala, git que falla). Va aparte del 2 a propósito: "lo tipeaste mal" no se reintenta, "no hay red" sí |
+| 5 | la recuperación no se pudo completar contra el clon: git falló a mitad, o upstream **no entregó blobs que hacen falta** (repo incompleto o podado, o un clon parcial). Va aparte del 4 porque acá el clon existe y responde: lo que falta es contenido adentro. Antes esto salía como traceback crudo **con exit 1**, que ya significa otra cosa |
+
+Todo lo que se puede detectar se detecta antes de clonar y de recuperar, porque la recuperación
+cuesta unos 6 s con el clon ya hecho (medido el 2026-09-18; con la métrica por carácter de antes
+del issue 19 eran ~95 s) y un error de invocación no debe costar ni eso —
+y sobre todo no debe terminar escribiendo un reporte todo-ceros encima de uno bueno.
+
+## Qué requiere
+
+- **Red**, salvo que le pases `--upstream-clone`. El clon tiene que traer **toda la historia**: la
+  base vive en blobs viejos, no en el HEAD. Nada de `--depth`. Tampoco `--filter=blob:none` ni
+  ningún otro clon parcial: la base se elige comparando el CONTENIDO de los blobs viejos, así que
+  un clon que no los tiene no puede recuperar nada. Con red, git los va a buscar **de a uno**
+  (medido con `GIT_TRACE`: cinco blobs ausentes, cinco subprocesos `fetch`) y la corrida se
+  vuelve interminable. Sin red **corta con exit 5 en los dos casos**, y solo cambia el mensaje:
+  si el promisor está inalcanzable, git muere primero y el que sale impreso es su error; si no,
+  el de `_exigir_blobs` diciendo cuántos blobs faltaron.
+- **git** y **Python 3** (solo librería estándar: `difflib`, `json`, `subprocess`).
+- **Tiempo.** Medido el 2026-09-18 en la máquina de Martín, contra `mattpocock/skills` en
+  `959a8e9f` (`skillBlobsScanned`: 414), con el clon ya hecho:
+  - 11 skills: **5,6 / 5,7 / 5,7 s** en tres corridas.
+  - La misma invocación con la herramienta de antes del issue 19 —métrica por carácter—: **94,5 s**,
+    en la misma sesión y contra el mismo clon. Los absolutos dependen de la carga de la máquina; la
+    proporción es la que importa.
+  - 2 skills (`grill-me` y `tdd`) incluyendo clonar desde GitHub: **8,2 s** (2026-08-28, con la
+    métrica por carácter; no se re-midió).
+
+  Cada skill local se compara contra todos los blobs, así que el grueso del tiempo sigue siendo la
+  comparación, no el clon; lo que la abarató es comparar líneas en vez de caracteres.
+
+## Qué emite
+
+JSON. Por skill:
+
+- `status`:
+  - `recovered`: hay base y hay commit fechado que la introdujo.
+  - `unresolved-commit`: hay blob base, pero ningún commit del log lo introduce (caso típico: el
+    blob solo existe como resolución de un merge). El criterio de aceptación pide commit fechado,
+    así que **no cuenta como recuperada** y el resumen la lista aparte.
+  - `unmatched`: nada supera el umbral.
+  - `missing-locally`: el nombre pedido con `--skill` no tiene `SKILL.md` en el directorio de
+    skills. Por el CLI no se llega: el pre-flight lo rechaza antes de trabajar (ver abajo), así que
+    en todo reporte producido por la herramienta este contador vale 0. Queda para quien llame a
+    `recover()` como librería, que es lo que hace el self-test.
+- `upstreamRelation`: la relación con upstream, que **no** es lo mismo que el status. Los tres
+  valores nombran **lo medido**, no el veredicto:
+  - `no-match-above-threshold`: ninguna versión histórica de upstream supera el umbral de similitud
+    de cuerpo contra nuestra copia (`review-loop`, `slice-review`). Eso es todo lo que afirma: **no**
+    prueba que la skill nunca haya salido de upstream. Un cuerpo con suficiente drift cae por debajo
+    igual, y el mecanismo está medido (issue 19): con la métrica por carácter de antes, un drift
+    prependido llevaba un par real de 0,7800 a 0,0842 sin que cambie una línea del original. La
+    métrica por línea tiene su propio caso (ver *La métrica*).
+  - `in-upstream-head`: tiene base recuperada y su path sigue vivo en el HEAD de upstream, en el
+    mismo lugar o renombrado.
+  - `gone-from-upstream-head`: tiene base recuperada, pero su path ya no está en el HEAD de upstream
+    y git no detecta renombre (`to-issues`, `zoom-out`). Tampoco es un veredicto: puede haber sucesor
+    con otro nombre, y para eso salen los `unconfirmedSuccessorCandidates`.
+  El campo existe porque "fork propio" nombraba los dos extremos a la vez: `review-loop` no tiene
+  ninguna base sobre el umbral, mientras que ADR-0006 llamaba fork propio a `zoom-out` (su actualización del
+  2026-09-19 ya la registra como `upstream-huerfano`), que **sí** vino de upstream y tiene base recuperada. Son conjuntos disjuntos y el lockfile (issue 05) necesita
+  distinguirlos. **"Fork propio" no lo emite la herramienta**: lo firma un humano mirando esto.
+- `similarity`: el ratio de `difflib.SequenceMatcher` sobre las **líneas** del cuerpo (por carácter
+  si el cuerpo más corto del par tiene menos de 10 líneas; ver *La métrica*), redondeado a 4 decimales;
+  `1.0` = cuerpo idéntico salvo redondeo (el resumen sí usa el ratio crudo, ver abajo). **Solo en las
+  entradas que tienen base**; una `unmatched` trae `bestSimilarity` en su lugar.
+- `bestSimilarity`: la mejor similitud **vista**, en las entradas `unmatched`. No es una base: es el
+  techo que no llegó al umbral. Va aparte de `similarity` justamente para que no se lo lea como una
+  base floja.
+- `base.blob`: el identificador del blob de git de la versión base. Es el objeto exacto contra el que
+  se hace el merge de tres vías.
+- `base.upstreamPath`: el path **histórico** en el que apareció por primera vez ese contenido, que
+  puede no ser el de hoy ni el más obvio (upstream renombró y reorganizó carpetas: el cuerpo base de
+  `grill-me` aparece por primera vez en `grill-me/SKILL.md`, en la raíz del repo).
+- `base.commit` / `base.commitDate` / `base.commitSubject`: la **aparición más vieja de ese
+  contenido en toda la historia publicada, en cualquier path**. Vale la invariante
+  `git rev-parse <commit>:<upstreamPath>` == `base.blob` (verificada para las nueve el
+  2026-08-28), pero **no corrobora que la base sea la correcta**: `commit` y `upstreamPath`
+  salen del mismo registro, así que se cumple igual con una base equivocada — de hecho se
+  cumplía con las cuatro que `00c2160` reemplazó. Lo que sí verifica es que el par
+  `(commit, path)` publicado exista tal cual en upstream, y ahí sí muerde —verificado con su
+  mutante— cuando el path reportado deja de ser el de **esa aparición** y pasa a ser otro del
+  mismo blob, o cuando viaja C-quoteado. Con la detección de renombres apagada **no** se cae:
+  medido sobre el fixture, `diff.renames=false` parte el renombre en `D`+`A`, el `A` queda en el
+  path nuevo del mismo commit y los 22 registros siguen cerrando. Por eso está asertada en el
+  self-test, y con un conteo al lado: sin él, cero bases verificadas también daría verde.
+- `base.alsoSeenAtPaths`: otros paths donde el mismo blob apareció. Solo informativo.
+- `base.tiedCandidates` / `base.tieNote` / `base.tieOnIdenticalBodies`: aparecen cuando **más de un
+  blob empata en el mejor ratio**. La herramienta elige la aparición más vieja y deja los empatados a
+  la vista, para que quien decide el lockfile lo vea en vez de confiar en el desempate. No es raro:
+  medido el 2026-08-28, **34 de los 373 cuerpos distintos de upstream existen en más de un blob**
+  (74 de 413 blobs), y tres de nuestras nueve skills caen en ese caso.
+  El empate se calcula sobre el **ratio**, no sobre el contenido, así que de qué es el empate hay que
+  mirarlo: `tieOnIdenticalBodies` compara los cuerpos —ya normalizados: sin frontmatter, con CRLF a
+  LF y extremos recortados— y lo dice. En `true` los cuerpos son idénticos y lo que difiere entre los
+  blobs está **fuera** del cuerpo normalizado: en la práctica el frontmatter (es el caso de las tres
+  de hoy), aunque un BOM, los fines de línea o cualquier whitespace en los extremos producirían lo
+  mismo, y la herramienta no distingue cuál de esos fue.
+  En `false` **al menos dos** de los cuerpos empatados difieren —`same_body` es un `all()`, y con
+  tres o más blobs empatados el resto puede coincidir—: son versiones distintas con el mismo ratio,
+  elegir mal cambia el merge de tres vías, y ahí el desempate por fecha es una convención, no una
+  respuesta. `summary.tiedOnDifferentBodies` los cuenta.
+- `upstreamHead`: dónde vive hoy ese archivo en upstream — `present` (mismo path), `renamed` (git
+  detectó el renombre; incluye `renameChain`) o `gone` (**sin correspondencia**: upstream lo borró).
+
+A nivel reporte:
+
+- `upstream.url` es el `remote.origin.url` **real del clon que se usó**, no una constante: si
+  apuntás la herramienta a otro clon o a otra URL, la salida dice a cuál. Un artefacto generado no
+  puede afirmar contra qué corrió sin haberlo mirado (ADR-0005).
+- `summary.exactBodyMatches` cuenta cuerpos **idénticos**, sobre el ratio sin redondear:
+  `round(0.99996, 4)` da `1.0` y no es un cuerpo idéntico.
+- `summary.tiedBestSimilarity` cuenta las skills cuyo mejor ratio quedó empatado entre varios blobs.
+- `summary.tiedOnDifferentBodies` cuenta cuántos de esos empates **no** son de cuerpo idéntico. Es el
+  subconjunto que pide decisión humana. El campo es posterior a la corrida del 2026-08-28, así que no
+  tiene valor publicado; lo que sí está verificado (2026-08-31, contra un clon real) es que los
+  tres empates de esa corrida son de cuerpo byte-idéntico, y con esos datos el contador daría 0.
+- `method.fieldsByStatus` publica el contrato condicional: qué campos trae cada `status`. Está en la
+  salida y no solo acá porque el consumidor del JSON (el lockfile) no tiene por qué descubrirlo a los
+  golpes, y el self-test lo compara contra las claves que cada entrada emite de verdad.
+
+La búsqueda es **por contenido, no por nombre**. Por eso `to-prd` encuentra su base en
+`skills/engineering/to-prd/SKILL.md` sin saber que hoy upstream la llama `to-spec`, y recién después
+resuelve el renombre con los registros de git.
+
+### Cómo se elige entre varias apariciones del mismo contenido
+
+Dos reglas, las dos con guard en el self-test:
+
+1. **La base es la aparición más vieja del contenido**, considerando todos los blobs empatados en el
+   mejor ratio y todas sus apariciones, en cualquier path. Elegir el par `(blob, path)` antes de
+   mirar la historia reporta el commit del renombre en vez del que introdujo el contenido.
+2. **El orden es por instante, no por reloj de pared.** Se compara `%ct` (epoch entero). El ISO
+   `%cI` lleva el offset local, así que comparado como string ordena mal un repo con commits de
+   husos distintos — y los commits hechos desde la web de GitHub son siempre `+00:00`. A igual
+   segundo desempata el commit más viejo del log.
+
+### La métrica: se compara por línea
+
+La similitud es `difflib.SequenceMatcher(...).ratio()` sobre las **líneas** del cuerpo
+(`cuerpo.splitlines()`), con `autojunk=False`. Cuando el cuerpo **más corto** del par tiene menos de
+**10 líneas** se compara por **carácter**, también con `autojunk=False`. Hasta el issue 19 se
+comparaba por carácter siempre, con el `autojunk` de la librería prendido.
+
+**Por qué no por carácter.** El `autojunk` de la librería saca del índice los elementos que aparecen
+en más de `len(b)//100 + 1` posiciones de `b` cuando `len(b) >= 200`: sobre markdown comparado
+carácter a carácter, las letras comunes. Esos elementos no pueden **sembrar** un match, y con un
+bloque de prosa **prependido** la alineación no se vuelve a sembrar. Medido sobre el par congelado en
+`tests/fixtures/autojunk-*.txt` (el cuerpo de `setup-matt-pocock-skills`, 6.269 caracteres, con 637
+prependidos): por carácter da **0,3361** —y 0,3347 con los argumentos al revés—, los dos **bajo el
+umbral de 0,60**. El mismo bloque **apendeado** da 0,9517, así que el disparador es la **posición**
+del drift, no su contenido. Por línea ese par da **0,9091** en las dos direcciones (lo fija el
+self-test).
+
+**Por qué el piso de 10 líneas.** Con N líneas, una línea distinta mueve el ratio exactamente 1/N.
+Debajo de 10 líneas una sola línea vale más de 0,10, y con **una sola** línea la comparación por
+línea deja de ser una similitud y pasa a ser una igualdad: 1,0 o 0,0. Es el caso de `zoom-out` (169
+caracteres, una línea): sin el fallback, el día que alguien le corrija una palabra la herramienta
+publicaría 0,0 y `unmatched`.
+
+**Por qué `autojunk=False`.** Sobre la ruta por línea hoy es inerte: ningún cuerpo de un blob
+`*/SKILL.md` de upstream llega a 200 líneas (máximo medido el 2026-09-18: 176). Ponerlo evita que se
+active solo cuando upstream crezca. Sobre el **fallback por carácter no es inerte**: las pistas de
+sucesor de `zoom-out` —cuerpo de una línea, o sea siempre en el fallback— cambian con él. Prendido
+encabeza `grill-with-docs` con 0,2060 y `wait-what` queda tercera con 0,0591; apagado encabeza
+`wait-what` con 0,2273. Cuál de las dos listas orienta mejor a un humano no se midió.
+
+**El límite que NO se arregla: un renombre repartido en muchas líneas.** Por línea, una edición
+chica cuenta la línea **entera** como distinta. Medido el 2026-09-18: reemplazar `test` por `spec`
+en el cuerpo local de `tdd` toca 15 de sus 44 líneas y lo baja de 0,8052 a **0,4675** contra su
+base —bajo el umbral, `unmatched`—, cuando por carácter daba 0,7019. Es una regresión del cambio de
+métrica **en ese patrón**, aceptada: por carácter colapsaba el prepend y por línea colapsa el
+renombre, y el issue 19 eligió la línea. El self-test la congela con un sintético (check `limite
+declarado`) y `method.similarity` la declara en el reporte. Re-puntuar por carácter los candidatos
+que quedan bajo el umbral la cubriría, pero no se hizo.
+
+**Empates entre cuerpos distintos: quedan expuestos a propósito.** Por línea, dos versiones de
+upstream del mismo largo que difieren en una sola línea pueden dar **exactamente** el mismo ratio
+contra nuestra copia. La herramienta no desempata por contenido: reporta el empate
+(`tieOnIdenticalBodies: false`, `summary.tiedOnDifferentBodies`) y `tools/skills-lock.ps1 -Action
+Seal` lo rechaza, porque un empate entre cuerpos distintos **lo decide un humano**. Desempatar por
+carácter se probó durante el issue 19 y se revirtió: elige la base equivocada en silencio cuando
+upstream pule después la misma línea que retocamos nosotros. El fixture `retoque` del self-test fija
+la política. En el reporte real de hoy no hay ninguno (`tiedOnDifferentBodies`: 0).
+
+**El número depende de la unidad, no sólo del contenido.** Cambiar la tokenización mueve los valores
+publicados sin que cambie un byte de las skills. Medido el 2026-09-18 contra `959a8e9f` sobre el
+mismo árbol, métrica vieja → nueva: `review-loop` 0,0284 → 0,2562, `slice-review` 0,0183 → 0,1875,
+`tdd` 0,7287 → 0,8052, `to-prd` 0,9927 → 0,9565, `to-issues` 0,7793 → 0,6878. El `summary` sale
+idéntico con las dos, pero **una base sí se movió**: la de `to-issues` (ver *Después de los issues
+07 y 19*, abajo).
+
+### Lo que la herramienta NO decide
+
+Cuando `upstreamHead.status` es `gone`, la herramienta lista `unconfirmedSuccessorCandidates` con su
+similitud. **No son bases y no son sucesores**: son pistas para que un humano decida.
+
+El caso concreto es `to-issues`. Upstream la reemplazó por `to-tickets` en `386d4ff`
+("refactor: unify planning skills into /to-spec + /to-tickets", 2026-07-08). Medido el 2026-08-28
+sobre ese commit: `skills/engineering/to-issues/SKILL.md` sale `D` y `skills/engineering/to-tickets/SKILL.md`
+sale `A` con la sensibilidad por defecto. Bajándola, `to-tickets` aparece como `R026` desde
+`skills/engineering/to-plan/SKILL.md` —una skill que nunca fue nuestra— y `to-issues` sigue saliendo
+`D` en todo el rango de 5 % a 50 %: con `to-plan` en el mismo commit, git le adjudica `to-tickets` a
+`to-plan` y `to-issues` se queda sin par.
+
+En el diff de punta a punta (`git diff --find-renames=N% 221ffca9 HEAD -- '*SKILL.md'`), donde
+`to-plan` no existe ni en la base ni en el HEAD y por eso el par queda libre, sí se emparejan, y **la
+sensibilidad los separa**: `to-issues` → `to-tickets` sale `R015` y aguanta hasta un umbral de 15 %;
+`zoom-out` → `wait-what` sale `R010` y solo aparece con umbral ≤ 10 %. Entre 11 % y 15 % git empareja
+el par bueno y descarta el falso.
+
+Que exista esa ventana no la vuelve una regla. Es un umbral elegido **después** de saber la
+respuesta, calibrado sobre este par de commits y sostenido por una circunstancia del diff (que
+`to-plan` no esté en ninguna de las dos puntas); y 15 % de similitud es demasiado poco para
+defenderlo como default. Por eso la herramienta usa la detección de renombres **por defecto** y,
+cuando no alcanza, dice `gone` en vez de adivinar. El mapeo `to-issues` → `to-tickets` es una
+**decisión humana**: vive en ADR-0006 y en el lockfile, no acá.
+
+La similitud de cuerpo que midió la herramienta para los mismos pares el 2026-08-28, con la
+métrica por carácter y el cuerpo de `to-issues` de antes del issue 07: `to-issues` ↔ `to-tickets`
+**0,2449**; `zoom-out` ↔ `wait-what` **0,0591**, y el candidato más parecido a `zoom-out` era
+`grill-with-docs`, con 0,2060. Con la métrica por línea (2026-09-18) la lista de `zoom-out` la
+encabeza `wait-what` con 0,2273, seguida de `implement` (0,2090) y `grill-with-docs` (0,2060): el
+orden lo decidía el `autojunk`, no el contenido (ver *La métrica*). Que encabece no la confirma:
+sigue siendo *unconfirmed*, y el mapeo lo firma un humano en ADR-0006.
+
+## La salida es la entrada del lockfile
+
+`.scratch/bootstrap-v2/skill-bases.json` es un **artefacto generado**. Alimenta el lockfile de skills
+externas (`skills-lock.json`), que es lo que sí queda versionado —`.scratch/` está en el `.gitignore`,
+así que esta salida es local y se regenera cuando haga falta. **No se edita a mano**: si algo está
+mal, se corrige la herramienta y se vuelve a correr. Editarlo a mano reintroduce exactamente el problema que ADR-0005 documenta —una
+afirmación verificable escrita sin verificar.
+
+### Después de un merge de tres vías, la base avanza
+
+La base es la versión de upstream de la que sale nuestra copia. Cuando un merge adopta el cuerpo de una
+versión más nueva de upstream, la base pasa a ser esa versión. Si el lockfile conserva la base vieja, el
+próximo merge le atribuye a nuestro drift todo lo que upstream cambió entre las dos versiones.
+
+Al cerrar un merge:
+
+1. Corré la herramienta **completa**, sin `--skill`. `tools/skills-lock.ps1 -Action Seal -Bases`
+   rechaza unas bases que no describen todas las skills del árbol.
+2. Sellá con `-Bases`. Las marcas de fork propio (`forkFiles`) se conservan del lockfile anterior.
+3. Revisá `git diff skills-lock.json`, que sí está versionado (`skill-bases.json` no: `.scratch/` está
+   ignorado y la herramienta pisa la salida anterior). Dentro de `skills` solo tienen que cambiar las
+   skills mergeadas, además de `upstream.head`. Si cambia otra skill, averiguá por qué antes de
+   commitear: por ejemplo, upstream la renombró o la borró.
+
+Medido con `tdd` en el issue v2 06: la base pasó de `7a98941` a `8fc0867`, que es el blob del HEAD de
+upstream, con similitud 0,7287 (métrica por carácter; por línea da 0,8052). Las otras diez skills no
+cambiaron.
+
+## Resultado conocido
+
+Medido el 2026-08-28 contra `mattpocock/skills` en `6654f6b`; la columna `similitud` re-medida el
+2026-09-03, **con la métrica por carácter**. Con la de línea los números son otros: ver *Después de
+los issues 07 y 19*, al final de la sección.
+
+Sirve de regresión **acotada**, y el alcance importa: contra ese mismo HEAD, lo que tiene que
+seguir dando igual son las columnas que **no dependen de nuestra copia** — base (blob), path
+histórico, commit base y HEAD de upstream. Si una de esas cambia sin que nuestra copia haya adoptado
+un cuerpo más nuevo de upstream, cambió la herramienta. Si la copia lo adoptó, la base avanza (ver la
+sección anterior) y el cambio es esperado.
+
+La columna `similitud`, en cambio, **envejece sola**: compara el blob de upstream contra nuestro
+`SKILL.md`, así que cualquier edición del scaffold la mueve sin que la herramienta haya cambiado.
+Ya pasó: `tdd` figuraba en 0.8625 (medido el 2026-08-31) y hoy da 0.8450 porque `87f11fe` editó el
+cuerpo local el 2026-09-01 — verificado midiendo contra `87f11fe^`, que devuelve 0.862512. Un
+número distinto en esa columna manda a leer `git log` del `SKILL.md`, no a buscar un bug.
+
+| skill | similitud | base (blob) | path histórico | commit base | HEAD de upstream | empate |
+| --- | --- | --- | --- | --- | --- | --- |
+| grill-me | 1.0000 | `bd04394c` | `grill-me/SKILL.md` | `a6bdfd9f` 2026-03-26 | renamed → `skills/productivity/grill-me` | no |
+| grill-with-docs | 1.0000 | `5ea0aa91` | `skills/engineering/grill-with-docs/SKILL.md` | `e74f0061` 2026-05-13 | present | no |
+| handoff | 1.0000 | `0aa5b993` | `skills/productivity/handoff/SKILL.md` | `d54c497a` 2026-05-19 | present | sí: `ec762d97` 2026-06-12 |
+| setup-matt-pocock-skills | 1.0000 | `1ebc6e14` | `skills/engineering/setup-matt-pocock-skills/SKILL.md` | `43692562` 2026-04-29 | present | no |
+| tdd | 0.8450 | `7a989411` | `skills/engineering/tdd/SKILL.md` | `7afa86d3` 2026-04-28 | present | no |
+| to-issues | 0.9466 | `9f6efbfe` | `skills/engineering/to-issues/SKILL.md` | `ff3ee1dd` 2026-05-06 | **gone** | sí: `9b7dec9e` 2026-06-12 |
+| to-prd | 1.0000 | `47a01d4e` | `skills/engineering/to-prd/SKILL.md` | `70141119` 2026-05-06 | renamed → `to-spec` | no |
+| triage | 1.0000 | `3dee68f9` | `skills/engineering/triage/SKILL.md` | `179a14e7` 2026-04-28 | present | no |
+| zoom-out | 1.0000 | `1e7a5dc7` | `skills/engineering/zoom-out/SKILL.md` | `7afa86d3` 2026-04-28 | **gone** | sí: `8cc007c4` 2026-06-12 |
+
+Después del merge del issue v2 06, la misma corrida contra `6654f6b` da para `tdd` la base `8fc08671`,
+el commit `32165827` (2026-08-19) y similitud 0,7287 (medido el 2026-09-16). La fila de arriba queda
+como registro de antes del merge.
+
+En la tabla, siete cuerpos intactos, y las dos con drift real (`tdd` y `to-issues`) son exactamente
+las dos modificaciones que ya estaban documentadas.
+
+Tres de las nueve —`handoff`, `to-issues`, `zoom-out`— tienen el mismo cuerpo repartido en dos blobs,
+y las tres reportaban `221ffca9` (2026-06-12), que es el **más nuevo** de los dos. Ese commit toca
+solo el frontmatter: la `description` en `to-issues` y `zoom-out`, `disable-model-invocation` en
+`handoff`. El cuerpo no cambia, así que la base correcta es la aparición vieja, y es la que sale hoy.
+
+`grill-me` no empata en blob, pero su único blob vive en tres paths: la aparición que corresponde es
+`a6bdfd9f` (2026-03-26) en `grill-me/SKILL.md`, no `62f43a18` (2026-04-28), que es el commit que la
+movió de carpeta (`R100 skills/grill-me/SKILL.md → skills/productivity/grill-me/SKILL.md`, un
+renombre puro).
+
+Las skills propias del scaffold que están en el mismo directorio salen `unmatched` con
+`upstreamRelation: no-match-above-threshold`, como corresponde: `review-loop` con 0,0308 de mejor
+similitud y `slice-review` con 0,0202, medidos con la métrica por carácter, que los deprimía con
+`autojunk`. Con la métrica por línea (2026-09-18) dan 0,2562 y 0,1875. El veredicto es el mismo:
+todos quedan lejos del umbral de 0,60. Ver *La métrica*.
+
+**Después de los issues 07 y 19** (medido el 2026-09-18 contra `959a8e9f`, métrica por línea):
+`to-prd` y `to-issues` adoptaron el cuerpo de upstream (issue 07) y la métrica pasó a línea (issue
+19). Seis skills siguen en 1,0 con la misma base: las siete de la tabla menos `to-prd`. `tdd`
+conserva `8fc08671` con 0,8052; `to-prd` conserva `e5f11413` con 0,9565.
+
+`to-issues` **cambia de base**: `4a21285c` (`6a34259e`, 2026-08-15) → `e868c831` (`32165827`,
+2026-08-19, *Remove all em-dashes from the repo*), las dos en `skills/engineering/to-tickets/SKILL.md`.
+La nueva es la correcta: `e868c831` es el blob del HEAD de upstream y nuestro cuerpo no tiene ninguno
+de los em-dashes que `32165827` sacó, así que salió de esa versión. La métrica por carácter elegía la
+anterior (0,7793 contra 0,6878 por línea) y con ella quedó sellada al cerrar el issue 07; la de línea
+la corrige. El 0,6878 es bajo para un cuerpo adoptado entero porque le re-aplicamos nuestros nombres
+(`issue` por `ticket`) en muchas líneas: es el límite de la métrica, ver *La métrica*.
+
+## Verificación
+
+La **recuperación real** no va a la suite: necesita red, o un clon completo de upstream, que no es
+algo que pueda depender de cada corrida de tests. Por eso la herramienta trae su propia verificación **offline**, adentro:
+
+```
+py tools/recover-skill-bases.py --self-test
+```
+
+Y ese self-test **sí** está en la suite, envuelto en `tests/recover-skill-bases.tests.ps1` como los
+demás runners del repo (que no son Pester: son runners propios con una función `Assert`, igual que
+los otros trece). El envoltorio no re-verifica lo que el self-test ya verifica; asserta las dos puntas
+que un exit code solo no cubre: que la línea de resumen **exista** —un self-test que sale 0 sin
+correr nada daría verde vacío— y que el total de aserciones sea **exactamente** el declarado
+(`$ExpectedChecks`), que es lo único que muerde a un mutante que borra checks. No es un piso: con
+`-ge` la holgura se acumula en silencio. Verificado con tres mutantes: desempate invertido
+(3 fallas), assert borrado (1 falla, la del total exacto) y resumen suprimido (2 fallas).
+
+Arma un repo de git sintético en un temporal, con **fechas fijas** —sin eso, el guard del desempate
+solo se ejercitaba cuando dos commits caían por casualidad en el mismo segundo— y verifica **149
+afirmaciones** sobre doce skills de fixture, y no toca la red.
+
+El tiempo **depende mucho más de la carga de la máquina que de la cantidad de aserciones**. Esta
+versión, en máquina ociosa: del orden de **10 s** (medidas sueltas entre 7,8 s y 12,2 s en la misma
+máquina y la misma versión, según qué más estuviera corriendo).
+La prueba de que la carga manda: una versión anterior con **menos** aserciones (44) se midió en
+31 / 26 / 31,6 s por estar tomada con siete procesos en paralelo. El grueso no son las aserciones
+sino armar el fixture, que hace una docena de commits de git. Cubre:
+
+- que el frontmatter y los fines de línea no cuenten para la similitud;
+- que la base sea la primera aparición del contenido y no una reaparición posterior, incluso cuando
+  los dos commits caen en el mismo segundo;
+- que ante **dos blobs distintos con el mismo cuerpo** gane el viejo, y que el empate quede expuesto
+  en la salida;
+- que la nota del empate **diga que los cuerpos difieren** cuando difieren, en vez de atribuir la
+  diferencia al frontmatter sin haberla comparado: el fixture trae dos versiones **distintas** que
+  empatan en el mismo ratio (0,9914, medido) contra nuestra copia, y ese caso tiene que salir marcado
+  como empate de ratio y no de contenido;
+- que el orden entre apariciones sea por instante y no por el ISO con offset, con dos commits en
+  husos distintos donde las dos reglas dan resultados opuestos;
+- que la similitud parcial conserve sus 4 decimales (un cuerpo con drift real, no todo en 1.0);
+- que un blob que solo sale de un merge no se reporte como recuperado ni se cuente como tal;
+- que el renombre se siga hasta el HEAD y que una skill borrada se reporte como `gone`, con sus
+  candidatos a sucesor ordenados;
+- que una skill sin correspondencia **no** reciba una base de similitud baja inventada, que su mejor
+  similitud quede acotada por las dos puntas, y que su nota **no afirme** que la skill nunca salió de
+  upstream —que es lo que no se midió—;
+- que el umbral que ejercita el self-test sea **el default del CLI** y no un literal paralelo, que
+  ese default **valga 0,60** —el cableado solo no alcanzaba: los tres términos de la igualdad leen la
+  misma constante, así que moverla dejaba todo en verde— y que la frontera esté donde dice: un ratio
+  **igual** al umbral se acepta, y un `1e-9` por encima ya no. La constante contra la que se compara
+  la frontera se asserta a su vez contra el ratio que el fixture produce, porque si deriva la
+  frontera deja de ser frontera sin que nada se ponga rojo;
+- que `similarity()` devuelva el `ratio()` y no una de las **cotas baratas**: sobre este fixture el
+  mutante `quick_ratio()` no solo infla el número (0,2607 → 0,8304) sino que cambia **cuál** es el
+  mejor candidato a sucesor;
+- que el par `(commit, upstreamPath)` de cada base publicada exista tal cual en upstream;
+- que cada entrada emita **exactamente** los campos que `method.fieldsByStatus` declara para su
+  status, incluida `missing-locally`, que por el CLI no se alcanza;
+- que la URL reportada sea la del clon y no una constante;
+- que un `SKILL.md` que no es utf-8 no voltee la corrida entera;
+- que se acepte un clon bare y se siga rechazando un directorio que no es repo, **y también un
+  subdirectorio** de un repo o de un bare, que es lo que hacía pasar a este repo por upstream;
+- que un `--out` sin directorio se escriba en el cwd, y que las otras formas que fallaban recién en
+  el `open()` —ruta vacía, un directorio ya existente, un componente intermedio que es archivo, una
+  ruta terminada en separador, una raíz que no existe— se rechacen **antes** de trabajar, cada una
+  diciendo cuál es. El caso de la raíz se asserta contra la función y no contra el CLI, y simula la
+  raíz ausente **parcheando `os.path.exists`**: hardcodear `Z:` hacía que en una máquina con `Z:`
+  mapeada la herramienta **escribiera el reporte en ese share**, y buscar una letra libre en runtime
+  —el arreglo intermedio— ataba el caso a cómo esté montada la máquina y se auto-excluía cuando
+  todas estaban ocupadas, dejando pasar en verde al mutante que borra la rama. Con el parche el caso
+  vale igual en Windows y en POSIX, sin tocar el disco. (Un UNC inalcanzable cae por la misma rama,
+  pero eso no lo ejercita ningún caso.) El
+  motivo se ancla en un token con guiones (`destino-ocupado:`), no en una palabra suelta: el mensaje
+  imprime la ruta, así que assertar `"directorio"` lo satisfacía el nombre del fixture y no el
+  motivo, y los motivos se podían intercambiar entre sí sin que nada fallara;
+- que si la escritura falla igual (exit 3), el reporte salga **entero por stdout**, el destino que
+  ya estaba quede **intacto** y no sobre ningún temporal. La escritura es a un temporal de nombre
+  único al lado (`mkstemp`, no un `.tmp` fijo que dos corridas se pisarían) y un `os.replace`
+  encima, porque `open(dest, "w")` trunca antes de escribir y una falla a mitad destruía el reporte
+  bueno. El caso se ejercita haciendo fallar el `os.replace`, que es el único punto donde el
+  temporal ya se escribió: forzarlo con un nombre inválido reventaba en el `open()` y dejaba la
+  atomicidad, la limpieza y el `replace` sin ejecutar nunca;
+- que un `--skill` inexistente, o una **carpeta sin `SKILL.md`**, salgan con 2, digan por stderr qué
+  nombre faltó y dónde se buscó, y **no pisen** el reporte que ya estaba;
+- que un `--skill` válido siga corriendo y produzca sólo esa skill (sin esto, un guard que rechaza
+  todo pasaba en verde y el modo `--skill` quedaba roto sin que nada lo notara);
+- que un `--skills-dir` inexistente se rechace antes de recuperar, **y también antes de clonar** —
+  esa segunda mitad va en un caso propio, sin `--upstream-clone` y con una URL inalcanzable, porque
+  con el clon ya dado la propiedad es inobservable: mover el guard después del bloque de clonado
+  dejaba el caso anterior en verde;
+- que `missingLocally` cuente **los que faltan** y no cualquier estado (el fixture tiene dos
+  faltantes y una presente a propósito: con un solo faltante el contador daba 1 con cualquier
+  predicado);
+- que el **delimitador del frontmatter sea una línea `---` sola**, en las dos puntas: que un
+  `----` o un `--- texto` no lo cierren —cortaban en la línea equivocada y dejaban el cierre real
+  adentro del cuerpo—, que un `----` tampoco lo **abra**, y que el whitespace invisible después de
+  los guiones (`---␣`, `---⇥`) sí lo cierre. Esa última mitad es la que más duele si se pierde:
+  exigir `\n---\n` exacto convierte un espacio invisible en "no hay cierre", el frontmatter entero
+  se va al cuerpo y el ratio se desploma **en silencio** (medido: `zoom-out` 0.4009 y `grill-me`
+  0.5551, los dos abajo del umbral de 0.60, o sea `unmatched` por un espacio). Se cubren las tres
+  salidas: cierra, cierra en la última línea sin salto final, y no cierra nunca —donde el cuerpo es
+  **todo** el contenido, no vacío;
+- que la lectura por lotes (`cat-file --batch`) sobreviva a un blob que git **no entrega**
+  (`<oid> missing`, dos campos y sin contenido): que no explote, que el ausente no entre al dict, y
+  que el desplazamiento del resto siga bien con el ausente **primero, en el medio y al final**. El
+  contenido se compara contra los bytes que devuelve `cat-file blob` aparte, no contra la propia
+  función: compararla consigo misma dejaba pasar cualquier corrupción uniforme (truncar un byte
+  sobrevivía entero, porque el `.strip()` del cuerpo se lo come). El parseo vive en `_parse_batch`,
+  separado para poder alimentarlo con **bytes fabricados**: una salida cortada a la mitad, o un
+  `size` que se pasa del largo, no salen de un git que funciona, y sin esa costura esas ramas
+  serían código sin test. La **desincronización** —un header que no corresponde al oid pedido, que
+  atribuiría contenidos al oid equivocado— se cubre por las dos vías: con bytes fabricados, y
+  también **con git de verdad**, pidiendo un oid abreviado. Git eco-a el oid **resuelto**, no el
+  que se le mandó, así que un abreviado (o uno en mayúscula) vuelve con un header que no coincide.
+  De ahí el contrato de entrada de `_parse_batch`: 40 hex en minúscula, que es lo que pasan los
+  dos call-sites de producción;
+- que las **dos políticas ante un blob que falta sean las que se declaran, y no se puedan
+  intercambiar**: el corpus de candidatos **corta la corrida** nombrando cuál corpus (una base
+  elegida sobre un corpus incompleto publica un fork propio que nadie midió), y las pistas de
+  sucesor del HEAD **degradan salteando** (son pistas para un humano, no bases). De esa segunda
+  política queda una limitación **aceptada**: el reporte no distingue un candidato descartado por
+  ilegible de uno que no entró al top-3 — `unconfirmedSuccessorCandidates` sale más corta y nada
+  lo dice. No se le agregó un campo porque ese esquema lo consume el lockfile, y cambiarlo es
+  decisión de ese trabajo, no de este. Se ejercitan
+  adentro de `recover()` mutilando la lectura, porque los checks sobre la función suelta dejaban
+  borrar cualquiera de los dos call-sites sin que nada se pusiera rojo. La mutilación **vacía** la
+  lectura en vez de sacarle un blob: las pistas se publican como un top-3, así que sacar uno lo
+  tapa el cuarto candidato y el reporte queda igual (medido: 6 pistas antes y 6 después, o sea el
+  check pasaba sin observar nada);
+- que **ninguna salida rara del batch termine mal**, en las dos formas distintas en que terminaba
+  mal. Una salida cortada antes de la cabecera y un `size` que no es un número levantaban
+  `ValueError` pelado: como no es `RuntimeError`, esquivaba el handler del CLI y volvía a salir
+  como traceback con exit 1, justo lo que el exit 5 vino a sacar. Un `size` **más grande que lo
+  que hay** era el caso peor y no levantaba nada: devolvía el contenido **truncado en silencio**,
+  y con un solo oid no hay iteración siguiente que lo note. Ese guard se ancla **en el borde** (el
+  máximo que entra se acepta; uno más ya es truncado), porque un caso lejos del borde deja correr
+  el guard un byte sin que nada se queje — medido: dos mutantes de borde sobrevivían la suite
+  anterior;
+- que el **BOM** se saque antes de mirar la apertura del frontmatter — es la propiedad que
+  distingue este lector del de `normalized-hash.ps1`, y se afirmaba sin cubrirse;
+- que una recuperación abortada salga por el CLI con **exit 5**, lo diga por stderr y **no pise el
+  reporte que ya estaba**. El destino se pre-crea con un centinela y se verifica que sobreviva:
+  mirar que un archivo que nunca existió siga sin existir sí caza a un `main` que escribe igual
+  —medido—, pero no ve la otra mitad, que es pisar o truncar un reporte bueno que ya estaba.
+
+Devuelve código de salida distinto de cero si alguna falla, e imprime todas: una regresión temprana
+no esconde las que vienen después.

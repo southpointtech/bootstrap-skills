@@ -2,11 +2,12 @@
 name: handoff
 description: Compact the current conversation into a handoff document for another agent or session to pick up. Use when the user wants to wrap up and hand off the current work, preserve context before switching agents/terminals, or says "armá un handoff", "documentá el estado para otro agente", "compactá esto en un handoff", or "pasá el contexto a una sesión nueva".
 argument-hint: "What will the next session be used for?"
+disable-model-invocation: true
 ---
 
 Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the temporary directory of the user's OS - not the current workspace.
 
-Include a "suggested skills" section in the document, which suggests skills that the agent should invoke.
+Include a "suggested skills" section in the document, naming which skills the next agent should call the Skill tool for.
 
 Do not duplicate content already captured in other artifacts (PRDs, plans, ADRs, issues, commits, diffs). Reference them by path or URL instead.
 

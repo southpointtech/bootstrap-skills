@@ -1,59 +1,327 @@
 {
-  "version": 1,
+  "version": 2,
+  "doNotEditByHand": "generado por tools/skills-lock.ps1 -Action Seal; verificado por tests/skills-lock.tests.ps1",
+  "hash": {
+    "algorithm": "sha256",
+    "normalization": "tools/normalized-hash.ps1 :: Get-NormalizedHash -Scope File"
+  },
+  "upstream": {
+    "url": "https://github.com/mattpocock/skills.git",
+    "head": "959a8e9f1edc3adbe2f7e3054bb6fbefa6696260"
+  },
   "skills": {
+    "debug-source-first": {
+      "source": null,
+      "upstreamState": "fork-propio",
+      "upstreamHeadPath": null,
+      "base": null,
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b"
+      }
+    },
+    "diagnosing-bugs": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/diagnosing-bugs/SKILL.md",
+      "base": {
+        "blob": "061c25a524acaa93d4534e9e08a793c0a5fe45fd",
+        "upstreamPath": "skills/engineering/diagnosing-bugs/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529"
+      }
+    },
+    "domain-modeling": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/domain-modeling/SKILL.md",
+      "base": {
+        "blob": "9b97707e19ef1f590aada356f2b3f6bb881f91be",
+        "upstreamPath": "skills/engineering/domain-modeling/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "ADR-FORMAT.md": "944c92aa790e8fbdc9199640b170979abb8a34ba8d0fe18c2a01a63bce140ca0",
+        "CONTEXT-FORMAT.md": "17ab16ce783e4d2801ee52fd9acdf550cbf44de65ae76797a93943bbedf22a13",
+        "SKILL.md": "f2233bc197ba6b309902ed8633b66dab445923ca9b5d3ffb9ef2eaed1c9971f6"
+      }
+    },
+    "git-guardrails-claude-code": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/misc/git-guardrails-claude-code/SKILL.md",
+      "base": {
+        "blob": "58bcdd875b164093b95f436fa32a65c6cb5eb572",
+        "upstreamPath": "skills/misc/git-guardrails-claude-code/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "47b22d0606e2171503e72eb2d09a986f80a42ed2103c34bd475718c8d3490f51",
+        "scripts/block-dangerous-git.sh": "234922b83c0a1737ee7300806c21ac0f389b07aaeb65c2d71ccedafbc5e1ea4b"
+      }
+    },
     "grill-me": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/productivity/grill-me/SKILL.md",
-      "computedHash": "daf64ca15f4fa081a6747766db538e2dbd1131725ed4fcdd3d538dc62c7035ba"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/productivity/grill-me/SKILL.md",
+      "base": {
+        "blob": "3947ff9c4ad980d14fc07fccbf659d47c114e81d",
+        "upstreamPath": "skills/productivity/grill-me/SKILL.md",
+        "commit": "fcf0071560d32913c9d4f820e0d7ca467c881619",
+        "commitDate": "2026-08-15T20:46:38Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "e154ff0623e63c2ce5920e2efff720da3ccf1a0fceda7d7dc928088603b53fc5"
+      }
     },
     "grill-with-docs": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
-      "computedHash": "59849672f8fce76b73055f6c9270236212e444c9aa63d02481bdf3cf788edb9f"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/grill-with-docs/SKILL.md",
+      "base": {
+        "blob": "62b9efb6f991d1b229adee7506962f13ced0c499",
+        "upstreamPath": "skills/engineering/grill-with-docs/SKILL.md",
+        "commit": "447ca70872026d5b79d6073a546dac082117fed7",
+        "commitDate": "2026-08-15T20:48:40Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "c6e9e7f3234801cf930d46be656cd10a343b6982d40ad71542f253cc7af01a53"
+      }
+    },
+    "grilling": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/productivity/grilling/SKILL.md",
+      "base": {
+        "blob": "8ca78c6d8f901aab0c5a1f896034b70e666ff2a3",
+        "upstreamPath": "skills/productivity/grilling/SKILL.md",
+        "commit": "85f83d3fde1d3a90d5c9a657f6998c79a6c37308",
+        "commitDate": "2026-08-20T10:34:29Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "d4ad13f111c5727f22fc80b86f53e025d9fcca4df84b06f67793d1dcaed88e57"
+      }
     },
     "handoff": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/productivity/handoff/SKILL.md",
-      "computedHash": "3fdffd9dce6fc3e9f9f756ba79d694c5f162e11c7e7fbc72a0958f204312e0b1"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/productivity/handoff/SKILL.md",
+      "base": {
+        "blob": "2eb98a51b97bb5bac461a26ad14828eeac827909",
+        "upstreamPath": "skills/productivity/handoff/SKILL.md",
+        "commit": "d28dfdc39beadc3142a33359b5cfa4765dcbd0bc",
+        "commitDate": "2026-08-15T20:42:06Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "7220271eafc41aea7b06b26bae59135fed6a481c0e56014a79526ee9ad188c01"
+      }
+    },
+    "research": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/research/SKILL.md",
+      "base": {
+        "blob": "fecee97e9457ba039678d2fcf1b1bc9fca78307d",
+        "upstreamPath": "skills/engineering/research/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "c4f84ae54577d7360b3d66e25b1dfc0846f0d8b6416191de022f84e39dc6a6b6"
+      }
+    },
+    "resolving-merge-conflicts": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/resolving-merge-conflicts/SKILL.md",
+      "base": {
+        "blob": "bfb7e5606e231e6808979f623fce76a9aad4b71c",
+        "upstreamPath": "skills/engineering/resolving-merge-conflicts/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "c3c3408086cf765518a3f76621bd09170a9ab715bcaf8072d45a9a91fa67c747"
+      }
+    },
+    "review-loop": {
+      "source": null,
+      "upstreamState": "fork-propio",
+      "upstreamHeadPath": null,
+      "base": null,
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "be72038b4a6bef70546bbf61230ad2e9361bed686d1c679aaaf3ddbdfadcfe85"
+      }
     },
     "setup-matt-pocock-skills": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
-      "computedHash": "f686b246e95afeaeeb3ff21b0f9f2c1ab29b02958468170cc9802fb477508488"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
+      "base": {
+        "blob": "7ddcbf41d8acbb047078716ed7119357a154590b",
+        "upstreamPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "e37aba0a9ddcb87547c430b4daaf65d351753910a4b0dbac7d666d2945df21e2",
+        "domain.md": "edc6d6131fdffc4b7135704f5262124fc43355c95f61b7399dc5a4db643e28ca",
+        "issue-tracker-github.md": "02b8e6445b6514d87c5226373e077ea7f531bd8f7cf1c2fa4be5cf48320b6385",
+        "issue-tracker-gitlab.md": "1f1e2f178bea28e39753613687e02621e0f7d6f0e29127e13f2ae4a75fa66c70",
+        "issue-tracker-local.md": "e16b3fe28ad6e389887e001b4da82fd8751ca12f95b355c432a2b39b8c0bff4a",
+        "triage-labels.md": "4f53c9b40ce2651e3611aa090eaedbd6dbc9b71ef8c5f7e65eac0d8263190d0d"
+      }
+    },
+    "slice-review": {
+      "source": null,
+      "upstreamState": "fork-propio",
+      "upstreamHeadPath": null,
+      "base": null,
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "969c9d7271c31a4ae03c0808fb7e2b6184fc9df00ebf2e42ef4066a35fcb6e40"
+      }
     },
     "tdd": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/tdd/SKILL.md",
-      "computedHash": "78b31b2120c5fe7aced1cebfd4c7c94acb0037fd4f89c83c67584414aa4173bd"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/tdd/SKILL.md",
+      "base": {
+        "blob": "8fc086710806190ee7c4baa32089cb877a75736a",
+        "upstreamPath": "skills/engineering/tdd/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [
+        "deep-modules.md",
+        "interface-design.md"
+      ],
+      "files": {
+        "SKILL.md": "d5e60409b211964160d532662293bdf70a139491acf218291fa40118450792b1",
+        "deep-modules.md": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32",
+        "interface-design.md": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d",
+        "mocking.md": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef",
+        "tests.md": "859f9e592c188fda4fc7277dd180e4ce9c7a2e13f6efe1f6f29eccc9d28c106a"
+      }
     },
     "to-issues": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/to-issues/SKILL.md",
-      "computedHash": "41915d1686991b0d3796eb0b52f3aa8e9021abc5f268d14e6dc62e95dbf8e044"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/to-tickets/SKILL.md",
+      "base": {
+        "blob": "e868c831fcfb1e124e010bcdf84a429ec879160f",
+        "upstreamPath": "skills/engineering/to-tickets/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "c6545af257fadd043bab7506c3df30da018ccd4b3ef8d06fd53ab1061c876bf8"
+      }
     },
     "to-prd": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/to-prd/SKILL.md",
-      "computedHash": "a80acb8760af6521a37ea4f079e617712fcaa800f8a766e247f815c5dabb20d2"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/to-spec/SKILL.md",
+      "base": {
+        "blob": "e5f11413b09c19f59150dac52125536ccda34e2d",
+        "upstreamPath": "skills/engineering/to-prd/SKILL.md",
+        "commit": "3832253f149ea165f45a32ea727886e6d0094d60",
+        "commitDate": "2026-06-12T08:25:19Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "6092861eb9529d4053fc07cc2ee6e1cbd5375e3bf12dc1fa8f014bbf3f2ef196"
+      }
+    },
+    "to-questionnaire": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/productivity/to-questionnaire/SKILL.md",
+      "base": {
+        "blob": "dadd0c00d6a350acaa15bb9ca1b96b20ead684ca",
+        "upstreamPath": "skills/productivity/to-questionnaire/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "b5eb929842ee0e93d867c5e906d183d350f2f2d149eaeaa86967d94d8eda1d3b"
+      }
     },
     "triage": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/triage/SKILL.md",
-      "computedHash": "56ff15b41bbebfa4cb329d96150d9b297c1d919ce30784d883b8755b4bfd8e7e"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/triage/SKILL.md",
+      "base": {
+        "blob": "37ddea1e3dcf8fb5be5b92e4e45f2c34b8e61d3e",
+        "upstreamPath": "skills/engineering/triage/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
+        "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
+        "SKILL.md": "da80dabef6c5ccc93085bfcc9dff0fc79acad7ddd711b0858a44459333c8c576"
+      }
+    },
+    "verify-downstream-arrival": {
+      "source": null,
+      "upstreamState": "fork-propio",
+      "upstreamHeadPath": null,
+      "base": null,
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "04614b9cc4744d05a30b0079f88676dc4c6d921384d21a6dac4df4d2cf01307d"
+      }
+    },
+    "wizard": {
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-vivo",
+      "upstreamHeadPath": "skills/engineering/wizard/SKILL.md",
+      "base": {
+        "blob": "c4294ad8298b9b95fc727496b1b802b1f7363fba",
+        "upstreamPath": "skills/engineering/wizard/SKILL.md",
+        "commit": "321658273cb1d20b76026717d027d505790106d4",
+        "commitDate": "2026-08-19T10:03:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "b4e978b487f0cfea12f193b3f1d531c14b9a879685b3504c3f1945dda9b5d876",
+        "template.sh": "33cbe9dfb1d0e9185b60248a52aabed14bc64785a00cac695e302e739dd6c153"
+      }
     },
     "zoom-out": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/zoom-out/SKILL.md",
-      "computedHash": "a8b8ed45609fdfa9f184d0c9f69326e43822a42eebea14db2792d777373de562"
+      "source": "https://github.com/mattpocock/skills.git",
+      "upstreamState": "upstream-huerfano",
+      "upstreamHeadPath": null,
+      "base": {
+        "blob": "1e7a5dc728fed0a85a28c9dfb6e78ce5a81da7db",
+        "upstreamPath": "skills/engineering/zoom-out/SKILL.md",
+        "commit": "7afa86d3a5dd96edde06ffa014e16c64e733681e",
+        "commitDate": "2026-04-28T15:33:37Z"
+      },
+      "forkFiles": [],
+      "files": {
+        "SKILL.md": "6d6c653eda25e64c2a6220c4372067b790ba398d08738b485eeddad32011d4b9"
+      }
     }
   }
 }

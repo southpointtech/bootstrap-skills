@@ -339,7 +339,7 @@ $o = Fire $t "git push"
 Assert ($o -match "additionalContext") "mover código a un nombre .md sigue disparando (rename no lo esconde)"
 Remove-Item -Recurse -Force $t
 
-# --- La prosa de los 4 CLAUDE.md tiene que decir lo que $govern hace ---
+# --- La prosa de los 4 AI_DEVELOPMENT_WORKFLOW.md tiene que decir lo que $govern hace ---
 # Se LEE el clasificador del hook, no se copia: es lo que evita que esta suite se pruebe a sí misma.
 Write-Host ""
 Write-Host "=== la prosa coincide con el clasificador ==="
@@ -398,34 +398,38 @@ if ($hookSrc -notmatch "(?m)^\s*\`$govern\s*=\s*'([^']+)'") {
   # rojo permanente: si agregás una así, hay que tocar esta derivación, no la prosa.
   $rutas = $alts | ForEach-Object { ($_ -replace '^\(\^\|/\)', '' -replace '\$$', '').Replace('\.', '.') }
   $root = Split-Path $PSScriptRoot -Parent
-  $claudeMds = @((Join-Path $root "CLAUDE.md")) + @(Get-ChildItem (Join-Path $root "skills") -Recurse -Filter "CLAUDE.md" | Where-Object { $_.FullName -match 'assets' } | ForEach-Object { $_.FullName })
+  # El mecanismo del loop vive en el doc del flujo, no en el CLAUDE.md (issue 14): el CLAUDE.md
+  # conserva la REGLA y un puntero, y tests/dieta-del-claude-md.tests.ps1 es quien verifica que el
+  # puntero siga ahí. Acá se mira el doc, que es donde quedó la enumeración de rutas.
+  $docsDelFlujo = @((Join-Path $root "docs\ai-workflow\AI_DEVELOPMENT_WORKFLOW.md")) + @(Get-ChildItem (Join-Path $root "skills") -Recurse -Filter "AI_DEVELOPMENT_WORKFLOW.md" | Where-Object { $_.FullName -match 'assets' } | ForEach-Object { $_.FullName })
   # guard: una colección vacía haría pasar el foreach entero sin chequear nada.
-  Assert ($claudeMds.Count -eq 4) "guard: se encontraron los 4 CLAUDE.md (encontrados: $($claudeMds.Count))"
-  foreach ($f in $claudeMds) {
+  Assert ($docsDelFlujo.Count -eq 4) "guard: se encontraron los 4 AI_DEVELOPMENT_WORKFLOW.md (encontrados: $($docsDelFlujo.Count))"
+  foreach ($f in $docsDelFlujo) {
     $etiqueta = $f.Substring($root.Length).TrimStart('\', '/')
     Assert (Test-Path -LiteralPath $f) "guard: existe $etiqueta"
-    # El bullet se recorta del texto CRUDO por su encabezado, no juntando las líneas que mencionen
+    # La sección se recorta del texto CRUDO por su encabezado, no juntando las líneas que mencionen
     # `review-loop-trigger`: juntando por palabra, cualquier otra línea del archivo que mencione el
-    # hook satisfacía el assert desde afuera del bullet, y un reflow del bullet a dos líneas (un
-    # `markdownlint --fix` alcanza) lo partía y daba rojo diciendo que faltaban rutas que sí estaban.
-    # El corte es `^-\s` sin `\s*`: con `\s*` cualquier sub-lista INDENTADA adentro del bullet lo
-    # truncaba ahí, y el resultado dependía de dónde estuviera la indentación — rojo si iba antes de
-    # la lista de rutas, verde si iba después. Una sub-lista es markdown legítimo; sólo un bullet de
-    # primer nivel cierra el bullet.
+    # hook satisfacía el assert desde afuera de la sección. El corte va hasta el próximo encabezado
+    # `##` a `####` (un `#` de nivel 1 o un `#####` NO lo cierran): así un reflow del párrafo no lo
+    # parte (el bullet anterior sí se partía con un `markdownlint --fix`), y una sub-sección nueva
+    # metida en el medio cierra el recorte antes de
+    # tiempo y da rojo diciendo que faltan rutas que sí están — falla nombrándose.
+    # El `\r?` no es decorativo: estos archivos van en CRLF y el `$` de .NET ancla solo ante
+    # `\n`, asi que sin el la seccion no matchea nunca y el guard da 0 (medido).
     $txt = Get-Content -LiteralPath $f -Raw
-    $m = [regex]::Matches($txt, '(?ms)^- After implementation, run .*?(?=^-\s|\z)')
-    Assert ($m.Count -eq 1) "guard: $etiqueta tiene exactamente un bullet de review-loop (encontrados: $($m.Count))"
+    $m = [regex]::Matches($txt, '(?ms)^### What fires the loop, and over what\r?$.*?(?=^#{2,4}\s|\z)')
+    Assert ($m.Count -eq 1) "guard: $etiqueta tiene exactamente una sección de disparo del loop (encontradas: $($m.Count))"
     # Sin este `continue`, un guard en rojo arrastra 4 rojos más por archivo con la misma causa raíz.
     if ($m.Count -ne 1) { continue }
     $bullet = $m[0].Value
-    # Las rutas se buscan DENTRO de la lista entre paréntesis, no en el bullet entero: `docs/` está
-    # nombrado en el bullet en la frase que dice lo CONTRARIO ("anything else under `docs/` is
-    # code"), así que sobre el bullet completo una alternativa `docs/` habría quedado anclada por la
-    # frase que la niega.
+    # Las rutas se buscan DENTRO de la lista entre paréntesis, no en la sección entera: `docs/` está
+    # nombrado ahí en la frase que dice lo CONTRARIO ("anything else under `docs/` is code"), así que
+    # sobre la sección completa una alternativa `docs/` habría quedado anclada por la frase que la
+    # niega.
     $lista = ([regex]::Match($bullet, 'no matter their extension \(([^)]+)\)')).Groups[1].Value
     Assert ($lista) "guard: $etiqueta tiene la lista de rutas entre paréntesis"
     $faltan = $rutas | Where-Object { $lista -notmatch [regex]::Escape('`' + $_ + '`') }
-    Assert ($faltan.Count -eq 0) "$etiqueta enumera en su bullet las rutas de govern [faltan: $($faltan -join ', ')]"
+    Assert ($faltan.Count -eq 0) "$etiqueta enumera en su sección las rutas de govern [faltan: $($faltan -join ', ')]"
     # La DIRECCIÓN de la regla, no sólo las rutas: sin esto, la prosa podía invertirse ("todo lo que
     # está bajo docs/ cuenta como documentación" = el bug exacto de la v1) y quedar en verde.
     # El ancla toma la cláusula ENTERA, no su primera punta: anclando sólo `.md` is the only thing…`

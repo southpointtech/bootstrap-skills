@@ -603,6 +603,100 @@ $still = [IO.File]::ReadAllText($sp)
 Assert ($still -match 'marker:feat/x') "con la cuarentena bloqueada el hook NO pisa el estado original"
 Remove-Item -Recurse -Force $t
 
+# --- Despacho por herramienta: el `matcher` de settings.json ---
+# El hook NO mira `tool_name` (lee solo `$evt.tool_input.command`), asi que lo unico que decide si
+# CORRE es el `matcher` del PostToolUse en .claude/settings.json, que Claude Code evalua como regex
+# contra el `tool_name` del evento. Por eso el sujeto de estos casos es el matcher, no el .ps1.
+#
+# MEDIDO el 2026-09-19 con un hook de diagnostico en %TEMP% (settings.json desechable con tres
+# entradas PostToolUse: `.*`, `Bash|PowerShell` y `Bash`, cada una volcando el JSON del evento a su
+# propio log) disparado por dos llamadas REALES via `claude -p`:
+#   - herramienta PowerShell -> `"tool_name":"PowerShell"`, `tool_input.command` = "Get-Date".
+#     Dispararon `.*` y `Bash|PowerShell`; `Bash` pelado NO dejo log. <- el falso negativo.
+#   - herramienta Bash       -> `"tool_name":"Bash"`. Dispararon las TRES.
+# O sea: la alternancia que ya usa el alignment-gate (`Edit|Write|MultiEdit`) se acepta igual aca.
+#
+# MEDIDO otra vez el 2026-09-19, en el review de este slice, con 12 matchers de sonda y dos corridas
+# de `claude -p`: el matcher es **case-sensitive y ANCLADO** (full match). Dispararon `PowerShell`,
+# `^PowerShell$`, `Power.*`, `.*` y `Bash|PowerShell`; NO dispararon `Bash` pelado, `Powershell`,
+# `powershell`, `(?i)powershell`, `Power`, `owerShell` ni `PowerShel` (5 + 7 = 12; el `Bash` pelado
+# es el mismo de la medicion de arriba). Por eso el oraculo de abajo usa
+# `[regex]::IsMatch` anclado (case-sensitive por default) y NO `-notmatch`, que en PowerShell es
+# case-INSENSITIVE y sin anclar: con `-notmatch`, un matcher tipeado `Bash|Powershell` pasaba estos
+# asserts sin despachar nada en la realidad — el mismo falso negativo que el slice vino a matar.
+#
+# Lo que el evento NO dice es que la GRAMATICA sea la misma. `tool_input.command` es un string en
+# las dos herramientas, pero `Hide-Literals` lo parsea con comillas de BASH, donde `\` escapa: un
+# `git -C "C:\repo\" commit` hecho desde PowerShell pierde el cierre en silencio (reproducido en el
+# review de este slice; queda en el issue 24). Este slice ensancha el DESPACHO, no esa gramatica.
+function Get-TriggerMatcher($settingsPath) {
+  $j = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+  $entry = @($j.hooks.PostToolUse | Where-Object { ($_.hooks | ConvertTo-Json -Depth 8) -match 'review-loop-trigger' })
+  if ($entry.Count -ne 1) { return $null }
+  return $entry[0].matcher
+}
+# Modela el DESPACHO real: Claude Code invoca el hook solo si el matcher empareja el tool_name.
+# Si no empareja, el hook no corre nunca y la salida es vacia — que es exactamente el falso negativo
+# (el cierre declarado se pierde en silencio), no un "no aplica".
+# Es un MODELO, no el motor real: `[regex]::IsMatch` es .NET y acepta cosas que el de Claude Code
+# rechaza. El caso medido es `(?i)powershell`, que aca empareja y alla no disparo — un matcher asi
+# pasaria estos tres asserts sin despachar nada. Lo que cubre esa clase es el assert del valor
+# exacto (`-ceq`), no este oraculo. Un matcher que ni siquiera compile tampoco despacha: por eso el
+# `catch` devuelve vacio en vez de tumbar la corrida.
+function Fire-Tool($repo, $cmd, $toolName) {
+  $m = Get-TriggerMatcher $canon
+  if (-not $m) { return "" }
+  $empareja = try { [regex]::IsMatch($toolName, "^(?:$m)$") } catch { $false }
+  if (-not $empareja) { return "" }
+  return (Fire $repo $cmd)
+}
+
+# El caso que este slice vino a arreglar: la herramienta primaria de esta maquina es PowerShell, y
+# con el matcher en `Bash` un cierre DECLARADO no disparaba nunca. Mutante: volver el matcher a
+# `Bash` deja este assert rojo (y el resto de la suite en verde).
+$t = New-Repo; Close-Slice $t "cierre commiteado con la herramienta PowerShell"
+$o = Fire-Tool $t "git commit -m cierre" "PowerShell"
+Assert ($o -match "additionalContext") "un cierre declarado desde la herramienta PowerShell despacha el hook y dispara"
+Remove-Item -Recurse -Force $t
+
+# Regresion: ensanchar el matcher no puede perder la herramienta que ya cubria.
+$t = New-Repo; Close-Slice $t "cierre commiteado con la herramienta Bash"
+$o = Fire-Tool $t "git commit -m cierre" "Bash"
+Assert ($o -match "additionalContext") "un cierre declarado desde la herramienta Bash sigue despachando el hook"
+Remove-Item -Recurse -Force $t
+
+# ...y no se ensancha a CUALQUIER herramienta. Sin este caso, `.*` (o `Bash|PowerShell|Edit|...`)
+# pasa los dos asserts de arriba mientras hace correr el hook en cada Edit de la sesion.
+$t = New-Repo; Close-Slice $t "cierre que no le corresponde a Edit"
+$o = Fire-Tool $t "git commit -m cierre" "Edit"
+Assert ([string]::IsNullOrEmpty($o)) "una herramienta que no ejecuta comandos (Edit) no despacha el hook: el matcher no es '.*'"
+Remove-Item -Recurse -Force $t
+
+# El matcher es config COMPARTIDA: la raiz del repo y los tres scaffolds tienen que declarar el
+# mismo. Mirror solo compara los tres scaffolds entre si, asi que la raiz se ata aca.
+$rootsSettings = @(
+  (Join-Path $repo ".claude/settings.json"),
+  (Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/settings.json"),
+  (Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/settings.json"),
+  (Join-Path $repo "skills/bootstrap-ai-project/assets/scaffold/.claude/settings.json")
+)
+$matchers = @($rootsSettings | ForEach-Object { Get-TriggerMatcher $_ })
+Assert ((@($matchers | Where-Object { $_ }).Count) -eq 4) "las 4 raices declaran exactamente un PostToolUse de review-loop-trigger"
+Assert ((@($matchers | Select-Object -Unique).Count) -eq 1) "el matcher del review-loop-trigger es identico en las 4 raices (es: $($matchers -join ' | '))"
+# `-Unique` distingue mayusculas, asi que el assert de arriba atrapa que UNA raiz difiera — pero no
+# que las cuatro tengan el mismo error de tipeo. El matcher real es case-sensitive: `Bash|Powershell`
+# en las cuatro no despacharia nada. Por eso va tambien el valor exacto, con `-ceq`.
+Assert ($matchers[0] -ceq "Bash|PowerShell") "el matcher es exactamente ``Bash|PowerShell`` (case-sensitive: es: $($matchers[0]))"
+
+# Guard de la prohibicion del issue 21: ensanchar ESTE matcher no puede arrastrar al del
+# alignment-gate, que es otro hook con otra ventana y otro estado. Si alguien lo ensancha de paso,
+# la herramienta PowerShell empezaria a despacharlo y este assert se pone rojo.
+foreach ($sp21 in $rootsSettings) {
+  $j21 = Get-Content -LiteralPath $sp21 -Raw | ConvertFrom-Json
+  $ag  = @($j21.hooks.PreToolUse | Where-Object { ($_.hooks | ConvertTo-Json -Depth 8) -match 'alignment-gate' })
+  Assert (($ag.Count -eq 1) -and ($ag[0].matcher -ceq "Edit|Write|MultiEdit")) "el matcher del alignment-gate sigue intacto en $([IO.Path]::GetRelativePath($repo, $sp21))"
+}
+
 # --- Merge de settings (proyecto con settings.json propio, p. ej. enabledPlugins) ---
 $t = New-TestWorkspace $script:runRoot "rlt-ms"
 $sp = Join-Path $t "settings.json"

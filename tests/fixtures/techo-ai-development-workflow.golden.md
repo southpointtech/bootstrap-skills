@@ -1,0 +1,1 @@
+Each slice must be PLANNED to fit in a small, reviewable PR (target ≤ ~400 lines of change) — the ceiling is measured when the slice opens, over what you set out to implement. A slice projected larger is split before implementing; when slices depend on each other, chain them as stacked PRs. A slice that ends up larger than planned is declared at close, not split retroactively.

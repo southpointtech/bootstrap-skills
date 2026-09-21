@@ -65,6 +65,38 @@ foreach ($other in ($skills | Select-Object -Skip 1)) {
   }
 }
 
+# El párrafo `This delivers:` de cada SKILL.md declara a mano cuántas skills, comandos y docs
+# trae el scaffold, y nada más los verifica. La que se desincronizó fue la frase de verificación
+# del Step 2, un párrafo más arriba, que repetía los mismos números: decía 10 cuando ya eran 11
+# (`7cbb928`), así que una copia CORRECTA fallaba la verificación — y el peor desenlace es que el
+# agente "arregle" borrando la skill de más. El espejo no lo agarra porque los tres mienten
+# idéntico. Acá los números de `This delivers:` se atan a lo que el scaffold tiene de verdad. La
+# frase del Step 2 ya no lleva números —manda contarlos contra el scaffold en el momento—, así que
+# ahí no queda número que atar; lo que se ancla es que la frase siga existiendo, en `$invariantes`.
+foreach ($s in $skills) {
+  $scaffold = Join-Path $s.FullName "assets/scaffold"
+  $nSkills  = @(Get-ChildItem (Join-Path $scaffold ".agents/skills") -Directory).Count
+  $nCmds    = @(Get-ChildItem (Join-Path $scaffold ".claude/commands") -File).Count
+  $texto    = Get-Content (Join-Path $s.FullName "SKILL.md") -Raw
+  $nWf   = @(Get-ChildItem (Join-Path $scaffold "docs/ai-workflow") -File).Count
+  $nAg   = @(Get-ChildItem (Join-Path $scaffold "docs/agents") -File).Count
+  $d = [regex]::Match($texto,
+    '\.agents/skills/` \((\d+) skills.*?\.claude/commands/` \((\d+) commands\)')
+  Assert $d.Success "$($s.Name): el SKILL.md declara el conteo del párrafo 'This delivers'"
+  if ($d.Success) {
+    Assert ([int]$d.Groups[1].Value -eq $nSkills) `
+      "$($s.Name): 'This delivers' dice $($d.Groups[1].Value) skills y el scaffold tiene $nSkills"
+    Assert ([int]$d.Groups[2].Value -eq $nCmds) `
+      "$($s.Name): 'This delivers' dice $($d.Groups[2].Value) comandos y el scaffold tiene $nCmds"
+  }
+  $wf = [regex]::Match($texto, '`docs/ai-workflow/` \((\d+) docs\)')
+  $ag = [regex]::Match($texto, '`docs/agents/` \((\d+) docs\)')
+  Assert ($wf.Success -and [int]$wf.Groups[1].Value -eq $nWf) `
+    "$($s.Name): 'This delivers' declara los $nWf docs de ai-workflow (dice: $($wf.Groups[1].Value))"
+  Assert ($ag.Success -and [int]$ag.Groups[1].Value -eq $nAg) `
+    "$($s.Name): 'This delivers' declara los $nAg docs de agents (dice: $($ag.Groups[1].Value))"
+}
+
 # `SKILL.md` está en la allowlist como archivo ENTERO, así que los hashes de arriba no lo miran. Pero
 # la regla del CLAUDE.md ("si cambiás la mecánica, aplicá el mismo cambio en las tres") sí gobierna
 # una parte de él, y sin este bloque esa parte no tiene ninguna red: nada en la suite leía el
@@ -170,7 +202,9 @@ foreach ($s in $skills) {
 # Frases que tienen que estar en las TRES y que viven FUERA del tramo que cubre el golden. Los pasos
 # de afuera no se pueden comparar enteros —southpoint diverge en el Step 0 (chequeo de máquina) y en
 # el Step 4 (catálogo MCP)—, así que se anclan las oraciones concretas cuya pérdida es destructiva.
-# Las dos que están acá se ganaron el lugar: cada una se rompió de verdad y la suite quedó verde.
+# Las dos primeras familias se ganaron el lugar rompiéndose de verdad, con la suite en verde. La
+# tercera —la línea de invocación de `copy-scaffold.ps1`— es un pin contra un revert, no una
+# rotura medida: sin ella el Step 2 no tiene comando y el resto del procedimiento queda colgando.
 #  - El ruteo al Step 0b: borrarlo en las tres deja el modo adopción INALCANZABLE y el `CLAUDE.md` del
 #    proyecto se pisa sin que nadie parquee el original — la falla que todo el Step 0b existe para
 #    evitar.
@@ -179,6 +213,11 @@ foreach ($s in $skills) {
 #    `overwritten` que los recupere: es la única pérdida irrecuperable que el skill puede causar. Se
 #    arregló primero en una sola skill y las otras dos quedaron con el camino destructivo vivo, en
 #    verde, porque el golden solo cubre el Step 0b y nada más lee estos archivos.
+# Los dos párrafos del Step 2 —la frase que manda verificar la copia y el del reporte JSON con la
+# orden de reportar `overwritten`— NO están acá: los cubre el golden del bloque siguiente. Se
+# midió por qué: como anclas de presencia pasaban en verde con el cuerpo de la frase vaciado
+# dejando el prefijo, y con los párrafos mudados a un apéndice. Un `Contains` sobre prosa no
+# expresa semántica.
 $invariantes = @(
   'exist but there is **no** `.bootstrap-manifest.json`',
   'do **not** derive to `upgrade-bootstrap`',
@@ -189,7 +228,66 @@ $invariantes = @(
 foreach ($s in $skills) {
   $txt = [IO.File]::ReadAllText((Join-Path $s.FullName "SKILL.md")) -replace "`r`n", "`n" -replace "`r", "`n"
   $faltan = @($invariantes | Where-Object { -not $txt.Contains($_) })
-  Assert ($faltan.Count -eq 0) "$($s.Name): conserva las frases críticas de fuera del Step 0b — ruteo a adopción y guard del Step 3 (faltan: $($faltan -join ' | '))"
+  Assert ($faltan.Count -eq 0) "$($s.Name): conserva las frases críticas de fuera del Step 0b (faltan: $($faltan -join ' | '))"
+}
+
+# GOLDEN de los dos párrafos del Step 2, acotado a la sección. El golden no IMPIDE reescribirlos:
+# los vuelve VISIBLES —la suite se pone roja y re-grabar con `tools/reseal-goldens.ps1` es el paso
+# donde un humano mira el diff—, que es lo que una ancla de presencia no da. Acotarlo a `## Step 2`
+# es parte del instrumento: con el archivo entero, mudar los párrafos a un apéndice titulado
+# "historical wording (DO NOT FOLLOW)" los dejaba idénticos y la suite verde (medido).
+#
+# Se verifica MEMBRESÍA Y ORDEN. Sin el orden, intercambiar los dos párrafos dentro del Step 2
+# dejaba el `-join` byte-idéntico al golden y a `reseal-goldens.ps1` diciendo "sin cambios", porque
+# los dos arman la lista iterando las anclas, no el documento (medido).
+# Si el reorden es DELIBERADO, el reseal no alcanza: hay que reordenar `$anclas2` acá y `anclas` en
+# `tools/reseal-goldens.ps1` —las dos listas, que están duplicadas— y recién ahí re-grabar.
+#
+# QUE NO CUBRE, medido: todo lo que neutraliza los párrafos SIN tocar sus líneas — envolverlos en
+# un fence o en un `<div style="display:none">` **con los delimitadores en líneas propias**, o
+# poner una negación en la línea de arriba o en la de abajo. Los comentarios HTML son la excepción: los ataja el assert de abajo, que mira el
+# archivo entero. El resto queda declarado, porque cerrarlo pide congelar la sección entera y el
+# Step 2 diverge legítimamente entre variantes: la línea de `This delivers:` describe el hook en
+# inglés en `bootstrap-ai-project` y en castellano en las otras dos.
+$g2 = Join-Path $repo "tests/fixtures/step2-parrafos.golden.md"
+$golden2 = if (Test-Path -LiteralPath $g2) { ([IO.File]::ReadAllText($g2) -replace "`r`n", "`n" -replace "`r", "`n").Trim("`n") } else { $null }
+Assert (-not [string]::IsNullOrWhiteSpace($golden2)) "existe el golden del Step 2 y no está vacío (tests/fixtures/step2-parrafos.golden.md)"
+$anclas2 = @('Before committing, verify the copy landed cleanly:', 'The script prints a JSON report on stdout:')
+foreach ($s in $skills) {
+  $t2 = [IO.File]::ReadAllText((Join-Path $s.FullName "SKILL.md")) -replace "`r`n", "`n" -replace "`r", "`n"
+  $i2 = $t2.IndexOf("`n## Step 2 ") + 1
+  Assert ($i2 -gt 0) "$($s.Name): el SKILL.md tiene la sección '## Step 2 '"
+  if ($i2 -le 0) { continue }
+  $j2 = $t2.IndexOf("`n## ", $i2) + 1
+  $sec2 = if ($j2 -le 0) { $t2.Substring($i2) } else { $t2.Substring($i2, $j2 - $i2) }
+  # Los comentarios HTML se miran en el ARCHIVO ENTERO, no en la sección: abrir el `<!--` una
+  # línea ARRIBA del encabezado deja el delimitador afuera del tramo y el Step 2 entero inerte,
+  # con la suite en verde (medido). Se mira sólo el `<!--`, que es lo que abre el comentario: un
+  # `-->` suelto es una flecha de prosa, y prohibirlo ponía roja una línea legítima con un mensaje
+  # que además mentía sobre la causa. Ninguna de las tres skills tiene hoy un `<!--`.
+  Assert (-not $t2.Contains("<!--")) "$($s.Name): el SKILL.md no tiene comentarios HTML — envolver un párrafo en uno lo deja inerte sin tocar su texto; si necesitás uno de verdad (un pragma de linter), ponelo y ajustá este assert a propósito"
+  # El encabezado tiene que ser ÚNICO. `IndexOf` toma la primera aparición, así que un
+  # `## Step 2 — Copy the scaffold (reference)` señuelo puesto ANTES del real congelaba la copia
+  # decorativa y dejaba el procedimiento verdadero libre de reescribirse (medido). Es peor que el
+  # caso del apéndice que el acotado vino a cerrar.
+  $veces2 = $t2.Split(@("`n## Step 2 "), [StringSplitOptions]::None).Length - 1
+  Assert ($veces2 -eq 1) "$($s.Name): el encabezado ## Step 2  aparece una sola vez ($veces2)"
+  $lineas2 = @()
+  $faltan2 = @()
+  $posic2 = @()
+  foreach ($a in $anclas2) {
+    $hits = @($sec2 -split "`n" | Where-Object { $_.Contains($a) })
+    if ($hits.Count -ne 1) { $faltan2 += "$a ($($hits.Count))"; continue }
+    $lineas2 += $hits[0]
+    $posic2 += $sec2.IndexOf($hits[0])
+  }
+  Assert ($faltan2.Count -eq 0) "$($s.Name): cada párrafo anclado del Step 2 aparece exactamente una vez DENTRO del Step 2 (mal: $($faltan2 -join ', '))"
+  if ($faltan2.Count -eq 0) {
+    Assert ($null -ne $golden2 -and ($lineas2 -join "`n") -ceq $golden2) "$($s.Name): los párrafos del Step 2 son idénticos al golden — si el cambio es deliberado, re-grabalo con tools/reseal-goldens.ps1 en este mismo commit"
+    $enOrden = $true
+    for ($k = 1; $k -lt $posic2.Count; $k++) { if ($posic2[$k] -le $posic2[$k - 1]) { $enOrden = $false } }
+    Assert $enOrden "$($s.Name): los párrafos del Step 2 están en el orden del golden (posiciones: $($posic2 -join ', '))"
+  }
 }
 
 $refMec = $mecanicas[$ref.Name]

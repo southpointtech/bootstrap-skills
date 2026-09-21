@@ -4,7 +4,7 @@
 
 Claude must never deploy without explicit human approval.
 
-Never open giant PRs. Keep each PR a small, reviewable unit (target ≤ ~400 lines); when changes depend on each other, prefer a chain of stacked PRs.
+Never open giant PRs. Plan each PR as a small, reviewable unit (target ≤ ~400 lines, measured when the slice opens); when changes depend on each other, prefer a chain of stacked PRs.
 
 ## Frontend / Hosting
 

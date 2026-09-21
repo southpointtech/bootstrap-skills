@@ -1,0 +1,2 @@
+# Shell scripts keep LF on every checkout: with CRLF, bash on Linux or WSL fails on `set -euo pipefail\r`.
+*.sh text eol=lf

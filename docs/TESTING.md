@@ -14,7 +14,7 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 
 ## Assertions clave (lo que define "pasa")
 
-- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 5 docs ai-workflow, 11 skills `.agents` (9 de mattpocock vía `skills-lock.json` + `review-loop` y `slice-review` propias), 11 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`. Los conteos se verifican contra el scaffold, no contra estos números.
+- Scaffold completo: CLAUDE.md (8 pasos + Workflow State Machine), 11 docs ai-workflow, 21 skills `.agents` (17 de mattpocock vía `skills-lock.json` + `review-loop`, `slice-review`, `verify-downstream-arrival` y `debug-source-first` propias), 21 comandos `.claude`, 3 docs agents, `.gitignore` (con `.scratch/`), `.gitattributes` (`*.sh` en LF), `skills-lock.json`, `.bootstrap-manifest.json`, `.claude/settings.json`, `.claude/hooks/review-loop-trigger.ps1`, `.claude/hooks/alignment-gate.ps1`, README, CONTEXT.md stub, `docs/adr/`. Los conteos se verifican contra el scaffold, no contra estos números.
 - Variante correcta: Southpoint menciona DOMO; personal CERO menciones a DOMO pero conserva Playwright/Firebase/Azure/Zoho.
 - Git: branch `main`, **un solo commit**, autor exacto según variante, config local (global intacta).
 - Sin duplicados anidados (`.agents\.agents`, `.claude\.claude`) — regresión del bug de iter 1.
@@ -36,6 +36,29 @@ Las skills se testean con el **skill-creator** (`/skill-creator:skill-creator` e
 - El agregador (`scripts.aggregate_benchmark`) espera `eval-N/<config>/run-1/grading.json` y un bloque `summary` `{pass_rate, passed, failed, total}` en cada grading.
 - Si un run baseline corre `npm install`, borrar su `node_modules` antes de levantar el viewer (el escaneo recursivo se cuelga).
 - Borrar el workspace de evals al terminar (regla del repo).
+
+## Correr la suite del repo (`tests/run-all.ps1`)
+
+```powershell
+pwsh -NoProfile -File tests/run-all.ps1                    # todas, de a 4 en paralelo
+pwsh -NoProfile -File tests/run-all.ps1 -ThrottleLimit 6   # más carriles
+```
+
+Corre cada `tests/*.tests.ps1` en su propio `pwsh`, imprime un renglón `PASS`/`FAIL` por archivo a
+medida que terminan y, de cada suite roja, su salida completa (stdout y stderr) entre
+`===== <archivo> (exit N) =====` y `===== fin <archivo> =====`. Sale con 1 si alguna suite sale con
+exit distinto de cero, si no encuentra ninguna suite, o si el árbol de trabajo no quedó como estaba.
+
+El árbol se **compara**, no se exige limpio: se toma `git status` (con los untracked) y el hash de
+cada archivo que figura ahí antes y después, así que un residuo ajeno que nadie toca no lo pone
+rojo, y un archivo ya sucio que una suite vuelve a escribir sí. Lo ignorado por `.gitignore` no se
+mira. No hay timeout por suite.
+
+El default es 4 carriles por prudencia, no por una medición de estas suites: el techo de 4-6 que
+cita el issue 02 se midió con olas de agentes de review. Con estas suites, el 2026-09-16, una
+corrida con 6 carriles tardó 219 s y una con 4, 296 s (una corrida de cada una). Una suite individual se sigue corriendo sola con `pwsh -NoProfile -File tests/<suite>.tests.ps1`.
+El runner se prueba con suites de juguete en `tests/run-all.tests.ps1`; los mutantes que esa suite
+mata están en `tests/mutantes/run-all.py`.
 
 ## Workspaces temporales de las suites (`tests/lib/temp-workspace.ps1`)
 
@@ -68,9 +91,11 @@ Nada de eso distingue "está escrito" de "se ejecuta", así que la parte E del l
 migradas de verdad** y cuenta lo que dejaron en la raíz de `%TEMP%`, filtrando por el PID del
 proceso hijo. Es la única de las comprobaciones que mide la propiedad sin intermediarios.
 
-Cubre **cinco de las ocho suites ejecutables**. El denominador es ocho y no nueve: nueve usan el
-helper, pero la novena es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio**
-—se llamaría a sí misma en recursión—, así que su exclusión es estructural, no económica.
+Cubre **cinco de las doce suites ejecutables**. Trece usan el helper (contadas el 2026-09-16, con `run-all`), pero
+una es `temp-hygiene` misma, y la parte E no puede ejecutarla **a ningún precio** —se llamaría a sí
+misma en recursión—, así que su exclusión es estructural, no económica. Cuando se eligieron las
+cinco eran nueve y ocho ejecutables; `normalized-hash`, `run-all`, `skills-lock` y `slice-review` llegaron
+después y no están en la medición de abajo.
 
 La elección de las cinco es por costo medido (2026-09-02, **una** corrida por suite): `apply-env`
 4,5 s, `export-shareable` 9,3, `gen-mcp-json` 9,5, `copy-scaffold` 19,9, `alignment-gate` 21,1 —
@@ -80,14 +105,14 @@ contra `review-loop-docs-gate` 142,9, `review-loop-trigger` 258,2 y `review-mark
 la letra; la decisión sí es robusta bajo las dos mediciones, porque entre los dos grupos hay un
 orden de magnitud. Las ocho suman 724 s y **tres son el 91 % del costo**: correr las ocho llevaría
 `temp-hygiene` por encima de los 10 minutos — que son el techo de la **tool** con la que se la
-corre, no un timeout configurado en el repo (acá no hay CI ni runner) — y una suite que no se corre
+corre, no un timeout configurado en el repo (acá no hay CI, y `tests/run-all.ps1` no pone timeout) — y una suite que no se corre
 no es una red. Las tres caras quedan cubiertas sólo por los chequeos estáticos, que es
 estrictamente menos.
 
-⚠️ Meter `export-shareable` en la parte E hace que correr `temp-hygiene` **escriba transitoriamente
-en el árbol del repo**: esa suite crea un `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture y lo
-borra en un `finally` que no corre si el proceso muere antes. Queda declarado, y el residuo se
-verifica con un assert explícito después del foreach en vez de confiar en el `finally`.
+Historia: `export-shareable` escribía un `skills/bootstrap-ai-project/LEAK-TEST.md` de fixture en
+el árbol del repo. Ya no: arma el señuelo en una copia hermética de la fuente y afirma ella misma
+que no quedó ninguno en el repo. El assert de residuo que `temp-hygiene` corre después del foreach
+quedó como red redundante.
 
 La parte E también mide el **camino no feliz**, sobre suites de juguete: una que falla (limpia y
 sale con `exit 1`) y una que aborta (`throw`, con el trap puesto). Las dos tienen que dejar cero
@@ -139,7 +164,7 @@ una tercera invocación. Es el mismo salto que ya se había hecho de grep a toke
 El chequeo del dot-source **no busca algo que se parezca** a `lib/temp-workspace.ps1`: admite un
 conjunto cerrado de formas y rechaza todo lo demás.
 
-1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las ocho suites migradas.
+1. `. (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")` — lo que usan las otras doce suites.
    El separador `/` también se acepta: es el mismo archivo.
 2. `$lib = Join-Path $PSScriptRoot "lib\temp-workspace.ps1"` + `. $lib` — sólo `temp-hygiene`, que
    necesita el path después. La variable tiene que asignarse **una sola vez fuera de toda función**,
@@ -150,7 +175,14 @@ conjunto cerrado de formas y rechaza todo lo demás.
    propio y no pisa nada, pero acá cuenta igual, a propósito: sobre-aproximar hacia el rojo sobre
    una grafía que nadie escribe es el lado correcto del error.
 
-**Todos** los dot-sources del archivo tienen que ser canónicos, no "al menos uno", y ninguno puede
+3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — **no** importa el helper: carga una
+   herramienta de `tools/` (hoy `normalized-hash.tests` y `skills-lock.tests`, las dos
+   `tools/normalized-hash.ps1`; `skills-lock.ps1` se corre como subproceso). Mismo molde que la
+   forma 1, con el relativo anclado: un solo `..`, directo en `tools`. Sólo se admite **después** del
+   import del helper, y se rechaza si la herramienta no existe o redefine una función del helper
+   (`Get-RedefinicionesEnTools`).
+
+**Todos** los dot-sources del archivo tienen que ser de una de estas formas, no "al menos uno", y ninguno puede
 estar dentro de un `if`, `switch`, `try`, `trap`, loop, una función, **un scriptblock cualquiera**
 (`& { … }`, `ForEach-Object { … }`) ni a la derecha de un `&&`/`||`. El dot-source va en el cuerpo
 del script, suelto.
@@ -171,7 +203,7 @@ scope es el helper de verdad?"), y esa pregunta sólo se responde exacto en runt
 mano en `Test-ImportaElHelper`. Es el rojo que se quiere. Y ojo con el alcance: la regla es "**ningún**
 dot-source que no sea el canónico", así que si sumás un segundo helper bajo `tests/lib/`, cada suite
 que lo dot-sourcee da rojo — el chequeo es por archivo, así que sólo caen las que lo usen, no todas.
-Mover `lib/` de lugar sí rompe las nueve a la vez, porque cambia el path canónico para todas.
+Mover `lib/` de lugar sí rompe las trece a la vez, porque cambia el path canónico para todas.
 
 El lint recorre **todos** los `.ps1`, `.psm1` y `.psd1` bajo `tests/`, recursivo y **con `-Force`**.
 Antes miraba la raíz más `tests/lib/**`, y ya existía un directorio afuera de eso
@@ -197,7 +229,7 @@ omitía las seis que sí lo son — un borde mal declarado manda a buscar donde 
 | `foreach ($lib in @('C:\stub.ps1')) { }` | deja la variable con el último valor y no es un `AssignmentStatementAst` |
 | `Set-Variable -Name lib -Value ...` | tampoco es una asignación en el AST |
 | `$script:lib = ...` | en el cuerpo del script **es** `$lib`, pero su `UserPath` es `script:lib` |
-| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las ocho |
+| `$PSScriptRoot = 'C:\fake'` | `$PSScriptRoot` no es de sólo lectura; rompe la forma 1, la de las doce |
 | `function global:New-TestRunRoot { }` | el `Name` del AST guarda el prefijo de scope |
 | `Import-Module <stub.psm1>` desde fuera de `tests/` | no es un dot-source |
 
@@ -213,8 +245,12 @@ el probe corre.
 
 **El borde no desaparece, se ACHICA.** La parte F cubre las **cinco suites baratas** (la misma lista
 que la parte E, por el mismo techo de 10 min; las tres caras miden 142,9 / 258,2 / 258,8 s, §2026-09-02
-arriba). Las **tres suites caras** y `temp-hygiene` misma siguen sólo con el chequeo estático de
-arriba, así que la tabla sigue describiendo su borde real sobre esas cuatro.
+arriba). Las **otras siete** que importan el helper y `temp-hygiene` misma siguen sólo con el chequeo
+estático de arriba, así que la tabla sigue describiendo su borde real sobre esas ocho.
+
+`Get-RedefinicionesEnTools` (la guarda de la forma 3) mira **un solo nivel**: no sigue los
+dot-sources que la herramienta haga a su vez, y a `tools/` no le aplica el lint de `%TEMP%`, que
+barre sólo `tests/`.
 
 Qué EJECUTA F2 como control y qué cubre por deducción, sin sobreafirmar:
 
@@ -280,6 +316,73 @@ map first`). El ciclo es:
 El paso 3 es donde un humano mira `git diff tests/fixtures/step0b.golden.md` y decide. Regrabar sin
 mirar el diff es la única forma de sellar un bug, y por eso el golden no se edita a mano nunca.
 
+## Los goldens de párrafo (`tools/reseal-goldens.ps1`)
+
+Mismo instrumento, grano más chico: párrafos sueltos que viven en varias copias y tienen que decir
+exactamente lo mismo en todas. Son tres fixtures, todos generados —nunca editados a mano— por
+`tools/reseal-goldens.ps1` (con `-Check`, que no escribe y sale 1 si alguno quedó desactualizado):
+
+| fixture | qué congela | copias | quién lo compara |
+|---|---|---|---|
+| `step2-parrafos.golden.md` | los dos párrafos del Step 2 del `SKILL.md`: la frase que manda verificar la copia y el del reporte JSON con la orden de reportar `overwritten` (ADR-0007) | las 3 skills | `mirror.tests.ps1` |
+| `techo-ai-development-workflow.golden.md` | el párrafo del techo de `AI_DEVELOPMENT_WORKFLOW.md` | repo + 3 scaffolds | `techo-del-slice.tests.ps1` |
+| `techo-deployment-rules.golden.md` | el párrafo del techo de `DEPLOYMENT_RULES.md` | repo + 3 scaffolds | `techo-del-slice.tests.ps1` |
+
+Los tres existen por lo mismo que el del Step 0b, y se midió en cada caso: como anclas de presencia,
+los párrafos del Step 2 pasaban en verde con el cuerpo vaciado dejando el prefijo anclado, y mudados
+a un apéndice; el del techo pasaba en verde reescrito con otras palabras en las 4 copias a la vez.
+El del Step 2 se compara **acotado a la sección** `## Step 2 ` (con el espacio final) —que es lo
+que ataja la mudanza, y por eso el encabezado tiene que aparecer una sola vez: uno señuelo puesto
+antes del real sellaba una copia decorativa y dejaba el procedimiento verdadero libre— y verifica
+**membresía y orden**. El orden va en los dos lados: la suite y el reseal arman la lista iterando
+las anclas, no el documento, así que sin él un intercambio de los dos párrafos dejaba la suite roja
+por su assert de orden y al reseal certificando el mismo documento con un "sin cambios".
+Si el reorden es **deliberado**, el reseal no alcanza: hay que reordenar las dos listas de anclas
+—`$anclas2` en `tests/mirror.tests.ps1` y `anclas` en `tools/reseal-goldens.ps1`— y recién después
+re-grabar.
+
+Lo que un golden hace y lo que no: **no impide** la reescritura, la vuelve visible. Re-grabar en el
+mismo commit deja la suite verde, y es a propósito — el reseal es el paso donde un humano mira el
+diff. Y congela **ese párrafo**, no el documento: agregar en otra parte del archivo una frase que lo
+contradiga sigue pasando (medido), y lo mismo cualquier cosa que neutralice los párrafos sin tocar
+sus líneas: un fence o un `<div style="display:none">` con los delimitadores en líneas propias, o
+una negación en la línea de arriba o de abajo. La excepción son los comentarios HTML, que ataja un
+assert aparte sobre el **archivo entero** —acotarlo a la sección lo esquivaba abriendo el `<!--`
+una línea más arriba—. El resto
+queda declarado en el comentario del bloque: cerrarlo pediría congelar la sección entera, y el
+Step 2 diverge legítimamente entre variantes. Para el techo están además las mitades negativas de
+`techo-del-slice.tests.ps1`, que a su vez solo cubren la redacción vieja concreta.
+
+## Testeo de la regla del techo del slice (`techo-del-slice.tests.ps1`)
+
+Corre con `pwsh -NoProfile -File tests/techo-del-slice.tests.ps1`. Existe porque `mirror.tests.ps1`
+tiene `assets/scaffold/CLAUDE.md` en su allowlist —los cuatro divergen legítimamente entre
+variantes—, así que **ninguna suite miraba el bullet del techo**: los 4 `CLAUDE.md` podían
+separarse entre sí, y la regla podía cambiar sin que sus ejecutores la siguieran. Que es
+exactamente lo que pasó (ADR-0008). Cubre:
+
+- **La regla en los 4 `CLAUDE.md`** y en los **5 sitios que la ejecutan** (el pre-flight de
+  `/review-loop`, el paso "Close the slice" de `tdd`, el pre-flight de `/slice-review`, y los dos
+  docs de `docs/ai-workflow/`), cada uno en sus 4 copias. Cada sitio se verifica con las **dos**
+  mitades: la cláusula nueva tiene que estar y la instrucción vieja que la contradice no. Ojo: las
+  mitades negativas están ancladas a la **redacción vieja concreta**, no a la semántica — una
+  reescritura equivalente las esquiva, y por eso los dos sitios de `ai-workflow` tienen además su
+  golden (arriba).
+- **La tabla de medición del ADR-0008 contra `git`**: los 8 números, que las filas sean exactamente
+  los 8 commits del rango **y en orden**, y que ninguna fila sea un rango. Sacar el número de la
+  prosa fue lo que cortó un ciclo de seis versiones del mismo párrafo con seis atribuciones falsas.
+- **Las citas del ADR al handoff**, de los dos lados: que el ADR siga citando cada ancla y que el
+  handoff la resuelva **una sola vez**. La skill `session-handoff` prepende un bloque por sesión, así
+  que un título repetido rompe la cita en silencio; con este chequeo se rompe en rojo.
+
+**El guard de rangos acumulados es un ALAMBRE DE TROPIEZO declarado, no una prueba.** Se lo ensanchó
+turno tras turno y cada ronda de mutación encontró formas nuevas de esquivarlo, que es el mismo
+patrón que este repo ya midió antes: parchar un guard de superficie no converge. Así que el match
+congelado y el bloque **declara** qué caza y qué no —incluido un falso negativo aceptado a
+propósito—. Leé esa lista antes de "arreglarlo": ensancharlo otra vez es reintroducir falsos
+positivos que ya se midieron (un rango de fechas en la primera celda, una fila legítima que describe
+una base, la blockquote de retractación que cita la fila mala a propósito).
+
 ## Testeo de `upgrade-bootstrap`
 
 La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no con skill-creator), porque su lógica vive en los scripts `compare-scaffold.ps1` y `reseal-manifest.ps1`. Casos de regresión:
@@ -287,7 +390,7 @@ La skill que actualiza proyectos ya bootstrapeados se testea con fixtures (no co
 1. **Manifest + desactualizado-no-tocado** — proyecto con `.bootstrap-manifest.json` y un archivo cuyo hash actual == base pero != canónico → debe clasificar `outdated` (seguro de actualizar).
 2. **Manifest + personalizado** — archivo cuyo hash actual != base → debe clasificar `customized` (no pisar).
 3. **Legacy sin manifest** — proyecto bootstrapeado con la versión vieja (sin manifest): `hasProjectManifest=False`, detecta `missing` (los 2 de `review-loop`, y ahora también `.claude/hooks/alignment-gate.ps1`) y `customized` los que difieren; tras aplicar, siembra el manifest.
-4. **Al día** — proyecto recién bootstrapeado: `missing/outdated/customized` vacíos, `uptodate` == 48.
+4. **Al día** — proyecto recién bootstrapeado: `missing/outdated/customized` vacíos, `uptodate` == la cantidad de entradas del manifest (hoy 53; el número crece con cada archivo que se suma al scaffold, así que se compara contra el manifest, no contra un entero fijo).
 
 Los fixtures determinísticos para los casos 1-2 y el re-sellado están en el plan `docs/superpowers/plans/2026-06-10-upgrade-bootstrap-skill.md` (Tasks 4-5); los casos 3-4 corren contra el scaffold instalado (Task 8).
 
@@ -484,8 +587,12 @@ El script del hook y `merge-settings.ps1` se testean con fixtures determinístic
 - **Dedupe por SHA** — segundo disparo sobre el mismo commit no emite; tras un commit nuevo vuelve a disparar. Sigue funcionando bajo una ruta con corchetes (`-LiteralPath`).
 - **Base dinámica** — estar en la base no dispara; `gh pr create --base develop` usa `develop` (no hardcodea `main`).
 - **Merge de settings** — `settings.json` ausente → copia el canónico; preexistente propio (p. ej. con `enabledPlugins`) → agrega el hook sin pisar lo demás; correrlo dos veces no duplica la entrada.
+- **Despacho por herramienta** (issue 21) — el sujeto es el `matcher` del `PostToolUse` de `settings.json`, porque el hook no mira `tool_name`. Un cierre declarado desde la herramienta **PowerShell** despacha; desde **Bash** sigue despachando; `Edit` no despacha (mata un matcher perezoso `.*`). Más dos invariantes de config: el matcher es idéntico en las **4 raíces** y es exactamente `Bash|PowerShell` (con `-ceq`, porque `-Unique` atrapa que UNA raíz difiera, no que las cuatro tengan el mismo error de tipeo), y el del **alignment-gate** sigue en `Edit|Write|MultiEdit` en las cuatro, para que ensanchar uno no arrastre al otro.
 
 **Lo que este archivo de tests NO cubre** (verificado por mutación, no inferido):
+
+- La **gramática de PowerShell** en `Hide-Literals`: el matcher ensanchado le entrega al hook comandos de PowerShell, pero el parser sigue leyendo comillas de bash, donde `\` escapa. Medido en el review del issue 21: un `git -C "C:\repo\" commit` con cierre declarado **no dispara**; tampoco `Set-Location "C:\tmp\"; git commit` ni `"$env:REPO\"`. Con comillas simples, sin comillas, o con `$(`/backtick en la línea, sí dispara. Es el **issue 24**: los dos fixes obvios (recomputar sobre el comando crudo, o una segunda pasada con gramática de PowerShell) se probaron en el review y ponen en rojo los fixtures de falso positivo del propio archivo.
+- El **despacho real**: estos casos simulan el matcher de Claude Code con `[regex]::IsMatch` anclado. Que el matcher real sea anclado y case-sensitive está **medido** (12 matchers de sonda, dos corridas de `claude -p`, 2026-09-19), pero la suite no lo vuelve a medir: si Claude Code cambiara esa semántica, estos casos seguirían verdes.
 
 - La **resolución de la base** por `origin/HEAD` con rama local ausente: ningún fixture tiene remote, así que ese camino nunca corre. (El camino por `gh repo view` se **eliminó** en A2b — era una llamada de red por commit delante del fallback local.)
 - Que el fold de opciones globales cubra algo más que `-C`: `--git-dir`, `--work-tree`, `-c`, `--no-pager` y `--paginate` están en el patrón pero no tienen fixture. Sólo afecta al reconocimiento del disparador (que un `git --git-dir=x push` se lea como push); ya no hay atribución que pueda equivocarse con ellos.
@@ -533,7 +640,7 @@ Casos cubiertos:
 - **Delta neto vacío dispara** — vacío no es sólo-docs.
 - **Fail-open** con rango irresoluble, y **con un untracked `.md` presente**: sin ese segundo caso, sacar el guard del exit code del `git diff` quedaba tapado por el guard de colección vacía.
 - **Renames** — mover código a un nombre `.md` sigue disparando. Lleva control positivo de que git está **detectando** el rename (si no lo detectara, el caso no distinguiría un hook con `--no-renames` de uno sin él).
-- **La prosa de los 4 `CLAUDE.md` coincide con el clasificador** — `$govern` se **lee del hook** y las rutas esperadas se **derivan** de él, en vez de hardcodearlas: hardcodeadas, **reemplazar** una alternativa del clasificador sin tocar la prosa no lo detecta nadie (medido: cambiar `(^|/)docs/agents/` por `(^|/)docs/` cae en rojo con la derivación y queda **verde** sin ella). *Agregar* una alternativa, en cambio, no distingue las dos variantes: cae en rojo con y sin derivación, porque ahí ya muerde el assert de las 5 alternativas. Se fija que tenga 5 alternativas, que **todas** estén ancladas `(^|/)`, que se encuentren los **4** archivos, que cada uno tenga **exactamente un** bullet de review-loop (recortado del texto crudo por su encabezado, y cortando sólo en un bullet de primer nivel: juntando las líneas que mencionen el hook, una mención de otra sección satisfacía el assert desde afuera, y cualquier reflow o sub-lista daba rojo diciendo que faltaban rutas que sí estaban), que las rutas aparezcan **dentro de la lista entre paréntesis** (sobre el bullet entero, `docs/` está nombrado en la frase que dice lo contrario, así que una alternativa `docs/` habría quedado anclada por la frase que la niega), y que la **dirección** de la regla esté escrita — sin ese último assert la prosa podía invertirse y volver a declarar el bug de la v1 quedando en verde.
+- **La prosa de los 4 `AI_DEVELOPMENT_WORKFLOW.md` coincide con el clasificador** — `$govern` se **lee del hook** y las rutas esperadas se **derivan** de él, en vez de hardcodearlas: hardcodeadas, **reemplazar** una alternativa del clasificador sin tocar la prosa no lo detecta nadie (medido: cambiar `(^|/)docs/agents/` por `(^|/)docs/` cae en rojo con la derivación y queda **verde** sin ella). *Agregar* una alternativa, en cambio, no distingue las dos variantes: cae en rojo con y sin derivación, porque ahí ya muerde el assert de las 5 alternativas. Se fija que tenga 5 alternativas, que **todas** estén ancladas `(^|/)`, que se encuentren los **4** archivos — desde `54d7d1b` el mecanismo ya no vive en el `CLAUDE.md` sino en el doc del flujo, y que el `CLAUDE.md` conserve la regla y el puntero lo verifica `tests/dieta-del-claude-md.tests.ps1` —, que cada uno tenga **exactamente una** sección `### What fires the loop, and over what` (recortada del texto crudo por su encabezado, no juntando las líneas que mencionen el hook: juntando por palabra, una mención de otra sección satisfacía el assert desde afuera). El corte llega hasta el próximo encabezado de nivel **`##` a `####`** (`^#{2,4}\s`): un `#` de nivel 1, o un `#####`, **no** lo cierran. A diferencia del corte por bullet anterior, un **reflow del párrafo ya no lo parte** (ahí alcanzaba un `markdownlint --fix`); lo que sí lo cierra antes de tiempo es una **sub-sección nueva metida en el medio**, y entonces da rojo diciendo que faltan rutas que sí están — falla nombrándose. El `\r?` del ancla de fin de línea no es decorativo: estos archivos van en CRLF y el `$` de .NET ancla sólo ante `\n`, así que sin él la sección no matchea nunca y el guard da 0. Después, que las rutas aparezcan **dentro de la lista entre paréntesis** (sobre la sección entera, `docs/` está nombrado en la frase que dice lo contrario, así que una alternativa `docs/` habría quedado anclada por la frase que la niega), y que la **dirección** de la regla esté escrita — sin ese último assert la prosa podía invertirse y volver a declarar el bug de la v1 quedando en verde. Ese assert ancla la **cláusula entera**, así que queda acoplado a su puntuación exacta: un reflow del em-dash **sí** da rojo ahí, con otro mensaje.
   Límite conocido de la derivación: sólo deshace el ancla `(^|/)`, el `$` final y el escape `\.`. Una alternativa que no sea una ruta literal deja este assert en **rojo permanente** — hay que tocar la derivación, no la prosa.
 - **Controles positivos** en `Commit-Files`, `Add-Marker` (que el commit se creó) y `Advance-Marker` (que cortó marcador de verdad): sin ellos, un `commit.gpgsign` global no neutralizado o un `advance` que no avanza dejan los casos midiendo otra cosa, en verde.
 
@@ -550,7 +657,7 @@ Casos cubiertos:
 
 ## Testeo de `gen-mcp-json` (MCP por área)
 
-El generador del `.mcp.json` por proyecto (`scripts/gen-mcp-json.ps1`, uno por skill) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/gen-mcp-json.tests.ps1` (corre ambos scripts como subproceso y verifica `.mcp.json` + el resumen JSON de stdout). Cubre: happy path personal y southpoint, ninguna selección (no escribe archivo), clave inválida por área (`no-existe`, y `zoho-personal` rechazada en southpoint), no pisar sin `-Force`, y `-Force` sobrescribe. Los secretos quedan como literales `${VAR}`.
+El generador del `.mcp.json` por proyecto (`scripts/gen-mcp-json.ps1`, uno por skill) se testea con un runner sin Pester: `pwsh -NoProfile -File tests/gen-mcp-json.tests.ps1` (corre los tres scripts como subproceso y verifica `.mcp.json` + el resumen JSON de stdout). Cubre: happy path personal, southpoint y shareable; ninguna selección (no escribe archivo); clave inválida por área (`no-existe`, y `zoho-personal` rechazada en southpoint y en el catálogo compartible); no pisar sin `-Force`, y `-Force` sobrescribe; el `--dir` de Firebase y su alcance por proyecto (sin bloque `env`); y el barrido anti-fuga: un catálogo envenenado que verifica que el detector muerde por donde debe, un control negativo que verifica que no da falsos positivos sobre la forma legítima de un header autenticado (`Bearer ${VAR}`) y su reverso (`Bearer <literal>` sí es fuga), y el invariante de que la lista de servidores se deriva del catálogo real, ninguno queda sin inspeccionar y ningún campo viaja sin tratamiento. Los secretos quedan como literales `${VAR}`.
 
 Evals manuales del flujo del bootstrap (corridos 2026-06-11, ambos OK):
 
@@ -558,6 +665,140 @@ Evals manuales del flujo del bootstrap (corridos 2026-06-11, ambos OK):
 2. **`.mcp.json` preexistente** — sembrar `{"mcpServers":{"MIO":{}}}` y correr `gen-mcp-json.ps1` southpoint con `-Servers domo` sin `-Force` → exit ≠ 0 y `MIO` intacto (no se pisa).
 
 Los workspaces temporales se borran al terminar cada eval.
+
+## Testeo de la recuperación de bases de skills
+
+`pwsh -NoProfile -File tests/recover-skill-bases.tests.ps1` — envuelve el self-test offline de
+`tools/recover-skill-bases.py` (149 aserciones sobre un repo de git sintético, sin red). Antes ese
+self-test existía y **no lo corría nadie**: quedaba fuera de toda corrida de tests.
+
+El envoltorio no re-verifica lo que el self-test ya verifica. Asserta las dos puntas que el exit
+code solo no cubre:
+
+- que la **línea de resumen exista** (`SELF-TEST: N ok, N fail (de N)`) — un self-test que sale 0
+  sin correr nada daría verde vacío, la trampa clásica de este repo;
+- que el total de aserciones sea **exactamente** el declarado (`$ExpectedChecks`), que es lo único
+  que muerde a un mutante que borra checks. No es un piso: con `-ge` la holgura se acumula en
+  silencio y se pueden borrar tantos asserts como holgura haya (ya pasó: quedó en 59 con el
+  self-test en 62). El número se actualiza a mano al agregar **o quitar** un check: es revisión
+  humana sobre un archivo que se commitea, el mismo costo aceptado que el allowlist del detector
+  anti-fuga.
+
+Verificado con mutantes, cada uno con su falla vista: desempate invertido (3 fallas), un assert
+borrado (1 falla, y es la del total exacto), el resumen suprimido (2 fallas), tres del guard de `--skill`
+(carpeta sin `SKILL.md`, mensaje de stderr borrado, y un guard que rechaza todo), el contador
+`missingLocally` con el predicado invertido, y los tres de la escritura de `--out` (sin escritura
+atómica el reporte bueno queda destruido; sin la rama de la raíz inexistente el motivo miente; sin
+la limpieza queda un `.tmp` huérfano). El detalle de qué cubre el self-test está en
+`docs/agents/recuperar-base-de-skills.md`.
+
+## Testeo de la dieta del `CLAUDE.md` (`tests/dieta-del-claude-md.tests.ps1`)
+
+`pwsh -NoProfile -File tests/dieta-del-claude-md.tests.ps1` — cubre el issue 14 del release
+`bootstrap-v2`: el mecanismo del review-loop y del `alignment-gate` vive en
+`docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` (secciones 7 y 1) y en el `CLAUDE.md` queda la regla
+más un puntero. Mira las **4 raíces** (el repo y los 3 scaffolds) y tiene dos mitades: la
+**positiva** — el mecanismo está completo en el doc — y la **negativa** — el `CLAUDE.md` ya no lo
+cachea —. Sin la negativa la dieta se revierte sola en el primer turno que "aclare" algo y nada se
+pone rojo; sin la positiva el mecanismo se puede borrar del doc y el puntero queda apuntando a nada.
+
+Además mira el **pipeline de reglas de `/slice-review`** (el Step 3, el foco de Reglas y el scorer):
+desde la dieta hay reglas que viven solo en el doc, así que esos puntos de decisión tienen que
+aceptarlo como fuente de reglas, no solo el `CLAUDE.md`.
+
+Lo que hay que saber antes de editarla, porque tres turnos de review lo midieron:
+
+- **Ancla el payload cuando el payload es un token, derivado de su fuente.** Las rutas salen de
+  `$govern` del `review-loop-trigger`; los disparadores (`gh pr create`, `git push`,
+  `Slice-Close:`, el techo `400`), de las líneas del mismo hook que los deciden; los prefijos libres,
+  del array de `Is-NonCode` del `alignment-gate`; los focos de `light` y el nombre del rigor por
+  defecto, de la tabla de Rigor de la skill del loop. Los tripwires literales murieron tres veces:
+  anclando la lista entre paréntesis (una re-redacción con dos puntos pasaba en verde), exigiendo
+  backticks (escribir las rutas sin ellos pasaba en verde) y exigiendo la barra final (escribir
+  `.agents` en vez de `.agents/` pasaba en verde). Por eso las rutas se buscan **desnudas** y, en
+  las negativas, con la barra opcional y con bordes (`Patron-Ruta`): sin bordes, `.agents\.agents`
+  del `CLAUDE.md` del repo y `/grill-with-docs` daban falsos positivos.
+- **Las aridades de los pisos se escriben una sola vez** (`$N_RUTAS`, `$N_PREF`, `$N_DISP`) y los
+  guards compuestos se **anidan**: con el literal repetido, bumpear una copia y olvidar la otra
+  apagaba 8 asserts sin un solo rojo.
+- **Un puntero `§ N` se verifica por contención**: el `##` que domina la subsección mudada tiene que
+  ser el de esa sección. Que la subsección exista no alcanza: moverla a otra sección dejaba los
+  punteros mintiendo con la suite verde.
+- **La lista del doc se COMPARA con la del hook, en los dos sentidos.** Comparar solo la aridad
+  dejaba pasar un swap (`.scratch/` → `.tmp/` en las 4 raíces dejaba todas las suites en verde).
+- **La dirección de una regla se mide sobre el texto aplanado** (espacios colapsados, énfasis
+  quitado) y cubriendo la conjugación: anclar solo `runs` dejaba pasar *"does not refrain from
+  **running** the grill on its own"*, que es la misma inversión en gerundio con doble negación. El
+  lookbehind acepta cualquier negación pegada (`never`, `not`, `n't`, `no`): con `never` solo,
+  *"does not run the grill on its own"*, que dice lo correcto, daba un rojo espurio.
+- **El anidamiento de un encabezado se mide por el encabezado que DOMINA la línea**, no por si cae
+  dentro de un recorte: ponerle un `####` propio al checklist del reviewer y meterlo adentro de la
+  sección de disparo lo sacaba del recorte y dejaba el assert en verde con el checklist igual de
+  anidado.
+- **Límites conocidos, declarados en la cabecera de la suite.** Cuando el payload es una **frase**,
+  derivarlo no compra nada: protege contra que cambie, no contra que se parafrasee. Por eso no lo
+  caza nada de acá: re-cachear el mecanismo en el `CLAUDE.md` con otras palabras y sin ningún token
+  (`$mec` es un tripwire literal, y dos paráfrasis medidas lo dejan verde); borrar *"Work in feature
+  branches per slice"* de la sección 7; una inversión del gate que no diga *"on its own"*, o con la
+  negación separada del verbo; re-atar al `CLAUDE.md` una oración del pipeline de reglas que no
+  esté en las ocho ventanas de decisión que la suite mira por raíz; y una oración que excluya el doc
+  sin nombrar su ruta (*"a rule found only in the workflow doc scores 0-39"*).
+- **Una ventana de decisión se mide oración por oración, no entera.** Con la positiva sola (la ruta
+  del doc aparece en la ventana), re-atar al `CLAUDE.md` otra oración de la misma ventana, o
+  excluir el doc después de nombrarlo, dejaba la suite verde: la ventana de un agente es la sección
+  entera y una mención alcanzaba. Por el mismo motivo, los disparadores se buscan en el **párrafo**
+  del PR y no en la sección: el `400` aparece dos veces, y borrar la oración de la red de seguridad
+  quedaba verde por la segunda mención.
+
+## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
+
+`pwsh -NoProfile -File tests/normalized-hash.tests.ps1` — cubre el módulo M1 del release
+`bootstrap-v2`: la **forma canónica** de hashear contenido del repo, que los cálculos crudos hoy
+replicados en `gen-manifest`, `compare-scaffold` y `reseal-manifest` —más las dos variantes
+normalizadas de `NormHash`— todavía **no** usan (migrarlos es un slice aparte, issue 03). Existe porque el hash con el que se sellan los manifests se calculaba sobre los bytes crudos, o
+sea sobre cómo el checkout de cada máquina escribió los fines de línea, y un manifest sellado en una
+máquina reportaba drift falso en otra (memoria `bug-autocrlf-manifests-hashes-mixtos`). El contrato:
+**sha256 hex minúscula de los BYTES del contenido con las secuencias de fin de línea (CRLF y CR)
+unificadas a LF.** La normalización opera sobre bytes vía Latin1 (biyección byte↔char) y **no
+decodifica a texto**: decodificar haría desaparecer un BOM y colapsaría dos bytes inválidos en
+`U+FFFD`, la pérdida silenciosa que ADR-0007 midió y rechazó. El BOM y la corrupción son drift real
+y **sí** cuentan; lo único que se trata como ruido es el fin de línea.
+
+Tres trampas de este repo que el archivo evita a propósito:
+
+- **Asertar solo "igual" y "distinto" no fija el algoritmo.** Una función que devolviera sha1, o que
+  hasheara la longitud, pasaría todos los pares igual/distinto. Por eso hay **literales hex
+  congelados** (calculados con `hashlib.sha256` de Python, fuera de la función bajo prueba) contra
+  los que se compara directo.
+- **Un normalizador que BORRA los saltos pasaría toda la batería de CRLF/LF.** Por eso se verifica
+  también que `ab` y `a<LF>b` sigan dando hashes **distintos**: la normalización unifica el salto,
+  no lo elimina.
+- **Un normalizador que decodifica a texto colapsa el BOM y los bytes inválidos.** Por eso se
+  verifica que un BOM (por las dos entradas) cambie el hash, y que dos secuencias de bytes inválidos
+  distintas no colapsen — el filo que `[IO.File]::ReadAllText` borraría.
+
+Casos cubiertos: los tres estilos de fin de línea colapsan al mismo hash (archivo y cuerpo); lo que
+NO se colapsa (contenido distinto, salto final, espacios al final, vacío vs. un salto, BOM, bytes
+inválidos); el algoritmo contra literales; `-Scope Body` (el frontmatter no cuenta, el cuerpo sí,
+sin frontmatter los dos alcances coinciden); las reglas del frontmatter (solo si arranca con `---`,
+cierre exacto `---`, un `----` no cierra, cierre en la última línea sin salto final, abierto sin
+cierre no recorta, un `---` en el medio no es delimitador); los acentos como bytes UTF-8 y no como
+codepage; y que un archivo inexistente **tire** en vez de devolver el hash del vacío. Verificado con
+14 mutantes, cada uno con su falla vista salvo un equivalente declarado: 13 mueren (incluidos el que
+decodifica a texto en vez de bytes, el que rompe la rama del cierre en la última línea, y el que
+codifica la salida con UTF-8 en vez de Latin1); el 14.º —un mutante que evita `ReadAllBytes` para un
+archivo inexistente devolviendo un `[byte[]]` vacío por una rama `else`— es equivalente respecto de
+la aserción. No porque un `[byte[]]` vacío sea `$null` (no lo es: `GetString` sobre él devuelve `""`
+sin tirar), sino porque PowerShell **desenrolla el array vacío al salir del `if/else`**: el valor
+asignado queda en `$null`, y `GetString($null)` tira igual que el `Resolve-Path -ErrorAction Stop`
+del código real. El comportamiento observable —tirar ante un inexistente— no cambia, así que ningún
+test puede distinguirlos (verificado en `pwsh`: el array del `if/else` sale `$null`, `GetString($null)`
+lanza `Value cannot be null (Parameter 'bytes')`). El guard de conteo (`$ExpectedChecks`) muerde al mutante
+que borra un assert, con el número capturado **antes** de la llamada que lo verifica —PowerShell
+evalúa los argumentos antes de entrar a la función—, no `$ExpectedChecks + 1`, que pasaría en verde
+afirmando un número equivocado. El BOM se genera anteponiendo sus tres bytes a mano: `GetBytes`
+nunca emite el preámbulo, así que "generar con BOM" vía el flag del constructor daría los mismos
+bytes que sin BOM y el caso no probaría nada.
 
 ## Testeo de setup-mcp-workstation
 

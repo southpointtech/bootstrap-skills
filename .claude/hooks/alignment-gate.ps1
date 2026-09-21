@@ -1,7 +1,7 @@
 # Hook PreToolUse (matcher Edit|Write|MultiEdit). Frena el PRIMER Edit/Write de CODIGO de la sesion
 # y le ofrece al usuario alinear (grill) antes de codear. Speed bump: una sola vez por sesion
 # (dedup por session_id en .git/alignment-gate-state.json). Los archivos de NO-codigo (docs, *.md,
-# .scratch, .agents, .claude, configs, CONTEXT.md, CLAUDE.md, .gitignore) pasan SIEMPRE libres, asi
+# .scratch, .agents, .claude, configs, CONTEXT.md, CLAUDE.md, .gitignore, .gitattributes) pasan SIEMPRE libres, asi
 # alinear/documentar nunca se traba. Cualquier camino que no aplica termina en exit 0 silencioso.
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -28,7 +28,7 @@ function Is-NonCode($p, $cwd) {
     if ($rel.StartsWith('./')) { $rel = $rel.Substring(2) }
     $leaf = Split-Path $rel -Leaf
     if ($leaf -match '\.(md|json|ya?ml|toml)$') { return $true }
-    if (@('CONTEXT.md','CLAUDE.md','.gitignore') -contains $leaf) { return $true }
+    if (@('CONTEXT.md','CLAUDE.md','.gitignore','.gitattributes') -contains $leaf) { return $true }
     foreach ($d in @('docs/', '.scratch/', '.agents/', '.claude/')) {
         if ($rel.ToLower().StartsWith($d)) { return $true }
     }

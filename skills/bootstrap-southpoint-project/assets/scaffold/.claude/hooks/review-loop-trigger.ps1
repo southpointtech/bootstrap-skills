@@ -1,4 +1,4 @@
-# PostToolUse hook (Bash matcher). Injects into Claude the order to run /review-loop over the
+# PostToolUse hook (`Bash|PowerShell` matcher: the Bash tool and the PowerShell one). Injects into Claude the order to run /review-loop over the
 # unreviewed delta when a slice closes on a branch that is NOT the base. It fires on `gh pr create`,
 # on `git push`, and on a `git commit` that DECLARES the close with a `Slice-Close:` trailer — a
 # commit without the trailer fires only as a safety net, once the unreviewed delta passes the
@@ -415,7 +415,11 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     $body = ((git log -1 --format=%B 2>$null) -join "`n")
     if ($body -notmatch '(?m)^\s*Slice-Close:') {
         # Safety net: forgetting the trailer must not leave a huge slice unreviewed. If the
-        # UNREVIEWED delta is already over the ~400-line guide of CLAUDE.md, fire anyway.
+        # UNREVIEWED delta is already over the ~400-line guide, fire anyway. Mind the name: this
+        # is NOT the planning ceiling in CLAUDE.md (measured when the slice OPENS, and exempting
+        # what the loop itself adds). It asks a different question -- did this go unreviewed? --
+        # on a different basis: additions+deletions over the $skipPat from step 5b, which does not
+        # exclude .md. See ADR-0008.
         # `$range`, `$rangeKnown` and `$root` come from step 5b, which resolves them once for both
         # this net and the docs gate.
         # The marker's contract has three outcomes, and collapsing them is the bug it exists to

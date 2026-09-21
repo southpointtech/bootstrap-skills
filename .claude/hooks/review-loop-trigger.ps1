@@ -1,4 +1,4 @@
-# Hook PostToolUse (matcher Bash). Inyecta a Claude la orden de correr /review-loop sobre el delta
+# Hook PostToolUse (matcher `Bash|PowerShell`: la herramienta Bash y la de PowerShell). Inyecta a Claude la orden de correr /review-loop sobre el delta
 # sin revisar cuando se cierra un slice en un branch que NO es la base. Dispara en `gh pr create`,
 # en `git push`, y en un `git commit` que DECLARA el cierre con un trailer `Slice-Close:` — un
 # commit sin el trailer dispara sólo como red de seguridad, cuando el delta sin revisar pasa el
@@ -427,7 +427,10 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     $body = ((git log -1 --format=%B 2>$null) -join "`n")
     if ($body -notmatch '(?m)^\s*Slice-Close:') {
         # Red de seguridad: olvidarse del trailer no puede dejar un slice gigante sin revisar. Si
-        # el delta SIN REVISAR ya pasa el techo de ~400 líneas del CLAUDE.md, dispara igual.
+        # el delta SIN REVISAR ya pasa la guia de ~400 lineas, dispara igual. Ojo con el nombre: esta
+        # NO es el techo de planificacion del CLAUDE.md (que se mide al ABRIR el slice y exime lo
+        # que agrega el propio loop). Es otra pregunta —¿esto quedo sin revisar?— sobre otra base:
+        # altas+bajas con el $skipPat del paso 5b, que no excluye .md. Ver ADR-0008.
         # `$range`, `$rangeKnown` y `$root` vienen del paso 5b, que los resuelve una sola vez para
         # esta red y para el gate de docs.
         # El contrato del marcador tiene tres salidas y colapsarlas es el bug que existe para
