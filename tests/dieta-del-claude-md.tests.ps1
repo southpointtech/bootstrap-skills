@@ -318,6 +318,37 @@ foreach ($r in $raices) {
 Assert ($vistos -eq 16) "guard: se miraron los 16 consumidores (4 raices x 4 archivos): $vistos"
 
 Write-Host ""
+Write-Host "=== el pipeline de reglas de /slice-review lee tambien el doc del flujo ==="
+# El bloque de arriba mira a los que ENUMERAN la lista; estos son los que DECIDEN si una regla
+# cuenta: el Step 3 le pasa las fuentes de reglas al foco, el foco solo reporta lo que puede citar,
+# y el scorer baja lo que no existe "literalmente en un CLAUDE.md". Desde la dieta, la regla de que
+# `.md` es lo unico que cuenta como documentacion vive solo en el doc: atado al CLAUDE.md, el
+# pipeline descartaba un hallazgo real por regla inexistente. Se ancla el payload (la ruta del doc)
+# en la ventana de cada punto de decision, no en el archivo entero: SKILL.md ya nombra el doc en
+# otro lado. Limite: re-atar una OTRA oracion del pipeline al CLAUDE.md solo no lo ve.
+$DECISIONES = @(
+  @{ rel = ".agents\skills\slice-review\SKILL.md"; rx = '(?m)^- Paths of the .*$' },
+  @{ rel = ".agents\skills\slice-review\SKILL.md"; rx = '(?m)^For rule violations, .*$' },
+  @{ rel = ".claude\commands\slice-review.md";     rx = '(?m)^- Paths of the .*$' },
+  @{ rel = ".claude\commands\slice-review.md";     rx = '(?m)^For rule violations, .*$' },
+  @{ rel = ".claude\agents\slice-review-rules.md"; rx = '(?ms)^## Your focus\r?$.*?(?=^## |\z)' },
+  @{ rel = ".claude\agents\slice-review-scorer.md"; rx = '(?ms)^## Your focus\r?$.*?(?=^## |\z)' }
+)
+$vistas = 0
+foreach ($r in $raices) {
+  foreach ($p in $DECISIONES) {
+    $f = Join-Path $r.pre $p.rel
+    if (-not (Test-Path -LiteralPath $f)) { Assert $false "$($r.label): existe $($p.rel)"; continue }
+    $v = [regex]::Matches([IO.File]::ReadAllText($f), $p.rx)
+    Assert ($v.Count -eq 1) "$($r.label)/$($p.rel): guard: una sola ventana de decision (encontradas: $($v.Count))"
+    if ($v.Count -ne 1) { continue }
+    $vistas++
+    Assert ($v[0].Value -match [regex]::Escape($DOC)) "$($r.label)/$($p.rel): la decision sobre reglas incluye $DOC"
+  }
+}
+Assert ($vistas -eq 24) "guard: se miraron las 24 ventanas de decision (4 raices x 6): $vistas"
+
+Write-Host ""
 Write-Host "=== la seccion mudada no se come el checklist del reviewer ==="
 # El `###` nuevo se habia insertado DENTRO de la seccion 7, antes de "The reviewer must check:". En
 # markdown eso deja ese checklist colgando de una subseccion que habla de OTRA cosa (que dispara el

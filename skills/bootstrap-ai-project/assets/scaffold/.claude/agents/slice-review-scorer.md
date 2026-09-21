@@ -22,7 +22,7 @@ verify. `git` reads, greps and file reads are the whole toolbox.
 ## Your focus
 
 Check the claim against the **real code**, not against the diff alone and not against whether it
-sounds plausible. For a rule violation, confirm the rule literally exists in a `CLAUDE.md` before
+sounds plausible. For a rule violation, confirm the rule literally exists in a `CLAUDE.md` or in `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` before
 scoring it above the cutoff. Then answer the caller's three questions and say so in your verdict,
 remembering which of them the 0-100 number answers and which come back as separate verdicts.
 

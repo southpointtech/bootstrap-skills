@@ -135,7 +135,7 @@ Collect this and hand it to every reviewer, so none of them re-derives it:
   of the change and appear in no diff. A range or a `git` command is not enough: four of the five
   Step 4 agents carry no `Bash`, so they cannot run it and would review blind.
 - The list of changed files.
-- Paths of the relevant `CLAUDE.md` files: the root one, plus any in the directories touched.
+- Paths of the rule files: the relevant `CLAUDE.md` files (the root one, plus any in the directories touched) and `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`, which the `CLAUDE.md` declares required reading and where the mechanism behind its rules lives.
 - The slice's intent: the task/PRD/commit message it implements.
 
 Put this instruction verbatim at the top of that shared context, so every focus receives it **once**
@@ -179,7 +179,7 @@ audits that are pattern-matching against a file (`CLAUDE.md` rules, `git log`) d
 strongest model; the three that require reading logic and predicting failure do.
 
 1. **Bugs** *(most capable model)* — agent `slice-review-bugs`: real defects in the changed lines.
-2. **Project rules** *(lighter model)* — agent `slice-review-rules`: the change against the `CLAUDE.md` files.
+2. **Project rules** *(lighter model)* — agent `slice-review-rules`: the change against the rule files (the `CLAUDE.md` files and the workflow doc).
 3. **Historical context** *(lighter model)* — agent `slice-review-history`: `git log`/`git blame` on the modified regions.
 4. **Contracts and callers** *(most capable model)* — agent `slice-review-contracts`: callers, invariants, types, and unverified assertions.
 5. **Tests** *(most capable model)* — agent `slice-review-tests`: whether the changed logic is actually covered.
@@ -224,10 +224,10 @@ is not where to save tokens. Give it this rubric verbatim:
 - **70-89** — Likely. Strong evidence, small chance context elsewhere makes it moot.
 - **40-69** — Speculative. Plausible reading, but the reviewer did not prove it.
 - **0-39** — False positive: already handled elsewhere, misread code, out of scope for this diff,
-  or a rule the `CLAUDE.md` never actually states.
+  or a rule no rule file actually states.
 
 The scorer must check the claim against the real code, not just judge whether it sounds plausible.
-For rule violations, it must confirm the rule literally exists in a `CLAUDE.md`.
+For rule violations, it must confirm the rule literally exists in a rule file: a `CLAUDE.md` or `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`.
 
 **Score the FIX, not only the finding.** A finding can be perfectly true and its suggested fix still
 make the code worse. Alongside the rubric above, the scorer must answer three questions and say so in
