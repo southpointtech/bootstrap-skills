@@ -1,3 +1,37 @@
+# Session Handoff — 2026-09-21 (noche) — **Issue 14 INTEGRADO** en `feat/bootstrap-v2` (`7dbbf5f`, run-all verde 35 suites). Falta solo el push (lo hace el usuario).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, en `feat/bootstrap-v2` @ **`7dbbf5f`**,
+  árbol limpio, sin pushear (`origin/feat/bootstrap-v2` = `de6ab2e`, push fast-forward).
+  `slice/14-dieta-del-claude-md` (`5749ac8`) ya está contenida; se puede borrar.
+- **Repo** `main` @ commit de este handoff, sin pushear (`origin/main` = `dd3fdf6`). Untracked de
+  Codex: ajeno, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+- `feat/bootstrap-v2` avanzó por fast-forward de `bbec417` a `5749ac8` (el issue 14 completo).
+- El primer `run-all` dio **2 rojas reales** (`skills-lock`, `chicas-y-forks-propios`): `919f5ce`
+  editó `slice-review/SKILL.md` sin re-sellar `skills-lock.json` (hash viejo en las 4 copias). Ni el
+  review-loop ni las suites sueltas de la sesión anterior lo vieron.
+- **`7dbbf5f`**: re-sellado con `tools/skills-lock.ps1 -Action Seal` (movió solo ese hash) y los 3
+  manifests regenerados con `tools/gen-manifest.ps1 -SkillDir skills/bootstrap-<v>-project`.
+- `run-all` de nuevo: **VERDE, 35 suites, 0 rojas, 685 s**.
+
+## 2. Próximos pasos
+
+1. **Push (lo hace el usuario)**: `! gh auth switch -u southpointtech`, push de `feat/bootstrap-v2`
+   y de `main`, y volver a `MartinDele703`.
+2. Issue **18** (deploy/rollout, HITL). Fuera de v2: **23–26** en `needs-triage`, más la pregunta de
+   diseño de rule files (`DEPLOYMENT_RULES.md`/`QA_CHECKLIST.md`) y los 3 Low del 14 (ver abajo).
+
+## 3. Lo que la próxima sesión TIENE que saber
+
+- Lección: **editar una skill de `.agents/skills/` obliga a re-sellar `skills-lock.json`**; correr
+  al menos `skills-lock.tests.ps1` antes de cerrar un slice que toque skills, no solo las suites del tema.
+
+---
+
 # Session Handoff — 2026-09-21 (tarde) — **Issue 14 CERRADO POR TOPE**: turno 2 del loop (4 Medium arreglados en `5749ac8`) + pase de coherencia limpio. Falta integrar en `feat/bootstrap-v2`, `run-all` y push.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
