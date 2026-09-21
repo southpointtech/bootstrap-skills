@@ -640,7 +640,7 @@ Casos cubiertos:
 - **Delta neto vacío dispara** — vacío no es sólo-docs.
 - **Fail-open** con rango irresoluble, y **con un untracked `.md` presente**: sin ese segundo caso, sacar el guard del exit code del `git diff` quedaba tapado por el guard de colección vacía.
 - **Renames** — mover código a un nombre `.md` sigue disparando. Lleva control positivo de que git está **detectando** el rename (si no lo detectara, el caso no distinguiría un hook con `--no-renames` de uno sin él).
-- **La prosa de los 4 `AI_DEVELOPMENT_WORKFLOW.md` coincide con el clasificador** — `$govern` se **lee del hook** y las rutas esperadas se **derivan** de él, en vez de hardcodearlas: hardcodeadas, **reemplazar** una alternativa del clasificador sin tocar la prosa no lo detecta nadie (medido: cambiar `(^|/)docs/agents/` por `(^|/)docs/` cae en rojo con la derivación y queda **verde** sin ella). *Agregar* una alternativa, en cambio, no distingue las dos variantes: cae en rojo con y sin derivación, porque ahí ya muerde el assert de las 5 alternativas. Se fija que tenga 5 alternativas, que **todas** estén ancladas `(^|/)`, que se encuentren los **4** archivos — desde `54d7d1b` el mecanismo ya no vive en el `CLAUDE.md` sino en el doc del flujo, y que el `CLAUDE.md` conserve la regla y el puntero lo verifica `tests/dieta-del-claude-md.tests.ps1` —, que cada uno tenga **exactamente una** sección `### What fires the loop, and over what` (recortada del texto crudo por su encabezado, no juntando las líneas que mencionen el hook: juntando por palabra, una mención de otra sección satisfacía el assert desde afuera). El corte llega hasta el próximo encabezado de nivel **`##` a `####`** (`^#{2,4}\s`): un `#` de nivel 1, o un `#####`, **no** lo cierran. A diferencia del corte por bullet anterior, un **reflow del párrafo ya no lo parte** (ahí alcanzaba un `markdownlint --fix`); lo que sí lo cierra antes de tiempo es una **sub-sección nueva metida en el medio**, y entonces da rojo diciendo que faltan rutas que sí están — falla nombrándose. El `\r?` del ancla de fin de línea no es decorativo: estos archivos van en CRLF y el `$` de .NET ancla sólo ante `\n`, así que sin él la sección no matchea nunca y el guard da 0. Después, que las rutas aparezcan **dentro de la lista entre paréntesis** (sobre la sección entera, `docs/` está nombrado en la frase que dice lo contrario, así que una alternativa `docs/` habría quedado anclada por la frase que la niega), y que la **dirección** de la regla esté escrita — sin ese último assert la prosa podía invertirse y volver a declarar el bug de la v1 quedando en verde Ese assert ancla la **cláusula entera**, así que queda acoplado a su puntuación exacta: un reflow del em-dash **sí** da rojo ahí, con otro mensaje.
+- **La prosa de los 4 `AI_DEVELOPMENT_WORKFLOW.md` coincide con el clasificador** — `$govern` se **lee del hook** y las rutas esperadas se **derivan** de él, en vez de hardcodearlas: hardcodeadas, **reemplazar** una alternativa del clasificador sin tocar la prosa no lo detecta nadie (medido: cambiar `(^|/)docs/agents/` por `(^|/)docs/` cae en rojo con la derivación y queda **verde** sin ella). *Agregar* una alternativa, en cambio, no distingue las dos variantes: cae en rojo con y sin derivación, porque ahí ya muerde el assert de las 5 alternativas. Se fija que tenga 5 alternativas, que **todas** estén ancladas `(^|/)`, que se encuentren los **4** archivos — desde `54d7d1b` el mecanismo ya no vive en el `CLAUDE.md` sino en el doc del flujo, y que el `CLAUDE.md` conserve la regla y el puntero lo verifica `tests/dieta-del-claude-md.tests.ps1` —, que cada uno tenga **exactamente una** sección `### What fires the loop, and over what` (recortada del texto crudo por su encabezado, no juntando las líneas que mencionen el hook: juntando por palabra, una mención de otra sección satisfacía el assert desde afuera). El corte llega hasta el próximo encabezado de nivel **`##` a `####`** (`^#{2,4}\s`): un `#` de nivel 1, o un `#####`, **no** lo cierran. A diferencia del corte por bullet anterior, un **reflow del párrafo ya no lo parte** (ahí alcanzaba un `markdownlint --fix`); lo que sí lo cierra antes de tiempo es una **sub-sección nueva metida en el medio**, y entonces da rojo diciendo que faltan rutas que sí están — falla nombrándose. El `\r?` del ancla de fin de línea no es decorativo: estos archivos van en CRLF y el `$` de .NET ancla sólo ante `\n`, así que sin él la sección no matchea nunca y el guard da 0. Después, que las rutas aparezcan **dentro de la lista entre paréntesis** (sobre la sección entera, `docs/` está nombrado en la frase que dice lo contrario, así que una alternativa `docs/` habría quedado anclada por la frase que la niega), y que la **dirección** de la regla esté escrita — sin ese último assert la prosa podía invertirse y volver a declarar el bug de la v1 quedando en verde. Ese assert ancla la **cláusula entera**, así que queda acoplado a su puntuación exacta: un reflow del em-dash **sí** da rojo ahí, con otro mensaje.
   Límite conocido de la derivación: sólo deshace el ancla `(^|/)`, el `$` final y el escape `\.`. Una alternativa que no sea una ruta literal deja este assert en **rojo permanente** — hay que tocar la derivación, no la prosa.
 - **Controles positivos** en `Commit-Files`, `Add-Marker` (que el commit se creó) y `Advance-Marker` (que cortó marcador de verdad): sin ellos, un `commit.gpgsign` global no neutralizado o un `advance` que no avanza dejan los casos midiendo otra cosa, en verde.
 
@@ -691,6 +691,37 @@ borrado (1 falla, y es la del total exacto), el resumen suprimido (2 fallas), tr
 atómica el reporte bueno queda destruido; sin la rama de la raíz inexistente el motivo miente; sin
 la limpieza queda un `.tmp` huérfano). El detalle de qué cubre el self-test está en
 `docs/agents/recuperar-base-de-skills.md`.
+
+## Testeo de la dieta del `CLAUDE.md` (`tests/dieta-del-claude-md.tests.ps1`)
+
+`pwsh -NoProfile -File tests/dieta-del-claude-md.tests.ps1` — cubre el issue 14 del release
+`bootstrap-v2`: el mecanismo del review-loop y del `alignment-gate` vive en
+`docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` (secciones 7 y 1) y en el `CLAUDE.md` queda la regla
+más un puntero. Mira las **4 raíces** (el repo y los 3 scaffolds) y tiene dos mitades: la
+**positiva** — el mecanismo está completo en el doc — y la **negativa** — el `CLAUDE.md` ya no lo
+cachea —. Sin la negativa la dieta se revierte sola en el primer turno que "aclare" algo y nada se
+pone rojo; sin la positiva el mecanismo se puede borrar del doc y el puntero queda apuntando a nada.
+
+Lo que hay que saber antes de editarla, porque dos turnos de review lo midieron:
+
+- **Ancla el payload, no la redacción.** Las rutas salen de `$govern` del `review-loop-trigger`, los
+  prefijos libres del array de `Is-NonCode` del `alignment-gate`, y los focos del rigor de la tabla
+  de Rigor de la skill del loop. Los tripwires literales murieron dos veces: primero anclando la
+  lista entre paréntesis (una re-redacción con dos puntos pasaba en verde), después exigiendo
+  backticks (escribir las rutas sin ellos pasaba en verde). Por eso las rutas se buscan
+  **desnudas**, y al recorte se le saca antes el puntero literal al doc — el único falso positivo
+  que los backticks evitaban.
+- **La lista del doc se COMPARA con la del hook, en los dos sentidos.** Comparar solo la aridad
+  dejaba pasar un swap (`.scratch/` → `.tmp/` en las 4 raíces dejaba todas las suites en verde).
+- **La dirección de una regla se mide sobre el texto aplanado** (espacios colapsados, énfasis
+  quitado) y cubriendo la conjugación: anclar solo `runs` dejaba pasar *"does not refrain from
+  **running** the grill on its own"*, que es la misma inversión en gerundio con doble negación.
+- **El anidamiento de un encabezado se mide por el encabezado que DOMINA la línea**, no por si cae
+  dentro de un recorte: ponerle un `####` propio al checklist del reviewer y meterlo adentro de la
+  sección de disparo lo sacaba del recorte y dejaba el assert en verde con el checklist igual de
+  anidado.
+- **Límite conocido, declarado en la cabecera de la suite**: el anclaje es la ruta, así que
+  re-cachear el mecanismo en el `CLAUDE.md` **sin nombrar ninguna ruta** no lo caza nada de acá.
 
 ## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
 
