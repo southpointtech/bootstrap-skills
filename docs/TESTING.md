@@ -814,11 +814,13 @@ se está midiendo, y el hash se fija contra literales congelados (`hashlib.sha25
 contenido en LF y CRLF sella el mismo hash y la misma `version`; `compare` con un manifest nuevo
 (canónico en CRLF → `uptodate`, intacto en CRLF → `outdated`, tocado → `customized`, ausente →
 `missing`); `compare` con un manifest **legacy** sellado con el hash crudo de archivos CRLF (intacto →
-`outdated`, tocado → `customized`); `reseal` sobre el legacy (lo reconciliado sella el hash canónico,
-la base cruda de un archivo intacto se convierte a normalizada y la de uno tocado se conserva), y una
-ida y vuelta sin drift falso. La regla de transición que fijan los casos legacy: un hash sellado
-coincide si es el normalizado **o** el crudo del archivo actual. Mutantes verificados: sacar la
-coincidencia cruda de `compare` y no convertir la base en `reseal` mueren con un FAIL cada uno.
+`outdated`, también si ahora está en LF; tocado → `customized`); `reseal` sobre el legacy (lo igual
+al canónico sella el canónico aunque su base vieja no coincida, la base cruda de un archivo intacto
+se convierte a normalizada, la de uno tocado se conserva, y uno sin base se siembra normalizado), y
+una ida y vuelta. La regla de transición que fijan los casos legacy: un hash sellado coincide si es
+el normalizado, el crudo, o el del contenido con todos los fines de línea en CRLF. Mutantes
+verificados, un FAIL cada uno: sacar la coincidencia cruda o la CRLF de `compare`, sacar la CRLF o la
+normalizada de `reseal`, no convertir la base, saltear la rama canónica y sembrar con el hash crudo.
 
 ## Testeo de setup-mcp-workstation
 

@@ -29,7 +29,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones (ver normalized-hash.tests.ps1: sin esto, un mutante que borra
 # asserts sale en verde).
-$ExpectedChecks = 16
+$ExpectedChecks = 20
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "mhn"
@@ -40,8 +40,10 @@ trap { Remove-TestRunRoot $script:runRoot; break }
 # Literales CONGELADOS, calculados fuera de la función bajo prueba (hashlib.sha256 de Python):
 #   b"uno\ndos\n"     -> 3286d72d...
 #   b"uno\r\ndos\r\n" -> daf05a2d...  (el hash CRUDO del mismo contenido en CRLF)
+#   b"otro\n"         -> c5dbff09...
 $H_LF   = "3286d72d1182cc61f3b0a26662e6d0e1c769e0001a3d98c921e517ab49eb81ec"
 $H_CRLF = "daf05a2d5f69dbf8b25c3624d6aeea5f19fa34c1347ba24168ababc3a6618ac2"
+$H_OTRO = "c5dbff09263ed3039714072538f579c7656cf9bfe9632a85855c2dc87fb85fcf"
 $LF     = [Text.Encoding]::ASCII.GetBytes("uno`ndos`n")
 $CRLF   = [Text.Encoding]::ASCII.GetBytes("uno`r`ndos`r`n")
 $OTRO   = [Text.Encoding]::ASCII.GetBytes("otro`n")
@@ -95,9 +97,10 @@ try {
   Assert ($vLF -eq $vCRLF) "gen-manifest: la version (hash del conjunto) no depende del fin de línea"
 
   # ---- compare-scaffold ----
-  # Canónico: a.md ("uno dos"); b.md, c.md, d.md y e.md ("otro"). La base vieja de c.md y d.md es
+  # Canónico: a.md ("uno dos"); b.md a g.md ("otro"). La base vieja de c.md, d.md y g.md es
   # "uno dos": el canónico se movió desde ahí.
-  $scaf = New-Canon @{ "a.md" = $LF; "b.md" = $OTRO; "c.md" = $OTRO; "d.md" = $OTRO; "e.md" = $OTRO }
+  $scaf = New-Canon @{ "a.md" = $LF; "b.md" = $OTRO; "c.md" = $OTRO; "d.md" = $OTRO; "e.md" = $OTRO
+                       "f.md" = $OTRO; "g.md" = $OTRO }
 
   # (1) Proyecto con manifest NUEVO (normalizado), archivos en CRLF.
   $p1 = New-TestWorkspace -Root $script:runRoot -Name "p1"
@@ -116,15 +119,20 @@ try {
   Write-Raw $p2 "c.md" $CRLF          # intacto, mismos bytes que su base cruda   -> outdated
   Write-Raw $p2 "d.md" $TOCADO        # tocado respecto de su base cruda          -> customized
   Write-Raw $p2 "e.md" $OTRO_CRLF     # igual al canónico nuevo, base cruda vieja -> uptodate
-  Write-Manifest $p2 @{ "c.md" = $H_CRLF; "d.md" = $H_CRLF; "e.md" = $H_CRLF }
+  Write-Raw $p2 "f.md" $CRLF          # distinto del canónico y SIN base          -> customized
+  Write-Raw $p2 "g.md" $LF            # intacto, pero su base cruda es la de CRLF -> outdated
+  Write-Manifest $p2 @{ "c.md" = $H_CRLF; "d.md" = $H_CRLF; "e.md" = $H_CRLF; "g.md" = $H_CRLF }
   $r2 = Compare-Project $p2 $scaf
   Assert ((Names $r2.outdated) -contains "c.md") "compare legacy: base cruda CRLF + archivo intacto es outdated, no customized"
   Assert ((Names $r2.customized) -contains "d.md") "compare legacy: base cruda + archivo tocado es customized"
   Assert ((Names $r2.uptodate) -contains "e.md") "compare legacy: el archivo ya igual al canónico es uptodate"
+  # El fin de línea cambió después de sellar (checkout con otro autocrlf): ni el hash normalizado ni el
+  # crudo del archivo LF dan el crudo de la versión CRLF. Tiene que reconocerse igual como intacto.
+  Assert ((Names $r2.outdated) -contains "g.md") "compare legacy: base cruda CRLF + el mismo archivo ahora en LF es outdated"
 
   # ---- reseal-manifest ----
-  # Sobre el proyecto legacy: a.md llega actualizado en CRLF, c.md se saltea (queda viejo e intacto),
-  # d.md queda customizado.
+  # Sobre el proyecto legacy: a.md llega actualizado en CRLF, c.md y g.md se saltean (quedan viejos
+  # e intactos), d.md queda customizado y f.md, sin base, se siembra.
   Write-Raw $p2 "a.md" $CRLF
   & pwsh -NoProfile -File $reseal -ProjectDir $p2 -CanonicalScaffold $scaf | Out-Null
   Assert ($LASTEXITCODE -eq 0) "reseal: sale 0"
@@ -132,6 +140,11 @@ try {
   Assert ($m2.'a.md' -eq $H_LF) "reseal: el archivo reconciliado en CRLF sella el hash normalizado del canónico"
   Assert ($m2.'c.md' -eq $H_LF) "reseal: la base cruda de un archivo intacto se convierte a su hash normalizado"
   Assert ($m2.'d.md' -eq $H_CRLF) "reseal: la base cruda de un archivo customizado se conserva (no se siembra con lo tocado)"
+  # e.md tiene una base vieja que NO coincide: solo la rama "igual al canónico" sella el canónico.
+  # a.md no lo distingue, porque sin base la rama de siembra escribe el mismo hash.
+  Assert ($m2.'e.md' -eq $H_OTRO) "reseal: el archivo igual al canónico en CRLF sella el canónico aunque su base vieja no coincida"
+  Assert ($m2.'f.md' -eq $H_LF) "reseal: un archivo sin base en CRLF se siembra con el hash normalizado, no el crudo"
+  Assert ($m2.'g.md' -eq $H_LF) "reseal: la base cruda CRLF de un archivo intacto que pasó a LF se convierte a normalizada"
 
   # Ida y vuelta: después del reseal, el proyecto no reporta drift falso.
   $r3 = Compare-Project $p2 $scaf
