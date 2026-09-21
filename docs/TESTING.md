@@ -702,26 +702,46 @@ más un puntero. Mira las **4 raíces** (el repo y los 3 scaffolds) y tiene dos 
 cachea —. Sin la negativa la dieta se revierte sola en el primer turno que "aclare" algo y nada se
 pone rojo; sin la positiva el mecanismo se puede borrar del doc y el puntero queda apuntando a nada.
 
-Lo que hay que saber antes de editarla, porque dos turnos de review lo midieron:
+Además mira el **pipeline de reglas de `/slice-review`** (el Step 3, el foco de Reglas y el scorer):
+desde la dieta hay reglas que viven solo en el doc, así que esos puntos de decisión tienen que
+aceptarlo como fuente de reglas, no solo el `CLAUDE.md`.
 
-- **Ancla el payload, no la redacción.** Las rutas salen de `$govern` del `review-loop-trigger`, los
-  prefijos libres del array de `Is-NonCode` del `alignment-gate`, y los focos del rigor de la tabla
-  de Rigor de la skill del loop. Los tripwires literales murieron dos veces: primero anclando la
-  lista entre paréntesis (una re-redacción con dos puntos pasaba en verde), después exigiendo
-  backticks (escribir las rutas sin ellos pasaba en verde). Por eso las rutas se buscan
-  **desnudas**, y al recorte se le saca antes el puntero literal al doc — el único falso positivo
-  que los backticks evitaban.
+Lo que hay que saber antes de editarla, porque tres turnos de review lo midieron:
+
+- **Ancla el payload cuando el payload es un token, derivado de su fuente.** Las rutas salen de
+  `$govern` del `review-loop-trigger`; los disparadores (`gh pr create`, `git push`,
+  `Slice-Close:`, el techo `400`), de las líneas del mismo hook que los deciden; los prefijos libres,
+  del array de `Is-NonCode` del `alignment-gate`; los focos de `light` y el nombre del rigor por
+  defecto, de la tabla de Rigor de la skill del loop. Los tripwires literales murieron tres veces:
+  anclando la lista entre paréntesis (una re-redacción con dos puntos pasaba en verde), exigiendo
+  backticks (escribir las rutas sin ellos pasaba en verde) y exigiendo la barra final (escribir
+  `.agents` en vez de `.agents/` pasaba en verde). Por eso las rutas se buscan **desnudas** y, en
+  las negativas, con la barra opcional y con bordes (`Patron-Ruta`): sin bordes, `.agents\.agents`
+  del `CLAUDE.md` del repo y `/grill-with-docs` daban falsos positivos.
+- **Las aridades de los pisos se escriben una sola vez** (`$N_RUTAS`, `$N_PREF`, `$N_DISP`) y los
+  guards compuestos se **anidan**: con el literal repetido, bumpear una copia y olvidar la otra
+  apagaba 8 asserts sin un solo rojo.
+- **Un puntero `§ N` se verifica por contención**: el `##` que domina la subsección mudada tiene que
+  ser el de esa sección. Que la subsección exista no alcanza: moverla a otra sección dejaba los
+  punteros mintiendo con la suite verde.
 - **La lista del doc se COMPARA con la del hook, en los dos sentidos.** Comparar solo la aridad
   dejaba pasar un swap (`.scratch/` → `.tmp/` en las 4 raíces dejaba todas las suites en verde).
 - **La dirección de una regla se mide sobre el texto aplanado** (espacios colapsados, énfasis
   quitado) y cubriendo la conjugación: anclar solo `runs` dejaba pasar *"does not refrain from
-  **running** the grill on its own"*, que es la misma inversión en gerundio con doble negación.
+  **running** the grill on its own"*, que es la misma inversión en gerundio con doble negación. El
+  lookbehind acepta cualquier negación pegada (`never`, `not`, `n't`, `no`): con `never` solo,
+  *"does not run the grill on its own"*, que dice lo correcto, daba un rojo espurio.
 - **El anidamiento de un encabezado se mide por el encabezado que DOMINA la línea**, no por si cae
   dentro de un recorte: ponerle un `####` propio al checklist del reviewer y meterlo adentro de la
   sección de disparo lo sacaba del recorte y dejaba el assert en verde con el checklist igual de
   anidado.
-- **Límite conocido, declarado en la cabecera de la suite**: el anclaje es la ruta, así que
-  re-cachear el mecanismo en el `CLAUDE.md` **sin nombrar ninguna ruta** no lo caza nada de acá.
+- **Límites conocidos, declarados en la cabecera de la suite.** Cuando el payload es una **frase**,
+  derivarlo no compra nada: protege contra que cambie, no contra que se parafrasee. Por eso no lo
+  caza nada de acá: re-cachear el mecanismo en el `CLAUDE.md` con otras palabras y sin ningún token
+  (`$mec` es un tripwire literal, y dos paráfrasis medidas lo dejan verde); borrar *"Work in feature
+  branches per slice"* de la sección 7; una inversión del gate que no diga *"on its own"*, o con la
+  negación separada del verbo; y re-atar al `CLAUDE.md` una oración del pipeline de reglas que no
+  esté en las seis ventanas de decisión que la suite mira por raíz.
 
 ## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
 

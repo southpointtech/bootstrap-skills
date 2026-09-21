@@ -13,41 +13,42 @@
 #
 # QUE ANCLA ESTA SUITE, Y QUE NO (leer antes de confiar en su verde).
 #
-# Ancla el PAYLOAD, no la redaccion: las rutas que gobiernan al agente salen de `$govern` del
-# review-loop-trigger, los prefijos libres salen del array de `Is-NonCode` del alignment-gate, y los
-# focos del rigor salen de la tabla de Rigor de la skill del loop. Un tripwire literal sobre una
-# frase lo esquiva cualquier re-redaccion, y este archivo se comio esa leccion dos veces: primero
-# con la lista entre parentesis (turno 1), despues con los backticks (turno 2). Por eso las rutas se
-# buscan DESNUDAS, sin backticks, y al recorte se le saca antes el puntero literal al doc, que es el
-# unico falso positivo que los backticks evitaban.
+# Ancla el PAYLOAD cuando el payload es un TOKEN, derivado de su fuente: las rutas que gobiernan al
+# agente salen de `$govern` del review-loop-trigger; los disparadores (`gh pr create`, `git push`,
+# `Slice-Close:`, el techo `400`), de las lineas del mismo hook que los deciden; los prefijos libres,
+# del array de `Is-NonCode` del alignment-gate; los focos de `light` y el nombre del rigor por
+# defecto, de la tabla de Rigor de la skill del loop. Las rutas se buscan DESNUDAS (sin backticks y,
+# en las negativas, con la barra final opcional, via `Patron-Ruta`), y al recorte se le saca antes el
+# puntero literal al doc, que es el unico falso positivo que los backticks evitaban.
 #
-# LIMITE CONOCIDO, declarado porque el verde afirma menos de lo que parece: el anclaje es la ruta.
-# Re-cachear el mecanismo en el CLAUDE.md SIN nombrar ninguna ruta —contar las condiciones de
-# disparo, la red de ~400 lineas, el dedupe y el delta sin revisar en prosa— no lo caza nada de
-# aca, y es contenido que el criterio de arriba manda mudar. Medido en el turno 2.
+# LIMITES CONOCIDOS. Cuando el payload es una FRASE, derivar no compra nada: protege contra que el
+# payload cambie, no contra que se parafrasee. Lo que queda afuera por eso:
+#   - Re-cachear el mecanismo en el CLAUDE.md con otras palabras y sin nombrar ningun token de arriba.
+#     `$mec` (el bullet del gate no repite el mecanismo) es un tripwire literal sobre cuatro frases:
+#     el turno 1 del loop midio dos parafrasis que lo dejan verde, y el bloque entero con el.
+#   - "Work in feature branches per slice" en la seccion 7: es semantica, no token, y no lo ancla nada.
+#   - La negativa de direccion del gate exige la negacion pegada al verbo ("will not ever run" da un
+#     rojo espurio) y la frase "on its own" ("runs the grill by itself" no la ve nada).
+#   - En el pipeline de /slice-review se anclan seis ventanas de decision por raiz; re-atar al
+#     CLAUDE.md solo una oracion que no este en ellas no da rojo.
 #
 # QUE ESTA PROBADO NO-VACUO Y QUE NO. Esta suite se corrio entera contra 8d857a3 (el arbol de antes
-# del cambio) en un worktree aparte. El metodo es ese y no otro: copiar este archivo a un checkout
-# de 8d857a3 y contar las lineas FAIL/ok de su salida. Los verdes de esa corrida NO estan probados
-# por ella, y son estos, enumerados por bloque para que el conteo se pueda rehacer:
-#
-#   - Todos los guards, que son pisos y no verificaciones: las 4 raices, los 16 consumidores, el
-#     bullet unico de review-loop y el del gate, las rutas de govern, los prefijos libres del gate y
-#     la fila `light` de la tabla de Rigor.
-#   - Del bloque de coherencia, las cuatro mitades que ya eran ciertas en 8d857a3: que el hook
-#     declare que no corre el grill solo, y que el CLAUDE.md lo diga (la frase ya estaba en el
-#     bullet viejo) — con su negativa, que pasa por la misma razon.
-#   - Del mismo bloque, las dos mitades del doc: en 8d857a3 la seccion no existia, asi que la
-#     positiva daba rojo y la negativa pasaba por vacuidad.
-#   - `OFFER alignment` en el bullet del gate: la frase ya estaba en el bullet viejo.
+# del issue 14) copiando este archivo a un checkout aparte: 95 ok, 128 FAIL. Fuera de los guards, que
+# son pisos y no verificaciones, los verdes de esa corrida son 20, cinco asserts por raiz, y esa
+# corrida NO los prueba:
+#   - el hook del gate declara que no corre el grill solo (hecho de la fuente, previo a la dieta);
+#   - `OFFER alignment` en el bullet del gate (la frase ya estaba en el bullet viejo);
+#   - el checklist del reviewer cuelga de la seccion 7 (ya colgaba);
+#   - las dos negativas de direccion, en el CLAUDE.md y en el doc (nadie afirmaba lo contrario).
 #
 # Lo que ese RED no ejercita se probo por MUTACION, que es lo unico que mide un pin contra revert.
-# Medido: invertir la direccion del gate en el CLAUDE.md de una raiz da rojo; inyectar la inversion
-# en gerundio con doble negacion ("does not refrain from running the grill on its own") tambien;
-# dar vuelta la semantica del rigor en el doc de una raiz da rojo; re-cachear la lista de gobierno
-# en el CLAUDE.md con backticks, sin backticks, con dos puntos o con guiones da rojo nombrando las
-# rutas; y meterle un `####` propio al checklist del reviewer para colgarlo de la seccion de
-# disparo da rojo por el nivel del encabezado que lo domina.
+# Medido sobre 919f5ce, un mutante por vez en un worktree descartable: invertir la direccion del gate
+# en el CLAUDE.md de la raiz o de un scaffold da rojo, y tambien en el doc; la inversion en gerundio
+# con doble negacion ("does not refrain from running the grill on its own") da rojo; y meterle un
+# `####` propio al checklist da rojo por el nivel del encabezado que lo domina. Los mutantes de los
+# asserts agregados por el turno 1 del loop (atribucion hibrida, subseccion movida de seccion, ruta
+# sin barra, parrafo de disparo borrado, rigor por defecto invertido, piso roto) estan en el mensaje
+# de e07c98d, con el conteo de rojos de la suite vieja y de la nueva.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $skills = @(Get-ChildItem (Join-Path $repo "skills") -Directory | Where-Object Name -like "bootstrap-*-project")
@@ -278,8 +279,9 @@ Write-Host "=== nadie sigue atribuyendole la lista de gobierno al CLAUDE.md ==="
 # El review-loop y el slice-review le dicen al agente donde vive la lista de rutas que gobiernan.
 # Mientras la lista vivia en el CLAUDE.md esa atribucion era cierta; desde la dieta es falsa, y
 # manda al agente a grepear un archivo que ya no la tiene. Peor: el Step 5 de /slice-review le
-# ordena "confirm the rule literally exists in a CLAUDE.md", asi que la atribucion equivocada no
-# es prosa floja, es una instruccion que hace descartar un hallazgo real por "regla inexistente".
+# ordenaba "confirm the rule literally exists in a CLAUDE.md", asi que la atribucion equivocada no
+# era prosa floja, era una instruccion que hacia descartar un hallazgo real por "regla
+# inexistente". Esa orden la cubre el bloque siguiente.
 #
 # Se ancla en el TEXTO QUE PRECEDE a la lista, no en las dos frases que habia que corregir: el
 # atribuidor vive ahi pegado, asi que cualquier re-redaccion que vuelva a nombrar al CLAUDE.md
