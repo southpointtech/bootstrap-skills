@@ -231,6 +231,33 @@ Assert ($r.exit -eq 1 -and $r.lote.resultado -eq "falló" -and "$($r.lote.motivo
   "foto ilegible: lote 'falló' con motivo que nombra la foto (exit $($r.exit), motivo '$($r.lote.motivo)')"
 Assert ([IO.File]::ReadAllText($foto) -eq '{ "schemaVersion": 1, "vistos": [') "foto ilegible: no se pisa"
 
+# --- repoId: la identidad del repo entre PCs es su origin, no el nombre de la carpeta ---
+# El `repo` del lote es el nombre de la carpeta, y dos repos distintos pueden compartirlo: la ingesta
+# agrupa por `repoId`. Sale del origin normalizado, así que la forma https y la ssh del mismo repo, con
+# o sin `.git` y con credenciales en la URL, dan el mismo id en las tres PCs.
+$formas = @(
+  "https://github.com/SouthpointTech/Forecasting-App.git",
+  "https://token:x-oauth@github.com/southpointtech/forecasting-app/",
+  "git@github.com:southpointtech/forecasting-app.git",
+  "ssh://git@github.com/southpointtech/forecasting-app"
+)
+foreach ($url in $formas) {
+  $to = New-HubRepo
+  git -C $to remote add origin $url
+  $r = Recolectar $to (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z"
+  Assert ($r.lote.repoId -ceq "github.com/southpointtech/forecasting-app") `
+    "repoId de '$url' es github.com/southpointtech/forecasting-app (fue '$($r.lote.repoId)')"
+}
+# Sin origin no hay identidad compartida: el id es la ruta del repo, y dos carpetas homónimas difieren.
+$pa = New-TestWorkspace $script:runRoot "hubrec-pa"
+$pb = New-TestWorkspace $script:runRoot "hubrec-pb"
+$ra = New-HubRepo -Dir (Join-Path $pa "app")
+$rb = New-HubRepo -Dir (Join-Path $pb "app")
+$la = (Recolectar $ra (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z").lote
+$lb = (Recolectar $rb (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z").lote
+Assert ($la.repoId -and $lb.repoId -and $la.repoId -ne $lb.repoId -and $la.repo -eq $lb.repo) `
+  "sin origin, dos repos 'app' tienen repoId distintos (fueron '$($la.repoId)' y '$($lb.repoId)')"
+
 # --- Dos repos con el mismo nombre de carpeta no comparten la foto ---
 $pa = New-TestWorkspace $script:runRoot "hubrec-pa"
 $pb = New-TestWorkspace $script:runRoot "hubrec-pb"

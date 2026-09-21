@@ -90,10 +90,20 @@ if ($g.exit -eq 0 -and $g.stdout.Trim()) {
 $hash = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData(
   $utf8.GetBytes($identidad.TrimEnd('\', '/').ToLowerInvariant()))).Replace("-", "").Substring(0, 8).ToLowerInvariant()
 $dir = Join-Path $StateDir "$repoName-$hash"
+# `repo` es para leer; `repoId` es para agrupar. El nombre de la carpeta no identifica un repo entre
+# PCs (dos repos distintos pueden llamarse igual), su origin sí: se normaliza para que la forma https
+# y la ssh, con o sin `.git`, con credenciales en la URL o con otras mayúsculas, den el mismo id en las
+# tres PCs. Sin origin no hay identidad compartida y el id es la del directorio git común.
+$o = Invoke-GitUtf8 @('-C', $RepoDir, 'remote', 'get-url', 'origin')
+$repoId = if ($o.exit -eq 0 -and $o.stdout.Trim()) {
+  $o.stdout.Trim() -replace '^[a-z+]+://', '' -replace '^[^@/]+@', '' -replace '^([^/:]+):(?!\d)', '$1/' `
+    -replace '/+$', '' -replace '\.git$', '' | ForEach-Object ToLowerInvariant
+} else { $identidad.TrimEnd('\', '/').Replace('\', '/').ToLowerInvariant() }
 $lote = [ordered]@{
   schemaVersion = 1
   dev           = $Dev
   repo          = $repoName
+  repoId        = $repoId
   momento       = $Now
   resultado     = "sin cambios"
   propuestas    = @()
