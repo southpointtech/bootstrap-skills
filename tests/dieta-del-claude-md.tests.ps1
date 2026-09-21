@@ -184,6 +184,13 @@ foreach ($r in $raices) {
     Assert ($bg[0].Value -match [regex]::Escape($DOC)) "$($r.label): el bullet del gate remite a $DOC"
     Assert ($bg[0].Value -match ([regex]::Escape($DOC) + '`?\s*§\s*' + $SEC_GATE_NUM + '\b')) `
       "$($r.label): el bullet del gate remite a la seccion $SEC_GATE_NUM"
+    # Y no cachea el MECANISMO, que es lo que la dieta vino a sacar. Sin esto, el bullet del gate
+    # bajaba 7% contra el 61% del bullet del loop repitiendo el mecanismo palabra por palabra en
+    # los dos lados, y ningun assert lo veia: el pase de coherencia lo encontro leyendo el slice
+    # entero. Se anclan los hechos que el hook computa, no el largo del bullet.
+    $mec = @('once per session', 'the grill on its own', 'PreToolUse', 'MultiEdit')
+    $repetido = @($mec | Where-Object { $bg[0].Value -match [regex]::Escape($_) })
+    Assert ($repetido.Count -eq 0) "$($r.label): el bullet del gate no repite el mecanismo del hook [repite: $($repetido -join ', ')]"
     # La REGLA se queda: ningun hook puede obligar a ofrecer la alineacion, solo frena el primer Edit.
     Assert ($bg[0].Value -match '(?i)OFFER alignment') "$($r.label): el bullet del gate conserva la regla (ofrecer alineacion antes de codear)"
   }
@@ -292,9 +299,15 @@ foreach ($r in $raices) {
   # que se ancla es la direccion de la regla, no el idioma en que esta escrita.
   Assert ($h -match '(NO ejecutes el grill por tu cuenta|do NOT run the grill on your own)') `
     "$($r.label): el hook del gate declara que no corre el grill solo"
+  # La POSITIVA vive solo en el doc: que el gate no corre el grill solo es un hecho del hook, y
+  # exigirla tambien en el CLAUDE.md era consagrar la duplicacion que la dieta vino a matar (lo
+  # encontro el pase de coherencia: el bullet del gate habia bajado 7% contra el 61% del loop,
+  # justamente porque repetia el mecanismo palabra por palabra en los dos lados).
+  Assert ((Plano ([IO.File]::ReadAllText($dF))) -match 'never runs the grill on its own') `
+    "$($r.label)/${DOC}: dice que el gate nunca corre el grill solo"
+  # La NEGATIVA sigue valiendo para los dos: la inversion es igual de grave escrita donde sea.
   foreach ($par in @(@{ n = "CLAUDE.md"; x = (Plano ([IO.File]::ReadAllText($cF))) },
                      @{ n = $DOC;        x = (Plano ([IO.File]::ReadAllText($dF))) })) {
-    Assert ($par.x -match 'never runs the grill on its own') "$($r.label)/$($par.n): dice que el gate nunca corre el grill solo"
     Assert ($par.x -notmatch '(?<!never )(runs?|running) the grill on its own') `
       "$($r.label)/$($par.n): no afirma lo contrario en ningun lado, en ninguna conjugacion"
   }
