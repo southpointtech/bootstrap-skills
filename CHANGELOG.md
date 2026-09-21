@@ -1,5 +1,70 @@
 # Changelog
 
+## v2.0.0 — 2026-09-21
+
+Skills refreshed from upstream by three-way merge, a thinner `CLAUDE.md`, lanes for parallel work,
+and manifests re-sealed with line-ending-independent hashing. **Two doctrine changes** (below) mean
+your project's `CLAUDE.md` may now contradict the skills it receives: check it after upgrading.
+
+### How to update
+
+1. In your clone of this repository: `git pull`
+2. Deploy the skills: `pwsh -NoProfile -File tools\sync-skills.ps1`
+3. If you have user-level copies of `research`, `debug-source-first` or `verify-downstream-arrival`
+   in `~/.claude/skills/`, delete them: the scaffold now ships its own, and a user-level skill with
+   the same name can hide the project's (seen with `research`).
+4. Start a new Claude Code session.
+5. In **each** bootstrapped project, say *"update the bootstrap"* (`upgrade-bootstrap`), then do the
+   `CLAUDE.md` check below.
+
+Manifests are now hashed with normalized line endings, so the v1.0.0 caveat about `core.autocrlf`
+reporting untouched files as customized no longer applies.
+
+### Doctrine change 1 — TDD is `red → green`
+
+The refactor step left the TDD cycle (ADR-0004): it happens in the review stage, where the review
+loop already runs after every slice close. If your `CLAUDE.md` says `red → green → refactor`, or
+otherwise promises three TDD stages, rewrite it to `red → green`.
+
+### Doctrine change 2 — the review-loop and alignment-gate mechanics moved out of `CLAUDE.md`
+
+The template `CLAUDE.md` now keeps three sentences and a pointer for each; the detail lives in
+`docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` (§7 for the review loop, §1 for the alignment gate).
+The hooks enforce both, so no rule changed. `upgrade-bootstrap` decides file by file: the workflow
+doc usually lands on its own, while a customized `CLAUDE.md` is kept unless you pick the assisted
+merge. **Keep the mechanics in one place only**: either in your `CLAUDE.md` or in the workflow doc,
+never both, and make sure your `CLAUDE.md` does not point to a section that did not land.
+
+### Lanes for parallel work
+
+New files: `docs/ai-workflow/PARALELISMO.md` (the norm), `PLAN-DE-OLA.md` (wave plan),
+`BRIEF-DE-CARRIL.md` (lane brief), `.claude/scripts/abrir-carril.ps1` (opens a lane), and
+`docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md`, your project's data. That last one arrives with
+**unfilled placeholders on purpose**: neither the bootstrap nor the upgrade fills them, and
+`abrir-carril.ps1` refuses to open a lane while any remain (`-DryRun` only warns).
+
+### Skills
+
+- **New:** `grilling` and `domain-modeling` (`grill-me` and `grill-with-docs` are now short pointers
+  to them), `diagnosing-bugs`, `wizard`, `to-questionnaire`, `research`, `resolving-merge-conflicts`,
+  `git-guardrails-claude-code`, `verify-downstream-arrival`, `debug-source-first`.
+- **Updated from upstream, names kept:** `to-prd`, `to-issues`, `triage`, `handoff`,
+  `setup-matt-pocock-skills`, `tdd`.
+- **Invocation policy:** skills only a human types (`grill-me`, `grill-with-docs`, `to-prd`,
+  `to-issues`, `triage`, `handoff`, `to-questionnaire`, `setup-matt-pocock-skills`, `zoom-out`) are
+  user-invoked and no longer load their description into every request.
+- **Reviewers are declared agents** (`.claude/agents/slice-review-*.md`): write tools are denied by
+  declaration, not by a prose request.
+
+### Scaffold
+
+- A secrets rule in `CLAUDE.md`: never hardcode a secret; a leaked one is rotated, not just deleted.
+- Document templates in `docs/ai-workflow/` (`PRD_TEMPLATE.md`, `TASK_TEMPLATE.md`,
+  `RUNBOOK_TEMPLATE.md`).
+- Firebase in the MCP catalog.
+- `.gitattributes` with `*.sh text eol=lf`.
+- The `review-loop-trigger` hook also fires on commits made with the PowerShell tool.
+
 ## v1.0.0 — 2026-09-18
 
 First tagged release. If your copy of these skills is from June, this is everything you are missing.
