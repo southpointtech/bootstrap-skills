@@ -107,15 +107,6 @@ For important changes, a second review must be performed from a clean context.
 
 Run this as a loop via `/review-loop`: `/slice-review` → fix real findings → re-review, repeating until no medium/high-severity findings remain (or its turn cap: 2 turns, or 1 when the slice declares `Review-Rigor: light`). The backbone reviewer is `/slice-review` (a local multi-agent reviewer the agent can launch); on the first turn the loop also folds in the built-in `/code-review` as one more independent reviewer.
 
-### What fires the loop, and over what
-
-The `review-loop-trigger` hook enforces this deterministically, so it does not depend on the agent remembering: on a commit carrying the `Slice-Close:` trailer, on `git push` or on `gh pr create` in a feature branch, it injects the order to run `/review-loop`. As a safety net it fires on a trailer-less commit too, once the unreviewed delta passes the ~400-line guide, so forgetting the trailer cannot leave a big slice unreviewed. Work in feature branches per slice — commits directly on the base branch do not trigger the loop.
-
-A slice that is ENTIRELY documentation does not trigger the loop at all: prose is not worth a review turn. `.md` is the only thing that counts as documentation — anything else under `docs/` is code — and the files that govern the agent are never documentation no matter their extension (`CLAUDE.md` anywhere, `.claude/`, `.agents/`, `docs/ai-workflow/`, `docs/agents/`), so editing a rule still fires the loop. One non-doc file is enough to leave that gate open, and uncommitted work counts — tracked edits and brand-new files alike. Generated artifacts are the exception on both sides: a re-sealed manifest or a re-recorded snapshot is nobody's writing, so it neither counts as documentation nor keeps the gate open. An open gate is not the same as firing — the trailer and the ~400-line net still get their say on a commit, and the per-commit dedupe silences a second push of the same SHA on every trigger.
-
-Each turn reviews the **unreviewed delta** — what changed since the last review run, per the review marker (`.claude/scripts/review-marker.ps1 -Action range`) — not the branch's full range again. This works in local repos (no remote) and on GitHub alike. A slice that declares `Review-Rigor: light` runs one turn with two focuses, Bugs and Tests; without that trailer it runs `standard`, with the full fan-out.
-
-
 The reviewer must check:
 
 - Requirements coverage
@@ -125,6 +116,14 @@ The reviewer must check:
 - Test gaps
 - Overengineering
 - Firebase/Azure constraints
+
+### What fires the loop, and over what
+
+The `review-loop-trigger` hook enforces this deterministically, so it does not depend on the agent remembering: on a commit carrying the `Slice-Close:` trailer, on `git push` or on `gh pr create` in a feature branch, it injects the order to run `/review-loop`. As a safety net it fires on a trailer-less commit too, once the unreviewed delta passes the ~400-line guide, so forgetting the trailer cannot leave a big slice unreviewed. Work in feature branches per slice — commits directly on the base branch do not trigger the loop.
+
+A slice that is ENTIRELY documentation does not trigger the loop at all: prose is not worth a review turn. `.md` is the only thing that counts as documentation — anything else under `docs/` is code — and the files that govern the agent are never documentation no matter their extension (`CLAUDE.md` anywhere, `.claude/`, `.agents/`, `docs/ai-workflow/`, `docs/agents/`), so editing a rule still fires the loop. One non-doc file is enough to leave that gate open, and uncommitted work counts — tracked edits and brand-new files alike. Generated artifacts are the exception on both sides: a re-sealed manifest or a re-recorded snapshot is nobody's writing, so it neither counts as documentation nor keeps the gate open. An open gate is not the same as firing — the trailer and the ~400-line net still get their say on a commit, and the per-commit dedupe silences a second push of the same SHA on every trigger.
+
+Each turn reviews the **unreviewed delta** — what changed since the last review run, per the review marker (`.claude/scripts/review-marker.ps1 -Action range`) — not the branch's full range again. This works in local repos (no remote) and on GitHub alike. A slice that declares `Review-Rigor: light` runs one turn with two focuses, Bugs and Tests; without that trailer it runs `standard`, with the full fan-out.
 
 ## 8. Human Approval
 

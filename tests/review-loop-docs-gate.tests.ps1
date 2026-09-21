@@ -410,8 +410,9 @@ if ($hookSrc -notmatch "(?m)^\s*\`$govern\s*=\s*'([^']+)'") {
     # La sección se recorta del texto CRUDO por su encabezado, no juntando las líneas que mencionen
     # `review-loop-trigger`: juntando por palabra, cualquier otra línea del archivo que mencione el
     # hook satisfacía el assert desde afuera de la sección. El corte va hasta el próximo encabezado
-    # de cualquier nivel: así un reflow del párrafo no lo parte (el bullet anterior sí se partía con
-    # un `markdownlint --fix`), y una sub-sección nueva metida en el medio cierra el recorte antes de
+    # `##` a `####` (un `#` de nivel 1 o un `#####` NO lo cierran): así un reflow del párrafo no lo
+    # parte (el bullet anterior sí se partía con un `markdownlint --fix`), y una sub-sección nueva
+    # metida en el medio cierra el recorte antes de
     # tiempo y da rojo diciendo que faltan rutas que sí están — falla nombrándose.
     # El `\r?` no es decorativo: estos archivos van en CRLF y el `$` de .NET ancla solo ante
     # `\n`, asi que sin el la seccion no matchea nunca y el guard da 0 (medido).

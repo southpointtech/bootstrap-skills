@@ -254,9 +254,9 @@ After step 5, begin the next turn back at step 1 — which now reviews only the 
   cap or blocked close, never a clean one. On the first turn no reviewer ran this loop: stop, with
   no coherence pass and no `-Action close`.
 - The unreviewed delta is only prose with no behavior change: comments, docstrings, or `.md` files
-  **outside** the paths `CLAUDE.md` says govern the agent (`CLAUDE.md` anywhere, `.claude/`,
-  `.agents/`, `docs/ai-workflow/`, `docs/agents/`). An edit to a governing file is behavior, so it
-  keeps the next turn.
+  **outside** the paths `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` § 7 lists as governing the
+  agent (`CLAUDE.md` anywhere, `.claude/`, `.agents/`, `docs/ai-workflow/`, `docs/agents/`).
+  An edit to a governing file is behavior, so it keeps the next turn.
 - The turn cap in the **Rigor** table has run (a promoted slice has the `standard` cap).
 - You are blocked by a decision that needs a human → stop and report.
 
