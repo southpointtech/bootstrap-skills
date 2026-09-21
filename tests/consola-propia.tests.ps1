@@ -31,10 +31,13 @@ function New-Script([string]$cuerpo) {
 
 # --- La consola de la SUITE queda como estaba: es la propiedad que da sentido a todo lo demás ---
 # Sin esto, cambiar `-WindowStyle Hidden` por `-NoNewWindow` en el helper (o sea, que el hijo use la
-# consola de la suite) deja verdes a los tres asserts de `cpSonda` de las otras suites y contamina a
+# consola de la suite) deja verdes a los dos asserts de `cpSonda` de las otras suites y contamina a
 # todas las que corran en paralelo: exactamente el bug del issue 15, reintroducido en el helper que
 # lo arregla. MEDIDO así antes de escribir esto.
 $cpAntes = Get-CpHeredada
+# Una medición vacía pasaría los dos asserts de abajo sin probar nada: `"" -eq ""` es verdadero y el
+# control positivo tampoco lo ve, porque cualquier número es distinto de "".
+Assert ($cpAntes -match '^\d+$') "la sonda devuelve una code page, no vacío (fue '$cpAntes')"
 # Control positivo: si el caso usara la code page que la consola ya tiene, el assert sería vacío en
 # esa máquina. Se elige una que NO sea la de acá (y una consola nueva arranca en 850 en esta
 # máquina, así que el caso no es teórico), y se verifica que la elección haya servido.
@@ -62,7 +65,23 @@ Assert ($r.err -ceq "años y ñandú") "el stderr del hijo vuelve legible, no co
 # límite tenga un caso es lo que impide prometer en la cabecera algo que el helper no puede dar.
 $conRaya = New-Script "[Console]::Error.WriteLine('un ' + [char]0x2014 + ' raya')`n"
 $r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $conRaya -Cp 850
-Assert ($r.err -notmatch [char]0x2014) "lo que cp850 no puede codificar no vuelve (el em dash se pierde en el hijo): '$($r.err)'"
+# Se afirma lo que SÍ vuelve, no sólo lo que falta: `-notmatch` pasa con cualquier basura, mientras
+# que fijar el best-fit (— → -) se pone rojo si el boot deja de fijar la code page del caso.
+Assert ($r.err -ceq "un - raya") "el best-fit de cp850 queda fijado: el em dash vuelve como '-' (fue '$($r.err)')"
+
+# --- El stdout vuelve como UTF-8, que es la mitad del contrato que declara la cabecera ---
+# El fixture escribe bytes crudos por `OpenStandardOutput()`, como los dos scripts que este helper
+# prueba: un `Write-Output` con acentos está declarado FUERA de contrato, y uno ASCII no distingue
+# UTF-8 de cp850 (MEDIDO: con `'eco'` como único caso, leer el stdout con la code page del caso
+# pasaba esta suite entera en verde).
+$crudo = New-Script @'
+$s = [Console]::OpenStandardOutput()
+$b = [Text.UTF8Encoding]::new($false).GetBytes("años y ñandú")
+$s.Write($b, 0, $b.Length)
+$s.Flush()
+'@
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $crudo -Cp 850
+Assert ($r.out -ceq "años y ñandú") "el stdout en bytes UTF-8 vuelve tal cual desde una consola en 850 (fue '$($r.out)')"
 
 # --- Sin -ConSonda no se paga la sonda, y se ve que no se pagó ---
 $r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $eco -Cp 850

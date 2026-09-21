@@ -69,9 +69,10 @@ function Invoke-EnConsolaPropia {
     -WindowStyle Hidden -Wait -PassThru -RedirectStandardError $bootErr
   if ($b.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $meta -PathType Leaf)) {
     # El stderr del BOOT no va con la code page del caso: si murió antes de fijarla (no encontró el
-    # script, el plan es ilegible), salió con la de su consola recién creada. Se intenta UTF-8
-    # estricto y se cae a la del caso, en vez de elegir una de las dos a ciegas.
-    $detalle = @((Read-TextoEstricto $bootErr $Cp), (Read-TextoEnCp $rawErr $Cp)) -ne "" -join " | "
+    # script, el plan es ilegible), salió con la de su consola recién creada, que MEDIDO es la OEM
+    # del SISTEMA y no la del proceso que la lanza (con el padre en 65001, 1252, 437 y 850 los bytes
+    # del hijo fueron los mismos: 850).
+    $detalle = @((Read-TextoEstricto $bootErr), (Read-TextoEnCp $rawErr $Cp)) -ne "" -join " | "
     throw "la consola propia falló (exit $($b.ExitCode)): $detalle"
   }
   $m = [IO.File]::ReadAllText($meta, $utf8) | ConvertFrom-Json
@@ -96,11 +97,15 @@ function Read-TextoEnCp([string]$ruta, [int]$cp) {
   ([IO.File]::ReadAllText($ruta, [Text.Encoding]::GetEncoding($cp))).TrimEnd("`r", "`n")
 }
 
-# UTF-8 estricto y, si los bytes no lo son, la code page del caso. Sólo para el stderr del boot, que
-# puede haber salido con cualquiera de las dos según en qué punto murió.
-function Read-TextoEstricto([string]$ruta, [int]$cp) {
+# UTF-8 estricto y, si los bytes no lo son, la code page OEM del SISTEMA. Sólo para el stderr del
+# boot: lo que pwsh escribe antes de que el boot fije la code page del caso sale con la de la consola
+# recién creada, que no se hereda del padre (medido: mismos bytes con el padre en 65001, 1252, 437 y
+# 850). No cae a la del caso: con `-Cp 1252` esos mismos bytes decodificarían basura.
+function Read-TextoEstricto([string]$ruta) {
   if (-not (Test-Path -LiteralPath $ruta -PathType Leaf)) { return "" }
   $bytes = [IO.File]::ReadAllBytes($ruta)
   try { return ([Text.UTF8Encoding]::new($false, $true).GetString($bytes)).TrimEnd("`r", "`n") }
-  catch [Text.DecoderFallbackException] { return (Read-TextoEnCp $ruta $cp) }
+  catch [Text.DecoderFallbackException] {
+    return (Read-TextoEnCp $ruta ([Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage))
+  }
 }

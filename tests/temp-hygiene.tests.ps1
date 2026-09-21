@@ -979,6 +979,7 @@ foreach ($s in $suites) {
 $suitesConHelperEsperadas = @(
   'alignment-gate.tests.ps1'
   'apply-env.tests.ps1'
+  'consola-propia.tests.ps1'
   'copy-scaffold.tests.ps1'
   'export-shareable.tests.ps1'
   'gen-mcp-json.tests.ps1'

@@ -54,7 +54,15 @@ $g = Invoke-GitUtf8 @('-C', $RepoDir, 'log', '-1', '--format=%B', $Sha)
 # El motivo que da git va en el mensaje: con `RedirectStandardError` su `fatal: bad object …` ya no
 # llega solo a la consola del operador, y sin interpolarlo se pierde lo único que distingue un SHA
 # inexistente de un repo corrupto. Colapsado en una línea, igual que en `hub-recolectar.ps1`.
-if ($g.exit -ne 0) { Write-Error "git log falló en $RepoDir para $Sha`: $($g.stderr -replace '\s+', ' ')"; exit 1 }
+# `[Console]::Error` y no `Write-Error`: PowerShell renderiza el ErrorRecord con el ancho del host y
+# corta el texto en el límite de palabra, con una canaleta `|` en la línea de continuación. MEDIDO:
+# el mensaje se parte —y un lector que busque "bad object" no lo encuentra— cuando el largo del
+# RepoDir cae en [ancho-89, ancho-83]; a 164 columnas la suite se ponía roja con el código correcto.
+# Mismo criterio que `Write-Stdout`: el diagnóstico no depende de cómo esté configurado el host.
+if ($g.exit -ne 0) {
+  [Console]::Error.WriteLine("git log falló en $RepoDir para $Sha`: $($g.stderr -replace '\s+', ' ')")
+  exit 1
+}
 $msg = $g.stdout
 
 $rep = [ordered]@{ marcados = @(); yaDone = @(); noEncontrados = @(); sinStatus = @(); noUtf8 = @(); lineasSliceClose = 0; sinRuta = @() }

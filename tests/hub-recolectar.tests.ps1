@@ -121,8 +121,9 @@ Assert ($null -eq $r.lote.PSObject.Properties['ongoingSupport']) "sin ongoingSup
 # --- Un Slice-Close del dev después de la línea de base es una propuesta `update` ---
 # El asunto lleva acentos a propósito y esta corrida va en una consola en 850: pwsh decodifica la
 # salida de git con la página de códigos de la consola, así que sin el `Invoke-GitUtf8` del script el
-# asunto llega deformado al lote. Es el único caso que necesita ese ambiente, y por eso es el único
-# que paga una consola propia.
+# asunto llega deformado al lote. Es el primero de los tres usos de consola propia de este archivo:
+# éste, el del `-StateDir` acentuado y el de la sonda que mide la fuga; los demás casos no necesitan
+# ese ambiente y van por `Recolectar`, que es más barato.
 $sha = Commit $t "recolección de años" -slice "03 recolector"
 $r = Recolectar-En850 $t $state "2026-09-20T10:00:00Z"
 $p = @($r.lote.propuestas)
@@ -613,14 +614,16 @@ Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "sin cambios") "sin .scratch/: 
 # --- La ruta del lote sale en bytes UTF-8, no en la codificación de la consola (issue 15) ---
 # Todos los demás casos afirman sobre rutas de `%TEMP%`, que son ASCII, y en ASCII cp850 y UTF-8 son
 # el mismo byte: sin un no-ASCII acá, escribir el stdout con la code page de la consola pasaba la
-# suite entera en verde (MEDIDO). No hace falta consola propia: `Write-Stdout` escribe bytes crudos,
-# así que lo que ancla el contrato es que el lector decodifique UTF-8, que es lo que hace `Recolectar`.
+# suite entera en verde (MEDIDO). Va por consola propia en 850 y no por `Recolectar`: MEDIDO que en
+# una consola en 65001 —la que el propio repo recomienda para correr la suite— el mutante de escribir
+# con la consola SOBREVIVE, porque ahí esa code page también es UTF-8. Con el ambiente fijado, el
+# mutante muere siempre.
 $tñ = New-HubRepo
 Commit $tñ "slice con ñandú" -slice "15 acentos" | Out-Null
 $stñ = New-TestWorkspace $script:runRoot "hubrec-state-ñ"
-Recolectar $tñ $stñ "2026-09-20T10:00:00Z" | Out-Null
+Recolectar-En850 $tñ $stñ "2026-09-20T10:00:00Z" | Out-Null
 Commit $tñ "otro slice" -slice "15b acentos" | Out-Null
-$r = Recolectar $tñ $stñ "2026-09-21T10:00:00Z"
+$r = Recolectar-En850 $tñ $stñ "2026-09-21T10:00:00Z"
 Assert ($r.out -cmatch 'ñ') "la ruta del lote conserva el no-ASCII del StateDir (fue '$($r.out)')"
 Assert ($r.exit -eq 0 -and $null -ne $r.lote) `
   "y esa ruta se puede abrir tal cual vuelve, o sea que los bytes son los que el lector espera (exit $($r.exit))"

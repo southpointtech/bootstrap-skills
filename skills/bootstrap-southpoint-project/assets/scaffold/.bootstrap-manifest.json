@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-23+379134c",
+  "version": "2026-09-23+45dddc9",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
@@ -71,7 +71,7 @@
     ".claude/hooks/review-loop-trigger.ps1": "a8abc99fe17da9be4450263aacad1913e731a66639e0a5914e3334e18bcb80a7",
     ".claude/scripts/abrir-carril.ps1": "4695236b910630c00442ed1f5eac744a49163451c3ad841c6663824f550c81d1",
     ".claude/scripts/hub-recolectar.ps1": "f08d188f3cadbb99092ddd05c97f095a6b8491a1d8a69ee6ab9112092ff1326e",
-    ".claude/scripts/marcar-done.ps1": "66030d6d6d7b472999b0370a80f8d8202d7790ca49563205e12d875e8add9452",
+    ".claude/scripts/marcar-done.ps1": "4cd90b2757878f9f35fdb587aee077b1f867148624f7eedd50aa5a00dba129f6",
     ".claude/scripts/review-marker.ps1": "8a0bb132ec013d2e3f5220ceac478ee527ced63e76c87997faefa0e6e6b5c0a1",
     ".claude/settings.json": "0443bad9b8f815be10b18917ec11f17a72b4a9ef8780dc902f0a6521ff668a12",
     ".gitattributes": "4d9f8b1976c35a2bb47647d06bee0b59f2b8f4c91e27ca6714c2c1bcf3a9db7d",
