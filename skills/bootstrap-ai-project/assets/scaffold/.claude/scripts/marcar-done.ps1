@@ -51,7 +51,10 @@ function Write-Stdout([string]$texto) {
 }
 
 $g = Invoke-GitUtf8 @('-C', $RepoDir, 'log', '-1', '--format=%B', $Sha)
-if ($g.exit -ne 0) { Write-Error "git log falló en $RepoDir para $Sha"; exit 1 }
+# El motivo que da git va en el mensaje: con `RedirectStandardError` su `fatal: bad object …` ya no
+# llega solo a la consola del operador, y sin interpolarlo se pierde lo único que distingue un SHA
+# inexistente de un repo corrupto. Colapsado en una línea, igual que en `hub-recolectar.ps1`.
+if ($g.exit -ne 0) { Write-Error "git log falló en $RepoDir para $Sha`: $($g.stderr -replace '\s+', ' ')"; exit 1 }
 $msg = $g.stdout
 
 $rep = [ordered]@{ marcados = @(); yaDone = @(); noEncontrados = @(); sinStatus = @(); noUtf8 = @(); lineasSliceClose = 0; sinRuta = @() }

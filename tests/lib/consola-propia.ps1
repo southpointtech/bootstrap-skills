@@ -8,16 +8,25 @@
 # MISMA consola, eso es un rojo espurio cruzado: la suite que fija 850 para emular una máquina que no
 # está en UTF-8 se lo deja puesto a cualquier suite que arranque en esa ventana.
 #
-# La salida NO se decodifica con la code page del caso: el hijo escribe sus bytes a un archivo por
-# redirección del sistema operativo y acá se leen como UTF-8. Lo que el caso ejercita es el ambiente
-# que ve el hijo, no cómo lo lee quien lo llama.
+# Los dos canales se decodifican acá, cada uno con lo que el hijo realmente escribe, y no con lo que
+# tenga puesto la consola de la suite:
+#
+# - **stdout como UTF-8**, porque los scripts que este helper prueba lo escriben en bytes UTF-8 a mano
+#   (`Write-Stdout`, sobre `OpenStandardOutput()`), que es justamente el contrato que el caso verifica.
+#   Un script que emita su stdout con `Write-Output` NO cumple esa premisa y volvería deformado.
+# - **stderr con la code page del caso**, porque ahí nadie escribe bytes crudos: `Write-Error`, un
+#   `throw` o el propio pwsh salen codificados con la consola, que es la que el boot fijó. Leerlo como
+#   UTF-8 devolvía U+FFFD en cada acentuada — y el stderr se lee justo cuando el caso falla.
+#
+# Límite declarado: lo que la code page del caso no puede codificar se pierde en el HIJO, antes de que
+# exista un decoder. En cp850 un em dash sale como `-` y no hay forma de recuperarlo.
 #
 # Uso (después de dot-sourcear lib\temp-workspace.ps1, de donde sale New-TestTempPath):
 #
 #     . (Join-Path $PSScriptRoot "lib\consola-propia.ps1")
 #     $r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $recol -Argumentos @('-RepoDir', $t) -ConSonda
 #     $r.out       # stdout del script, decodificado como UTF-8
-#     $r.err       # stderr, idem
+#     $r.err       # stderr del script, decodificado con la code page del caso
 #     $r.exit      # exit code del script
 #     $r.cpSonda   # con qué encoding arranca un proceso lanzado DESPUÉS del script ($null sin -ConSonda)
 
@@ -59,21 +68,39 @@ function Invoke-EnConsolaPropia {
   $b = Start-Process pwsh -ArgumentList '-NoProfile', '-File', "`"$boot`"", '-Plan', "`"$plan`"" `
     -WindowStyle Hidden -Wait -PassThru -RedirectStandardError $bootErr
   if ($b.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $meta -PathType Leaf)) {
-    $detalle = @((Read-TextoUtf8 $bootErr), (Read-TextoUtf8 $rawErr)) -ne "" -join " | "
+    # El stderr del BOOT no va con la code page del caso: si murió antes de fijarla (no encontró el
+    # script, el plan es ilegible), salió con la de su consola recién creada. Se intenta UTF-8
+    # estricto y se cae a la del caso, en vez de elegir una de las dos a ciegas.
+    $detalle = @((Read-TextoEstricto $bootErr $Cp), (Read-TextoEnCp $rawErr $Cp)) -ne "" -join " | "
     throw "la consola propia falló (exit $($b.ExitCode)): $detalle"
   }
   $m = [IO.File]::ReadAllText($meta, $utf8) | ConvertFrom-Json
   @{
     out     = (Read-TextoUtf8 $rawOut)
-    err     = (Read-TextoUtf8 $rawErr)
+    err     = (Read-TextoEnCp $rawErr $Cp)
     exit    = [int]$m.exit
     cpSonda = $(if ($null -ne $m.cpSonda -and "$($m.cpSonda)") { [int]$m.cpSonda } else { $null })
   }
 }
 
-# Los bytes del archivo leídos como UTF-8, sin el salto final: lo que escribió el hijo, decodificado
-# acá y no por la code page de nadie.
+# Los bytes del archivo leídos como UTF-8, sin el salto final: para el canal que el hijo escribe en
+# bytes UTF-8 a mano (su stdout), decodificado acá y no por la code page de nadie.
 function Read-TextoUtf8([string]$ruta) {
   if (-not (Test-Path -LiteralPath $ruta -PathType Leaf)) { return "" }
   ([IO.File]::ReadAllText($ruta, [Text.UTF8Encoding]::new($false))).TrimEnd("`r", "`n")
+}
+
+# Lo mismo, con la code page del caso: para el canal que el hijo codifica con su consola (su stderr).
+function Read-TextoEnCp([string]$ruta, [int]$cp) {
+  if (-not (Test-Path -LiteralPath $ruta -PathType Leaf)) { return "" }
+  ([IO.File]::ReadAllText($ruta, [Text.Encoding]::GetEncoding($cp))).TrimEnd("`r", "`n")
+}
+
+# UTF-8 estricto y, si los bytes no lo son, la code page del caso. Sólo para el stderr del boot, que
+# puede haber salido con cualquiera de las dos según en qué punto murió.
+function Read-TextoEstricto([string]$ruta, [int]$cp) {
+  if (-not (Test-Path -LiteralPath $ruta -PathType Leaf)) { return "" }
+  $bytes = [IO.File]::ReadAllBytes($ruta)
+  try { return ([Text.UTF8Encoding]::new($false, $true).GetString($bytes)).TrimEnd("`r", "`n") }
+  catch [Text.DecoderFallbackException] { return (Read-TextoEnCp $ruta $cp) }
 }

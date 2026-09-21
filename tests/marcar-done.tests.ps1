@@ -186,6 +186,11 @@ $cierre = Commit $t "Slice-Close: .scratch/feat-a/issues/01-uno.md"
 Commit $t "sin cierre" | Out-Null
 $r = Marcar $t "0000000000000000000000000000000000000000"
 Assert ($r.exit -eq 1) "SHA inexistente: exit 1 (fue $($r.exit))"
+# El motivo que da git, no sólo el prefijo que escribe el script: con `RedirectStandardError` ese
+# texto deja de llegar solo a la consola del operador, así que si el script no lo interpola se
+# pierde lo único que distingue un SHA inexistente de un repo corrupto o un `--format` roto.
+Assert ($r.err -match 'bad object|unknown revision|ambiguous argument') `
+  "SHA inexistente: el error dice lo que dijo git, no sólo 'git log falló' (fue '$($r.err)')"
 Assert ([IO.File]::ReadAllText($a) -match "(?m)^Status: ready-for-agent`r$") "SHA inexistente: no toca nada"
 $r = Marcar $t $cierre
 Assert (@($r.rep.marcados) -contains ".scratch/feat-a/issues/01-uno.md") "-Sha: marca el issue que cita ese commit aunque HEAD no cierre nada"

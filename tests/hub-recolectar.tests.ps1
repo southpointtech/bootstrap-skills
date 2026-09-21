@@ -610,6 +610,21 @@ Recolectar $tn $stn "2026-09-19T10:00:00Z" | Out-Null
 $r = Recolectar $tn $stn "2026-09-20T10:00:00Z"
 Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "sin cambios") "sin .scratch/: lote 'sin cambios' y exit 0 (fue '$($r.lote.resultado)', exit $($r.exit))"
 
+# --- La ruta del lote sale en bytes UTF-8, no en la codificación de la consola (issue 15) ---
+# Todos los demás casos afirman sobre rutas de `%TEMP%`, que son ASCII, y en ASCII cp850 y UTF-8 son
+# el mismo byte: sin un no-ASCII acá, escribir el stdout con la code page de la consola pasaba la
+# suite entera en verde (MEDIDO). No hace falta consola propia: `Write-Stdout` escribe bytes crudos,
+# así que lo que ancla el contrato es que el lector decodifique UTF-8, que es lo que hace `Recolectar`.
+$tñ = New-HubRepo
+Commit $tñ "slice con ñandú" -slice "15 acentos" | Out-Null
+$stñ = New-TestWorkspace $script:runRoot "hubrec-state-ñ"
+Recolectar $tñ $stñ "2026-09-20T10:00:00Z" | Out-Null
+Commit $tñ "otro slice" -slice "15b acentos" | Out-Null
+$r = Recolectar $tñ $stñ "2026-09-21T10:00:00Z"
+Assert ($r.out -cmatch 'ñ') "la ruta del lote conserva el no-ASCII del StateDir (fue '$($r.out)')"
+Assert ($r.exit -eq 0 -and $null -ne $r.lote) `
+  "y esa ruta se puede abrir tal cual vuelve, o sea que los bytes son los que el lector espera (exit $($r.exit))"
+
 # --- El recolector no le deja su encoding a los procesos que arranquen después (issue 15) ---
 # `[Console]::OutputEncoding` es de la CONSOLA, no del proceso: el que lo fija se lo deja puesto a
 # todo lo que se lance después ahí. Con las suites en paralelo eso son rojos cruzados. La sonda corre
