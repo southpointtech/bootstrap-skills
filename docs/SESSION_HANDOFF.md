@@ -1,3 +1,89 @@
+# Session Handoff — 2026-09-20 — **Issue 14 (dieta del `CLAUDE.md`) CERRADO POR TOPE** e integrado en `feat/bootstrap-v2` @ `bbec417`, `run-all.ps1` verde (35 suites). **v2 queda con un solo pendiente: el 18 (deploy/rollout, HITL).** Nuevos: issues 25 y 26.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `6ac2056` + el commit de este handoff
+  (sin pushear; `origin/main` = `dd3fdf6`, tag `v1.0.0`). Untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ **`bbec417`**,
+  árbol limpio, **local, sin pushear**. La rama del slice se conserva: `slice/14-dieta-del-claude-md`.
+  `feat/hub-sync` es de OTRA sesión: no tocar.
+- **Estado v2**: cerrados **01–17 y 19–22**. Pendiente: **18** (deploy, rollout y re-sellado; HITL, lo corre
+  el humano). Fuera de v2, `needs-triage`: **23**, **24**, **25**, **26**.
+- **El marcador de review quedó en `54d7d1b`, a propósito y mal**: no lo avancé antes de los fixes del
+  turno 2. El próximo `/review-loop` sobre esta rama va a re-revisar `85051b4`, que sobra-revisa — el
+  lado seguro. No lo "arregles" avanzándolo: `advance` corta en HEAD y marcaría como revisados
+  `c3d7c2b` y `bbec417`, que **no los revisó nadie**.
+
+## 1. Qué se hizo en esta sesión
+
+1. **Contabilidad sincronizada** (pendiente que dejó la ola 4): los issues **13** y **21** seguían en
+   `ready-for-agent` aunque estaban cerrados; y `marker:feat/bootstrap-v2` estaba en `b8c246c` (era de la
+   ola 2), lo que le habría dado al slice siguiente un delta de 231 archivos. Los dos corregidos.
+2. **Issue 14 — dieta del `CLAUDE.md`** (3 commits, cerró por TOPE):
+   - `54d7d1b` — el mecanismo del review-loop y del `alignment-gate` sale de los 4 `CLAUDE.md` y va a
+     `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md` §7 y §1. Suite nueva `tests/dieta-del-claude-md.tests.ps1`.
+   - `85051b4` — turno 1 del loop: 7 Medium/High.
+   - `c3d7c2b` — turno 2: 2 High + 4 Medium **en los fixes del turno 1**, más una retractación.
+   - `bbec417` — pase de coherencia: la dieta del bullet del gate era cosmética.
+3. **Issues nuevos**: **25** (`compare-scaffold.ps1` es ciego a los archivos acoplados) y **26** (el
+   `alignment-gate` no tiene cobertura conductual por prefijo). Los dos con su medición adentro.
+4. **Criterio nuevo en el issue 18**: que en cada repo alcanzado el mecanismo quede en UNA sola copia.
+
+## 2. Tests
+
+`pwsh -NoProfile -File tests/run-all.ps1` sobre `bbec417`: **SUITE VERDE — 35 suites, 0 rojas, 459 s.**
+(Correr `chcp.com 65001` antes, o `marcar-done.tests` da un rojo espurio por la consola en cp850.)
+
+## 3. Próximos pasos (en este orden)
+
+1. **Push de v2** (lo hacés vos):
+   `! gh auth switch -u southpointtech && git -C "C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2" push -u origin feat/bootstrap-v2`
+   y volver a `MartinDele703`.
+2. **Issue 18** (deploy, rollout y re-sellado): HITL, último de la release. Ojo con dos cosas que ya
+   están escritas en sus criterios: retirar de `~/.claude/skills` las copias de usuario de `research`,
+   `debug-source-first` y `verify-downstream-arrival` al deployar (ganan sobre las del proyecto), y que
+   **Outsourcing y Forecasting no reciben nada**.
+3. **Issues 25 y 26**, post-release.
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **Todo anclaje de texto tiene un borde literal a un paso, y el turno siguiente lo encuentra.** Medido
+  cuatro veces en un solo slice: anclar la lista entre paréntesis (la esquiva escribirla con dos puntos),
+  exigir backticks (la esquiva escribirla sin ellos), anclar `runs` (la esquiva el gerundio con doble
+  negación: *"does not refrain from **running** the grill on its own"*), comparar la aridad de una lista
+  (la esquiva un swap que mantiene el conteo). Lo que funciona es **derivar el payload del clasificador**
+  —`$govern` del hook, el array de `Is-NonCode`, la tabla de Rigor— y prohibir el payload, no la
+  puntuación. Y medir cada anclaje con su mutante, porque releerlo no alcanza.
+- **Un assert negativo con acoplamiento literal falla en SILENCIO; uno positivo falla RUIDOSO.** La misma
+  técnica es segura en un lado y trampa en el otro. Por eso el negativo se deriva y el positivo puede ser
+  literal.
+- **Un guard que cuenta no es un guard que verifica.** `$rutas.Count -eq 5` daba verde con tres rutas que
+  conservaban el escape (`\.claude/`) y no podían matchear nada. El guard tiene que rechazar el estado
+  imposible, no contar elementos.
+- **La Bash tool se come un backslash de los heredocs, en silencio.** Pasó cuatro veces: `\a` quedó como
+  BEL dentro de una ruta, `\n` quedó como salto real dentro de un backtick, y un mensaje de commit quedó
+  afirmando lo contrario de lo que pasó. Para cualquier backslash dentro de un heredoc de Python usar
+  `chr(92)`, y para archivos grandes el Write tool. **Verificar con `od -c` o un barrido de caracteres de
+  control después de escribir.**
+- **El `$` de Python en `(?m)` se come el `\r`**: `re.sub(r'(?m)^- algo.*$', nuevo, t)` sobre un archivo
+  CRLF deja esa línea en LF pelado. Pasó dos veces. Medir el EOL después de cada reemplazo.
+- **El `$` de .NET ancla solo ante `\n`**: un regex `^### Titulo$` sobre un archivo CRLF no matchea nunca.
+  Va `\r?$`.
+- **Una afirmación con pinta de medida puede salir de leer mal la propia medición.** Escribí "se desbordaba
+  571 caracteres" cuando 571 era el largo total del match y el desborde eran 17. Al anotar un número,
+  anotar también de dónde sale.
+- **El pase de coherencia es el único que ve la desproporción.** Los dos bloques del issue 14 eran el mismo
+  problema; la dieta ocurrió en uno (−61 %) y fue cosmética en el otro (−7 %) porque ese bullet no mudó el
+  mecanismo, lo duplicó. Ningún reviewer de delta lo vio, y la suite llegó a **exigir por test** la
+  duplicación como "coherencia". Correr el pase aunque el loop cierre por tope.
+- **El fork de `/code-review` está atado al cwd de la sesión**: si trabajás en el worktree de v2 desde una
+  sesión abierta en el repo principal, ese foco revisa el repo equivocado. Se omitió a propósito.
+- **El `alignment-gate` frena el primer Write/Edit de código de la sesión**, pero no ve nada de lo que pasa
+  por la Bash tool. Si venís trabajando por Bash, salta recién cuando usás Write.
+
+---
+
 # Session Handoff — 2026-09-19 (noche) — **Ola 4 (13 + 21) CERRADA e integrada** en `feat/bootstrap-v2` @ `8d857a3`, `run-all.ps1` verde (34 suites). Pendientes de v2: 14, 18. Nuevos: 23 y 24.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
