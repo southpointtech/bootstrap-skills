@@ -1,3 +1,77 @@
+# Session Handoff — 2026-09-21 — **Los 10 Medium del turno 1 del issue 14 ARREGLADOS** en 3 commits (`e07c98d`, `919f5ce`, `36ce96a`). Falta el **turno 2** del loop y el pase de coherencia.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, en `slice/14-dieta-del-claude-md`
+  @ **`36ce96a`**, árbol limpio. `feat/bootstrap-v2` sigue en `bbec417` (**no** se integró todavía);
+  `origin/feat/bootstrap-v2` = `de6ab2e`.
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ `0d0dd04` + el commit de este handoff,
+  sin pushear (`origin/main` = `dd3fdf6`). Untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Otra terminal** trabaja en paralelo en `carriles/Bootstrap Skills/hub-sync` (`feat/hub-sync`).
+  ⚠️ La suite de este repo barre `%TEMP%` global: **no correr `run-all.ps1` mientras la otra
+  terminal corre su suite** — preguntale al usuario antes.
+- **Marcador** (`.git/worktrees/Bootstrap-Skills-bootstrap-v2/review-loop-state.json`):
+  `marker:slice/14-dieta-del-claude-md` = `bbec417`, `slice-open:` = `54d7d1b`. Sin tocar esta
+  sesión. `-Action range` hoy devuelve `bbec417` → el delta del **turno 2** son exactamente los 3
+  commits de esta sesión.
+- **Rigor `standard`**, cap 2 turnos: el turno 1 ya se gastó, **el 2 es el último**.
+
+## 1. Qué se hizo en esta sesión
+
+Los fixes de los 10 Medium del handoff anterior (sección siguiente de este archivo, F1–F10), en el
+orden A → B → C, cada uno con su RED:
+
+- **`e07c98d` bloque A** — `tests/dieta-del-claude-md.tests.ps1`: F3 (negativa de la ventana de
+  atribución), F5 (`Seccion-Que-Domina`: contención de §7 y §1), F6 (`Patron-Ruta`: barra opcional
+  con bordes en `$dentro`/`$fuera`/`$cache`), F7 (`Get-Disparadores` lee `gh pr create`, `git push`,
+  `Slice-Close:`, `400` del hook), F8 (nombre del default de la fila `(default)` de la tabla,
+  anclado a `it runs \`…\``), F9 (`$N_RUTAS`/`$N_PREF`/`$N_DISP` + guards anidados), F10
+  (lookbehind `never|not|n't|no`). RED por mutación: 10 mutantes, conteos en el mensaje del commit.
+- **`919f5ce` bloque B (F1)** — 16 copias (SKILL.md + `.claude/commands/slice-review.md` +
+  `slice-review-rules.md` + `slice-review-scorer.md`, × 4 raíces): el pipeline acepta como "rule
+  files" los `CLAUDE.md` **y** `docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`. Test nuevo: 6 ventanas
+  de decisión por raíz (24 FAIL antes, verde después). Re-sellados `fan-out` y `agents` con
+  `tools/reseal-step5.ps1` (`step5` y `tdd-loop` no cambiaron). Manifests regenerados con
+  `tools/gen-manifest.ps1 -SkillDir <skill>` (pide el parámetro). Auditoría de las líneas 11, 178,
+  264, 393 de SKILL.md declarada en el mensaje.
+- **`36ce96a` bloque C (F2 + F4)** — cabecera de la suite reescrita: corrida contra `8d857a3`
+  (95 ok / 128 FAIL, 20 verdes no-guard enumerados), LÍMITES CONOCIDOS (F4 `$mec`, F7 "feature
+  branches", F10, F1), afirmaciones de mutación re-medidas sobre `919f5ce`. `docs/TESTING.md`
+  (sección de la dieta) actualizado igual.
+- **Decisión del usuario (F4)**: declarar el límite en la cabecera, no buscar assert no parafraseable.
+
+## 2. Tests
+
+- Verdes esta sesión, corridas sueltas: `dieta-del-claude-md`, `mirror`, `slice-review`,
+  `shareable-leaks`.
+- **`run-all.ps1` NO se corrió** (colisión de `%TEMP%` con la otra terminal). Correrlo antes de
+  integrar: `chcp.com 65001` antes, o `marcar-done.tests` da rojo espurio.
+
+## 3. Próximos pasos (en este orden)
+
+1. **Turno 2 del `/review-loop`** sobre `git diff bbec417` (los 3 commits): `/slice-review` **sin**
+   `--mutation` ni `--code-review` (prohibidos en turnos 2+). **Poné el path del worktree en el
+   prompt de cada subagente** y pedile al scorer verificar citas contra el worktree (la sesión
+   arranca en el repo principal y los subagentes leen el `CLAUDE.md` equivocado). Avanzá el marcador
+   a `36ce96a` **antes** de escribir fixes.
+2. **Pase de coherencia** (`/slice-review --coherence`) con el ancla `54d7d1b`; corre siempre, también
+   si cierra por tope. Si cierra por tope, **no corras `-Action close`**.
+3. **Integrar** `slice/14` en `feat/bootstrap-v2` (ff), `run-all.ps1` verde (coordinado con la otra
+   terminal), y **push** que hace el usuario: `! gh auth switch -u southpointtech`, push de
+   `feat/bootstrap-v2` y de `main`, volver a `MartinDele703`.
+4. Después: issue 18 (deploy/rollout, HITL). Fuera de v2: 23–26 en `needs-triage`.
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- **Array de un elemento en PowerShell** me volvió a morder (`@( @('a','b') )` se aplana): usar
+  `,@(...)`. Ya está en memoria.
+- El usuario pidió **cortar la sesión al superar ~200K de contexto** y seguir en una nueva.
+- Los mutantes de esta sesión los elegí yo; la memoria dice que suelen ser más débiles que los del
+  reviewer. El turno 2 es el que lo mide.
+
+---
+
 # Session Handoff — 2026-09-20 (noche) — **Turno 1 del review-loop sobre el delta SIN REVISAR del issue 14: 10 Medium, 0 High.** Los fixes NO se escribieron. Marcador ya avanzado a `bbec417`.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
