@@ -6,8 +6,9 @@
 #
 #   pwsh -File .claude/scripts/marcar-done.ps1 -RepoDir <repo> [-Sha <commit>]
 #
-# Salida: un JSON por stdout con `marcados`, `yaDone`, `noEncontrados`, `sinStatus` y `noUtf8` (rutas
-# relativas al repo), más `lineasSliceClose` (cuántas líneas `Slice-Close:` trae el commit) y `sinRuta`
+# Salida: un JSON por stdout —en bytes UTF-8, no en la codificación de la consola— con
+# `marcados`, `yaDone`, `noEncontrados`, `sinStatus` y `noUtf8` (rutas relativas al repo), más
+# `lineasSliceClose` (cuántas líneas `Slice-Close:` trae el commit) y `sinRuta`
 # (los valores de esas líneas que no citan ninguna ruta): así quien lo corre puede decir POR QUÉ no se
 # marcó nada — un commit sin cierre no es lo mismo que un cierre escrito en texto libre.
 # Exit 0 aunque no marque nada; exit 1 si git falla.
@@ -16,12 +17,42 @@ param(
   [string]$Sha = "HEAD"
 )
 $ErrorActionPreference = "Stop"
-# pwsh decodifica la salida de git con [Console]::OutputEncoding (ibm850 en estas máquinas).
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+# git emite UTF-8 y pwsh decodifica la salida de un hijo con [Console]::OutputEncoding, que en estas
+# máquinas es ibm850. Fijar esa propiedad sería lo obvio, pero NO es del proceso sino de la CONSOLA:
+# el valor se lo queda cualquier proceso que arranque después ahí, y bajo `tests/run-all.ps1` —suites
+# en paralelo en una consola— eso son rojos cruzados (issue 15, medido el 2026-09-20; `chcp.com` ni
+# siquiera lo informa). Así que la decodificación se declara por llamada, sin tocarle nada a nadie.
+function Invoke-GitUtf8([string[]]$Argumentos) {
+  $psi = [Diagnostics.ProcessStartInfo]::new('git')
+  foreach ($a in $Argumentos) { $psi.ArgumentList.Add($a) }
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  $p = [Diagnostics.Process]::Start($psi)
+  try {
+    # En paralelo: leer los dos canales en serie puede trabar al hijo si se le llena el otro buffer.
+    $err = $p.StandardError.ReadToEndAsync()
+    $salida = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
+    [pscustomobject]@{ stdout = $salida; stderr = $err.Result.Trim(); exit = $p.ExitCode }
+  } finally { $p.Dispose() }
+}
 
-$msg = git -C $RepoDir log -1 --format=%B $Sha
-if ($LASTEXITCODE -ne 0) { Write-Error "git log falló en $RepoDir para $Sha"; exit 1 }
-$msg = $msg -join "`n"
+# El reporte sale por stdout en bytes UTF-8, por lo mismo: `ConvertTo-Json` por la tubería se
+# codificaría con [Console]::OutputEncoding, y dejarlo en UTF-8 exige cambiársela a toda la consola.
+# Quien lo lee decodifica UTF-8, que es lo que este script promete escribir.
+function Write-Stdout([string]$texto) {
+  $s = [Console]::OpenStandardOutput()
+  $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
+  $s.Write($b, 0, $b.Length)
+  $s.Flush()
+}
+
+$g = Invoke-GitUtf8 @('-C', $RepoDir, 'log', '-1', '--format=%B', $Sha)
+if ($g.exit -ne 0) { Write-Error "git log falló en $RepoDir para $Sha"; exit 1 }
+$msg = $g.stdout
 
 $rep = [ordered]@{ marcados = @(); yaDone = @(); noEncontrados = @(); sinStatus = @(); noUtf8 = @(); lineasSliceClose = 0; sinRuta = @() }
 # La línea `Slice-Close:` se detecta como en hub-recolectar.ps1: en el cuerpo entero, no en los
@@ -58,4 +89,4 @@ foreach ($v in $valores) {
     $rep.marcados += $rel
   }
 }
-$rep | ConvertTo-Json -Compress
+Write-Stdout ($rep | ConvertTo-Json -Compress)

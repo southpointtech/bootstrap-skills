@@ -27,8 +27,9 @@
 # Límite conocido: un squash-merge crea un SHA nuevo con el mismo trailer y se propone dos veces;
 # el PM descarta el duplicado al aprobar.
 #
-# Salida: la ruta del lote por stdout. Exit 0 con lote `ok` o `sin cambios`; exit 0 sin lote si no
-# hay declaración o el dev no figura en ella; exit 1 con lote `falló` + motivo si la declaración es
+# Salida: la ruta del lote por stdout, en bytes UTF-8 y no en la codificación de la consola.
+# Exit 0 con lote `ok` o `sin cambios`; exit 0 sin lote si no hay declaración o el dev no figura
+# en ella; exit 1 con lote `falló` + motivo si la declaración es
 # inválida, la foto es ilegible o git falla.
 param(
   [Parameter(Mandatory)][string]$RepoDir,
@@ -37,17 +38,50 @@ param(
   [string]$Now = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 )
 $ErrorActionPreference = "Stop"
-# pwsh decodifica la salida de git con [Console]::OutputEncoding, que en estas máquinas es ibm850: sin
-# esto un asunto con acentos llega deformado al lote. git emite UTF-8 (i18n.logOutputEncoding).
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $utf8 = [Text.UTF8Encoding]::new($false)
+
+# git emite UTF-8 (i18n.logOutputEncoding) y pwsh decodifica la salida de un hijo con
+# [Console]::OutputEncoding, que en estas máquinas es ibm850: sin hacer nada, un asunto con acentos
+# llega deformado al lote. La forma OBVIA de arreglarlo —fijar [Console]::OutputEncoding en UTF-8— es
+# un efecto global: esa propiedad no es del proceso sino de la CONSOLA, y el valor que fija este
+# script se lo queda cualquier proceso que arranque después ahí (medido el 2026-09-20; `chcp.com`
+# ni siquiera lo informa). Bajo `tests/run-all.ps1`, que corre suites en paralelo en una consola, eso
+# son rojos cruzados (issue 15). Así que la decodificación se declara por llamada, sin tocar a nadie.
+function Invoke-GitUtf8([string[]]$Argumentos) {
+  $psi = [Diagnostics.ProcessStartInfo]::new('git')
+  foreach ($a in $Argumentos) { $psi.ArgumentList.Add($a) }
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  # El stderr también: el motivo de una corrida fallida trae rutas, y deformadas no sirven.
+  $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  $p = [Diagnostics.Process]::Start($psi)
+  try {
+    # En paralelo: leer los dos canales en serie puede trabar al hijo si se le llena el otro buffer.
+    $err = $p.StandardError.ReadToEndAsync()
+    $salida = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
+    [pscustomobject]@{ stdout = $salida; stderr = $err.Result.Trim(); exit = $p.ExitCode }
+  } finally { $p.Dispose() }
+}
+
+# La ruta del lote sale por stdout en bytes UTF-8, por la misma razón: `Write-Output` la codificaría
+# con [Console]::OutputEncoding, y dejarla en UTF-8 exige cambiársela a toda la consola. Quien llama
+# decodifica UTF-8, que es lo que este script promete escribir.
+function Write-Stdout([string]$texto) {
+  $s = [Console]::OpenStandardOutput()
+  $b = $utf8.GetBytes($texto + "`n")
+  $s.Write($b, 0, $b.Length)
+  $s.Flush()
+}
 
 # La identidad del repo es su directorio git común, no el nombre de la carpeta: dos clones con el
 # mismo nombre compartirían la foto y se re-propondrían el histórico uno al otro en cada corrida. Si
 # no es un repo git, la ruta de la carpeta (la corrida va a fallar igual, pero su lote tiene dónde ir).
-$comun = git -C $RepoDir rev-parse --path-format=absolute --git-common-dir 2>$null
-if ($LASTEXITCODE -eq 0 -and $comun) {
-  $identidad = [IO.Path]::GetFullPath(([string]$comun).Trim())
+$g = Invoke-GitUtf8 @('-C', $RepoDir, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+if ($g.exit -eq 0 -and $g.stdout.Trim()) {
+  $identidad = [IO.Path]::GetFullPath($g.stdout.Trim())
   $repoName = if ((Split-Path $identidad -Leaf) -eq ".git") { Split-Path (Split-Path $identidad -Parent) -Leaf } else { Split-Path $identidad -Leaf }
 } else {
   $identidad = [IO.Path]::GetFullPath($RepoDir)
@@ -88,7 +122,7 @@ function Write-Lote {
 function Fallar([string]$motivo) {
   $lote.resultado = "falló"
   $lote.motivo = $motivo
-  Write-Output (Write-Lote)
+  Write-Stdout (Write-Lote)
   exit 1
 }
 
@@ -118,12 +152,11 @@ if ($decl.ongoingSupport) { $lote.ongoingSupport = $decl.ongoingSupport }
 # review-loop-trigger (a principio de línea, sin distinguir mayúsculas), pero además exige un valor en
 # la misma línea: un `Slice-Close:` vacío no es un cierre, y con `\s*` el valor sería la línea
 # siguiente. Un registro por commit, separado por \x1e, porque el cuerpo trae saltos de línea.
-$log = git -C $RepoDir log --all --format="%H%x1f%ae%x1f%aI%x1f%s%x1f%B%x1e" 2>&1
-if ($LASTEXITCODE -ne 0) { Fallar "git log falló en $RepoDir`: $($log -join ' ')" }
-# Sólo stdout: con `2>&1` lo que git escribe en stderr aunque salga 0 (p.ej. los hints de grafts)
-# llega como ErrorRecord, y unido al texto quedaría pegado delante de un SHA.
-$stdout = @($log | Where-Object { $_ -is [string] })
-$todos = @(($stdout -join "`n") -split "`u{1e}" |
+$log = Invoke-GitUtf8 @('-C', $RepoDir, 'log', '--all', '--format=%H%x1f%ae%x1f%aI%x1f%s%x1f%B%x1e')
+if ($log.exit -ne 0) { Fallar "git log falló en $RepoDir`: $($log.stderr -replace '\s+', ' ')" }
+# Sólo stdout: lo que git escribe en stderr aunque salga 0 (p. ej. los hints de grafts) viene por
+# su propio canal y no se mezcla con los registros, que es lo que pasaba con `2>&1`.
+$todos = @($log.stdout -split "`u{1e}" |
   ForEach-Object {
     $c = $_.TrimStart("`n") -split "`u{1f}"
     if ($c.Count -lt 5 -or $c[0] -notmatch '^[0-9a-f]{40}$') { return }
@@ -206,10 +239,10 @@ function Read-Scratch([string]$raiz) {
 # cerrado entre dos corridas no pierde su hito mientras su worktree siga en disco (uno borrado sale de
 # la foto, y con él lo que no se haya leído todavía), y uno copiado de un main que ya estaba en `done`
 # no lo repite. Un issue que sólo existe en el carril nuevo no tiene estado anterior y no se propone.
-$wtList = git -C $RepoDir worktree list --porcelain 2>&1
-if ($LASTEXITCODE -ne 0) { Fallar "git worktree list falló en $RepoDir`: $($wtList -join ' ')" }
+$wtList = Invoke-GitUtf8 @('-C', $RepoDir, 'worktree', 'list', '--porcelain')
+if ($wtList.exit -ne 0) { Fallar "git worktree list falló en $RepoDir`: $($wtList.stderr -replace '\s+', ' ')" }
 $scratchAhora = [ordered]@{}
-foreach ($l in @($wtList | Where-Object { $_ -is [string] -and $_.StartsWith("worktree ") })) {
+foreach ($l in @($wtList.stdout -split "`r?`n" | Where-Object { $_.StartsWith("worktree ") })) {
   $raiz = [IO.Path]::GetFullPath($l.Substring(9)).TrimEnd('\', '/')
   if (-not (Test-Path -LiteralPath $raiz -PathType Container)) { continue }
   $scratchAhora[$raiz.ToLowerInvariant()] = Read-Scratch $raiz
@@ -278,4 +311,4 @@ foreach ($k in $scratchAhora.Keys) {
 }
 [IO.File]::WriteAllText($tmp, ([ordered]@{ schemaVersion = 2; vistos = @($todos | ForEach-Object { $_.sha }); scratch = $scratchFoto } | ConvertTo-Json -Depth 5), $utf8)
 [IO.File]::Move($tmp, $fotoPath, $true)
-Write-Output $archivo
+Write-Stdout $archivo

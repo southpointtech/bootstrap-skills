@@ -6,6 +6,7 @@ $repo   = Split-Path $PSScriptRoot -Parent
 $marcar = Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/scripts/marcar-done.ps1"
 $script:failures = 0
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+. (Join-Path $PSScriptRoot "lib\consola-propia.ps1")
 $script:runRoot = New-TestRunRoot "mdone"
 trap { Remove-TestRunRoot $script:runRoot; break }
 
@@ -47,11 +48,27 @@ function Commit([string]$t, [string]$cuerpo) {
   git -C $t commit -q --allow-empty -F $f
   return (git -C $t rev-parse HEAD).Trim()
 }
+# El reporte se decodifica como UTF-8 acá, por `StandardOutputEncoding`, y no con lo que tenga puesto
+# la consola: `& pwsh` lo decodifica con [Console]::OutputEncoding, y bajo `run-all.ps1` esa code page
+# se la fija cualquier otra suite que corra en paralelo. MEDIDO el 2026-09-20: con la consola en 850
+# el assert del em dash de `sinRuta` caía, y el mismo assert pasaba con la consola en 65001 (issue 15).
 function Marcar([string]$t, [string]$sha = "") {
-  $a = @("-NoProfile", "-File", $marcar, "-RepoDir", $t)
-  if ($sha) { $a += @("-Sha", $sha) }
-  $out = & pwsh @a
-  $r = @{ exit = $LASTEXITCODE; out = (($out | Where-Object { $_ }) -join "`n").Trim(); rep = $null }
+  $psi = [Diagnostics.ProcessStartInfo]::new('pwsh')
+  foreach ($a in '-NoProfile', '-File', $marcar, '-RepoDir', $t) { $psi.ArgumentList.Add($a) }
+  if ($sha) { $psi.ArgumentList.Add('-Sha'); $psi.ArgumentList.Add($sha) }
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  $p = [Diagnostics.Process]::Start($psi)
+  try {
+    # En paralelo: leer los dos canales en serie puede trabar al hijo si se le llena el otro buffer.
+    $err = $p.StandardError.ReadToEndAsync()
+    $salida = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
+    $r = @{ exit = $p.ExitCode; out = $salida.Trim(); err = $err.Result.Trim(); rep = $null }
+  } finally { $p.Dispose() }
   try { $r.rep = $r.out | ConvertFrom-Json } catch { }
   return $r
 }
@@ -255,6 +272,22 @@ foreach ($r in $raices) {
   $s = Join-Path $r ".claude/scripts/marcar-done.ps1"
   Assert ((Test-Path -LiteralPath $s) -and (Get-FileHash -LiteralPath $s).Hash -eq $scriptHash) "$etq tiene marcar-done.ps1 idéntico al de southpoint"
 }
+
+# --- En una consola que no es UTF-8: el reporte llega intacto y el encoding no se le pega a nadie ---
+# `[Console]::OutputEncoding` es de la CONSOLA, no del proceso: el que la fija se la deja puesta a
+# todo lo que arranque después ahí, que con `run-all.ps1` en paralelo son las otras suites (issue 15).
+# La sonda corre DESPUÉS del script, en su misma consola privada, y tiene que seguir viendo el 850.
+$t = New-Repo
+New-Issue $t ".scratch/feat-a/issues/01-uno.md" | Out-Null
+Commit $t "Slice-Close: issue 01 — texto libre" | Out-Null
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $marcar -ConSonda -Cp 850 -Argumentos @('-RepoDir', $t)
+$repEn850 = $null
+try { $repEn850 = $r.out | ConvertFrom-Json } catch { }
+Assert ($r.exit -eq 0 -and $null -ne $repEn850) "en una consola en 850 marcar-done corre y su reporte es JSON (exit $($r.exit); $($r.err))"
+Assert (@($repEn850.sinRuta) -contains "issue 01 — texto libre") `
+  "y el reporte sale en UTF-8 aunque la consola esté en 850 (fue '$(@($repEn850.sinRuta) -join ', ')')"
+Assert ($r.cpSonda -eq 850) `
+  "marcar-done no le cambia el encoding al proceso siguiente de su consola (la sonda arrancó en $($r.cpSonda), esperaba 850)"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures) { Write-Host "`n$($script:failures) FALLAS"; exit 1 }

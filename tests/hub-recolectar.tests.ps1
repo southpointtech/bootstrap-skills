@@ -6,6 +6,7 @@ $repo  = Split-Path $PSScriptRoot -Parent
 $recol = Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/scripts/hub-recolectar.ps1"
 $script:failures = 0
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+. (Join-Path $PSScriptRoot "lib\consola-propia.ps1")
 $script:runRoot = New-TestRunRoot "hubrec"
 trap { Remove-TestRunRoot $script:runRoot; break }
 
@@ -57,20 +58,46 @@ function Commit([string]$t, [string]$subject, [string]$email = "m@x.io", [string
   return (git -C $t rev-parse HEAD).Trim()
 }
 # Corre el recolector y devuelve el lote que escribió (o $null), con exit code y stdout.
-# Bajo el code page 850 de consola, que el hijo hereda: es el de una máquina que no está en UTF-8 (lo
-# que ve una Scheduled Task) y el que deforma los acentos. Esta terminal está en 65001, y sin forzarlo
-# el assert del asunto con acentos pasaba en verde con la decodificación UTF-8 sacada (medido).
+# La salida se decodifica como UTF-8 acá, por `StandardOutputEncoding`, y NO fijando
+# `[Console]::OutputEncoding`: esa propiedad es de la CONSOLA, no del proceso, y bajo `run-all.ps1`
+# —cuatro suites en paralelo en la misma consola— se la deja puesta a las demás (issue 15).
+# El caso que necesita un ambiente que no sea UTF-8, el del asunto con acentos, usa
+# `Invoke-EnConsolaPropia`: le da al hijo una consola propia que muere con él.
 function Recolectar([string]$t, [string]$state, [string]$now, [string]$dev = "martin") {
-  $prev = [Console]::OutputEncoding
+  $psi = [Diagnostics.ProcessStartInfo]::new('pwsh')
+  foreach ($a in '-NoProfile', '-File', $recol, '-RepoDir', $t, '-Dev', $dev, '-StateDir', $state, '-Now', $now) {
+    $psi.ArgumentList.Add($a)
+  }
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+  $p = [Diagnostics.Process]::Start($psi)
   try {
-    [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850)
-    $out = & pwsh -NoProfile -File $recol -RepoDir $t -Dev $dev -StateDir $state -Now $now
-  } finally { [Console]::OutputEncoding = $prev }
-  $r = @{ exit = $LASTEXITCODE; out = (($out | Where-Object { $_ }) -join "`n").Trim(); lote = $null }
+    # En paralelo: leer los dos canales en serie puede trabar al hijo si se le llena el otro buffer.
+    $err = $p.StandardError.ReadToEndAsync()
+    $salida = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
+    $r = @{ exit = $p.ExitCode; out = $salida.Trim(); err = $err.Result.Trim(); lote = $null }
+  } finally { $p.Dispose() }
   if ($r.out -and (Test-Path -LiteralPath $r.out)) {
     $r.lote = [IO.File]::ReadAllText($r.out) | ConvertFrom-Json -DateKind String
   }
   return $r
+}
+
+# El mismo lote, pero con el recolector corriendo en una consola que NO es UTF-8 (lo que ve una
+# Scheduled Task en una máquina en 850). Es lo que mata el mutante de la decodificación: sin el
+# `Invoke-GitUtf8` del script, el asunto con acentos llega deformado al lote.
+function Recolectar-En850([string]$t, [string]$state, [string]$now, [string]$dev = "martin") {
+  $r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $recol -Cp 850 `
+    -Argumentos @('-RepoDir', $t, '-Dev', $dev, '-StateDir', $state, '-Now', $now)
+  $res = @{ exit = $r.exit; out = $r.out.Trim(); err = $r.err; lote = $null }
+  if ($res.out -and (Test-Path -LiteralPath $res.out)) {
+    $res.lote = [IO.File]::ReadAllText($res.out) | ConvertFrom-Json -DateKind String
+  }
+  return $res
 }
 
 # --- Tracer: la primera corrida fija la línea de base y no propone el histórico ---
@@ -92,10 +119,12 @@ Assert ((Split-Path $r.out -Leaf) -eq "20260919T100000Z.json" -and (Split-Path (
 Assert ($null -eq $r.lote.PSObject.Properties['ongoingSupport']) "sin ongoingSupport declarado, el lote no lo lleva"
 
 # --- Un Slice-Close del dev después de la línea de base es una propuesta `update` ---
-# El asunto lleva acentos a propósito: pwsh decodifica la salida de git con la página de códigos de la
-# consola (ibm850 en estas máquinas) y el asunto llegaría deformado al lote.
+# El asunto lleva acentos a propósito y esta corrida va en una consola en 850: pwsh decodifica la
+# salida de git con la página de códigos de la consola, así que sin el `Invoke-GitUtf8` del script el
+# asunto llega deformado al lote. Es el único caso que necesita ese ambiente, y por eso es el único
+# que paga una consola propia.
 $sha = Commit $t "recolección de años" -slice "03 recolector"
-$r = Recolectar $t $state "2026-09-20T10:00:00Z"
+$r = Recolectar-En850 $t $state "2026-09-20T10:00:00Z"
 $p = @($r.lote.propuestas)
 Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "ok") "slice nuevo: resultado 'ok' (fue '$($r.lote.resultado)', exit $($r.exit))"
 Assert ($p.Count -eq 1) "slice nuevo: una propuesta (fueron $($p.Count))"
@@ -580,6 +609,19 @@ $stn = New-TestWorkspace $script:runRoot "hubrec-state"
 Recolectar $tn $stn "2026-09-19T10:00:00Z" | Out-Null
 $r = Recolectar $tn $stn "2026-09-20T10:00:00Z"
 Assert ($r.exit -eq 0 -and $r.lote.resultado -eq "sin cambios") "sin .scratch/: lote 'sin cambios' y exit 0 (fue '$($r.lote.resultado)', exit $($r.exit))"
+
+# --- El recolector no le deja su encoding a los procesos que arranquen después (issue 15) ---
+# `[Console]::OutputEncoding` es de la CONSOLA, no del proceso: el que lo fija se lo deja puesto a
+# todo lo que se lance después ahí. Con las suites en paralelo eso son rojos cruzados. La sonda corre
+# DESPUÉS del recolector, en su misma consola privada, y tiene que seguir viendo el ambiente del caso.
+$tc = New-HubRepo
+Commit $tc "recolección de años" -slice "03 recolector" | Out-Null
+$stc = New-TestWorkspace $script:runRoot "hubrec-state"
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $recol -ConSonda -Cp 850 `
+  -Argumentos @('-RepoDir', $tc, '-Dev', 'martin', '-StateDir', $stc, '-Now', '2026-09-19T10:00:00Z')
+Assert ($r.exit -eq 0) "en una consola que no es UTF-8 el recolector corre igual (exit $($r.exit); $($r.err))"
+Assert ($r.cpSonda -eq 850) `
+  "el recolector no le cambia el encoding al proceso siguiente de su consola (la sonda arrancó en $($r.cpSonda), esperaba 850)"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
