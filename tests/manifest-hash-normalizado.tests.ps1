@@ -29,7 +29,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones (ver normalized-hash.tests.ps1: sin esto, un mutante que borra
 # asserts sale en verde).
-$ExpectedChecks = 20
+$ExpectedChecks = 22
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "mhn"
@@ -44,10 +44,13 @@ trap { Remove-TestRunRoot $script:runRoot; break }
 $H_LF   = "3286d72d1182cc61f3b0a26662e6d0e1c769e0001a3d98c921e517ab49eb81ec"
 $H_CRLF = "daf05a2d5f69dbf8b25c3624d6aeea5f19fa34c1347ba24168ababc3a6618ac2"
 $H_OTRO = "c5dbff09263ed3039714072538f579c7656cf9bfe9632a85855c2dc87fb85fcf"
+# Crudo de b"uno\r\ndos\n", un archivo con fines de línea MEZCLADOS (hashlib.sha256, como los demás).
+$H_MIXTO = "3d6c50f4cbddb9b4cb5e4857acfe3ee58b624e7533ad84bb7ce33f34ac190fe5"
 $LF     = [Text.Encoding]::ASCII.GetBytes("uno`ndos`n")
 $CRLF   = [Text.Encoding]::ASCII.GetBytes("uno`r`ndos`r`n")
 $OTRO   = [Text.Encoding]::ASCII.GetBytes("otro`n")
 $OTRO_CRLF = [Text.Encoding]::ASCII.GetBytes("otro`r`n")
+$MIXTO  = [Text.Encoding]::ASCII.GetBytes("uno`r`ndos`n")
 $TOCADO = [Text.Encoding]::ASCII.GetBytes("uno`r`ndos`r`nlocal`r`n")
 
 # Bytes crudos: Set-Content reescribiría el fin de línea, que es justo lo que se mide.
@@ -100,7 +103,7 @@ try {
   # Canónico: a.md ("uno dos"); b.md a g.md ("otro"). La base vieja de c.md, d.md y g.md es
   # "uno dos": el canónico se movió desde ahí.
   $scaf = New-Canon @{ "a.md" = $LF; "b.md" = $OTRO; "c.md" = $OTRO; "d.md" = $OTRO; "e.md" = $OTRO
-                       "f.md" = $OTRO; "g.md" = $OTRO }
+                       "f.md" = $OTRO; "g.md" = $OTRO; "h.md" = $OTRO }
 
   # (1) Proyecto con manifest NUEVO (normalizado), archivos en CRLF.
   $p1 = New-TestWorkspace -Root $script:runRoot -Name "p1"
@@ -121,7 +124,8 @@ try {
   Write-Raw $p2 "e.md" $OTRO_CRLF     # igual al canónico nuevo, base cruda vieja -> uptodate
   Write-Raw $p2 "f.md" $CRLF          # distinto del canónico y SIN base          -> customized
   Write-Raw $p2 "g.md" $LF            # intacto, pero su base cruda es la de CRLF -> outdated
-  Write-Manifest $p2 @{ "c.md" = $H_CRLF; "d.md" = $H_CRLF; "e.md" = $H_CRLF; "g.md" = $H_CRLF }
+  Write-Raw $p2 "h.md" $MIXTO         # intacto, fines de línea mezclados         -> outdated
+  Write-Manifest $p2 @{ "c.md" = $H_CRLF; "d.md" = $H_CRLF; "e.md" = $H_CRLF; "g.md" = $H_CRLF; "h.md" = $H_MIXTO }
   $r2 = Compare-Project $p2 $scaf
   Assert ((Names $r2.outdated) -contains "c.md") "compare legacy: base cruda CRLF + archivo intacto es outdated, no customized"
   Assert ((Names $r2.customized) -contains "d.md") "compare legacy: base cruda + archivo tocado es customized"
@@ -129,6 +133,8 @@ try {
   # El fin de línea cambió después de sellar (checkout con otro autocrlf): ni el hash normalizado ni el
   # crudo del archivo LF dan el crudo de la versión CRLF. Tiene que reconocerse igual como intacto.
   Assert ((Names $r2.outdated) -contains "g.md") "compare legacy: base cruda CRLF + el mismo archivo ahora en LF es outdated"
+  # Con fines de línea mezclados ni el normalizado ni el CRLF reconstruyen los bytes: solo el crudo.
+  Assert ((Names $r2.outdated) -contains "h.md") "compare legacy: un archivo intacto con fines de línea mezclados es outdated"
 
   # ---- reseal-manifest ----
   # Sobre el proyecto legacy: a.md llega actualizado en CRLF, c.md y g.md se saltean (quedan viejos
@@ -145,6 +151,7 @@ try {
   Assert ($m2.'e.md' -eq $H_OTRO) "reseal: el archivo igual al canónico en CRLF sella el canónico aunque su base vieja no coincida"
   Assert ($m2.'f.md' -eq $H_LF) "reseal: un archivo sin base en CRLF se siembra con el hash normalizado, no el crudo"
   Assert ($m2.'g.md' -eq $H_LF) "reseal: la base cruda CRLF de un archivo intacto que pasó a LF se convierte a normalizada"
+  Assert ($m2.'h.md' -eq $H_LF) "reseal: la base cruda de un archivo intacto con fines de línea mezclados se convierte a normalizada"
 
   # Ida y vuelta: después del reseal, el proyecto no reporta drift falso.
   $r3 = Compare-Project $p2 $scaf

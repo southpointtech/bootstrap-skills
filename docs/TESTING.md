@@ -818,9 +818,15 @@ contenido en LF y CRLF sella el mismo hash y la misma `version`; `compare` con u
 al canónico sella el canónico aunque su base vieja no coincida, la base cruda de un archivo intacto
 se convierte a normalizada, la de uno tocado se conserva, y uno sin base se siembra normalizado), y
 una ida y vuelta. La regla de transición que fijan los casos legacy: un hash sellado coincide si es
-el normalizado, el crudo, o el del contenido con todos los fines de línea en CRLF. Mutantes
-verificados, un FAIL cada uno: sacar la coincidencia cruda o la CRLF de `compare`, sacar la CRLF o la
-normalizada de `reseal`, no convertir la base, saltear la rama canónica y sembrar con el hash crudo.
+el normalizado, el crudo, o el del contenido con todos los fines de línea en CRLF (`Test-Sealed`, que
+vive en `normalized-hash.ps1` junto a `Get-Hashes` y `Get-CrlfHash`, así que la verifica la misma
+prueba de identidad de copias). El crudo solo decide en un archivo con fines de línea mezclados
+(`h.md`): en uno todo LF coincide con el normalizado y en uno todo CRLF con el CRLF. Mutantes que
+mueren, sobre el código actual y mutando las dos copias de `normalized-hash.ps1` igual: sacar de
+`Test-Sealed` la coincidencia cruda (2 FAIL), la CRLF (2) o la normalizada (5); en `reseal`, sembrar
+con el hash crudo (1), no convertir la base (3) y saltear la rama canónica (1). **Sobrevive** uno:
+`Get-CrlfHash` sin pasar primero CRLF y CR sueltos a LF, porque ningún fixture le da una entrada que no
+sea todo LF.
 
 ## Testeo de setup-mcp-workstation
 

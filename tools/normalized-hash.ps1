@@ -109,3 +109,39 @@ function Get-NormalizedHash {
   try { $digest = $sha.ComputeHash($bytesOut) } finally { $sha.Dispose() }
   return [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
 }
+
+# ---- Regla de coincidencia del manifest (la usan compare-scaffold.ps1 y reseal-manifest.ps1) ----
+#
+# Viven acá y no en cada script para que haya una sola definición: la copia de este archivo en
+# `skills/upgrade-bootstrap/scripts/` está verificada idéntica por test, y una regla escrita dos veces
+# a mano puede divergir y hacer que compare y reseal no coincidan sobre el mismo archivo.
+#
+# Los manifests canónicos se sellan con `Get-NormalizedHash`. Los de proyecto sellados antes guardan
+# el hash CRUDO de los bytes que tenía ese checkout, así que un hash sellado coincide con un archivo si
+# es cualquiera de: su hash normalizado, su hash crudo, o el hash de su contenido con todos los fines
+# de línea escritos como CRLF (una base cruda sellada desde un checkout CRLF, para un archivo que hoy
+# es LF). Cada uno significa el mismo contenido con a lo sumo los fines de línea cambiados, así que
+# ninguno puede marcar como intacto un archivo tocado. El crudo es el único que reconoce un archivo
+# con fines de línea mezclados: ni el normalizado ni el CRLF reconstruyen esos bytes.
+
+# sha256 del contenido con todos los fines de línea como CRLF (CRLF y CR sueltos pasan primero a LF).
+function Get-CrlfHash([Parameter(Mandatory)][string]$Path) {
+  $full = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+  $s = $script:NHLatin1.GetString([IO.File]::ReadAllBytes($full))
+  $s = (($s -replace "`r`n", "`n") -replace "`r", "`n") -replace "`n", "`r`n"
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { $digest = $sha.ComputeHash($script:NHLatin1.GetBytes($s)) } finally { $sha.Dispose() }
+  return [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+}
+
+# Los tres hashes de un archivo (n normalizado, r crudo, c CRLF), o $null si no existe.
+function Get-Hashes([Parameter(Mandatory)][string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  @{ n = Get-NormalizedHash -Path $Path
+     r = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+     c = Get-CrlfHash -Path $Path }
+}
+
+function Test-Sealed($Hashes, $Sealed) {
+  ($Sealed -eq $Hashes.n) -or ($Sealed -eq $Hashes.r) -or ($Sealed -eq $Hashes.c)
+}
