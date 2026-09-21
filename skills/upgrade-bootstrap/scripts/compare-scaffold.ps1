@@ -7,7 +7,16 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-function Get-Hash($path) { if (Test-Path $path) { (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() } else { $null } }
+. (Join-Path $PSScriptRoot "normalized-hash.ps1")
+# Canonical manifests are sealed with the normalized hash (line endings unified). Project manifests
+# sealed before that hold RAW hashes, so a sealed hash matches a file if it equals either its
+# normalized or its raw hash. A raw match means identical bytes, so it can never mark a touched
+# file as untouched.
+function Get-Hashes($path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    @{ n = Get-NormalizedHash -Path $path; r = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLower() }
+}
+function Test-Sealed($h, $sealed) { ($sealed -eq $h.n) -or ($sealed -eq $h.r) }
 
 $canonManifestPath = Join-Path $CanonicalScaffold ".bootstrap-manifest.json"
 if (-not (Test-Path $canonManifestPath)) { throw "Canonical scaffold has no manifest: $canonManifestPath" }
@@ -23,12 +32,12 @@ if ($hasProjManifest) {
 $missing = @(); $outdated = @(); $customized = @(); $uptodate = @()
 foreach ($p in $canon.files.PSObject.Properties) {
     $rel = $p.Name; $canonHash = $p.Value
-    $actual = Get-Hash (Join-Path $ProjectDir $rel)
-    if ($null -eq $actual)        { $missing += $rel; continue }
-    if ($actual -eq $canonHash)   { $uptodate += $rel; continue }
+    $actual = Get-Hashes (Join-Path $ProjectDir $rel)
+    if ($null -eq $actual)                 { $missing += $rel; continue }
+    if (Test-Sealed $actual $canonHash)    { $uptodate += $rel; continue }
     if ($hasProjManifest -and $projBase.ContainsKey($rel)) {
         $base = $projBase[$rel]
-        if ($actual -eq $base) { $outdated += $rel }                                   # untouched; canonical moved forward
+        if (Test-Sealed $actual $base) { $outdated += $rel }                           # untouched; canonical moved forward
         else { $customized += [ordered]@{ file = $rel; threeWay = ($canonHash -ne $base) } }  # touched
     } else {
         $customized += [ordered]@{ file = $rel; threeWay = $true }                      # no base: differs, user decides

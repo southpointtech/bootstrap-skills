@@ -1,9 +1,9 @@
 # tests/normalized-hash.tests.ps1 — runner sin Pester. Correr: pwsh -NoProfile -File tests/normalized-hash.tests.ps1
 #
 # Cubre tools/normalized-hash.ps1 — el módulo M1 del PRD de bootstrap-v2: la forma canónica de
-# hashear del repo, que los cálculos crudos replicados hoy en gen-manifest, compare-scaffold y
-# reseal-manifest —más las dos variantes de NormHash (mirror.tests y review-loop-incremental)—
-# todavía NO usan (migrarlos es un slice aparte, issue 03). Existe porque el hash con
+# hashear del repo. La usan gen-manifest, compare-scaffold y reseal-manifest (issue 03b, cubierto en
+# tests/manifest-hash-normalizado.tests.ps1); las dos variantes de NormHash de mirror.tests y
+# review-loop-incremental siguen con su propio cálculo. Existe porque el hash con
 # el que se sellan los manifests dependía de cómo el checkout de cada máquina escribió los fines de
 # línea, y un manifest sellado en una máquina reportaba drift falso en otra (memoria
 # `bug-autocrlf-manifests-hashes-mixtos`).

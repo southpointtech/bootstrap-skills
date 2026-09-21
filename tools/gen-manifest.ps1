@@ -2,6 +2,8 @@
 # Uso: pwsh -File tools/gen-manifest.ps1 -SkillDir <ruta a la skill que contiene assets\scaffold>
 param([Parameter(Mandatory)][string]$SkillDir)
 $ErrorActionPreference = "Stop"
+# Hash normalizado (fin de línea unificado): el mismo árbol sella lo mismo en cualquier checkout.
+. (Join-Path $PSScriptRoot "normalized-hash.ps1")
 
 $scaffold = Join-Path $SkillDir "assets\scaffold"
 if (-not (Test-Path $scaffold)) { throw "No existe el scaffold: $scaffold" }
@@ -17,7 +19,7 @@ Get-ChildItem $scaffold -Recurse -File -Force | ForEach-Object {
     $rel = $_.FullName.Substring($scaffoldFull.Length).TrimStart('\','/').Replace('\','/')
     if ($rel -eq ".bootstrap-manifest.json") { return }            # auto-exclusión
     $dest = if ($rel -eq "gitignore.txt") { ".gitignore" } else { $rel }  # mapeo a ruta de destino
-    $files[$dest] = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+    $files[$dest] = Get-NormalizedHash -Path $_.FullName
 }
 
 # version = fecha + hash corto del conjunto (rutas+hashes ordenados)
