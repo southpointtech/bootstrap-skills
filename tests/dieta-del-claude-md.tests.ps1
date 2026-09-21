@@ -29,8 +29,9 @@
 #   - "Work in feature branches per slice" en la seccion 7: es semantica, no token, y no lo ancla nada.
 #   - La negativa de direccion del gate exige la negacion pegada al verbo ("will not ever run" da un
 #     rojo espurio) y la frase "on its own" ("runs the grill by itself" no la ve nada).
-#   - En el pipeline de /slice-review se anclan seis ventanas de decision por raiz; re-atar al
-#     CLAUDE.md solo una oracion que no este en ellas no da rojo.
+#   - En el pipeline de /slice-review se anclan ocho ventanas de decision por raiz, oracion por
+#     oracion; re-atar al CLAUDE.md solo una oracion que no este en ellas no da rojo, y tampoco una
+#     que excluya el doc sin nombrar su ruta ("a rule found only in the workflow doc scores 0-39").
 #
 # QUE ESTA PROBADO NO-VACUO Y QUE NO. Esta suite se corrio entera contra 8d857a3 (el arbol de antes
 # del issue 14) copiando este archivo a un checkout aparte: 95 ok, 128 FAIL. Fuera de los guards, que
@@ -185,9 +186,13 @@ foreach ($r in $raices) {
     if ($disp.Count -eq $N_DISP) {
       # Y cuenta QUE dispara el loop. Las rutas viven todas en el segundo parrafo, asi que borrar el
       # primero (trailer, push, PR, red de ~400) dejaba las suites verdes. El `400` se busca en el
-      # recorte y no en el doc: el doc lo nombra tambien en la seccion 3, que no es el mecanismo.
-      $sinDisp = @($disp | Where-Object { $sec[0].Value -notmatch ('(?<![\w-])' + [regex]::Escape($_) + '(?![\w])') })
-      Assert ($sinDisp.Count -eq 0) "$($r.label): la seccion del doc nombra los disparadores del trigger [faltan: $($sinDisp -join ', ')]"
+      # recorte y no en el doc: el doc lo nombra tambien en la seccion 3, que no es el mecanismo. Y
+      # dentro del recorte, solo en el parrafo del PR: el segundo parrafo nombra la "~400-line net" de
+      # pasada, y con eso borrar la oracion de la red de seguridad quedaba verde (turno 2 del loop).
+      $parDisp = @($sec[0].Value -split '\r?\n[ \t]*\r?\n' | Where-Object { $_ -match 'gh pr create' })
+      $parDisp = if ($parDisp.Count -gt 0) { $parDisp[0] } else { '' }
+      $sinDisp = @($disp | Where-Object { $parDisp -notmatch ('(?<![\w-])' + [regex]::Escape($_) + '(?![\w])') })
+      Assert ($sinDisp.Count -eq 0) "$($r.label): el parrafo de disparo del doc nombra los disparadores del trigger [faltan: $($sinDisp -join ', ')]"
     }
   }
   $dom = Seccion-Que-Domina ([IO.File]::ReadAllLines($dF)) '### What fires the loop, and over what'
@@ -325,17 +330,30 @@ Write-Host "=== el pipeline de reglas de /slice-review lee tambien el doc del fl
 # cuenta: el Step 3 le pasa las fuentes de reglas al foco, el foco solo reporta lo que puede citar,
 # y el scorer baja lo que no existe "literalmente en un CLAUDE.md". Desde la dieta, la regla de que
 # `.md` es lo unico que cuenta como documentacion vive solo en el doc: atado al CLAUDE.md, el
-# pipeline descartaba un hallazgo real por regla inexistente. Se ancla el payload (la ruta del doc)
-# en la ventana de cada punto de decision, no en el archivo entero: SKILL.md ya nombra el doc en
-# otro lado. Limite: re-atar una OTRA oracion del pipeline al CLAUDE.md solo no lo ve.
+# pipeline descartaba un hallazgo real por regla inexistente. Se ancla el payload en la ventana de
+# cada punto de decision, no en el archivo entero: SKILL.md ya nombra el doc en otro lado.
+#
+# La positiva sola no alcanzaba: una ventana que es una seccion entera pasa con UNA mencion del doc,
+# y re-atar al CLAUDE.md otra oracion de la misma ventana ("Flag only rules a `CLAUDE.md` actually
+# states") o excluir el doc despues de nombrarlo ("...; `<doc>` does not count") quedaba verde
+# (turno 2 del loop). Por eso, ORACION POR ORACION: la que nombra al CLAUDE.md nombra tambien el doc,
+# y ninguna niega el doc a menos de 40 caracteres de el. La banda 0-39 de la rubrica es un punto de
+# decision que no nombra ninguna ruta ("a rule no rule file actually states"): ahi la positiva es
+# `rule file`. El corte de oraciones es en `.` o `;` seguido de espacio, asi que `CLAUDE.md` no corta.
 $DECISIONES = @(
   @{ rel = ".agents\skills\slice-review\SKILL.md"; rx = '(?m)^- Paths of the .*$' },
   @{ rel = ".agents\skills\slice-review\SKILL.md"; rx = '(?m)^For rule violations, .*$' },
+  @{ rel = ".agents\skills\slice-review\SKILL.md"; rx = '(?m)^- \*\*0-39\*\*.*\r?\n.*$'; pos = 'rule file' },
   @{ rel = ".claude\commands\slice-review.md";     rx = '(?m)^- Paths of the .*$' },
   @{ rel = ".claude\commands\slice-review.md";     rx = '(?m)^For rule violations, .*$' },
+  @{ rel = ".claude\commands\slice-review.md";     rx = '(?m)^- \*\*0-39\*\*.*\r?\n.*$'; pos = 'rule file' },
   @{ rel = ".claude\agents\slice-review-rules.md"; rx = '(?ms)^## Your focus\r?$.*?(?=^## |\z)' },
   @{ rel = ".claude\agents\slice-review-scorer.md"; rx = '(?ms)^## Your focus\r?$.*?(?=^## |\z)' }
 )
+$N_DEC = $DECISIONES.Count
+$eDoc = [regex]::Escape(($DOC -split '/')[-1])
+$NEG = '\b(not|never|no)\b|n''t'
+$negaDoc = "($NEG)[^.;]{0,40}$eDoc|$eDoc``?[^.;]{0,40}($NEG)"
 $vistas = 0
 foreach ($r in $raices) {
   foreach ($p in $DECISIONES) {
@@ -345,10 +363,17 @@ foreach ($r in $raices) {
     Assert ($v.Count -eq 1) "$($r.label)/$($p.rel): guard: una sola ventana de decision (encontradas: $($v.Count))"
     if ($v.Count -ne 1) { continue }
     $vistas++
-    Assert ($v[0].Value -match [regex]::Escape($DOC)) "$($r.label)/$($p.rel): la decision sobre reglas incluye $DOC"
+    $win = $v[0].Value -replace '\s*\r?\n\s*', ' '
+    $pos = if ($p.pos) { $p.pos } else { $DOC }
+    Assert ($win -match [regex]::Escape($pos)) "$($r.label)/$($p.rel): la decision sobre reglas incluye $pos"
+    $orac = @($win -split '(?<=[.;])\s+')
+    $atadas = @($orac | Where-Object { $_ -match 'CLAUDE\.md' -and $_ -notmatch [regex]::Escape($DOC) })
+    Assert ($atadas.Count -eq 0) "$($r.label)/$($p.rel): ninguna oracion ata la decision al CLAUDE.md solo [$($atadas -join ' | ')]"
+    $niegan = @($orac | Where-Object { $_ -match $negaDoc })
+    Assert ($niegan.Count -eq 0) "$($r.label)/$($p.rel): ninguna oracion excluye el doc [$($niegan -join ' | ')]"
   }
 }
-Assert ($vistas -eq 24) "guard: se miraron las 24 ventanas de decision (4 raices x 6): $vistas"
+Assert ($vistas -eq 4 * $N_DEC) "guard: se miraron las $(4 * $N_DEC) ventanas de decision (4 raices x $N_DEC): $vistas"
 
 Write-Host ""
 Write-Host "=== la seccion mudada no se come el checklist del reviewer ==="

@@ -740,8 +740,15 @@ Lo que hay que saber antes de editarla, porque tres turnos de review lo midieron
   caza nada de acá: re-cachear el mecanismo en el `CLAUDE.md` con otras palabras y sin ningún token
   (`$mec` es un tripwire literal, y dos paráfrasis medidas lo dejan verde); borrar *"Work in feature
   branches per slice"* de la sección 7; una inversión del gate que no diga *"on its own"*, o con la
-  negación separada del verbo; y re-atar al `CLAUDE.md` una oración del pipeline de reglas que no
-  esté en las seis ventanas de decisión que la suite mira por raíz.
+  negación separada del verbo; re-atar al `CLAUDE.md` una oración del pipeline de reglas que no
+  esté en las ocho ventanas de decisión que la suite mira por raíz; y una oración que excluya el doc
+  sin nombrar su ruta (*"a rule found only in the workflow doc scores 0-39"*).
+- **Una ventana de decisión se mide oración por oración, no entera.** Con la positiva sola (la ruta
+  del doc aparece en la ventana), re-atar al `CLAUDE.md` otra oración de la misma ventana, o
+  excluir el doc después de nombrarlo, dejaba la suite verde: la ventana de un agente es la sección
+  entera y una mención alcanzaba. Por el mismo motivo, los disparadores se buscan en el **párrafo**
+  del PR y no en la sección: el `400` aparece dos veces, y borrar la oración de la red de seguridad
+  quedaba verde por la segunda mención.
 
 ## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
 
