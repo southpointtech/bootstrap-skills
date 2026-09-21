@@ -1,7 +1,7 @@
 {
   "variant": "ai",
   "generatedFrom": "bootstrap-ai-project",
-  "version": "2026-09-21+4a39f44",
+  "version": "2026-09-21+d544932",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "9625fe09cd543e25165066a6e2e1753bd696aa47f1f1179d58552b239d7324cc",
     ".agents/skills/diagnosing-bugs/SKILL.md": "6bdc4f5abcfb929c596f4b8a493f928346ed37869f98e0184418526038ebce54",
@@ -89,6 +89,6 @@
     "docs/ai-workflow/QA_CHECKLIST.md": "f40eacead44a17d025077beaab201bf935935a4138c456cf4ad5364bba66443f",
     "docs/ai-workflow/RUNBOOK_TEMPLATE.md": "7584db252b3a770d456a54e1931094172d72fdd05867abd16453b48509e9ac38",
     "docs/ai-workflow/TASK_TEMPLATE.md": "514240dc083fb3f34b716737ee9491e3afa4f4b18911d589bca72237376db93f",
-    "skills-lock.json": "1294f46b396c316fa46d19df640f97ce11736eb57bef74c04ec06304a9640bf8"
+    "skills-lock.json": "ca883657de04ea291abedfd13eab71f43fedf739ced7c04e8b7315e40a6cf466"
   }
 }
