@@ -1,3 +1,90 @@
+# Session Handoff — 2026-09-21 (tarde) — **Issue 14 CERRADO POR TOPE**: turno 2 del loop (4 Medium arreglados en `5749ac8`) + pase de coherencia limpio. Falta integrar en `feat/bootstrap-v2`, `run-all` y push.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, en `slice/14-dieta-del-claude-md`
+  @ **`5749ac8`**, árbol limpio. `feat/bootstrap-v2` sigue en `bbec417` (**no** se integró);
+  `origin/feat/bootstrap-v2` = `de6ab2e` (ancestro: el push será fast-forward).
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ `05aca5e` + el commit de este handoff,
+  sin pushear (`origin/main` = `dd3fdf6`). Untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Otra terminal** en `carriles/Bootstrap Skills/hub-sync` (`feat/hub-sync`). ⚠️ La suite de este
+  repo barre `%TEMP%` global: **preguntale al usuario antes de correr `run-all.ps1`**.
+- **Marcador** (`.git/worktrees/Bootstrap-Skills-bootstrap-v2/review-loop-state.json`):
+  `marker:slice/14-...` = **`36ce96a`** (avanzado esta sesión, antes de los fixes);
+  `slice-open:` = `54d7d1b` **se deja puesto a propósito** — el loop cerró por TOPE, así que
+  **NO se corrió ni se corre `-Action close`**. `-Action range` hoy devuelve `36ce96a` → el delta sin
+  revisar es exactamente `5749ac8` (los fixes del turno 2, que por el tope nadie revisó).
+- El loop del 14 **terminó**. No correr un turno 3.
+
+## 1. Qué se hizo en esta sesión
+
+- **Turno 2 del `/review-loop`** (último, `standard`) sobre `git diff bbec417` (e07c98d, 919f5ce,
+  36ce96a; 23 archivos, +278/−143). 5 focos (Bugs/Contratos/Tests en Opus, Reglas/Histórico en
+  Sonnet), sin `--mutation` ni `--code-review`. Cada subagente con el path del worktree en el prompt.
+  Confidence pass: 8 scorers en Opus sobre 10 hallazgos deduplicados (olas de 5 y 3; I+J en uno,
+  D1+D2 en uno), más 1 scorer para el pase de coherencia.
+- **Resultado: 4 Medium, 3 Low, 3 descartados. NO clean.**
+- **`5749ac8`** arregla los 4 Medium, todos en `tests/dieta-del-claude-md.tests.ps1`, con RED por
+  mutación (worktree descartable, suite vieja vs nueva, un mutante por vez):
+  - **F (88)** `$sinDisp` busca los disparadores en el **párrafo** de `gh pr create`, no en toda la
+    §7 (el `400` aparecía dos veces). M1 borrar la oración de la red: vieja 0 FAIL / nueva 1.
+  - **D1 (88)** las ventanas de decisión se miden **oración por oración**: la que nombra `CLAUDE.md`
+    nombra también el doc. M2: 0 → 1.
+  - **D2 (85)** ninguna oración niega el doc a ≤40 caracteres, de los dos lados. M3: 0 → 2; M3b: 0 → 1.
+  - **C (60)** banda 0-39 de la rúbrica: 2 ventanas nuevas por raíz (SKILL.md + command), positiva
+    `rule file`; guard 24 → 32. M4 y M5: 0 → 2.
+  - Cabecera de la suite y `docs/TESTING.md`: "seis ventanas" → ocho, y límite nuevo declarado
+    (excluir el doc sin nombrar su ruta no lo caza nada).
+- **Pase de coherencia**: sobre `git diff 8d857a3` (NO sobre el ancla `54d7d1b`: ese es el PRIMER
+  commit del issue 14 y `git diff 54d7d1b` lo dejaba afuera — sobre-revisar es el lado seguro).
+  1 subagente Sonnet. 2 hallazgos: uno = el Low de los 5 briefs (ya puntuado), otro (el bullet del
+  loop tendría 4 oraciones) **descartado** con 8 — cumple "tres oraciones y un puntero".
+
+## 2. Tests
+
+- Verdes, corridas sueltas: `dieta-del-claude-md`, `mirror`, `slice-review`, `shareable-leaks`.
+- **`run-all.ps1` NO se corrió** (colisión de `%TEMP%` con la otra terminal). Correrlo antes de
+  integrar/pushear, con `chcp.com 65001` antes (si no, `marcar-done.tests` da rojo espurio).
+
+## 3. Abiertos (NO arreglados, a propósito)
+
+- **Low reportados**: (a) la negativa de dirección del gate (`tests/dieta...:~412`) da rojo
+  espurio con `cannot run` y deja pasar la doble negación pegada (`cannot not run`); (b) 5 briefs
+  `.claude/agents/slice-review-{bugs,contracts,history,tests,coherence}.md:13` (×4 raíces) dicen que
+  reciben "the relevant `CLAUDE.md` files" — Step 3 ahora pasa también el doc; arreglarlo exige
+  re-sellar `agents` (`tools/reseal-step5.ps1 -Block agents`) y regenerar manifests; (c) comentario
+  `tests/dieta...:~145` dice "21 punteros § 7", son 20.
+- **Descartados**: `Patron-Ruta` no ve rutas con `\` ni `docs/x` desnudo (preexistente, 35);
+  "apagaba 8 asserts" en `TESTING.md`/cabecera es impreciso (peor caso real 16 y 20) pero el fix
+  propuesto también fallaba.
+- **Pregunta de diseño para el usuario (posible issue nuevo)**: ¿`DEPLOYMENT_RULES.md` y
+  `QA_CHECKLIST.md` deberían contar como "rule files" de `/slice-review`? Hoy no (tampoco antes del
+  slice). No decidido.
+
+## 4. Próximos pasos (en este orden)
+
+1. **Integrar**: en el worktree v2, `git checkout feat/bootstrap-v2 && git merge --ff-only
+   slice/14-dieta-del-claude-md` (→ `5749ac8`).
+2. **`run-all.ps1`** verde, **previa confirmación del usuario** de que hub-sync no corre su suite;
+   `chcp.com 65001` antes.
+3. **Push (lo hace el usuario)**: `! gh auth switch -u southpointtech`, push de `feat/bootstrap-v2`
+   y de `main`, y volver a `MartinDele703`.
+4. Después: issue **18** (deploy/rollout, HITL). Fuera de v2: **23–26** en `needs-triage`, más la
+   pregunta de diseño de §3 si el usuario la quiere como issue.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- El **alignment-gate** bloquea el primer Edit de código de la sesión: si es continuación del loop
+  / integración (ya alineado), reintentar el Edit y seguir.
+- La sesión arranca en el repo principal: todo comando del v2 va con `git -C <worktree>` o rutas
+  absolutas, y los subagentes necesitan el path del worktree en el prompt.
+- Mensajes de commit: escribirlos en un archivo del scratchpad y `git commit -F` (los backticks
+  sobreviven; verificado).
+- El usuario pide **cortar la sesión al superar ~200K de contexto**.
+
+---
+
 # Session Handoff — 2026-09-21 — **Los 10 Medium del turno 1 del issue 14 ARREGLADOS** en 3 commits (`e07c98d`, `919f5ce`, `36ce96a`). Falta el **turno 2** del loop y el pase de coherencia.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
