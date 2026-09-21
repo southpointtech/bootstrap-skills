@@ -92,12 +92,20 @@ $hash = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData(
 $dir = Join-Path $StateDir "$repoName-$hash"
 # `repo` es para leer; `repoId` es para agrupar. El nombre de la carpeta no identifica un repo entre
 # PCs (dos repos distintos pueden llamarse igual), su origin sí: se normaliza para que la forma https
-# y la ssh, con o sin `.git`, con credenciales en la URL o con otras mayúsculas, den el mismo id en las
-# tres PCs. Sin origin no hay identidad compartida y el id es la del directorio git común.
+# y la ssh (con esquema o scp), con o sin `.git`, con o sin puerto, con credenciales en la URL o con
+# otras mayúsculas, den el mismo id en las tres PCs. Las dos formas se separan porque el `:` significa
+# cosas distintas: con esquema, lo que sigue al host es un puerto; en la scp (`git@host:dueño/repo`),
+# es el comienzo de la ruta, aunque el dueño empiece con un dígito. Sin origin no hay identidad
+# compartida y el id es la del directorio git común.
 $o = Invoke-GitUtf8 @('-C', $RepoDir, 'remote', 'get-url', 'origin')
 $repoId = if ($o.exit -eq 0 -and $o.stdout.Trim()) {
-  $o.stdout.Trim() -replace '^[a-z+]+://', '' -replace '^[^@/]+@', '' -replace '^([^/:]+):(?!\d)', '$1/' `
-    -replace '/+$', '' -replace '\.git$', '' | ForEach-Object ToLowerInvariant
+  $url = $o.stdout.Trim()
+  $url = if ($url -match '^[a-z][a-z0-9+.-]*://') {
+    $url -replace '^[a-z][a-z0-9+.-]*://', '' -replace '^[^@/]+@', '' -replace '^([^/:]+):\d+(/|$)', '$1$2'
+  } else {
+    $url -replace '^[^@/]+@', '' -replace '^([^/:]+):', '$1/'
+  }
+  $url -replace '/+$', '' -replace '\.git$', '' | ForEach-Object ToLowerInvariant
 } else { $identidad.TrimEnd('\', '/').Replace('\', '/').ToLowerInvariant() }
 $lote = [ordered]@{
   schemaVersion = 1

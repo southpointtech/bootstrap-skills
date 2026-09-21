@@ -239,7 +239,9 @@ $formas = @(
   "https://github.com/SouthpointTech/Forecasting-App.git",
   "https://token:x-oauth@github.com/southpointtech/forecasting-app/",
   "git@github.com:southpointtech/forecasting-app.git",
-  "ssh://git@github.com/southpointtech/forecasting-app"
+  "ssh://git@github.com/southpointtech/forecasting-app",
+  "ssh://git@github.com:22/southpointtech/forecasting-app.git",
+  "https://github.com:443/southpointtech/forecasting-app"
 )
 foreach ($url in $formas) {
   $to = New-HubRepo
@@ -247,6 +249,13 @@ foreach ($url in $formas) {
   $r = Recolectar $to (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z"
   Assert ($r.lote.repoId -ceq "github.com/southpointtech/forecasting-app") `
     "repoId de '$url' es github.com/southpointtech/forecasting-app (fue '$($r.lote.repoId)')"
+}
+# Un dueño que empieza con dígito: en la forma scp, el `:37signals` no es un puerto.
+foreach ($url in "git@github.com:37signals/foo.git", "https://github.com/37signals/foo") {
+  $to = New-HubRepo
+  git -C $to remote add origin $url
+  $r = Recolectar $to (New-TestWorkspace $script:runRoot "hubrec-state") "2026-09-19T10:00:00Z"
+  Assert ($r.lote.repoId -ceq "github.com/37signals/foo") "repoId de '$url' es github.com/37signals/foo (fue '$($r.lote.repoId)')"
 }
 # Sin origin no hay identidad compartida: el id es la ruta del repo, y dos carpetas homónimas difieren.
 $pa = New-TestWorkspace $script:runRoot "hubrec-pa"

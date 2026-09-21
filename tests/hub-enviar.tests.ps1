@@ -2,7 +2,7 @@
 # El transporte de hub-sync (issue 04): corre el recolector y empuja los lotes pendientes a
 # `inbox/<dev>/<repo>/` del repo PROJECT MANAGEMENT. Fixtures: un repo recolectable y un repo bare
 # local que hace de remoto de PROJECT MANAGEMENT. La cuenta southpointtech no se ejercita acá: sólo se
-# usa contra github.com, y eso es QA manual.
+# usa contra github.com: el caso sin token se prueba (sin red), el push real es QA manual.
 $ErrorActionPreference = "Stop"
 $repo   = Split-Path $PSScriptRoot -Parent
 $enviar = Join-Path $repo "skills/bootstrap-southpoint-project/assets/scaffold/.claude/scripts/hub-enviar.ps1"
@@ -59,9 +59,19 @@ function New-PmRemote {
 function Get-Inbox([string]$bare) {
   @(git --git-dir $bare ls-tree -r --name-only main -- inbox/ 2>$null)
 }
-function Enviar([string]$t, [string]$state, [string]$remote, [string]$now, [string]$dev = "martin") {
-  $out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev $dev -StateDir $state -PmRemote $remote -Now $now 2>&1
+function Enviar([string]$t, [string]$state, [string]$remote, [string]$now, [string]$dev = "martin", [string]$cuenta = "southpointtech") {
+  $out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev $dev -StateDir $state -PmRemote $remote -Now $now -Cuenta $cuenta 2>&1
   return @{ exit = $LASTEXITCODE; out = ($out -join "`n") }
+}
+# La línea del log de una corrida (por su momento), o "" si no hay.
+function Get-LogLine([string]$state, [string]$now) {
+  $log = Join-Path $state "hub-sync.log"
+  if (-not (Test-Path -LiteralPath $log)) { return "" }
+  @([IO.File]::ReadAllText($log) -split "`n" | Where-Object { $_.StartsWith($now) }) -join "`n"
+}
+# La carpeta de estado del repo que armó el recolector (`<repo>-<hash>`), al lado del clon privado.
+function Get-RepoState([string]$state) {
+  Get-ChildItem -LiteralPath $state -Directory | Where-Object { $_.Name -ne "pm-repo" } | Select-Object -First 1
 }
 
 # --- Tracer: el lote de la corrida llega al remoto bajo inbox/<dev>/<repo>/ ---
@@ -81,7 +91,8 @@ $bare = New-PmRemote
 $state = New-TestWorkspace $script:runRoot "hubenv-state"
 $nombre = Split-Path $t -Leaf
 Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
-# El remoto se cae: el clon privado ya existe, así que lo que falla es el fetch/push, no el clone.
+# El remoto se cae: el clon privado ya existe, así que lo que falla es el fetch, no el clone. El push
+# que falla con el remoto arriba es otro caso, más abajo.
 $caido = "$bare-caido"
 Move-Item -LiteralPath $bare -Destination $caido
 $r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
@@ -141,6 +152,142 @@ Assert ($r.exit -eq 0) "carrera: el transporte reintenta y sale en exit 0 (fue $
 $inbox = Get-Inbox $bare
 Assert ($inbox -contains "inbox/manuel/otro-repo/20260922T095959Z.json") "carrera: el lote del otro dev sigue en el remoto"
 Assert ($inbox -contains "inbox/martin/$nombre/20260922T100000Z.json") "carrera: el lote propio también llegó"
+
+# --- El push rechazado (no el fetch) deja el lote pendiente, y la corrida siguiente lo empuja una sola vez ---
+# El remoto está arriba y el fetch anda; lo que falla es cada intento de push, con un `pre-push` que
+# siempre sale 1. Así se ejerce el camino entre el commit local y el push, que es donde el lote podía
+# pasar a `enviados/` antes de tiempo.
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$nombre = Split-Path $t -Leaf
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+$hooks = New-TestWorkspace $script:runRoot "hubenv-hooks"
+[IO.File]::WriteAllText((Join-Path $hooks "pre-push"), "#!/bin/sh`nexit 1`n")
+$pm = Join-Path $state "pm-repo"
+git -C $pm config core.hooksPath $hooks.Replace('\', '/')
+$r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
+Assert ($r.exit -ne 0) "push rechazado: exit != 0 (fue $($r.exit))"
+Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'falló: .*git push \(intento 3\)') `
+  "push rechazado: el log dice que falló el push al tercer intento ('$(Get-LogLine $state "2026-09-22T10:00:00Z")')"
+$pendiente = @(Get-ChildItem -LiteralPath (Join-Path (Get-RepoState $state).FullName "lotes") -File -Filter "20260922T100000Z.json" -ErrorAction SilentlyContinue)
+Assert ($pendiente.Count -eq 1) "push rechazado: el lote sigue en lotes/"
+git -C $pm config --unset core.hooksPath
+$r = Enviar $t $state $bare "2026-09-23T10:00:00Z"
+Assert ($r.exit -eq 0) "push rechazado, después: exit 0 (fue $($r.exit); $($r.out))"
+$veces = @(git --git-dir $bare log --format=%H main -- "inbox/martin/$nombre/20260922T100000Z.json").Count
+Assert ($veces -eq 1) "push rechazado, después: el lote pendiente llegó en un solo commit (fueron $veces)"
+
+# --- Un recolector que muere sin lote no es "nada que enviar": el transporte falla y lo deja en el log ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+# `lotes` como archivo: el recolector no puede crear la carpeta y muere antes de escribir el lote.
+$lotesDir = Join-Path (Get-RepoState $state).FullName "lotes"
+Remove-Item -LiteralPath $lotesDir -Recurse -Force
+[IO.File]::WriteAllText($lotesDir, "no soy una carpeta")
+$r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
+Assert ($r.exit -ne 0) "recolector muerto: exit != 0 (fue $($r.exit))"
+Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'falló: .*recolector') `
+  "recolector muerto: el log tiene la corrida como fallida por el recolector ('$(Get-LogLine $state "2026-09-22T10:00:00Z")')"
+
+# --- Un recolector que falla CON lote: el lote viaja (el tablero lo pone en rojo) y el log no dice ok ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$nombre = Split-Path $t -Leaf
+[IO.File]::WriteAllText((Join-Path $t ".claude/hub-sync.json"), '{ "schemaVersion": 1, "devs": { "martin": [')
+$r = Enviar $t $state $bare "2026-09-21T10:00:00Z"
+Assert ($r.exit -ne 0) "recolección fallida: exit != 0 (fue $($r.exit))"
+Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260921T100000Z.json") "recolección fallida: su lote igual llega al remoto"
+$linea = Get-LogLine $state "2026-09-21T10:00:00Z"
+Assert ($linea -match 'falló' -and $linea -notmatch "`tok") "recolección fallida: el log no la da por ok ('$linea')"
+
+# --- Dos corridas con el mismo momento: la segunda no pisa en el remoto el lote ya enviado ---
+# La primera trae una propuesta (`ok`); la segunda, con el mismo -Now, ya no (`sin cambios`). Pisar la
+# primera en `inbox/` perdería la propuesta, que la foto ya dio por vista.
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$nombre = Split-Path $t -Leaf
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+$msg = New-TestTempPath $script:runRoot "msg" ".txt"
+[IO.File]::WriteAllText($msg, "slice`n`nSlice-Close: 01 algo")
+git -C $t commit -q --allow-empty --author "Dev <m@x.io>" -F $msg
+Enviar $t $state $bare "2026-09-22T10:00:00Z" | Out-Null
+$r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
+Assert ($r.exit -eq 0) "mismo momento: exit 0 (fue $($r.exit); $($r.out))"
+$primero = (git --git-dir $bare show "main:inbox/martin/$nombre/20260922T100000Z.json" 2>$null) -join "`n"
+Assert ($primero -match '"resultado": "ok"') "mismo momento: el lote ok sigue en el remoto sin pisar"
+Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260922T100000Z-2.json") `
+  "mismo momento: el segundo llega con sufijo (hay: $((Get-Inbox $bare) -join ', '))"
+
+# --- Un lote que ya está en el remoto (el push anduvo y la corrida murió antes de moverlo) no traba la cola ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$nombre = Split-Path $t -Leaf
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+$rs = (Get-RepoState $state).FullName
+Copy-Item -LiteralPath (Join-Path $rs "enviados/20260921T100000Z.json") -Destination (Join-Path $rs "lotes")
+$r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
+Assert ($r.exit -eq 0) "ya enviado: exit 0 (fue $($r.exit); $($r.out))"
+Assert (@(Get-ChildItem -LiteralPath (Join-Path $rs "lotes") -File).Count -eq 0) "ya enviado: no queda nada pendiente"
+Assert ((Get-Inbox $bare) -notcontains "inbox/martin/$nombre/20260921T100000Z-2.json") "ya enviado: no se duplica con sufijo"
+
+# --- Un clon privado que quedó a mitad de un rebase se recupera solo ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$nombre = Split-Path $t -Leaf
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+$pm = Join-Path $state "pm-repo"
+$otro = New-TestWorkspace $script:runRoot "hubenv-otro"
+git clone -q $bare $otro 2>$null
+Set-GitNeutral $otro
+"remoto" | Set-Content (Join-Path $otro "README.md")
+git -C $otro commit -q -am "remoto"; git -C $otro push -q origin HEAD:main 2>$null
+Set-GitNeutral $pm
+"local" | Set-Content (Join-Path $pm "README.md")
+git -C $pm commit -q -am "local"; git -C $pm fetch -q origin; git -C $pm rebase -q origin/main 2>$null | Out-Null
+Assert (Test-Path -LiteralPath (Join-Path $pm ".git/rebase-merge")) "rebase trabado: el fixture dejó el clon a mitad de un rebase"
+$r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
+Assert ($r.exit -eq 0) "rebase trabado: la corrida siguiente sale en exit 0 (fue $($r.exit); $($r.out))"
+Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260922T100000Z.json") "rebase trabado: el lote llega igual"
+
+# --- Un lote ilegible en lotes/ no traba la cola: va a invalidos/ y los demás salen ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$nombre = Split-Path $t -Leaf
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+$rs = (Get-RepoState $state).FullName
+[IO.File]::WriteAllText((Join-Path $rs "lotes/20260920T000000Z.json"), '{ "schemaVersion": 1, "dev": "mar')
+[IO.File]::WriteAllText((Join-Path $rs "lotes/20260920T000001Z.json"), '')
+$r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
+Assert ($r.exit -eq 0) "lote ilegible: exit 0 (fue $($r.exit); $($r.out))"
+Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260922T100000Z.json") "lote ilegible: el lote bueno llega"
+$inv = @(Get-ChildItem -LiteralPath (Join-Path $rs "invalidos") -File -ErrorAction SilentlyContinue | ForEach-Object Name)
+Assert ($inv -contains "20260920T000000Z.json" -and $inv -contains "20260920T000001Z.json") `
+  "lote ilegible: el cortado y el vacío van a invalidos/ (hay: $($inv -join ', '))"
+Assert (@(Get-Inbox $bare | Where-Object { $_ -notmatch "^inbox/martin/$([regex]::Escape($nombre))/" }).Count -eq 0) `
+  "lote ilegible: nada llega fuera de inbox/martin/$nombre/"
+Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'invalidos') "lote ilegible: el log lo nombra"
+
+# --- Contra github.com, sin token de la cuenta pedida: falla antes de tocar la red, y el log dice por qué ---
+# El token de la cuenta se le pide a gh. Sin gh instalado este caso no puede correr y se saltea. Los dos
+# env vars cortan cualquier prompt de credenciales si un cambio hiciera que la corrida llegue a la red.
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+  $env:GIT_TERMINAL_PROMPT = '0'; $env:GCM_INTERACTIVE = 'never'
+  $t = New-HubRepo
+  $state = New-TestWorkspace $script:runRoot "hubenv-state"
+  $r = Enviar $t $state "https://github.com/southpointtech/no-existe.git" "2026-09-21T10:00:00Z" -cuenta "cuenta-que-no-existe-xyz"
+  Assert ($r.exit -ne 0) "sin token: exit != 0 (fue $($r.exit))"
+  Assert ((Get-LogLine $state "2026-09-21T10:00:00Z") -match 'falló: gh no tiene un token de la cuenta cuenta-que-no-existe-xyz') `
+    "sin token: el log nombra la cuenta ('$(Get-LogLine $state "2026-09-21T10:00:00Z")')"
+  Remove-Item env:GIT_TERMINAL_PROMPT, env:GCM_INTERACTIVE
+} else { Write-Host "skip: sin gh no se prueba la cuenta" }
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
