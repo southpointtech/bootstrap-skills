@@ -132,8 +132,9 @@ $nota = if ($invalidos.Count) { "; a invalidos/: $($invalidos -join ', ')" } els
 try {
   if (-not (Test-Path -LiteralPath (Join-Path $PmClone ".git"))) { Git @('clone', '-q', $PmRemote, $PmClone) | Out-Null }
   Git @('-C', $PmClone, 'fetch', '-q', 'origin') | Out-Null
-  # Una corrida anterior pudo morir a mitad de un rebase: sin abortarlo, el checkout de abajo falla en
-  # esta y en todas las siguientes. Si no había rebase, el abort falla y no importa.
+  # Una corrida anterior pudo morir a mitad de un rebase. El checkout -f pasa por encima, pero deja el
+  # rebase a medias, y el `git rebase` del próximo push rechazado falla por eso. Si no había rebase, el
+  # abort falla y no importa.
   Invoke-Utf8 'git' @('-C', $PmClone, 'rebase', '--abort') | Out-Null
   Git @('-C', $PmClone, 'checkout', '-q', '-f', '-B', 'main', 'origin/main') | Out-Null
   Git @('-C', $PmClone, 'clean', '-fdq', '--', 'inbox') | Out-Null
@@ -168,5 +169,10 @@ foreach ($p in $pendientes) {
   $n = Get-NombreLibre $enviados $p.archivo
   if ($n) { Move-Item -LiteralPath $p.archivo.FullName -Destination (Join-Path $enviados $n) } else { Remove-Item -LiteralPath $p.archivo.FullName }
 }
-if ($recoleccionFallida) { Fallar "la recolección falló; su lote se envió con el motivo ($($pendientes.Count) lotes)$nota" }
+# El motivo se lee del lote ya parseado: el archivo ya se movió a `enviados/`.
+if ($recoleccionFallida) {
+  $propio = @($pendientes | Where-Object { $_.archivo.FullName -eq $r.stdout })
+  $motivo = if ($propio.Count -and $propio[0].lote.motivo) { $propio[0].lote.motivo } else { "sin motivo en el lote" }
+  Fallar "la recolección falló: $motivo; su lote se envió ($($pendientes.Count) lotes)$nota"
+}
 Write-Log "ok ($($pendientes.Count) lotes)$nota"

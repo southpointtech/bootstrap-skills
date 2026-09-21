@@ -203,6 +203,7 @@ Assert ($r.exit -ne 0) "recolección fallida: exit != 0 (fue $($r.exit))"
 Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260921T100000Z.json") "recolección fallida: su lote igual llega al remoto"
 $linea = Get-LogLine $state "2026-09-21T10:00:00Z"
 Assert ($linea -match 'falló' -and $linea -notmatch "`tok") "recolección fallida: el log no la da por ok ('$linea')"
+Assert ($linea -match 'no es JSON válido') "recolección fallida: el log trae el motivo del lote ('$linea')"
 
 # --- Dos corridas con el mismo momento: la segunda no pisa en el remoto el lote ya enviado ---
 # La primera trae una propuesta (`ok`); la segunda, con el mismo -Now, ya no (`sin cambios`). Pisar la
@@ -236,6 +237,16 @@ Assert ($r.exit -eq 0) "ya enviado: exit 0 (fue $($r.exit); $($r.out))"
 Assert (@(Get-ChildItem -LiteralPath (Join-Path $rs "lotes") -File).Count -eq 0) "ya enviado: no queda nada pendiente"
 Assert ((Get-Inbox $bare) -notcontains "inbox/martin/$nombre/20260921T100000Z-2.json") "ya enviado: no se duplica con sufijo"
 
+# --- Dos corridas con el mismo momento y sin nada nuevo: la segunda no tiene qué commitear y no falla ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
+$antes = @(git --git-dir $bare rev-list main).Count
+$r = Enviar $t $state $bare "2026-09-21T10:00:00Z"
+Assert ($r.exit -eq 0) "nada nuevo: la segunda corrida sale en exit 0 (fue $($r.exit); $($r.out))"
+Assert (@(git --git-dir $bare rev-list main).Count -eq $antes) "nada nuevo: no hay commit en el remoto"
+
 # --- Un clon privado que quedó a mitad de un rebase se recupera solo ---
 $t = New-HubRepo
 $bare = New-PmRemote
@@ -255,6 +266,9 @@ Assert (Test-Path -LiteralPath (Join-Path $pm ".git/rebase-merge")) "rebase trab
 $r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
 Assert ($r.exit -eq 0) "rebase trabado: la corrida siguiente sale en exit 0 (fue $($r.exit); $($r.out))"
 Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260922T100000Z.json") "rebase trabado: el lote llega igual"
+# El checkout -f solo pasa por encima del rebase a medias sin borrarlo; el que queda hace fallar el
+# `git rebase` del próximo push rechazado.
+Assert (-not (Test-Path -LiteralPath (Join-Path $pm ".git/rebase-merge"))) "rebase trabado: el rebase a medias quedó abortado"
 
 # --- Un lote ilegible en lotes/ no traba la cola: va a invalidos/ y los demás salen ---
 $t = New-HubRepo
@@ -265,12 +279,16 @@ Enviar $t $state $bare "2026-09-21T10:00:00Z" | Out-Null
 $rs = (Get-RepoState $state).FullName
 [IO.File]::WriteAllText((Join-Path $rs "lotes/20260920T000000Z.json"), '{ "schemaVersion": 1, "dev": "mar')
 [IO.File]::WriteAllText((Join-Path $rs "lotes/20260920T000001Z.json"), '')
+[IO.File]::WriteAllText((Join-Path $rs "lotes/20260920T000002Z.json"), '{ "schemaVersion": 1 }')
+[IO.File]::WriteAllText((Join-Path $rs "lotes/20260920T000003Z.json"), '{ "schemaVersion": 1, "dev": "martin" }')
 $r = Enviar $t $state $bare "2026-09-22T10:00:00Z"
 Assert ($r.exit -eq 0) "lote ilegible: exit 0 (fue $($r.exit); $($r.out))"
 Assert ((Get-Inbox $bare) -contains "inbox/martin/$nombre/20260922T100000Z.json") "lote ilegible: el lote bueno llega"
 $inv = @(Get-ChildItem -LiteralPath (Join-Path $rs "invalidos") -File -ErrorAction SilentlyContinue | ForEach-Object Name)
 Assert ($inv -contains "20260920T000000Z.json" -and $inv -contains "20260920T000001Z.json") `
   "lote ilegible: el cortado y el vacío van a invalidos/ (hay: $($inv -join ', '))"
+Assert ($inv -contains "20260920T000002Z.json" -and $inv -contains "20260920T000003Z.json") `
+  "lote ilegible: el que no trae dev y el que no trae repo van a invalidos/ (hay: $($inv -join ', '))"
 Assert (@(Get-Inbox $bare | Where-Object { $_ -notmatch "^inbox/martin/$([regex]::Escape($nombre))/" }).Count -eq 0) `
   "lote ilegible: nada llega fuera de inbox/martin/$nombre/"
 Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'invalidos') "lote ilegible: el log lo nombra"
