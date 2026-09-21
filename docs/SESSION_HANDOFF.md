@@ -1,3 +1,327 @@
+# Session Handoff — 2026-09-20 (noche) — **Turno 1 del review-loop sobre el delta SIN REVISAR del issue 14: 10 Medium, 0 High.** Los fixes NO se escribieron. Marcador ya avanzado a `bbec417`.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, rama `main` @ `da8520e` + el commit de este handoff.
+  `origin/main` = `dd3fdf6`; **`main` está 8 commits adelante, sin pushear**. Untracked de Codex
+  (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, **checkouteado en
+  `slice/14-dieta-del-claude-md`** (NO en `feat/bootstrap-v2` — el handoff anterior decía mal; las
+  dos ramas apuntan a `bbec417`). Árbol limpio, sin untracked.
+- **Corrección al handoff anterior, medida**: `origin/feat/bootstrap-v2` **SÍ existe**, en `de6ab2e`,
+  que es **ancestro** de `bbec417`. El local está 16 adelante / 0 atrás. O sea el push pendiente es
+  un **fast-forward**, no un primer push. Decía "local, sin pushear" y era falso.
+- **Estado v2**: cerrados **01–17 y 19–22**. Pendiente: **18** (deploy/rollout, HITL). Fuera de v2,
+  `needs-triage`: **23**, **24**, **25**, **26**.
+
+### ⚠️ Estado del marcador — leer antes de correr NADA del loop
+
+En `.git/worktrees/Bootstrap-Skills-bootstrap-v2/review-loop-state.json`:
+
+| clave | valor | qué significa |
+|---|---|---|
+| `marker:slice/14-dieta-del-claude-md` | **`bbec417`** | avanzado ESTA sesión, a propósito, después del turno 1 y **antes** de los fixes |
+| `slice-open:slice/14-dieta-del-claude-md` | `54d7d1b` | ancla de coherencia, registrada esta sesión |
+| `marker:feat/bootstrap-v2` | `8d857a3` | sin tocar: en la rama de integración este slice sigue contando entero como no revisado (sobra-revisa, lado seguro) |
+
+Ahora mismo `-Action range` devuelve **vacío con exit 0** porque el árbol está limpio y el marcador
+está en HEAD. **Eso es correcto, no lo "arregles".** En cuanto escribas los fixes, el rango pasa a
+cubrirlos y ése es el delta del **turno 2**.
+
+El handoff anterior decía que el marcador había quedado en `54d7d1b` "a propósito y mal". Esta sesión
+corrió el turno 1 sobre `git diff 54d7d1b` (que es exactamente lo que ese marcador pedía) y recién
+entonces lo avanzó. Ya no hay nada sobre-revisando.
+
+## 1. Qué se hizo en esta sesión
+
+**Sólo el turno 1 del `/review-loop` sobre el delta que nadie había revisado del issue 14.** Cero
+archivos modificados en el repo. Los únicos cambios de estado son el marcador y el ancla.
+
+- **Rigor `standard`** (HEAD no lleva `Slice-Close:`, árbol limpio) → cap de 2 turnos. Turno 1 gastado.
+- **Rango revisado**: `git diff 54d7d1b` = `85051b4` + `c3d7c2b` + `bbec417`, 35 archivos,
+  +438/−165, sin untracked.
+- **Fan-out**: 6 focos (Bugs, Reglas, Histórico, Contratos, Tests en Opus; Mutación en worktree
+  aislado). **`--code-review` OMITIDO a propósito**: el fork está atado al cwd de la sesión, que era
+  el repo principal, y habría revisado el repo equivocado.
+- **Confidence pass**: 12 scorers en Opus, en dos olas de 6 y 5 (techo de concurrencia medido).
+- **Resultado: 0 High, 10 Medium, 6 Low, 1 descartado.** NO clean.
+- El foco de Mutación aplicó 8 mutantes, 7 sobrevivieron, y **limpió su worktree temporal**
+  (verificado aparte: `git worktree list` limpio, sin `index.lock`).
+
+## 2. LOS 10 MEDIUM — esto es el entregable, no lo vuelvas a derivar
+
+Re-correr el turno 1 cuesta ~30 min de fan-out y ~1,2M tokens. Todo lo de abajo está **verificado por
+un scorer independiente** que corrió comandos read-only contra el worktree. Las líneas son de
+`tests/dieta-del-claude-md.tests.ps1` salvo que diga otra cosa.
+
+### F1 (95) — el pipeline de reglas de `/slice-review` sigue atado a `CLAUDE.md`
+
+El slice mudó reglas de los 4 `CLAUDE.md` al doc del flujo §7/§1 y re-atribuyó los 16 consumidores
+que **enumeran** la lista. Pero los que **deciden si una regla cuenta** quedaron intactos:
+`SKILL.md:138` (Step 3 entrega sólo los `CLAUDE.md`), `:182`, `:227`, `:230`
+(*"confirm the rule literally exists in a `CLAUDE.md`"*), `.claude/agents/slice-review-rules.md:13,23,25`
+(*"a rule you cannot quote is not a finding"*) y `.claude/agents/slice-review-scorer.md:25`.
+
+Verificado: `grep -rn "only thing that counts as documentation" --include=CLAUDE.md .` → **cero**;
+en `8d857a3` → **1**. La regla ya no es citable desde ningún `CLAUDE.md`, así que al agente de
+reglas se le ordena no reportarla y al scorer mantenerla bajo el cutoff. El propio mensaje de
+`85051b4` §1 nombra este peligro y arregló sólo la mitad.
+
+**Son 16 copias de archivo, no 24** (el scorer recontó con `md5sum`): `SKILL.md` + su byte-copia
+`.claude/commands/slice-review.md` + los 2 briefs, × 4 raíces.
+
+**Fix SOSTIENE, con 3 condiciones mecánicas que el hallazgo omitía:**
+1. incluir `.claude/commands/slice-review.md` (byte-copia, mismos números de línea);
+2. tocar el Step 5 **rompe el golden** — `tests/slice-review.tests.ps1:857-863` exige
+   `tools/reseal-step5.ps1 -Block step5 -Check` verde sobre 8 copias. Re-sellar con la herramienta,
+   nunca a mano;
+3. regenerar los 3 `.bootstrap-manifest.json` con `tools/gen-manifest.ps1` y dejar `mirror` verde.
+
+El scorer auditó las otras 5 menciones de `CLAUDE.md` en `SKILL.md`: la **264** es correcta y debe
+quedar (la regla de aserciones sí sigue literal en el `CLAUDE.md`); las **11**, **178** y **393** son
+descripción de propósito, quedan fuera — **pero el fix tiene que declarar por escrito que las
+auditó**, o repite el patrón que denuncia.
+
+### F2 (94) — la cabecera de la suite afirma una cobertura que no tiene (≥4 instancias)
+
+1. **`:45-46`** declara *"invertir la direccion del gate en el CLAUDE.md de una raiz da rojo"*. Hoy
+   **da verde**: `bbec417` borró `never runs the grill on its own` de los 4 `CLAUDE.md`
+   (`grep -rn "grill on its own" --include=CLAUDE.md .` → cero) y el `$mec` de `:191` ahora
+   **prohíbe** que vuelva. La dirección del gate del lado del `CLAUDE.md` no está pinneada por nada:
+   la negativa de `:311` es vacua por construcción y la dirección hoy la carga
+   `the call is the user's, not the gate's`, que esa regex no toca.
+2. **`:37-39`** enumera "las cuatro mitades": positiva-hook, positiva-`CLAUDE.md`, negativa-hook,
+   negativa-`CLAUDE.md`. El bloque real (`:300-313`) tiene positiva-hook, positiva-doc,
+   negativa-`CLAUDE.md`, negativa-doc. **2 de las 4 no existen**, y cuenta 6 asserts en un bloque de 4.
+3. **`:29-45`** dice "Todos los guards" eran verdes en `8d857a3`. Falso en las dos direcciones,
+   verificado con `git show 8d857a3:docs/ai-workflow/AI_DEVELOPMENT_WORKFLOW.md`: ese doc no tenía
+   ni la oración del rigor ni `### The \`alignment-gate\` hook`, así que los guards de `:200` y
+   `:331` eran **ROJOS**; y `el checklist cuelga de la seccion 7` (`:273-274`) **sí era verde** y no
+   figura en la lista.
+4. **`:24-27` y `docs/TESTING.md:723-724`** declaran el límite conocido como *"re-cachear el
+   mecanismo SIN nombrar ninguna ruta no lo caza nada de acá"*. `bbec417` agregó `$mec`, cuyos 4
+   payloads **no son rutas**, así que el límite es falso para media superficie de la suite. Y F6 lo
+   ataca por el otro lado: también es **más angosto** que el real.
+5. **`:47`** afirma *"dar vuelta la semantica del rigor en el doc de una raiz da rojo"* — falso para
+   la dimensión del nombre del rigor cuando la raíz mutada es la del repo (ver F8).
+
+**Fix SOSTIENE pero SÓLO por la rama cara**: re-correr el RED contra `8d857a3` y enumerar los verdes
+reales. La rama barata ("declarar qué asserts se agregaron después") cura las instancias 1 y 4 y deja
+vivas la 2 y la 3.
+
+### F3 (95) — la ventana de atribución no tiene mitad negativa
+
+`:240-251`. El comentario promete cazar cualquier re-redacción que vuelva a nombrar al `CLAUDE.md`,
+pero los dos asserts son positivos. Medido por **tres** focos: la forma híbrida
+(*"the paths `CLAUDE.md` lists as governing the agent, mirrored in `…AI_DEVELOPMENT_WORKFLOW.md` § 7"*)
+pasa en verde.
+
+**Fix SOSTIENE, verificado que no rompe nada**: `Assert ($antes -notmatch 'CLAUDE\.md')`. El scorer
+midió los 16 consumidores: `vistos=16  ventanas-con-CLAUDE.md=0`. El borde está resuelto a favor:
+`$antes` es semiabierto, termina en `$i-1`, nunca incluye el `` `CLAUDE.md` anywhere `` que abre la
+lista, y el ancla aparece exactamente una vez por archivo. Margen: la oración atribuidora arranca a
+105 caracteres del ancla, ventana de 200.
+
+### F4 (95) — **fix RECHAZADO** — el único assert de `bbec417` es tripwire literal
+
+`:191-193`, `$mec = @('once per session', 'the grill on its own', 'PreToolUse', 'MultiEdit')`.
+Dos paráfrasis distintas, medidas por dos focos, re-cachean el mecanismo entero en el bullet del gate
+y dejan **todo** el bloque verde (no sólo `$mec`: también `$cache`, el puntero, `§ 1` y
+`OFFER alignment`). El control literal sí muere.
+
+**Por qué el fix propuesto se rechazó, medido:**
+- `once per session` **no es derivable**: el hook está en castellano
+  (`alignment-gate.ps1:2,41` → *"una sola vez por sesion"*). No hay cadena inglesa que derivar.
+- derivar `Edit|Write|MultiEdit` de `.claude/settings.json` **rompe el verde de entrada**: `-match`
+  de PowerShell es case-insensitive y el bullet dice "code **edit**" → rojo inmediato. Sólo anda
+  cherry-pickeando `MultiEdit` o pasando a `-cmatch`, o sea volviendo a hardcodear.
+- y aunque se derivara, la paráfrasis sigue pasando: derivar protege contra que el payload **cambie**
+  (sirve para una ruta, que es un token), no contra que una frase se parafrasee.
+
+**Dirección que sugirió el scorer**: o un assert sobre una propiedad **no parafraseable**, o
+—lo honesto— declarar el límite en la cabecera en vez de sellar un tripwire que aparenta cubrirlo.
+El commit ya argumenta en contra de la cota de caracteres. **Esto se cruza con F2: la cabecera hay
+que reescribirla igual.**
+
+### F5 (92) — los punteros `§ 7` y `§ 1` no anclan la contención
+
+`:159`, `:185-186`, `:200`. Nada verifica que `### What fires the loop, and over what` viva **adentro**
+de la sección 7; del lado del gate ni siquiera hay assert de existencia de `## 1.`. Medido: mover
+cada subsección a otra sección deja las 4 suites verdes con **21 punteros `§ 7` + 4 `§ 1`** mintiendo.
+Ningún otro test lo cubre (`grep -rnE '## 7|§ *7|Clean-Context Review' tests/*.ps1` → vacío).
+
+**Fix SOSTIENE con una adaptación OBLIGATORIA**: el patrón de encabezado dominante de `:266-273`
+copiado literal daría rojo tautológico, porque ahí la línea ancla **no** es un encabezado y acá **sí**.
+Va `$lineas[0..($i-1)] | Where-Object { $_ -match '^## ' } | Select-Object -Last 1`. Verificado contra
+la estructura real: para `:24` devuelve `## 1. Alignment / Grill Me` y para `:120`,
+`## 7. Clean-Context Review`.
+
+### F6 (92) — **fix RECHAZADO como está escrito** — la barra final
+
+`:142-143` (`$dentro`) y `:155-156` (`$fuera`). Las rutas salen de `$govern` **con** la barra
+(`review-loop-trigger.ps1:364`) y se buscan con `[regex]::Escape`, o sea con la barra literal.
+Escribirlas sin barra y sin nombrar el archivo de reglas re-cachea el mecanismo en verde.
+
+**Lo que el scorer midió y por qué rechaza la mitad del fix:**
+- en `$dentro` la barra opcional **SOSTIENE**: caza el mutante y no da falsos positivos en las 4 raíces;
+- en `$fuera` **ROMPE LA SUITE**: `$fuera` barre el archivo entero y `CLAUDE.md:83` contiene
+  legítimamente `` `.agents\.agents` `` (la nota del bug de `Copy-Item`). Medido:
+  `repo: fuera HOY=[] FIX=[.agents/]`. Necesita bordes de los dos lados, algo con forma
+  `(?<![\\\w.])\.agents(?:/|(?![\\\w.]))`, o sacar ese literal antes de buscar como ya hace `Sin-Puntero`.
+- **hay un gemelo sin auditar**: `$cache` (`:181`) es el mismo patrón y es evadible igual. Y ahí la
+  relajación ingenua es **fatal en las 4 raíces**: `docs/?` matchea `/grill-with-docs`, que el bullet
+  del gate nombra a propósito.
+- **NO tocar** `$sobran` (`:209-211`) ni `$faltan` (`:134`, `:206`): van en la dirección estricta,
+  donde exigir la barra es lo correcto.
+
+### F7 (95) — borrar el mecanismo de disparo del doc pasa en verde
+
+`:136-139`. `$faltan` corre sobre el recorte entero de §7 pero las 5 rutas viven **todas en el
+párrafo 2**. Borrar el párrafo `AI_DEVELOPMENT_WORKFLOW.md:122` (trailer `Slice-Close:`, `git push`,
+`gh pr create`, red de ~400, feature branches) deja las 4 suites verdes.
+`review-loop-docs-gate.tests.ps1:404-441` tampoco lo cubre: estrecha el foco al párrafo 2.
+`docs/TESTING.md:703` promete literalmente lo contrario.
+
+**Fix SOSTIENE PARCIAL, con el payload separado:**
+- **anclable** (tokens derivables del hook): `Slice-Close:` (`review-loop-trigger.ps1:428`),
+  `git push` / `gh pr create` (`:40`, `:95-99`), `400` (`:495`);
+- **⚠️ el `400` hay que anclarlo DENTRO del recorte `$SEC_LOOP_RE`**: `grep -n '400'` da dos sitios
+  (`:61` en §3 y `:122`), así que a nivel documento el assert pasaría en verde por el lugar equivocado;
+- **RECHAZADO como literal**: *"Work in feature branches per slice…"* es semántica, no token. O va
+  con el par `Plano` + negativa direccional, o se declara en el límite conocido.
+
+**Auditoría ya hecha (no la repitas)**: §1 del gate y el 3er párrafo de §7 **sí** están cubiertos
+(borrarlos da ≥6 rojos y 1 rojo respectivamente). El agujero es exclusivamente el párrafo 1 de §7.
+
+### F8 (96) — la semántica del rigor no chequea el nombre del rigor
+
+`:337-340`. `$partes[1]` se chequea por `full fan-out` y por ausencia de los focos, nunca por
+`standard`. Medido: `without that trailer it runs \`light\`, with the full fan-out` deja las 4 suites
+verdes, invirtiendo la regla de corte del loop en un doc de gobierno.
+
+**Fix SOSTIENE con tres ajustes medidos:**
+1. **no hardcodear**: `standard` sale de la fila `(default)` de la tabla de Rigor con
+   `(?m)^\| \`([a-z]+)\` \(default\) \|` (verificado: `default row name = 'standard'`). Es más fuerte,
+   porque un mutante que mueva el `(default)` también da rojo;
+2. **la mitad de `light` sería un assert muerto**: `$partes[0]` siempre contiene `light` por el ancla
+   de `$orac`. Dejarlo afuera;
+3. **un `-match 'standard'` pelado es esquivable** con *"runs `light`, not `standard`"*. Anclar la
+   frase verbal: `$partes[1] -match ('it runs `' + [regex]::Escape($nombreDefault) + '`')`.
+
+**De yapa, el scorer encontró**: `mirror.tests.ps1:29` compara **sólo los tres scaffolds entre sí**,
+no la raíz del repo. Y de los 4 asserts del bloque sólo `:337` está realmente derivado de la tabla:
+`one turn` (`:338`) y `full fan-out` (`:339`) están copiados aunque la fila ya se parsea.
+
+### F9 (95) — guards compuestos que se llevan 16 asserts
+
+`:140` cubre `:143` (depende de `$rutas`, legítimo) pero también `:147-148`, que dependen **sólo**
+de `$bl[0]` y `$SEC_NUM`: 2 por raíz = **8 asserts del puntero** que desaparecen en silencio si
+`$govern` suma una alternativa. **`:201` tiene el mismo defecto**: `:211` (`` `*.md` ``) y `:212`
+(`PreToolUse`) dependen sólo de `$sec[0]`, no de `$pref` → otros **8**. El `continue` del bloque de
+rigor (`:328`) es la misma clase en variante `continue`.
+
+**El modo de falla grave que el hallazgo no nombró**: el literal `5` está escrito **tres veces**
+(`:127`, `:132`, `:140`) y el `4` otras tres (`:174`, `:180`, `:201`). Bumpear `:127` y olvidar `:140`
+deja la suite **verde** con los 8 asserts apagados, sin un solo rojo.
+
+**Fix SOSTIENE leído como el patrón del gate — ANIDAR, no des-anidar plano**:
+`if ($bl.Count -eq 1) { ... if ($rutas.Count -eq 5 -and $sucias.Count -eq 0) { <sólo :142-143> } ... }`.
+Verificado que sin `Set-StrictMode` un `$bl[0]` sobre `MatchCollection` vacía da `$null` y el assert
+**falla sin tirar** — pero es seguro por accidente: el día que alguien agregue `Set-StrictMode -Version 3.0`
+con `-ErrorActionPreference Stop` mata la suite a mitad de corrida. **Extraer `$N_RUTAS` y `$N_PREF`
+a constantes** es parte del fix, no un extra.
+
+### F10 (88) — la negativa de dirección es tripwire sobre `never`
+
+`:311`, `-notmatch '(?<!never )(runs?|running) the grill on its own'`. Falla en los dos sentidos,
+medido con `[regex]::IsMatch`:
+
+| texto | actual | con el fix |
+|---|---|---|
+| `it never runs the grill on its own` | verde | verde |
+| `it does not run the grill on its own` | **ROJO espurio** | verde |
+| `it runs the grill on its own` | rojo | rojo |
+| `it runs the grill by itself` | **verde** (inversión real) | **verde** |
+
+**Fix SOSTIENE sólo la opción del lookbehind**: `(?<!(never|not|n't|no)\s+)` **compila en .NET**
+(ancho variable, verificado) y conserva el rojo sobre la doble negación en gerundio. **Límites
+medidos**: exige adyacencia, así que `it will not ever run…` sigue dando rojo espurio; y **no arregla
+la otra mitad** (`runs the grill by itself` sigue verde). La opción "derivar del hook" está
+**RECHAZADA**: el hook habla en 2ª persona y el de la raíz está en castellano.
+
+**Correcciones de citas**: `:319-320` es el comentario del bloque de Rigor, no este assert; y el
+bullet relevante de `docs/TESTING.md` es `716-718`, no `723`.
+
+## 3. Lo descartado y los Low
+
+- **DESCARTADO (12/100)** — "el delta viola el techo de ~400 líneas". El foco de Reglas citó
+  `CLAUDE.md:79` **del repo principal**, no del worktree. La regla vigente en la rama bajo review dice
+  lo contrario en dos cláusulas: el techo **se mide cuando el slice ABRE** (medido: 238 líneas de
+  lógica, holgado) y *"Lines that `/review-loop` adds while fixing its own findings do NOT count"*.
+  No lo reportes ni lo "arregles": partir un slice a mitad de loop es el anti-patrón que esa regla previene.
+- **6 Low, reportados y NO arreglados** (los declaré sin scorer individual, desviación consciente del
+  Step 5): `[Array]::FindIndex` sin guard de unicidad (`:269`); `$faltan` anclado por la aparición
+  incidental de `.claude/scripts/` en la sección (`:134`); subconjunto hardcodeado `@('.claude/','.agents/')`
+  (`:155`, preexistente y justificado en su comentario); `$sobran` sólo ve prefijos con backticks
+  (`:209-211`); `bbec417` mezcla dos convenciones de conteo (los "before" sin `\r`, los "after" con);
+  y *"cuatro de sus cinco frases"* cuando el bullet tiene cuatro.
+
+## 4. Tests
+
+**No se corrió `run-all.ps1` esta sesión** (no se modificó nada). La última corrida verde conocida es
+la de `bbec417`: 35 suites, 0 rojas, 459 s. Los focos sí corrieron suites sueltas y
+`tests/dieta-del-claude-md.tests.ps1` cierra en `TODOS LOS TESTS PASARON`.
+
+Recordatorio: `chcp.com 65001` antes de `run-all.ps1`, o `marcar-done.tests` da un rojo espurio.
+
+## 5. Próximos pasos (en este orden)
+
+1. **Escribir los fixes de los 10 Medium**, cada uno con su RED. Sugerencia de orden, por cohesión:
+   - **bloque A — la suite** (F3, F5, F6, F7, F8, F9, F10): todo en `tests/dieta-del-claude-md.tests.ps1`;
+   - **bloque B — el pipeline de reglas** (F1): 16 copias de archivo + re-sello del golden del Step 5
+     + 3 manifests. Es el único que toca archivos de gobierno fuera de la suite;
+   - **bloque C — la cabecera y `docs/TESTING.md`** (F2 + el límite de F4): **va último**, porque
+     describe la cobertura que A y B acaban de cambiar.
+   - **F4 no tiene fix mecánico**: decidir entre un assert no parafraseable o declarar el límite
+     honestamente en C. Es una decisión de diseño, no de implementación.
+2. **Turno 2 del loop** sobre esos fixes: `/slice-review <range>` **sin** `--mutation` ni
+   `--code-review` (prohibidos en turnos 2+). El rango sale del marcador, que ya está en `bbec417`.
+3. **Pase de coherencia** (`/slice-review --coherence`) al cerrar, con el ancla en `54d7d1b`.
+   Corre **siempre**, también si cierra por tope.
+4. **Push de v2 y de main** (lo hacés vos):
+   `! gh auth switch -u southpointtech`, después
+   `git -C "C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2" push origin feat/bootstrap-v2` (es un
+   fast-forward) y `git push origin main`, y volver a `MartinDele703`.
+5. **Issue 18** (deploy, rollout, re-sellado): HITL, último del release.
+
+## 6. Lo que la próxima sesión TIENE que saber
+
+- **Un subagente de solo-lectura atado al cwd de la sesión lee el repo equivocado, y la cita
+  fabricada sobrevive hasta el reporte.** El foco de Reglas citó `CLAUDE.md:79` con el texto de la
+  línea 78 del repo principal y construyó un hallazgo entero encima. Lo cazó el scorer, no el foco.
+  **Si revisás un worktree desde una sesión abierta en otro repo: poné el path en el prompt de cada
+  subagente Y pedile al scorer que verifique la cita contra el worktree.** Esto ya estaba medido para
+  el fork de `/code-review`; ahora está medido también para subagentes comunes.
+- **Yo mismo caí en la misma trampa**: en el pre-flight dije que el delta violaba el techo de ~400.
+  Estaba aplicando la regla del `CLAUDE.md` del repo principal (el que viene en mi system prompt), no
+  la de la rama bajo review. El `CLAUDE.md` del worktree es **otro archivo**.
+- **El ancla de coherencia NO era write-once en la práctica**: `slice-base` devolvía el fallback a la
+  base de la rama (`227a53d`), o sea la sesión anterior corrió `-Action close` pese a haber cerrado
+  por TOPE. Por eso `open` pudo escribir. Si el próximo slice se cierra por tope, **no corras `close`**.
+- **El fan-out de 6 + 12 scorers en Opus costó ~1,2M tokens de subagente.** Las olas de 6 y 5
+  funcionaron bien. No lo re-corras para "confirmar" lo que ya está acá.
+- **Dos afirmaciones del handoff anterior eran falsas** y las dos se detectaron con un comando:
+  que el worktree estaba en `feat/bootstrap-v2` (está en `slice/14-dieta-del-claude-md`) y que v2
+  estaba sin pushear (`origin/feat/bootstrap-v2` = `de6ab2e`, ancestro de HEAD). **Verificá el estado
+  del handoff con `git`, no lo heredes.**
+- **El patrón que se repite en los 10 hallazgos**: cada anclaje de texto tiene un borde literal a un
+  paso, y el turno siguiente lo encuentra. Va por la cuarta vez en este mismo slice. Lo que funciona
+  es derivar el payload de su fuente **cuando el payload es un token** (una ruta, `Slice-Close:`, un
+  nombre de rigor). Cuando el payload es una **frase**, derivar no compra nada y lo honesto es
+  declarar el límite — ésa es la lección nueva de F4 y F7, y no estaba en la cabecera.
+
+---
+
 # Session Handoff — 2026-09-20 — **Issue 14 (dieta del `CLAUDE.md`) CERRADO POR TOPE** e integrado en `feat/bootstrap-v2` @ `bbec417`, `run-all.ps1` verde (35 suites). **v2 queda con un solo pendiente: el 18 (deploy/rollout, HITL).** Nuevos: issues 25 y 26.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
