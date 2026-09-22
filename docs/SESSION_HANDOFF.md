@@ -1,3 +1,100 @@
+# Session Handoff — 2026-09-22 — **Issue 18 EN CURSO**: release v2.0.0 armado LOCAL (merge + tag, sin pushear), deploy hecho; el rollout se frenó por un hueco del issue 03, que se cerró como **03b** (`f633733`, loop cerrado por TOPE). Falta `run-all`, integrar 03b, rehacer el release y el rollout a 6 repos.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`816f4f3`** = `merge: bootstrap v2 (release v2.0.0)`
+  (no-ff de `feat/bootstrap-v2` @ `daf9b5a`) + este commit de handoff. **Tag `v2.0.0` LOCAL en `816f4f3`**.
+  Nada pusheado desde `f53b59d` (`origin/main`). Untracked de Codex: ajeno, no tocar.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, en **`slice/03b-consumidores-hash-normalizado`
+  @ `f633733`**, árbol limpio. `feat/bootstrap-v2` @ `daf9b5a` (NO tiene el 03b). `origin/feat/bootstrap-v2` = `7dbbf5f`.
+- **`~/.claude/skills` YA DEPLOYADO** con `sync-skills` desde `main` @ `816f4f3`, o sea SIN el 03b (sus
+  manifests usan hash crudo). Hay que re-deployar después de integrar el 03b.
+- **Otra terminal** en `carriles/Bootstrap Skills/hub-sync` (desarrollo activo). La suite barre `%TEMP%`.
+- **Marcador** del worktree: `marker:slice/03b-...` = `139af70`; `slice-open:` puesto (ancla `daf9b5a`).
+  El loop cerró por TOPE → **NO correr `-Action close`**; los fixes del turno 2 (`f633733`) no los revisó nadie.
+
+## 1. Qué se hizo en esta sesión
+
+1. Issue 14 integrado (ff a `5749ac8`). `run-all` dio 2 rojas reales (`skills-lock`, `chicas-y-forks-propios`):
+   `919f5ce` editó `slice-review/SKILL.md` sin re-sellar el lockfile → `7dbbf5f` (Seal + gen-manifest).
+   `run-all` verde 35/35. Pusheados `feat/bootstrap-v2` (`7dbbf5f`) y `main` (`f53b59d`).
+2. **Issue 18 arrancado. Aprobación del usuario (2026-09-21)**: release (merge a main + CHANGELOG + tag
+   `v2.0.0`) + deploy + rollout a **6 repos**: Administracion May, Gestor de Obras, SouthPoint-Hub,
+   Profitability App, Call Center Stage One, claude-analytics. **Forecasting y Outsourcing siguen
+   congelados** (el re-freeze no pasó). Los demás bootstrapeados (scaffold 2026-08-28 o anterior: Finanzas,
+   Mate OS, MyTube, Personal Catalog, Santi demo, PROJECT MANAGEMENT, Showcase Garra, showcase claudio,
+   Southpoint App Migration, Survey Clients) quedan FUERA. Anotado en `.scratch/bootstrap-v2/issues/18-...md`
+   del worktree (`.scratch/` es gitignored: solo local).
+3. `daf9b5a`: `CHANGELOG.md` con la entrada `v2.0.0` (anuncio de doctrina: TDD `red → green`, mecánica del
+   loop/gate mudada al workflow doc —una sola copia por repo—, carriles, skills nuevas, scaffold).
+4. Merge a `main` (`816f4f3`), tag `v2.0.0`, `sync-skills` (deploy). **NO se borraron** todavía las 3 skills
+   de usuario duplicadas (`~/.claude/skills/{research,debug-source-first,verify-downstream-arrival}`).
+5. **Hallazgo bloqueante**: el issue 03 figuraba cerrado pero `gen-manifest`, `compare-scaffold` y
+   `reseal-manifest` seguían con `Get-FileHash` crudo (el propio issue lo decía en su nota). Medido: el mismo
+   árbol dio 6 hashes distintos entre el worktree v2 y `main`. El usuario eligió cerrar 03 antes del rollout.
+6. **Slice 03b** (rama `slice/03b-...`): `cefc2e8` + `139af70` (turno 1) + `f633733` (turno 2).
+   - `gen-manifest` sella con `Get-NormalizedHash`; los 3 manifests regenerados (sus 261 hashes = sha256
+     normalizado del blob de git).
+   - `normalized-hash.ps1` (en `tools/` y copia en `skills/upgrade-bootstrap/scripts/`, verificadas idénticas
+     por test) trae también `Get-CrlfHash`, `Get-Hashes` y `Test-Sealed`: un hash sellado coincide si es el
+     normalizado, el crudo, o el del contenido con fines de línea CRLF (transición para manifests legacy).
+   - `reseal`: la base cruda de un archivo intacto se convierte a normalizada; la de uno tocado se conserva.
+   - Suite nueva `tests/manifest-hash-normalizado.tests.ps1` (22 asserts); `docs/TESTING.md` y `CHANGELOG`
+     actualizados.
+   - Review-loop standard: T1 con 5 Medium (A, C, D, E, G) arreglados; T2 con 2 Medium (crudo sin test +
+     TESTING.md falso; bloque duplicado) arreglados. **Cierre por TOPE**. Pase de coherencia **limpio**.
+   - `--code-review` no corrió (el fork está atado al cwd de la sesión, que es otro checkout).
+
+## 2. Tests
+
+- Verdes sueltas sobre `f633733`: `manifest-hash-normalizado` (22), `normalized-hash`, `skills-lock`,
+  `chicas-y-forks-propios`, `temp-hygiene`, `export-shareable`, `shareable-leaks`, `mirror`.
+- **`run-all` sobre `f633733` NO completó**: Claude Code lo mató por memoria baja del sistema (5 suites
+  alcanzaron a dar PASS). **Correrlo primero** (`chcp.com 65001` antes; ~11 min).
+
+## 3. Low abiertos del 03b (a propósito, reportados)
+
+Sobrevive el mutante "Get-CrlfHash sin normalizar antes" (ningún fixture no-LF le llega); `threeWay`
+compara canon normalizado vs base cruda (nadie lo lee); la lista `$suitesConHelperEsperadas` de
+`temp-hygiene` está desactualizada (ya lo estaba: faltan 4); "hash crudo" en comentarios de
+`tools/skills-lock.ps1` (:48, :327); la cabecera de la copia deployada de `normalized-hash.ps1` apunta a
+`tools/`; flake de medianoche del assert de `version`; asserts solo `-contains`; `Test-Path` sin
+`-LiteralPath` (preexistente); los tests corren desde el layout del repo, no el deployado; la cabecera del
+test dice regla de 2 vías (son 3); el CHANGELOG omite que los customizados conservan base cruda y el caso
+bare-CR. Issue nuevo posible: guardia de versión (un upgrade-bootstrap viejo contra un manifest nuevo
+puede ofrecer un downgrade).
+
+## 4. Próximos pasos (en este orden)
+
+1. `run-all` en el worktree v2 sobre `f633733` → verde.
+2. Integrar: `git -C <v2> checkout feat/bootstrap-v2 && git merge --ff-only slice/03b-consumidores-hash-normalizado`.
+   Marcar en `.scratch/bootstrap-v2/issues/03-hashing-normalizado.md` que el 03b lo completó.
+3. Rehacer el release en `main`: `git tag -d v2.0.0`; `git merge --no-ff feat/bootstrap-v2` (con trailer
+   Co-Authored-By); `git tag -a v2.0.0 -m "v2.0.0 — ver CHANGELOG.md"`; `pwsh -File tools/sync-skills.ps1`
+   (con hash normalizado los manifests regenerados en `main` no deberían cambiar; si cambian, mirar el diff);
+   borrar `~/.claude/skills/{research,debug-source-first,verify-downstream-arrival}`.
+4. Rollout, **repo por repo** (los 6), cada uno en un **worktree nuevo desde su rama por defecto** (varios
+   tienen trabajo sucio en ramas de feature: no tocarlo): correr `upgrade-bootstrap`, dejar el `CLAUDE.md`
+   sin 3 etapas de TDD y sin el mecanismo del loop/gate duplicado (o en CLAUDE.md o en §7/§1 del workflow
+   doc), commit, y **verificar con un segundo `upgrade-bootstrap` que no reporta drift falso**; anotar por
+   repo qué recibió y qué se preservó. Administracion May y Gestor tienen bloques `PATCH:prose-churn` a
+   revertir (Gestor además `AGENTS.md` y `.agents/skills/source-command-review-loop/` untracked). El
+   merge/push de cada repo lo hace el usuario.
+5. Push (el usuario): `gh auth switch -u southpointtech`, push de `main` + `feat/bootstrap-v2` +
+   `git push origin v2.0.0`, y volver a `MartinDele703`.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- La aprobación del 18 ya está dada (arriba): no volver a pedirla para los 6 repos; sí informar repo por repo.
+- Todo comando del v2 va con `git -C` / rutas absolutas; los subagentes necesitan el path del worktree en el
+  prompt. Los agentes `slice-review-*` ya existen en `main` (los trajo el merge): se despachan por nombre.
+- Commits: mensaje en un archivo del scratchpad + `git commit -F`.
+- Lección: un issue "closed" puede tener una mitad sin hacer declarada en su propia nota; antes de un
+  release, grepear los consumidores en vez de confiar en el status.
+- El usuario corta la sesión al superar ~200K de contexto.
+
+---
+
 # Session Handoff — 2026-09-21 (noche) — **Issue 14 INTEGRADO** en `feat/bootstrap-v2` (`7dbbf5f`, run-all verde 35 suites). Falta solo el push (lo hace el usuario).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
