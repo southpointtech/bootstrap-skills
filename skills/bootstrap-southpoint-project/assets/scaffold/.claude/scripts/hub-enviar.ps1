@@ -4,7 +4,7 @@
 # PROJECT MANAGEMENT, que es el único canal entre la PC del dev y la del PM.
 #
 #   pwsh -File .claude/scripts/hub-enviar.ps1 -RepoDir <repo> -Dev <nombre> [-StateDir <dir>]
-#        [-PmRemote <url>] [-PmClone <dir>] [-Now <iso>]
+#        [-PmRemote <url>] [-PmClone <dir>] [-Cuenta <cuenta de gh>] [-EsperaCandado <segundos>] [-Now <iso>]
 #
 # El clon de PROJECT MANAGEMENT es privado del transporte (`<StateDir>/pm-repo`): nadie trabaja en él,
 # así que se alinea con el remoto en cada corrida sin miedo a pisar nada.
@@ -15,6 +15,7 @@ param(
   [string]$PmRemote = "https://github.com/southpointtech/project-management.git",
   [string]$PmClone = "",
   [string]$Cuenta = "southpointtech",
+  [int]$EsperaCandado = 600,
   [string]$Now = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 )
 $ErrorActionPreference = "Stop"
@@ -48,8 +49,6 @@ function Git([string[]]$Argumentos) {
   $r.stdout
 }
 
-$recol = Join-Path $PSScriptRoot "hub-recolectar.ps1"
-$r = Invoke-Utf8 'pwsh' @('-NoProfile', '-File', $recol, '-RepoDir', $RepoDir, '-Dev', $Dev, '-StateDir', $StateDir, '-Now', $Now)
 $repoName = Split-Path $RepoDir.TrimEnd('\', '/') -Leaf
 
 # Una línea por corrida en `<StateDir>/hub-sync.log`: es lo que el dev mira cuando el tablero del PM
@@ -63,6 +62,23 @@ function Fallar([string]$motivo) {
   [Console]::Error.WriteLine("hub-enviar: $motivo")
   exit 1
 }
+
+# Un candado por `StateDir`, tomado antes de correr el recolector: todas las corridas de la PC comparten
+# el clon `pm-repo`, que se realinea a la fuerza (checkout -f, clean), y dos corridas superpuestas (la
+# programada y una manual) podrían borrarse el commit una a la otra antes del push. FileShare.None sobre
+# un archivo: si el proceso muere, el sistema lo suelta solo. Se libera al salir del proceso.
+[IO.Directory]::CreateDirectory($StateDir) | Out-Null
+$limite = [DateTime]::UtcNow.AddSeconds($EsperaCandado)
+while ($true) {
+  try { $script:candado = [IO.File]::Open((Join-Path $StateDir "hub-sync.lock"), 'OpenOrCreate', 'ReadWrite', 'None'); break }
+  catch [IO.IOException] {
+    if ([DateTime]::UtcNow -ge $limite) { Fallar "otra corrida tiene el candado de $StateDir desde hace más de $EsperaCandado s" }
+    Start-Sleep -Milliseconds 500
+  }
+}
+
+$recol = Join-Path $PSScriptRoot "hub-recolectar.ps1"
+$r = Invoke-Utf8 'pwsh' @('-NoProfile', '-File', $recol, '-RepoDir', $RepoDir, '-Dev', $Dev, '-StateDir', $StateDir, '-Now', $Now)
 
 # Sin lote y en exit 0: el repo no está en hub-sync o el dev no figura en su declaración, y no hay
 # nada que enviar. Sin lote y en exit != 0, el recolector murió antes de escribirlo: eso es una falla,

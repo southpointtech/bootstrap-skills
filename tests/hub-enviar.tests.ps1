@@ -293,6 +293,26 @@ Assert (@(Get-Inbox $bare | Where-Object { $_ -notmatch "^inbox/martin/$([regex]
   "lote ilegible: nada llega fuera de inbox/martin/$nombre/"
 Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'invalidos') "lote ilegible: el log lo nombra"
 
+# --- Dos corridas sobre el mismo StateDir no se pisan: la segunda espera el candado y, si se vence la
+# espera, falla sin correr el recolector ni tocar el clon `pm-repo` que la primera está usando ---
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$candado = [IO.File]::Open((Join-Path $state "hub-sync.lock"), 'OpenOrCreate', 'ReadWrite', 'None')
+try {
+  $out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev martin -StateDir $state -PmRemote $bare `
+    -Now "2026-09-22T10:00:00Z" -EsperaCandado 2 2>&1
+  $exit = $LASTEXITCODE
+} finally { $candado.Dispose() }
+Assert ($exit -eq 1) "candado tomado: exit 1 (fue $exit; $($out -join ' '))"
+Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'falló: otra corrida tiene el candado de .+ desde hace más de 2 s') `
+  "candado tomado: el log dice por qué ('$(Get-LogLine $state "2026-09-22T10:00:00Z")')"
+Assert (-not (Get-RepoState $state)) "candado tomado: el recolector no corrió (no hay carpeta de estado del repo)"
+Assert (-not (Test-Path -LiteralPath (Join-Path $state "pm-repo"))) "candado tomado: no tocó pm-repo"
+$r = Enviar $t $state $bare "2026-09-22T10:05:00Z"
+Assert ($r.exit -eq 0) "candado liberado: la corrida siguiente anda (exit $($r.exit); $($r.out))"
+Assert ((Get-Inbox $bare) -contains "inbox/martin/$(Split-Path $t -Leaf)/20260922T100500Z.json") "candado liberado: su lote llega"
+
 # --- Contra github.com, sin token de la cuenta pedida: falla antes de tocar la red, y el log dice por qué ---
 # El token de la cuenta se le pide a gh. Sin gh instalado este caso no puede correr y se saltea. Los dos
 # env vars cortan cualquier prompt de credenciales si un cambio hiciera que la corrida llegue a la red.

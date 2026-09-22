@@ -984,6 +984,7 @@ $suitesConHelperEsperadas = @(
   'export-shareable.tests.ps1'
   'gen-mcp-json.tests.ps1'
   'hub-enviar.tests.ps1'
+  'hub-sync-tarea.tests.ps1'
   'normalized-hash.tests.ps1'
   'review-loop-docs-gate.tests.ps1'
   'review-loop-trigger.tests.ps1'
