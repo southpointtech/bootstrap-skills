@@ -295,16 +295,22 @@ Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'invalidos') "lote il
 
 # --- Dos corridas sobre el mismo StateDir no se pisan: la segunda espera el candado y, si se vence la
 # espera, falla sin correr el recolector ni tocar el clon `pm-repo` que la primera está usando ---
+# El test toma el candado compartiendo `ReadWrite`: así lo que rechaza a la corrida es que ELLA pida
+# `None`, y no el modo del test. Tomándolo con `None`, un transporte que pidiera `ReadWrite` (o sea, que
+# no bloqueara a nadie) sería rechazado igual y el test pasaría en verde sobre un candado que no cierra.
 $t = New-HubRepo
 $bare = New-PmRemote
 $state = New-TestWorkspace $script:runRoot "hubenv-state"
-$candado = [IO.File]::Open((Join-Path $state "hub-sync.lock"), 'OpenOrCreate', 'ReadWrite', 'None')
+$candado = [IO.File]::Open((Join-Path $state "hub-sync.lock"), 'OpenOrCreate', 'ReadWrite', 'ReadWrite')
 try {
+  $t0 = [Diagnostics.Stopwatch]::StartNew()
   $out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev martin -StateDir $state -PmRemote $bare `
     -Now "2026-09-22T10:00:00Z" -EsperaCandado 2 2>&1
   $exit = $LASTEXITCODE
+  $t0.Stop()
 } finally { $candado.Dispose() }
 Assert ($exit -eq 1) "candado tomado: exit 1 (fue $exit; $($out -join ' '))"
+Assert ($t0.Elapsed.TotalSeconds -ge 2) "candado tomado: esperó los 2 s antes de rendirse (tardó $([int]$t0.Elapsed.TotalSeconds) s)"
 Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'falló: otra corrida tiene el candado de .+ desde hace más de 2 s') `
   "candado tomado: el log dice por qué ('$(Get-LogLine $state "2026-09-22T10:00:00Z")')"
 Assert (-not (Get-RepoState $state)) "candado tomado: el recolector no corrió (no hay carpeta de estado del repo)"
@@ -312,6 +318,51 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $state "pm-repo"))) "candado tom
 $r = Enviar $t $state $bare "2026-09-22T10:05:00Z"
 Assert ($r.exit -eq 0) "candado liberado: la corrida siguiente anda (exit $($r.exit); $($r.out))"
 Assert ((Get-Inbox $bare) -contains "inbox/martin/$(Split-Path $t -Leaf)/20260922T100500Z.json") "candado liberado: su lote llega"
+
+# --- El que encuentra el candado tomado ESPERA: cuando el otro lo suelta, sigue solo ---
+# Sin la espera (un solo intento y a fallar), este caso se pone rojo: es la diferencia entre la corrida
+# programada conviviendo con una manual y las dos peleándose.
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$lock = Join-Path $state "hub-sync.lock"
+$tomado = Join-Path $state "tomado"
+$retenedor = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', `
+  "`$f = [IO.File]::Open('$($lock.Replace("'", "''"))', 'OpenOrCreate', 'ReadWrite', 'None'); New-Item -ItemType File '$($tomado.Replace("'", "''"))' | Out-Null; Start-Sleep -Seconds 3; `$f.Dispose()"
+while (-not (Test-Path -LiteralPath $tomado)) { Start-Sleep -Milliseconds 100 }
+$t0 = [Diagnostics.Stopwatch]::StartNew()
+$out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev martin -StateDir $state -PmRemote $bare `
+  -Now "2026-09-22T11:00:00Z" -EsperaCandado 30 2>&1
+$exit = $LASTEXITCODE
+$t0.Stop()
+$retenedor.WaitForExit()
+Assert ($exit -eq 0) "candado esperado: exit 0 (fue $exit; $($out -join ' '))"
+Assert ($t0.Elapsed.TotalSeconds -ge 1) "candado esperado: no arrancó antes de que lo soltaran (tardó $([int]$t0.Elapsed.TotalSeconds) s)"
+Assert ((Get-Inbox $bare) -contains "inbox/martin/$(Split-Path $t -Leaf)/20260922T110000Z.json") "candado esperado: su lote llega igual"
+
+# --- El candado sigue tomado durante el push, no sólo al arrancar ---
+# Un `pre-push` en el clon privado intenta abrir el candado con `None` en pleno push: si lo consigue, el
+# transporte ya lo había soltado y el `pm-repo` queda sin protección justo donde se pisan las corridas.
+$t = New-HubRepo
+$bare = New-PmRemote
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+Enviar $t $state $bare "2026-09-22T12:00:00Z" | Out-Null
+$hooks = New-TestWorkspace $script:runRoot "hubenv-hooks"
+$veredicto = (Join-Path $hooks "veredicto.txt").Replace('\', '/')
+$sonda = Join-Path $hooks "sonda.ps1"
+[IO.File]::WriteAllText($sonda, @"
+`$estado = try { `$f = [IO.File]::Open('$((Join-Path $state "hub-sync.lock").Replace("'", "''"))', 'Open', 'ReadWrite', 'None'); `$f.Dispose(); 'libre' }
+catch { 'tomado' }
+Set-Content -LiteralPath '$($veredicto.Replace("'", "''"))' -Value `$estado
+"@)
+[IO.File]::WriteAllText((Join-Path $hooks "pre-push"),
+  "#!/bin/sh`nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE`npwsh -NoProfile -File `"$($sonda.Replace('\', '/'))`"`nexit 0`n")
+git -C (Join-Path $state "pm-repo") config core.hooksPath $hooks.Replace('\', '/')
+$r = Enviar $t $state $bare "2026-09-22T12:05:00Z"
+Assert ($r.exit -eq 0) "candado durante el push: la corrida anda (exit $($r.exit); $($r.out))"
+Assert (Test-Path -LiteralPath $veredicto) "candado durante el push: la sonda del hook corrió"
+Assert ((Get-Content -LiteralPath $veredicto -Raw).Trim() -eq 'tomado') `
+  "candado durante el push: el candado seguía tomado ('$(if (Test-Path -LiteralPath $veredicto) { (Get-Content -LiteralPath $veredicto -Raw).Trim() })')"
 
 # --- Contra github.com, sin token de la cuenta pedida: falla antes de tocar la red, y el log dice por qué ---
 # El token de la cuenta se le pide a gh. Sin gh instalado este caso no puede correr y se saltea. Los dos

@@ -30,7 +30,11 @@ function Invoke-Utf8([string]$exe, [string[]]$Argumentos, [hashtable]$Entorno = 
   $psi.RedirectStandardError = $true
   $psi.StandardOutputEncoding = $utf8
   $psi.StandardErrorEncoding = $utf8
-  $p = [Diagnostics.Process]::Start($psi)
+  # Un ejecutable que no se encuentra (gh sin instalar, pwsh fuera del PATH de la tarea) vuelve como una
+  # corrida fallida con su motivo, no como una excepción que corta la tarea sin línea de log.
+  $p = try { [Diagnostics.Process]::Start($psi) } catch {
+    return [pscustomobject]@{ stdout = ""; stderr = "no se pudo ejecutar ${exe}: $($_.Exception.Message)"; exit = -1 }
+  }
   try {
     $err = $p.StandardError.ReadToEndAsync()
     $salida = $p.StandardOutput.ReadToEnd()
@@ -77,9 +81,14 @@ foreach ($ruta in $repos) {
   $enviar = Join-Path $ruta ".claude/scripts/hub-enviar.ps1"
   if (-not (Test-Path -LiteralPath $ruta -PathType Container)) { Write-Log $ruta "falló: la ruta no existe"; $fallidos++; continue }
   if (-not (Test-Path -LiteralPath $enviar -PathType Leaf)) { Write-Log $ruta "falló: no tiene .claude/scripts/hub-enviar.ps1"; $fallidos++; continue }
-  # El transporte escribe su propia línea de log, con el motivo: acá sólo se cuenta.
+  # El transporte escribe su propia línea de log cuando falla por un camino que conoce, pero puede morir
+  # antes (un error no manejado, un pwsh que no arranca): por eso una salida != 0 deja además esta línea,
+  # con su stderr. Si el transporte ya había escrito la suya, el repo queda con dos.
   $e = Invoke-Utf8 'pwsh' @('-NoProfile', '-File', $enviar, '-RepoDir', $ruta, '-Dev', $Dev, '-StateDir', $StateDir,
     '-PmRemote', $PmRemote, '-Cuenta', $Cuenta, '-Now', $Now)
-  if ($e.exit -ne 0) { $fallidos++ }
+  if ($e.exit -ne 0) {
+    Write-Log $ruta "falló: el transporte salió con $($e.exit): $($e.stderr -replace '\s+', ' ')"
+    $fallidos++
+  }
 }
 if ($fallidos) { exit 1 }

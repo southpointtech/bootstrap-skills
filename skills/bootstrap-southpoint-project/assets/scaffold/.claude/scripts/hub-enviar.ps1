@@ -81,10 +81,12 @@ $recol = Join-Path $PSScriptRoot "hub-recolectar.ps1"
 $r = Invoke-Utf8 'pwsh' @('-NoProfile', '-File', $recol, '-RepoDir', $RepoDir, '-Dev', $Dev, '-StateDir', $StateDir, '-Now', $Now)
 
 # Sin lote y en exit 0: el repo no está en hub-sync o el dev no figura en su declaración, y no hay
-# nada que enviar. Sin lote y en exit != 0, el recolector murió antes de escribirlo: eso es una falla,
-# no un repo fuera de hub-sync. Los lotes que haya pendientes salen en la próxima corrida que ande.
+# nada que enviar. El log lo dice igual: una clave de `devs` que no coincide con el usuario de Windows
+# deja al repo afuera, y sin esa línea no quedaría rastro. Sin lote y en exit != 0, el recolector murió
+# antes de escribirlo: eso es una falla, no un repo fuera de hub-sync. Los lotes que haya pendientes
+# salen en la próxima corrida que ande.
 if (-not $r.stdout) {
-  if ($r.exit -eq 0) { exit 0 }
+  if ($r.exit -eq 0) { Write-Log "sin lote: el repo no está en hub-sync o $Dev no figura en su declaración"; exit 0 }
   Fallar "el recolector salió con $($r.exit) sin lote: $($r.stderr)"
 }
 $lotes = Split-Path $r.stdout -Parent
