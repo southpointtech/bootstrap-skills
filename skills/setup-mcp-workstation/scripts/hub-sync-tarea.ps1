@@ -69,20 +69,36 @@ function Fallar([string]$motivo) {
 # Un valor con `&` (un repo en C:\Repos\R&D) rompería el XML entero, y el Programador lo rechaza con un
 # mensaje que no nombra el ampersand.
 function Esc([string]$v) { [Security.SecurityElement]::Escape($v) }
+# Un valor citado que termina en `\` se come los parámetros que siguen: en la línea de comandos de Windows
+# `\"` es una comilla ESCAPADA, no el cierre del valor (medido con CommandLineToArgvW). La corrida de
+# barras finales se duplica, que preserva el valor; recortarla cambiaría `D:\` por `D:`, que es otra ruta.
+function Cit([string]$v) {
+  $sinBarras = $v.TrimEnd('\')
+  '"' + $sinBarras + ('\' * (($v.Length - $sinBarras.Length) * 2)) + '"'
+}
 
 if ($Action -eq 'install') {
-  # El Programador de tareas NO encuentra el `pwsh.exe` de la Store (medido en el spike 01:
-  # LastTaskResult 0x80070002, sin escribir nada); el alias de WindowsApps sí funciona.
-  $pwshExe = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\pwsh.exe"
-  # Si PowerShell no vino de la Store, ese alias no existe y la tarea quedaría fallando con el mismo
-  # 0x80070002 todos los días: se cae al pwsh que está corriendo esto, que también es ruta absoluta.
-  if (-not (Test-Path -LiteralPath $pwshExe -PathType Leaf)) { $pwshExe = [Environment]::ProcessPath }
+  # El Programador de tareas NO encuentra el `pwsh.exe` de la Store por nombre (medido en el spike 01:
+  # LastTaskResult 0x80070002, sin escribir nada); el alias de WindowsApps sí funciona. Si no está, el
+  # de Program Files. Lo que NO se usa es `[Environment]::ProcessPath` cuando apunta al paquete de la
+  # Store: esa ruta lleva la versión adentro (`Microsoft.PowerShell_7.6.6.0_x64__...`, medido acá), así
+  # que la tarea se rompería sola con el próximo update de PowerShell.
+  $pwshExe = @(
+    (Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\pwsh.exe")
+    (Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe")
+    [Environment]::ProcessPath
+  ) | Where-Object { $_ -and $_ -notmatch '\\WindowsApps\\Microsoft\.' -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
+  Select-Object -First 1
+  # Fallar es mejor que registrar una tarea que va a morir todos los días sin escribir una línea.
+  if (-not $pwshExe) { Fallar "no se encontró un pwsh.exe de ruta estable (ni el alias de WindowsApps ni el de Program Files)" }
   # La tarea corre la lista entera, así que agregar un repo no obliga a reinstalarla: los valores
   # con que se instaló quedan congelados en el XML, no se releen del ambiente de la sesión.
-  $argumentos = "-NoProfile -File `"$PSCommandPath`" -Action correr -Dev `"$Dev`" -StateDir `"$StateDir`"" +
-  " -PmRepo `"$PmRepo`" -PmRemote `"$PmRemote`" -Cuenta `"$Cuenta`""
-  # El día del StartBoundary es sólo el arranque de la serie diaria; la hora es la que decidió el PM.
-  $desde = [DateTime]::Now.ToString("yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
+  $argumentos = "-NoProfile -File $(Cit $PSCommandPath) -Action correr -Dev $(Cit $Dev) -StateDir $(Cit $StateDir)" +
+  " -PmRepo $(Cit $PmRepo) -PmRemote $(Cit $PmRemote) -Cuenta $(Cit $Cuenta)"
+  # La serie arranca MAÑANA: con la de hoy, instalar después de la hora deja esa ocurrencia en el pasado
+  # y `StartWhenAvailable` la puede disparar a los minutos — en pleno onboarding, con gh todavía sin
+  # loguear, dejando una falla en el log de una máquina recién configurada.
+  $desde = [DateTime]::Now.AddDays(1).ToString("yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
   $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -158,17 +174,27 @@ if ($Action -eq 'status') {
   # Si está instalada se lo pregunta al Programador, no a un archivo propio: el dev puede borrar la
   # tarea desde el Programador sin pasar por este script.
   $q = Invoke-Utf8 $SchtasksCmd @('/Query', '/TN', $TaskName)
-  # La última corrida es la del momento de la última línea: cada corrida escribe sus líneas con el mismo
-  # momento, y dos pueden intercalarse (una espera el candado mientras la otra trabaja), así que se
-  # juntan por momento y no por posición. NO se agrupa por repo: esa columna no es homogénea (la tarea
-  # escribe la ruta de la lista y el transporte el nombre del repo), agruparla juntaría cosas distintas.
+  # Un Programador que no se puede ejecutar no es "no está instalada": eso manda a reinstalar una tarea
+  # que quizá esté. Sale != 0 con el motivo por stderr y SIN escribir en el log, porque esa línea sería
+  # la "última corrida" que informaría el status siguiente.
+  if (-not $q.lanzado) { [Console]::Error.WriteLine("hub-sync-tarea: $($q.stderr)"); exit 1 }
+  # Las líneas de la última corrida se juntan por momento: cada corrida escribe las suyas con el mismo.
+  # NO se agrupa por repo: esa columna no es homogénea (la tarea escribe la ruta de la lista y el
+  # transporte el nombre del repo), agruparla juntaría cosas distintas.
   $log = Join-Path $StateDir "hub-sync.log"
   $momento = $null
   $lineas = @()
   if (Test-Path -LiteralPath $log) {
-    $todas = @([IO.File]::ReadAllText($log, $utf8) -split "`r?`n" | Where-Object { $_ })
+    # Compartiendo escritura: una corrida puede estar apendeando en este mismo instante (`AppendAllText`
+    # abre sin compartir escritura), y un lector exclusivo moriría sin emitir el JSON del reporte.
+    $fs = [IO.File]::Open($log, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $texto = try { ([IO.StreamReader]::new($fs, $utf8)).ReadToEnd() } finally { $fs.Dispose() }
+    $todas = @($texto -split "`r?`n" | Where-Object { $_ })
     if ($todas.Count) {
-      $momento = ($todas[-1] -split "`t")[0]
+      # El momento MÁS NUEVO, no el de la última línea: dos corridas se intercalan y cada una congela su
+      # propio momento al arrancar, así que la última línea del archivo puede ser de la corrida vieja. Los
+      # momentos son ISO UTC de ancho fijo, así que el orden de string es el orden temporal.
+      $momento = @($todas | ForEach-Object { ($_ -split "`t")[0] } | Where-Object { $_ -match '^\d{4}-' } | Sort-Object)[-1]
       $lineas = @($todas | Where-Object { $_.StartsWith("$momento`t") } | ForEach-Object {
           $c = $_ -split "`t"
           [pscustomobject]@{ repo = $c[2]; resultado = ($c[3..($c.Count - 1)] -join "`t") }

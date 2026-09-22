@@ -266,6 +266,36 @@ exit /b 0
 '@)
   return $d
 }
+# Corre un bloque con variables de ambiente stubbeadas y las restaura siempre: los casos del ejecutable
+# dependen de cómo instaló PowerShell la máquina, y la suite no puede depender de eso.
+function Con-Ambiente([hashtable]$vars, [scriptblock]$bloque) {
+  $previas = @{}
+  foreach ($k in $vars.Keys) { $previas[$k] = [Environment]::GetEnvironmentVariable($k) }
+  try {
+    foreach ($k in $vars.Keys) { Set-Item -Path "Env:$k" -Value $vars[$k] }
+    & $bloque
+  } finally { foreach ($k in $previas.Keys) { Set-Item -Path "Env:$k" -Value $previas[$k] } }
+}
+# El parser real de Windows (el mismo que usa el Programador al lanzar la tarea): un assert sobre el texto
+# de la línea no distingue una comilla que cierra de una escapada por una barra invertida.
+Add-Type -Namespace Win32 -Name Shell -MemberDefinition @'
+[DllImport("shell32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern IntPtr CommandLineToArgvW(string lpCmdLine, out int pNumArgs);
+[DllImport("kernel32.dll")]
+public static extern IntPtr LocalFree(IntPtr hMem);
+'@
+function ConvertTo-Argv([string]$linea) {
+  $n = 0
+  $p = [Win32.Shell]::CommandLineToArgvW($linea, [ref]$n)
+  if ($p -eq [IntPtr]::Zero) { return @() }
+  try {
+    $salida = for ($i = 0; $i -lt $n; $i++) {
+      [Runtime.InteropServices.Marshal]::PtrToStringUni(
+        [Runtime.InteropServices.Marshal]::ReadIntPtr($p, $i * [IntPtr]::Size))
+    }
+    return @($salida)
+  } finally { [void][Win32.Shell]::LocalFree($p) }
+}
 function Get-TareaXml([string]$sch, [string]$nombre = "hub-sync") {
   $p = Join-Path $sch "tasks\$nombre.xml"
   if (Test-Path -LiteralPath $p) { [IO.File]::ReadAllText($p) } else { "" }
@@ -299,7 +329,15 @@ Assert ($xml -match [regex]::Escape($state)) "install: la tarea lleva el StateDi
 # --- El disparador: diario a las 18:00, corre si se perdió (la PC apagada a esa hora es el caso normal)
 # y sin instancias superpuestas (todas las corridas comparten el clon pm-repo del transporte) ---
 Assert ($xml -match '<ScheduleByDay>\s*<DaysInterval>1</DaysInterval>') "disparador: es diario ($xml)"
-Assert ($xml -match '<StartBoundary>\d{4}-\d{2}-\d{2}T18:00:00</StartBoundary>') "disparador: a las 18:00 ($xml)"
+# La serie arranca MAÑANA: con el StartBoundary de hoy, instalar después de las 18:00 deja la ocurrencia
+# de hoy en el pasado, y `StartWhenAvailable` la puede disparar a los minutos — en pleno onboarding, con
+# gh todavía sin loguear, dejando una falla en el log de una máquina recién configurada.
+Assert ($xml -match "<StartBoundary>$([DateTime]::Now.AddDays(1).ToString('yyyy-MM-dd'))T18:00:00</StartBoundary>") `
+  "disparador: a las 18:00, arrancando mañana ($xml)"
+Assert ($xml -match '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>') `
+  "disparador: un laptop a batería a las 18:00 igual recolecta ($xml)"
+Assert ($xml -match '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>') `
+  "disparador: pasar a batería no corta la corrida ($xml)"
 Assert ($xml -match '<StartWhenAvailable>true</StartWhenAvailable>') `
   "disparador: corre si se perdió el horario ($xml)"
 Assert ($xml -match '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>') `
@@ -338,6 +376,15 @@ $r2 = Verbo uninstall $sch $state
 Assert ($r2.exit -eq 0) "uninstall x2: desinstalar lo que no está no es una falla (fue $($r2.exit); $($r2.out))"
 Assert ($r2.json -and $r2.json.instalada -eq $false) "uninstall x2: el resumen lo dice igual ($($r2.out))"
 
+# --- Y un Programador que no se puede ejecutar tampoco es "ya no está": sin este caso, sacar la guarda
+# de `lanzado` del uninstall deja la suite verde mientras el verbo declara que desinstaló una tarea a la
+# que nunca le habló (mutante sobreviviente del turno 1 del review-loop) ---
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo uninstall (New-TestWorkspace $script:runRoot "hubtarea-sinsch") $state
+Assert ($r.exit -eq 1) "uninstall sin schtasks: exit 1 (fue $($r.exit); $($r.out))"
+Assert ((Get-Log $state) -match "(?m)\tmartin\t\*\tfalló: no se pudo ejecutar .*schtasks\.cmd") `
+  "uninstall sin schtasks: el log lo dice ('$(Get-Log $state)')"
+
 # --- status informa si la tarea está instalada, preguntándoselo al Programador y no a un archivo propio:
 # el dev la puede borrar desde el Programador sin pasar por acá ---
 $sch = New-FakeSchtasks
@@ -366,7 +413,9 @@ Assert ($r.out -match '"ultimaCorrida":"2026-09-22T18:00:00Z"') "status con log:
 Assert (@($r.json.repos).Count -eq 2) "status con log: sólo las líneas de esa corrida ($($r.out))"
 Assert ((@($r.json.repos) | Where-Object { $_.repo -eq "otro-repo" }).resultado -eq "sin cambios") `
   "status con log: cada repo con su resultado ($($r.out))"
-Assert ($r.json.conFallas -eq $false) "status con log: la falla de la corrida vieja no cuenta ($($r.out))"
+# Sobre el texto, igual que `ultimaCorrida`: `-eq $false` contra el objeto también pasa si el campo sale
+# como el número 0, y el consumidor lee el JSON.
+Assert ($r.out -match '"conFallas":false') "status con log: la falla de la corrida vieja no cuenta, y el tipo es booleano ($($r.out))"
 
 # --- Una falla en la última corrida sí se informa: es el caso que el dev tiene que ver ---
 $state2 = New-TestWorkspace $script:runRoot "hubtarea-state"
@@ -422,20 +471,82 @@ Assert ($null -ne $doc -and $null -ne $doc.Task) "ruta con &: el XML sigue siend
 Assert ($doc -and $doc.Task.Actions.Exec.Arguments -match [regex]::Escape('-Dev "R&D"')) `
   "ruta con &: el valor llega entero al Programador ($($doc.Task.Actions.Exec.Arguments))"
 
-# --- En una PC donde PowerShell NO vino de la Store, el alias de WindowsApps no existe: apuntar la tarea
-# ahí la dejaría fallando con 0x80070002 todos los días, sin escribir una línea de log ---
+# --- En una PC donde PowerShell NO vino de la Store, el alias de WindowsApps no existe. Lo que la tarea
+# NO puede quedar apuntando es a la ruta del PAQUETE de la Store (`...\WindowsApps\Microsoft.PowerShell_
+# 7.6.6.0_x64__...`), que es a donde resuelve `[Environment]::ProcessPath` en una máquina con PowerShell
+# de la Store (medido): lleva la versión adentro y se rompe sola con el próximo update.
+# `LOCALAPPDATA` se stubbea para sacar el alias del medio; `ProgramFiles` NO se puede stubbear (medido:
+# Windows la repone en el proceso hijo), así que el caso cubre las dos salidas legítimas — el pwsh de
+# Program Files, o la falla declarada — y ninguna de las dos es la ruta versionada.
 $sch = New-FakeSchtasks
 $state = New-TestWorkspace $script:runRoot "hubtarea-state"
-$localAppDataReal = $env:LOCALAPPDATA
-try {
-  $env:LOCALAPPDATA = New-TestWorkspace $script:runRoot "hubtarea-sinalias"
-  $r = Verbo install $sch $state
-} finally { $env:LOCALAPPDATA = $localAppDataReal }
-Assert ($r.exit -eq 0) "sin alias de la Store: exit 0 (fue $($r.exit); $($r.out))"
-$cmdTarea = ([xml](Get-TareaXml $sch)).Task.Actions.Exec.Command
-Assert ($cmdTarea -and (Test-Path -LiteralPath $cmdTarea -PathType Leaf)) `
-  "sin alias de la Store: el ejecutable de la tarea existe de verdad ('$cmdTarea')"
-Assert ($cmdTarea -match 'pwsh\.exe$') "sin alias de la Store: sigue siendo pwsh ('$cmdTarea')"
+$r = Con-Ambiente @{ LOCALAPPDATA = (New-TestWorkspace $script:runRoot "hubtarea-sinalias") } {
+  Verbo install $sch $state
+}
+if ($r.exit -eq 0) {
+  $cmdTarea = ([xml](Get-TareaXml $sch)).Task.Actions.Exec.Command
+  Assert ($cmdTarea -notmatch '\WindowsApps\Microsoft\.') `
+    "sin alias de la Store: no clava la ruta versionada del paquete ('$cmdTarea')"
+  Assert (Test-Path -LiteralPath $cmdTarea -PathType Leaf) "sin alias de la Store: el ejecutable existe ('$cmdTarea')"
+}
+else {
+  Assert ($r.out -match 'no se encontró un pwsh\.exe de ruta estable') `
+    "sin alias de la Store ni pwsh estable: falla con su motivo en vez de instalar una tarea rota ($($r.out))"
+  Assert ((Get-TareaXml $sch) -eq "") "sin alias de la Store ni pwsh estable: no registra la tarea"
+}
+
+# --- Un valor terminado en `\` (la raíz `D:\`, o el completado de PowerShell, que agrega la barra) no
+# puede comerse los parámetros que siguen: en la línea de comandos de Windows `\"` es una comilla
+# ESCAPADA, así que sin cuidado `-StateDir "D:\hub\"` se traga -PmRepo, -PmRemote y -Cuenta ---
+$sch = New-FakeSchtasks
+$stateBarra = (New-TestWorkspace $script:runRoot "hubtarea-state") + "\"
+$r = Verbo install $sch $stateBarra
+Assert ($r.exit -eq 0) "StateDir con barra final: exit 0 (fue $($r.exit); $($r.out))"
+$argv = @(ConvertTo-Argv ([xml](Get-TareaXml $sch)).Task.Actions.Exec.Arguments)
+Assert ($argv -contains '-PmRepo' -and $argv -contains '-PmRemote' -and $argv -contains '-Cuenta') `
+  "StateDir con barra final: los parámetros que siguen no se los come el valor ($($argv -join ' | '))"
+Assert ($argv[([array]::IndexOf($argv, '-StateDir') + 1)] -eq $stateBarra) `
+  "StateDir con barra final: y el valor llega con su barra, no recortado ($($argv -join ' | '))"
+
+# --- Un Programador que no se puede ejecutar no puede salir como "no está instalada": status es EL verbo
+# de diagnóstico, y decir "no está" cuando en realidad no se pudo preguntar manda a reinstalar. Tampoco
+# escribe su falla en el log: esa línea sería la "última corrida" que el status siguiente informa ---
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo status (New-TestWorkspace $script:runRoot "hubtarea-sinsch") $state
+Assert ($r.exit -eq 1) "status sin schtasks: exit 1 (fue $($r.exit); $($r.out))"
+Assert ($r.out -match 'no se pudo ejecutar .*schtasks\.cmd') "status sin schtasks: dice por qué ($($r.out))"
+Assert ((Get-Log $state) -eq "") `
+  "status sin schtasks: no ensucia el log que el propio status lee ('$(Get-Log $state)')"
+
+# --- La última corrida es la del momento MÁS NUEVO, no la de la última línea: dos corridas se intercalan
+# (una espera el candado mientras la otra trabaja) y cada una congela su propio momento, así que la última
+# línea del archivo puede ser de la corrida vieja ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+[IO.File]::WriteAllText((Join-Path $state "hub-sync.log"), @"
+2026-09-22T18:00:00Z`tmartin`tRepoB`tok (1 lotes)
+2026-09-22T18:20:00Z`tmartin`tRepoA`tfalló: la ruta no existe
+2026-09-22T18:20:00Z`tmartin`tRepoC`tok (2 lotes)
+2026-09-22T18:00:00Z`tmartin`tRepoD`tok (3 lotes)
+"@)
+$r = Verbo status $sch $state
+Assert ($r.out -match '"ultimaCorrida":"2026-09-22T18:20:00Z"') `
+  "corridas intercaladas: informa la corrida nueva, aunque su línea no sea la última ($($r.out))"
+Assert (@($r.json.repos).Count -eq 2) "corridas intercaladas: sólo las líneas de esa corrida ($($r.out))"
+Assert ($r.out -match '"conFallas":true') `
+  "corridas intercaladas: la falla de la corrida nueva se informa, y el tipo es booleano ($($r.out))"
+
+# --- status lee el log mientras una corrida lo está escribiendo: `AppendAllText` lo tiene abierto sin
+# compartir escritura, y un lector que no la comparta muere sin emitir el JSON que el Step 6 reporta ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$logPath = Join-Path $state "hub-sync.log"
+[IO.File]::WriteAllText($logPath, "2026-09-22T18:00:00Z`tmartin`tRepoA`tok (1 lotes)`n")
+$handle = [IO.File]::Open($logPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+try { $r = Verbo status $sch $state } finally { $handle.Dispose() }
+Assert ($r.exit -eq 0) "log en escritura: status igual sale 0 (fue $($r.exit); $($r.out))"
+Assert ($r.out -match '"ultimaCorrida":"2026-09-22T18:00:00Z"') `
+  "log en escritura: status igual informa la última corrida ($($r.out))"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }

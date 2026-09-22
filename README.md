@@ -71,7 +71,7 @@ overwriting a file you've customized.
 
 | Skill | What it does | When to use |
 |---|---|---|
-| **`setup-mcp-workstation`** | Prepares a Windows PC **once**: stores git identity, DOMO token and Zoho MCP URL as user env vars, clones the DOMO MCP client + installs its deps, installs Playwright browsers. | First time someone uses these skills on a new machine (onboarding). |
+| **`setup-mcp-workstation`** | Prepares a Windows PC **once**: stores git identity, DOMO token and Zoho MCP URL as user env vars, clones the DOMO MCP client + installs its deps, installs Playwright browsers, and installs the daily hub-sync Scheduled Task. | First time someone uses these skills on a new machine (onboarding), and to install or repair the hub-sync task. |
 | **`bootstrap-southpoint-project`** | Scaffolds a **client / SOUTHPOINTLABS** project: full AI workflow + DOMO & Zoho conventions, git initialized with the company identity. | Starting any client/work project. |
 | **`bootstrap-personal-project`** | Scaffolds a **personal** project: same workflow, without DOMO; Playwright / Firebase / Azure / Zoho conventions persist, git initialized with a personal identity. | Starting a personal / side project. |
 | **`bootstrap-ai-project`** | Scaffolds **any** project with the same workflow, but **generic**: no DOMO, a **generic** (non-Zoho) issue tracker, and it **leaves your git identity untouched**. The shareable variant, safe to hand to another team. | Starting a project not tied to SOUTHPOINTLABS tooling. |
@@ -222,7 +222,8 @@ The first time you use these skills on a computer:
 3. Open Claude Code and say, e.g., *"set up my machine for Southpoint"* — this runs
    **`setup-mcp-workstation`**, which asks for your git identity, DOMO token and Zoho MCP URL
    **once**, persists them as user env vars (never printing the secrets), clones the official DOMO
-   MCP client and installs its dependencies, and installs the Playwright browsers.
+   MCP client and installs its dependencies, installs the Playwright browsers, and installs the daily
+   hub-sync Scheduled Task that sends your closed slices to the PROJECT MANAGEMENT inbox.
 4. Restart Claude Code so it picks up the new environment variables.
 
 > Git, Python (for DOMO) and Node (for Playwright) are prerequisites. The skill checks for them and,
