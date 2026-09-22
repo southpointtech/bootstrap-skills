@@ -1,3 +1,113 @@
+# Session Handoff — 2026-09-22 (tarde) — **Release v2.0.0 CERRADO** (merge + tag + deploy, todo local). Rollout FRENADO a propósito: primero se mide la v2 y entran 2 features. **Dos PRDs nuevos aprobados**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`fb07b8a`** + el commit de este handoff.
+  **Tag `v2.0.0` en `fb07b8a`**. Nada pusheado desde `f53b59d` (`origin/main`). El push lo hace el usuario:
+  `gh auth switch -u southpointtech`, push de `main` + `feat/bootstrap-v2` + `git push origin v2.0.0`,
+  y volver a `MartinDele703`.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2`, en `feat/bootstrap-v2` @ **`f633733`**
+  (el 03b ya integrado por fast-forward), árbol limpio.
+- **`~/.claude/skills` DEPLOYADO** desde `main` @ `v2.0.0`. O sea: **todo proyecto que se bootstrapee
+  desde hoy ya nace v2** — el usuario lo pidió explícitamente y YA ESTÁ CUMPLIDO, no hay nada que hacer.
+- **Otra terminal** en `carriles/Bootstrap Skills/hub-sync` (desarrollo activo). La suite barre `%TEMP%`:
+  preguntar antes de correr `run-all`.
+- Untracked de Codex en `main` (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): **ajeno, no tocar**.
+
+## 1. Qué se hizo en esta sesión
+
+1. **`run-all` sobre `f633733`: VERDE, 36 suites, 0 rojas, 360 s.** (Correr con `chcp.com 65001` antes.)
+2. **03b integrado** en `feat/bootstrap-v2` (fast-forward `daf9b5a` → `f633733`).
+3. **Release rehecho en `main`**: tag viejo borrado, merge `--no-ff` (`5a98a32`), `sync-skills`,
+   re-sellado commiteado (`fb07b8a`), tag `v2.0.0` re-creado ahí.
+   **Dato que valida el 03b**: al regenerar los manifests con hash normalizado, los **261 hashes quedaron
+   idénticos**; lo único que cambió fue la fecha del campo `version` (2026-09-21 → 2026-09-22).
+4. **3 skills de usuario duplicadas eliminadas** de `~/.claude/skills`: `research`, `debug-source-first`,
+   `verify-downstream-arrival`. Eran las versiones VIEJAS (pre-v2); las buenas viven en `.agents/skills/`
+   de cada proyecto. **Respaldo en `.scratch/skills-usuario-viejas-2026-09-22/`** (gitignored).
+5. **Issue 03 cerrado** con su nota actualizada; **issue 18 actualizado** con el progreso del release.
+6. **Grill completo (25 decisiones)** sobre qué hacer antes del rollout → **dos PRDs nuevos, aprobados
+   por el usuario**.
+
+## 2. Las 25 decisiones del grill (lo que gobierna todo lo que sigue)
+
+**Medición** — se mide la v2 contra el scaffold `2026-09-11` (lo que los repos tienen puesto hoy).
+Para qué: evidencia para anunciarles a los compañeros + calibrar qué se pagó solo. **No es gate del
+rollout, salvo que el resultado de tarea empeore.** Tres mediciones: (a) **A/B controlado de 3 brazos**
+(v1 serie, v2 serie, v2 olas) sobre un **CLI de inventario** de ~6 slices, 4 independientes, con 3
+fricciones sembradas (requerimiento ambiguo, dependencia entre slices, bug que solo cae si el test va
+primero); (b) **piloto en producción SOLO en `Administracion May`**, leído a ~5 slices cerrados;
+(c) **retrospectivo** en este repo, declarado como contaminado.
+Métricas con denominador: contexto cargado por request · resultado de tarea · costo del ciclo de review.
+Del paralelismo: reloj + serie + factor **+ cola de integración**.
+**Compromiso escrito ANTES de correr nada**: si el resultado de tarea empeora, el rollout se frena.
+
+**Features** — un **contrato de identidad** (id estable de proyecto, id estable de issue, dónde se
+guardan los ids externos) que va PRIMERO, y dos consumidores en paralelo: **skill de Zoho** (escribe vía
+MCP y guarda el id de vuelta, con chequeo de "ya subió") y **emisor del estado del proyecto** para
+hub-sync (issues con estado ya canonizado + vínculo slice→issue resuelto).
+
+**Rollout** — v2.0.0 **solo al piloto**; los otros 5 repos esperan a la versión final, ya medida.
+Los 6 aprobados siguen siendo: Administracion May, Gestor de Obras, SouthPoint-Hub, Profitability App,
+Call Center Stage One, claude-analytics. Forecasting y Outsourcing congelados.
+
+## 3. Archivos creados en esta sesión
+
+- `.scratch/medicion-v2/PRD.md` — **aprobado**, `ready-for-agent`.
+- `.scratch/identidad-compartida/PRD.md` — **aprobado**, `ready-for-agent`.
+- `.scratch/skills-usuario-viejas-2026-09-22/` — respaldo de las 3 skills borradas.
+
+## 4. Seams de testing YA ACORDADOS con el usuario (no re-discutir)
+
+| Pieza | Seam |
+|---|---|
+| Arreglo del hook (issue 24) | hook entero como subproceso, evento JSON por stdin. **`Hide-Literals` NO se exporta**: se ejercita por conducta |
+| Canonización del estado de un issue | función pura dot-sourceada + literales congelados (prior art: `tools/normalized-hash.ps1`). **Único seam nuevo** |
+| Emisor del archivo de estado | script como subproceso `pwsh -File` (prior art: `gen-manifest.ps1`) |
+| Skill de Zoho | inyección + `-DryRun`; el transporte al MCP NO se testea (prior art: `install-clients.ps1`) |
+| Métrica de contexto | código con tests y oráculo congelado, **no** un cálculo a mano |
+
+**Decisión del espejo**: la skill de Zoho va en **las TRES variantes** (en `ai-project`, la versión
+genérica de tracker), con su path en la allowlist de contenido de `mirror.tests.ps1`. Motivo: el espejo
+exige el mismo SET de archivos entre las tres; la allowlist perdona contenido distinto, NO archivos
+ausentes. "Solo en southpoint" rompía el test.
+
+## 5. Próximos pasos (en este orden)
+
+1. **`/to-issues`** sobre los dos PRDs. El de identidad NO entra en un slice; el contrato es la única
+   pieza que no se puede partir sin romper a las otras dos.
+2. **Issue 24 primero** (arreglo del hook): el review-loop no dispara con comandos PowerShell, **en
+   silencio**, y ese bug está EN LA V2. Medir sin arreglarlo mide la v2 peor de lo que es. Ya tiene AC,
+   los 6 comandos que no disparan reproducidos y los dos fixes obvios descartados con su razón.
+3. **Rebasear el carril `hub-sync`** antes de que empiece el trabajo del emisor: está apilado sobre
+   `feat/bootstrap-v2`, que ya se mergeó a `main`.
+4. Contrato de identidad → (emisor ‖ Zoho). Un carril por pieza.
+5. Push (lo hace el usuario).
+
+## 6. Lo que la próxima sesión TIENE que saber antes de editar
+
+- **La aprobación de los 6 repos ya está dada**; lo que cambió es el MOMENTO: solo el piloto ahora.
+- **Primer trabajo del slice de Zoho: relevar qué campos tipados acepta el MCP de Zoho.** Nadie lo sabe.
+  El contrato de campos lo dicta el destino, no el template. Hoy conviven TRES formatos incompatibles
+  (8 campos del workflow doc, 11 secciones del `TASK_TEMPLATE`, 4 de `/to-issues`) y `## Notes for Zoho`
+  es un encabezado vacío. Los tres se alinean en el mismo slice.
+- **Hoy no existe NADA que cree una tarea en Zoho**: hay doctrina y hay transporte (MCP en 20 repos),
+  falta la pieza del medio. El salto `.scratch/` → Zoho es 100 % copy-paste humano.
+- **hub-sync parsea prosa con regex** y eso ya hizo daño medido: **2 de 3 hitos del corpus real eran
+  falsos**. No lee el manifest ni el `CLAUDE.md`; consume convenciones (`Status:`, trailer `Slice-Close:`,
+  jerarquía `.scratch/<feature>/issues/*.md`).
+- **Obligaciones mecánicas** al tocar skills del scaffold: re-sellar el lockfile en el MISMO commit
+  (`tools/skills-lock.ps1 -Action Seal`), regenerar el manifest (`tools/gen-manifest.ps1 -SkillDir ...`),
+  y regrabar goldens solo con `tools/reseal-*.ps1`, nunca a mano.
+- **Antecedente que fija el estándar de medición**: el −12,4 % de la dieta del `CLAUDE.md` quedó solo en
+  un mensaje de commit, con método sin declarar, y **resultó falso** (el release había quedado en
+  +176,9 %). Por eso la métrica de contexto es código con tests y los artefactos de las corridas se
+  conservan — los del eval de junio se borraron al cerrar y hoy no se puede re-correr.
+- Commits: mensaje en un archivo del scratchpad + `git commit -F` (la Bash tool mutila `-m` con comillas).
+- El usuario corta la sesión al superar ~200K de contexto.
+
+---
+
 # Session Handoff — 2026-09-22 — **Issue 18 EN CURSO**: release v2.0.0 armado LOCAL (merge + tag, sin pushear), deploy hecho; el rollout se frenó por un hueco del issue 03, que se cerró como **03b** (`f633733`, loop cerrado por TOPE). Falta `run-all`, integrar 03b, rehacer el release y el rollout a 6 repos.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
