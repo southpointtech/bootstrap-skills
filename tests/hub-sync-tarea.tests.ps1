@@ -197,7 +197,7 @@ $state = New-TestWorkspace $script:runRoot "hubtarea-state"
 $sinGh = New-TestWorkspace $script:runRoot "hubtarea-singh"
 $r = Correr $sinGh $state (New-PmRemote) "2026-09-22T18:00:00Z"
 Assert ($r.exit -eq 1) "gh que no corre: exit 1 (fue $($r.exit); $($r.out))"
-Assert ((Get-Log $state) -match "(?m)^2026-09-22T18:00:00Z\tmartin\t\*\tfalló: .*no se pudo ejecutar .*gh\.cmd") `
+Assert ((Get-Log $state) -match "(?m)^2026-09-22T18:00:00Z\tmartin\t\*\tfalló: no se pudo ejecutar .*gh\.cmd") `
   "gh que no corre: el log lo dice ('$(Get-Log $state)')"
 
 # --- Sin token de la cuenta, falla antes de pedir la lista: con la cuenta activa, el 404 mentiría ---

@@ -33,12 +33,17 @@ function Invoke-Utf8([string]$exe, [string[]]$Argumentos, [hashtable]$Entorno = 
   $psi.RedirectStandardError = $true
   $psi.StandardOutputEncoding = $utf8
   $psi.StandardErrorEncoding = $utf8
-  $p = [Diagnostics.Process]::Start($psi)
+  # Un ejecutable que no se puede lanzar (gh sin instalar) vuelve como una corrida fallida con su
+  # motivo, no como una excepción que mata el script sin dejar línea en el log. `lanzado` separa
+  # ese caso del de un hijo que sí corrió y salió mal: no se diagnostican igual.
+  $p = try { [Diagnostics.Process]::Start($psi) } catch {
+    return [pscustomobject]@{ stdout = ""; stderr = "no se pudo ejecutar ${exe}: $($_.Exception.Message)"; exit = -1; lanzado = $false }
+  }
   try {
     $err = $p.StandardError.ReadToEndAsync()
     $salida = $p.StandardOutput.ReadToEnd()
     $p.WaitForExit()
-    [pscustomobject]@{ stdout = $salida.Trim(); stderr = $err.Result.Trim(); exit = $p.ExitCode }
+    [pscustomobject]@{ stdout = $salida.Trim(); stderr = $err.Result.Trim(); exit = $p.ExitCode; lanzado = $true }
   } finally { $p.Dispose() }
 }
 # Todo git contra PROJECT MANAGEMENT lleva este entorno (ver la cuenta, más abajo).
@@ -69,9 +74,13 @@ function Fallar([string]$motivo) {
 # un archivo: si el proceso muere, el sistema lo suelta solo. Se libera al salir del proceso.
 [IO.Directory]::CreateDirectory($StateDir) | Out-Null
 $limite = [DateTime]::UtcNow.AddSeconds($EsperaCandado)
+$esperando = $false
 while ($true) {
   try { $script:candado = [IO.File]::Open((Join-Path $StateDir "hub-sync.lock"), 'OpenOrCreate', 'ReadWrite', 'None'); break }
   catch [IO.IOException] {
+    # La primera espera deja su línea: es lo único que distingue "otra corrida lo tenía y esperé" de
+    # "lo agarré libre", tanto para el dev que lee el log como para el test que lo prueba.
+    if (-not $esperando) { Write-Log "esperando el candado de $StateDir"; $esperando = $true }
     if ([DateTime]::UtcNow -ge $limite) { Fallar "otra corrida tiene el candado de $StateDir desde hace más de $EsperaCandado s" }
     Start-Sleep -Milliseconds 500
   }
@@ -100,6 +109,8 @@ $recoleccionFallida = $r.exit -ne 0
 # (los tests) no lo necesita.
 if ($PmRemote -match '^https://github\.com/') {
   $tk = Invoke-Utf8 'gh' @('auth', 'token', '-h', 'github.com', '-u', $Cuenta)
+  # gh que no arranca y gh sin token piden cosas distintas: instalarlo, o `gh auth login`.
+  if (-not $tk.lanzado) { Fallar $tk.stderr }
   if ($tk.exit -ne 0 -or -not $tk.stdout) {
     Write-Log "falló: gh no tiene un token de la cuenta $Cuenta ($($tk.stderr -replace '\s+', ' '))"
     [Console]::Error.WriteLine("hub-enviar: gh no tiene un token de la cuenta $Cuenta. Corré: gh auth login")

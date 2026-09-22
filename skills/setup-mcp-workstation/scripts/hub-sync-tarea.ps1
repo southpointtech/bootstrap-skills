@@ -19,8 +19,8 @@ $ErrorActionPreference = "Stop"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 # Un hijo con stdout y stderr decodificados como UTF-8 por llamada, sin tocar [Console]::OutputEncoding
-# (es de la consola, no del proceso: ver `Invoke-Utf8` en hub-enviar.ps1, del que esto es copia porque
-# esta skill no viaja con el scaffold).
+# (es de la consola, no del proceso: ver `Invoke-Utf8` en hub-enviar.ps1, del que esto salió porque
+# esta skill no viaja con el scaffold; las dos se mantienen a la par, no son idénticas).
 function Invoke-Utf8([string]$exe, [string[]]$Argumentos, [hashtable]$Entorno = @{}) {
   $psi = [Diagnostics.ProcessStartInfo]::new($exe)
   foreach ($a in $Argumentos) { $psi.ArgumentList.Add($a) }
@@ -30,16 +30,18 @@ function Invoke-Utf8([string]$exe, [string[]]$Argumentos, [hashtable]$Entorno = 
   $psi.RedirectStandardError = $true
   $psi.StandardOutputEncoding = $utf8
   $psi.StandardErrorEncoding = $utf8
-  # Un ejecutable que no se encuentra (gh sin instalar, pwsh fuera del PATH de la tarea) vuelve como una
-  # corrida fallida con su motivo, no como una excepción que corta la tarea sin línea de log.
+  # Un ejecutable que no se encuentra (gh sin instalar) vuelve como una corrida fallida con su motivo, no
+  # como una excepción que corta la tarea sin línea de log. `lanzado` lo separa del hijo que sí corrió
+  # y salió mal. Ojo: un `pwsh` por nombre NO entra por acá aunque no esté en el PATH (medido: Windows
+  # lo busca primero en el directorio del ejecutable que llama, que acá es pwsh).
   $p = try { [Diagnostics.Process]::Start($psi) } catch {
-    return [pscustomobject]@{ stdout = ""; stderr = "no se pudo ejecutar ${exe}: $($_.Exception.Message)"; exit = -1 }
+    return [pscustomobject]@{ stdout = ""; stderr = "no se pudo ejecutar ${exe}: $($_.Exception.Message)"; exit = -1; lanzado = $false }
   }
   try {
     $err = $p.StandardError.ReadToEndAsync()
     $salida = $p.StandardOutput.ReadToEnd()
     $p.WaitForExit()
-    [pscustomobject]@{ stdout = $salida.Trim(); stderr = $err.Result.Trim(); exit = $p.ExitCode }
+    [pscustomobject]@{ stdout = $salida.Trim(); stderr = $err.Result.Trim(); exit = $p.ExitCode; lanzado = $true }
   } finally { $p.Dispose() }
 }
 
@@ -59,6 +61,8 @@ function Fallar([string]$motivo) {
 }
 $tk = Invoke-Utf8 $GhCmd @('auth', 'token', '-h', 'github.com', '-u', $Cuenta)
 # Sin token, gh pediría la lista con la cuenta activa, y su 404 diría "no existe" en vez de "no hay cuenta".
+# gh que no arranca y gh sin token piden cosas distintas: instalarlo, o `gh auth login`.
+if (-not $tk.lanzado) { Fallar $tk.stderr }
 if ($tk.exit -ne 0 -or -not $tk.stdout) { Fallar "gh no tiene un token de la cuenta $Cuenta ($($tk.stderr)). Corré: gh auth login" }
 $lista = Invoke-Utf8 $GhCmd @('api', '-H', 'Accept: application/vnd.github.raw+json',
   "repos/$PmRepo/contents/hub-sync/repos.json") @{ GH_TOKEN = $tk.stdout }
@@ -87,7 +91,8 @@ foreach ($ruta in $repos) {
   $e = Invoke-Utf8 'pwsh' @('-NoProfile', '-File', $enviar, '-RepoDir', $ruta, '-Dev', $Dev, '-StateDir', $StateDir,
     '-PmRemote', $PmRemote, '-Cuenta', $Cuenta, '-Now', $Now)
   if ($e.exit -ne 0) {
-    Write-Log $ruta "falló: el transporte salió con $($e.exit): $($e.stderr -replace '\s+', ' ')"
+    $motivo = if ($e.lanzado) { "el transporte salió con $($e.exit): $($e.stderr)" } else { $e.stderr }
+    Write-Log $ruta "falló: $($motivo -replace '\s+', ' ')"
     $fallidos++
   }
 }

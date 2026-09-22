@@ -313,6 +313,8 @@ Assert ($exit -eq 1) "candado tomado: exit 1 (fue $exit; $($out -join ' '))"
 Assert ($t0.Elapsed.TotalSeconds -ge 2) "candado tomado: esperó los 2 s antes de rendirse (tardó $([int]$t0.Elapsed.TotalSeconds) s)"
 Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'falló: otra corrida tiene el candado de .+ desde hace más de 2 s') `
   "candado tomado: el log dice por qué ('$(Get-LogLine $state "2026-09-22T10:00:00Z")')"
+Assert ((Get-LogLine $state "2026-09-22T10:00:00Z") -match 'esperando el candado') `
+  "candado tomado: dijo que estaba esperando antes de rendirse ('$(Get-LogLine $state "2026-09-22T10:00:00Z")')"
 Assert (-not (Get-RepoState $state)) "candado tomado: el recolector no corrió (no hay carpeta de estado del repo)"
 Assert (-not (Test-Path -LiteralPath (Join-Path $state "pm-repo"))) "candado tomado: no tocó pm-repo"
 $r = Enviar $t $state $bare "2026-09-22T10:05:00Z"
@@ -320,24 +322,35 @@ Assert ($r.exit -eq 0) "candado liberado: la corrida siguiente anda (exit $($r.e
 Assert ((Get-Inbox $bare) -contains "inbox/martin/$(Split-Path $t -Leaf)/20260922T100500Z.json") "candado liberado: su lote llega"
 
 # --- El que encuentra el candado tomado ESPERA: cuando el otro lo suelta, sigue solo ---
-# Sin la espera (un solo intento y a fallar), este caso se pone rojo: es la diferencia entre la corrida
-# programada conviviendo con una manual y las dos peleándose.
+# Lo que prueba que hubo contencion es la linea `esperando el candado`, no el reloj: si el transporte
+# tarda en arrancar mas de lo que el otro retiene, encuentra el candado libre y el caso no ejercita
+# nada. Medir el tiempo no distingue "espero" de "arranco tarde" (los dos dan lo mismo), la linea si.
 $t = New-HubRepo
 $bare = New-PmRemote
 $state = New-TestWorkspace $script:runRoot "hubenv-state"
 $lock = Join-Path $state "hub-sync.lock"
 $tomado = Join-Path $state "tomado"
 $retenedor = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', `
-  "`$f = [IO.File]::Open('$($lock.Replace("'", "''"))', 'OpenOrCreate', 'ReadWrite', 'None'); New-Item -ItemType File '$($tomado.Replace("'", "''"))' | Out-Null; Start-Sleep -Seconds 3; `$f.Dispose()"
-while (-not (Test-Path -LiteralPath $tomado)) { Start-Sleep -Milliseconds 100 }
-$t0 = [Diagnostics.Stopwatch]::StartNew()
-$out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev martin -StateDir $state -PmRemote $bare `
-  -Now "2026-09-22T11:00:00Z" -EsperaCandado 30 2>&1
-$exit = $LASTEXITCODE
-$t0.Stop()
-$retenedor.WaitForExit()
+  "`$f = [IO.File]::Open('$($lock.Replace("'", "''"))', 'OpenOrCreate', 'ReadWrite', 'None'); New-Item -ItemType File '$($tomado.Replace("'", "''"))' | Out-Null; Start-Sleep -Seconds 4; `$f.Dispose()"
+try {
+  # El tope no es decorativo: un retenedor que muere antes de tomar el candado colgaba la corrida
+  # entera en vez de ponerla en rojo (`run-all.ps1` espera a cada suite sin timeout).
+  $limite = (Get-Date).AddSeconds(30)
+  while (-not (Test-Path -LiteralPath $tomado) -and (Get-Date) -lt $limite -and -not $retenedor.HasExited) {
+    Start-Sleep -Milliseconds 100
+  }
+  if (-not (Test-Path -LiteralPath $tomado)) { throw "el retenedor no tomo el candado (salio: $($retenedor.HasExited))" }
+  $out = & pwsh -NoProfile -File $enviar -RepoDir $t -Dev martin -StateDir $state -PmRemote $bare `
+    -Now "2026-09-22T11:00:00Z" -EsperaCandado 30 2>&1
+  $exit = $LASTEXITCODE
+} finally {
+  if (-not $retenedor.HasExited) { $retenedor.Kill() }
+  $retenedor.WaitForExit()
+  $retenedor.Dispose()
+}
 Assert ($exit -eq 0) "candado esperado: exit 0 (fue $exit; $($out -join ' '))"
-Assert ($t0.Elapsed.TotalSeconds -ge 1) "candado esperado: no arrancó antes de que lo soltaran (tardó $([int]$t0.Elapsed.TotalSeconds) s)"
+Assert ((Get-LogLine $state "2026-09-22T11:00:00Z") -match 'esperando el candado') `
+  "candado esperado: encontro el candado tomado y lo dijo ('$(Get-LogLine $state "2026-09-22T11:00:00Z")')"
 Assert ((Get-Inbox $bare) -contains "inbox/martin/$(Split-Path $t -Leaf)/20260922T110000Z.json") "candado esperado: su lote llega igual"
 
 # --- El candado sigue tomado durante el push, no sólo al arrancar ---
@@ -352,6 +365,7 @@ $veredicto = (Join-Path $hooks "veredicto.txt").Replace('\', '/')
 $sonda = Join-Path $hooks "sonda.ps1"
 [IO.File]::WriteAllText($sonda, @"
 `$estado = try { `$f = [IO.File]::Open('$((Join-Path $state "hub-sync.lock").Replace("'", "''"))', 'Open', 'ReadWrite', 'None'); `$f.Dispose(); 'libre' }
+catch [IO.FileNotFoundException] { 'no existe' }
 catch { 'tomado' }
 Set-Content -LiteralPath '$($veredicto.Replace("'", "''"))' -Value `$estado
 "@)
@@ -363,6 +377,26 @@ Assert ($r.exit -eq 0) "candado durante el push: la corrida anda (exit $($r.exit
 Assert (Test-Path -LiteralPath $veredicto) "candado durante el push: la sonda del hook corrió"
 Assert ((Get-Content -LiteralPath $veredicto -Raw).Trim() -eq 'tomado') `
   "candado durante el push: el candado seguía tomado ('$(if (Test-Path -LiteralPath $veredicto) { (Get-Content -LiteralPath $veredicto -Raw).Trim() })')"
+
+# --- Un ejecutable que no se puede lanzar (gh sin instalar) deja su línea en el log, no una excepción ---
+# El PATH del hijo queda con git y nada más, el mismo recorte que usa review-loop-trigger.tests.ps1:
+# así `gh` no se resuelve aunque la máquina lo tenga. El remoto https es lo que hace que el transporte
+# llegue a pedirle el token a gh. `pwsh` NO sirve para este caso: Windows lo resuelve por el directorio
+# del ejecutable que llama, así que arranca igual con el PATH vacío (medido).
+$t = New-HubRepo
+$state = New-TestWorkspace $script:runRoot "hubenv-state"
+$pwshExe = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+$savedPath = $env:PATH
+$env:PATH = Split-Path (Get-Command git).Source
+try {
+  Assert (-not (Get-Command gh -ErrorAction SilentlyContinue)) "guard: con el PATH recortado gh no se resuelve"
+  $out = & $pwshExe -NoProfile -File $enviar -RepoDir $t -Dev martin -StateDir $state `
+    -PmRemote "https://github.com/southpointtech/no-existe.git" -Now "2026-09-24T10:00:00Z" 2>&1
+  $exit = $LASTEXITCODE
+} finally { $env:PATH = $savedPath }
+Assert ($exit -eq 1) "gh que no se lanza: exit 1 (fue $exit; $($out -join ' '))"
+Assert ((Get-LogLine $state "2026-09-24T10:00:00Z") -match 'falló: no se pudo ejecutar gh') `
+  "gh que no se lanza: el log dice que no se pudo ejecutar, no que falte el token ('$(Get-LogLine $state "2026-09-24T10:00:00Z")')"
 
 # --- Contra github.com, sin token de la cuenta pedida: falla antes de tocar la red, y el log dice por qué ---
 # El token de la cuenta se le pide a gh. Sin gh instalado este caso no puede correr y se saltea. Los dos
