@@ -81,14 +81,19 @@ if ($Action -eq 'install') {
   # El Programador de tareas NO encuentra el `pwsh.exe` de la Store por nombre (medido en el spike 01:
   # LastTaskResult 0x80070002, sin escribir nada); el alias de WindowsApps sí funciona. Si no está, el
   # de Program Files. Lo que NO se usa es `[Environment]::ProcessPath` cuando apunta al paquete de la
-  # Store: esa ruta lleva la versión adentro (`Microsoft.PowerShell_7.6.6.0_x64__...`, medido acá), así
-  # que la tarea se rompería sola con el próximo update de PowerShell.
+  # Store: esa ruta lleva la versión adentro (`Microsoft.PowerShell_<versión>_x64__...`), así que la tarea
+  # se rompería sola con el próximo update de PowerShell. La medición está en el issue 12, "Lo que cerró
+  # el 12b"; el spike 01 midió otra cosa (el `pwsh.exe` por nombre), no esta ruta.
+  # El candidato tiene que SER pwsh: corriendo el install desde Windows PowerShell 5.1, `ProcessPath` es
+  # `powershell.exe`, y la tarea diaria moriría ahí (este script usa APIs que sólo existen en PS7).
   $pwshExe = @(
     (Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\pwsh.exe")
     (Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe")
     [Environment]::ProcessPath
-  ) | Where-Object { $_ -and $_ -notmatch '\\WindowsApps\\Microsoft\.' -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
-  Select-Object -First 1
+  ) | Where-Object {
+    $_ -and $_.EndsWith('pwsh.exe', [StringComparison]::OrdinalIgnoreCase) -and
+    $_ -notmatch '\\WindowsApps\\Microsoft\.' -and (Test-Path -LiteralPath $_ -PathType Leaf)
+  } | Select-Object -First 1
   # Fallar es mejor que registrar una tarea que va a morir todos los días sin escribir una línea.
   if (-not $pwshExe) { Fallar "no se encontró un pwsh.exe de ruta estable (ni el alias de WindowsApps ni el de Program Files)" }
   # La tarea corre la lista entera, así que agregar un repo no obliga a reinstalarla: los valores

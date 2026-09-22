@@ -315,14 +315,23 @@ function Verbo([string]$accion, [string]$sch, [string]$state, [string]$dev = "ma
 # da 0x80070002) y con la corrida completa, para que agregar un repo no obligue a reinstalar ---
 $sch = New-FakeSchtasks
 $state = New-TestWorkspace $script:runRoot "hubtarea-state"
+# La fecha esperada se captura ANTES del install y con InvariantCulture, igual que el script: recalcularla
+# después haría fallar una corrida que cruce la medianoche, y con la cultura de la máquina el assert se
+# correría junto con el bug si alguien le sacara la InvariantCulture al script.
+$manana = [DateTime]::Now.AddDays(1).ToString("yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
 $r = Verbo install $sch $state
 Assert ($r.exit -eq 0) "install: exit 0 (fue $($r.exit); $($r.out))"
 Assert ($r.json -and $r.json.instalada -eq $true) "install: el resumen JSON dice que quedó instalada ($($r.out))"
 $llamadas = [IO.File]::ReadAllText((Join-Path $sch "llamadas.txt"))
 Assert ($llamadas -match '/Create .*/TN hub-sync') "install: crea la tarea hub-sync ($llamadas)"
 $xml = Get-TareaXml $sch
-Assert ($xml -match [regex]::Escape('\Microsoft\WindowsApps\pwsh.exe')) `
-  "install: el ejecutable es el alias de WindowsApps, no 'pwsh' pelado ($xml)"
+# Ruta absoluta a un pwsh.exe que existe, y nunca la del paquete de la Store (versionada). NO se exige el
+# alias de WindowsApps: en una PC con PowerShell por MSI no existe, y ese es un caso legítimo.
+$cmdInstalado = ([xml]$xml).Task.Actions.Exec.Command
+Assert ($cmdInstalado -match [regex]::Escape('pwsh.exe') -and (Test-Path -LiteralPath $cmdInstalado -PathType Leaf)) `
+  "install: el ejecutable es una ruta absoluta a un pwsh.exe que existe, no 'pwsh' pelado ('$cmdInstalado')"
+Assert ($cmdInstalado -notmatch [regex]::Escape('\WindowsApps\Microsoft.')) `
+  "install: y nunca la ruta versionada del paquete de la Store ('$cmdInstalado')"
 Assert ($xml -match '-Action correr') "install: la tarea corre la recolección de todos los repos de la lista ($xml)"
 Assert ($xml -match [regex]::Escape($state)) "install: la tarea lleva el StateDir con el que se instaló ($xml)"
 
@@ -332,7 +341,7 @@ Assert ($xml -match '<ScheduleByDay>\s*<DaysInterval>1</DaysInterval>') "dispara
 # La serie arranca MAÑANA: con el StartBoundary de hoy, instalar después de las 18:00 deja la ocurrencia
 # de hoy en el pasado, y `StartWhenAvailable` la puede disparar a los minutos — en pleno onboarding, con
 # gh todavía sin loguear, dejando una falla en el log de una máquina recién configurada.
-Assert ($xml -match "<StartBoundary>$([DateTime]::Now.AddDays(1).ToString('yyyy-MM-dd'))T18:00:00</StartBoundary>") `
+Assert ($xml -match "<StartBoundary>${manana}T18:00:00</StartBoundary>") `
   "disparador: a las 18:00, arrancando mañana ($xml)"
 Assert ($xml -match '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>') `
   "disparador: un laptop a batería a las 18:00 igual recolecta ($xml)"
@@ -473,11 +482,12 @@ Assert ($doc -and $doc.Task.Actions.Exec.Arguments -match [regex]::Escape('-Dev 
 
 # --- En una PC donde PowerShell NO vino de la Store, el alias de WindowsApps no existe. Lo que la tarea
 # NO puede quedar apuntando es a la ruta del PAQUETE de la Store (`...\WindowsApps\Microsoft.PowerShell_
-# 7.6.6.0_x64__...`), que es a donde resuelve `[Environment]::ProcessPath` en una máquina con PowerShell
-# de la Store (medido): lleva la versión adentro y se rompe sola con el próximo update.
-# `LOCALAPPDATA` se stubbea para sacar el alias del medio; `ProgramFiles` NO se puede stubbear (medido:
-# Windows la repone en el proceso hijo), así que el caso cubre las dos salidas legítimas — el pwsh de
-# Program Files, o la falla declarada — y ninguna de las dos es la ruta versionada.
+# <versión>_x64__...`), que es a donde resuelve `[Environment]::ProcessPath` en una máquina con PowerShell
+# de la Store: lleva la versión adentro y se rompe sola con el próximo update.
+# `LOCALAPPDATA` se stubbea para sacar el alias del medio; `ProgramFiles` NO llega stubbeada al proceso
+# hijo, así que el caso cubre las dos salidas legítimas — el pwsh de Program Files, o la falla declarada
+# — y ninguna de las dos es la ruta versionada. Las dos mediciones (qué devuelve `ProcessPath` acá, y qué
+# variables sobreviven al hijo) están anotadas en `.scratch/hub-sync/issues/12-tarea-por-maquina.md`.
 $sch = New-FakeSchtasks
 $state = New-TestWorkspace $script:runRoot "hubtarea-state"
 $r = Con-Ambiente @{ LOCALAPPDATA = (New-TestWorkspace $script:runRoot "hubtarea-sinalias") } {
@@ -485,9 +495,13 @@ $r = Con-Ambiente @{ LOCALAPPDATA = (New-TestWorkspace $script:runRoot "hubtarea
 }
 if ($r.exit -eq 0) {
   $cmdTarea = ([xml](Get-TareaXml $sch)).Task.Actions.Exec.Command
-  Assert ($cmdTarea -notmatch '\WindowsApps\Microsoft\.') `
+  # `[regex]::Escape`, no el literal: '\WindowsApps\Microsoft\.' como patrón tiene `\W` (clase de
+  # caracteres) y `\M` (escape inexistente), que .NET rechaza tirando — y con `$ErrorActionPreference`
+  # en Stop más el `trap` de arriba, un assert que TIRA no falla: se lleva puesta la suite entera.
+  Assert ($cmdTarea -notmatch [regex]::Escape('\WindowsApps\Microsoft.')) `
     "sin alias de la Store: no clava la ruta versionada del paquete ('$cmdTarea')"
   Assert (Test-Path -LiteralPath $cmdTarea -PathType Leaf) "sin alias de la Store: el ejecutable existe ('$cmdTarea')"
+  Assert ($cmdTarea -match [regex]::Escape('pwsh.exe')) "sin alias de la Store: sigue siendo pwsh ('$cmdTarea')"
 }
 else {
   Assert ($r.out -match 'no se encontró un pwsh\.exe de ruta estable') `
@@ -515,6 +529,9 @@ $state = New-TestWorkspace $script:runRoot "hubtarea-state"
 $r = Verbo status (New-TestWorkspace $script:runRoot "hubtarea-sinsch") $state
 Assert ($r.exit -eq 1) "status sin schtasks: exit 1 (fue $($r.exit); $($r.out))"
 Assert ($r.out -match 'no se pudo ejecutar .*schtasks\.cmd') "status sin schtasks: dice por qué ($($r.out))"
+# Y no emite el reporte: un JSON con `instalada:false` al lado del error manda a reinstalar igual, que
+# es el daño que este caso viene a evitar.
+Assert ($r.out -notmatch '"instalada"') "status sin schtasks: no emite el reporte que diría que no está ($($r.out))"
 Assert ((Get-Log $state) -eq "") `
   "status sin schtasks: no ensucia el log que el propio status lee ('$(Get-Log $state)')"
 
@@ -532,7 +549,8 @@ $state = New-TestWorkspace $script:runRoot "hubtarea-state"
 $r = Verbo status $sch $state
 Assert ($r.out -match '"ultimaCorrida":"2026-09-22T18:20:00Z"') `
   "corridas intercaladas: informa la corrida nueva, aunque su línea no sea la última ($($r.out))"
-Assert (@($r.json.repos).Count -eq 2) "corridas intercaladas: sólo las líneas de esa corrida ($($r.out))"
+Assert (@($r.json.repos).Count -eq 2 -and (@($r.json.repos).repo -contains 'RepoA') -and (@($r.json.repos).repo -contains 'RepoC')) `
+  "corridas intercaladas: sólo las líneas de esa corrida, y son las suyas ($($r.out))"
 Assert ($r.out -match '"conFallas":true') `
   "corridas intercaladas: la falla de la corrida nueva se informa, y el tipo es booleano ($($r.out))"
 

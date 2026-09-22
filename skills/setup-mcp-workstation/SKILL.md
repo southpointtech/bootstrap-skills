@@ -21,6 +21,8 @@ $alreadyVar = [bool][Environment]::GetEnvironmentVariable("DOMO_SOUTHPOINT_TOKEN
 
 El **archivo de config es la señal canónica** (la env var de DOMO puede estar de un setup viejo a mano y no significa que esta skill haya corrido). Si el archivo **existe**: avisá que ya está configurada y ofrecé **re-aplicar** (útil para rotar un token) o salir; si re-aplica, saltá a Step 2 usando el archivo existente. Si el archivo **no existe** (aunque alguna env var ya esté seteada): tratá la máquina como no configurada y seguí con el setup completo desde Step 1.
 
+**Si el pedido es sobre la tarea de hub-sync** —instalarla, repararla, o entender por qué no está recolectando— no re-configures la máquina: saltá derecho al **Step 5**, corré primero `-Action status` y actuá según lo que informe (no instalada → `-Action install`; instalada pero con fallas → el motivo está en el log que `status` devuelve). Re-aplicar desde el Step 2 vuelve a pedir credenciales y a reinstalar clientes para nada.
+
 ## Step 1 — Pedir las credenciales
 
 Si el archivo NO existe (o el usuario quiere reconfigurar), pedí los valores con `AskUserQuestion` (o, si no hay interfaz interactiva, indicá al usuario que cree el archivo con la estructura de abajo y vuelva a correr la skill). Pedí:
@@ -70,7 +72,9 @@ $skill = "<base directory of this skill>"
 pwsh -NoProfile -File "$skill\scripts\hub-sync-tarea.ps1" -Action install
 ```
 
-Registra la Scheduled Task `hub-sync`: todos los días a las 18:00 —y al prender la PC, si a esa hora estaba apagada— recorre los repos que el PM cargó para este dev en `hub-sync/repos.json` de PROJECT MANAGEMENT y manda los slices cerrados a la bandeja. Devuelve un JSON con `instalada`, `ejecutable` y `argumentos`; si el Programador la rechaza, sale con código != 0 y el motivo queda en `%LOCALAPPDATA%\hub-sync\hub-sync.log`. Instalarla dos veces deja una sola tarea, así que re-correr la skill es seguro.
+Registra la Scheduled Task `hub-sync`: todos los días a las 18:00 —y al iniciar sesión, si a esa hora la PC estaba apagada o con la sesión cerrada— recorre los repos que el PM cargó para este dev en `hub-sync/repos.json` de PROJECT MANAGEMENT y manda los slices cerrados a la bandeja. **La serie arranca mañana**: el día que se instala no recolecta (así el onboarding no dispara una corrida con `gh` todavía sin loguear), y si el dev quiere ver una corrida hoy, `-Action correr`.
+
+Devuelve un JSON con `instalada`, `ejecutable` y `argumentos`. Sale con código != 0 en dos casos, y hay que distinguirlos en el reporte: si **el Programador la rechaza**, el motivo queda en `%LOCALAPPDATA%\hub-sync\hub-sync.log`; si **no encuentra un `pwsh.exe` de ruta estable**, falla antes de tocar el Programador y lo dice por stderr — ahí el dev tiene que instalar PowerShell 7 (MSI) o rehabilitar el alias de ejecución de la Store, y recién después re-correr el paso. Instalarla dos veces deja una sola tarea, así que re-correr la skill es seguro.
 
 La tarea **necesita `gh` logueado con la cuenta `southpointtech`** (`gh auth login`) para leer esa lista: sin token no recolecta y lo dice en el log. Si el dev todavía no está en la lista, la tarea igual queda instalada y cada corrida anota `sin repos en la lista`.
 
