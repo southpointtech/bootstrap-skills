@@ -210,6 +210,233 @@ Assert ((Get-Log $state) -match "(?m)^2026-09-22T18:00:00Z	martin	\*	falló: gh 
 $llamadas = [IO.File]::ReadAllText((Join-Path $gh "llamadas.txt"))
 Assert ($llamadas -notmatch '(?m)^api ') "sin token: no pide la lista ($llamadas)"
 
+# --- Los verbos del Scheduled Task (12b) ---------------------------------------------------------
+# Un `schtasks` falso que guarda cada tarea como un archivo en `tasks\<nombre>.xml`: así "instalar dos
+# veces deja una sola tarea" se prueba por lo que queda registrado, no por lo que se llamó. Copia el XML
+# en binario (`/b`) para no tocar los bytes, que es lo que mira el caso de la codificación.
+function New-FakeSchtasks([string]$FallaEn) {
+  $d = New-TestWorkspace $script:runRoot "hubtarea-sch"
+  if ($FallaEn) { [IO.File]::WriteAllText((Join-Path $d "falla-$FallaEn"), "") }
+  [IO.File]::WriteAllText((Join-Path $d "schtasks.cmd"), @'
+@echo off
+setlocal enabledelayedexpansion
+rem `shift` tambien corre %0, asi que el directorio del script se guarda ANTES del loop.
+set "HERE=%~dp0"
+rem Una ruta con & rompe `echo %*`: se guarda en una variable (las comillas la protegen) y se
+rem imprime con expansion retardada, que ya no re-parsea el &.
+set "ARGS=%*"
+echo !ARGS!>> "%HERE%llamadas.txt"
+set "ACTION=%~1"
+set "TN="
+set "XML="
+set "FORCE="
+:parse
+if "%~1"=="" goto done
+if /I "%~1"=="/TN" set "TN=%~2"
+if /I "%~1"=="/XML" set "XML=%~2"
+if /I "%~1"=="/F" set "FORCE=1"
+shift
+goto parse
+:done
+if not exist "%HERE%tasks" mkdir "%HERE%tasks"
+set "VERBO=%ACTION:/=%"
+if exist "%HERE%falla-%VERBO%" echo ERROR: Access is denied. 1>&2& exit /b 1
+if /I "%ACTION%"=="/Create" goto create
+if /I "%ACTION%"=="/Delete" goto delete
+if /I "%ACTION%"=="/Query" goto query
+echo ERROR: verbo desconocido %ACTION% 1>&2
+exit /b 1
+:create
+if not exist "%XML%" echo ERROR: no existe el XML %XML% 1>&2& exit /b 1
+if not exist "%HERE%tasks\%TN%.xml" goto write
+if not defined FORCE echo ERROR: the task already exists 1>&2& exit /b 1
+:write
+copy /y /b "%XML%" "%HERE%tasks\%TN%.xml" >nul
+echo SUCCESS: The scheduled task "%TN%" has successfully been created.
+exit /b 0
+:delete
+if not exist "%HERE%tasks\%TN%.xml" echo ERROR: The system cannot find the file specified. 1>&2& exit /b 1
+del "%HERE%tasks\%TN%.xml"
+echo SUCCESS: The scheduled task "%TN%" was successfully deleted.
+exit /b 0
+:query
+if not exist "%HERE%tasks\%TN%.xml" echo ERROR: The system cannot find the file specified. 1>&2& exit /b 1
+echo %TN%
+exit /b 0
+'@)
+  return $d
+}
+function Get-TareaXml([string]$sch, [string]$nombre = "hub-sync") {
+  $p = Join-Path $sch "tasks\$nombre.xml"
+  if (Test-Path -LiteralPath $p) { [IO.File]::ReadAllText($p) } else { "" }
+}
+# Los verbos del Task no tocan git ni gh: sólo el Programador y el log.
+function Verbo([string]$accion, [string]$sch, [string]$state, [string]$dev = "martin") {
+  $a = @('-NoProfile', '-File', $tarea, '-Action', $accion, '-Dev', $dev, '-StateDir', $state,
+    '-SchtasksCmd', (Join-Path $sch "schtasks.cmd"))
+  $out = & pwsh @a 2>&1
+  $texto = ($out -join "`n")
+  $codigo = $LASTEXITCODE
+  $json = try { $texto | ConvertFrom-Json } catch { $null }
+  return @{ exit = $codigo; out = $texto; json = $json }
+}
+
+# --- install registra la tarea con el pwsh que el Programador SÍ encuentra (spike 01: el de la Store
+# da 0x80070002) y con la corrida completa, para que agregar un repo no obligue a reinstalar ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo install $sch $state
+Assert ($r.exit -eq 0) "install: exit 0 (fue $($r.exit); $($r.out))"
+Assert ($r.json -and $r.json.instalada -eq $true) "install: el resumen JSON dice que quedó instalada ($($r.out))"
+$llamadas = [IO.File]::ReadAllText((Join-Path $sch "llamadas.txt"))
+Assert ($llamadas -match '/Create .*/TN hub-sync') "install: crea la tarea hub-sync ($llamadas)"
+$xml = Get-TareaXml $sch
+Assert ($xml -match [regex]::Escape('\Microsoft\WindowsApps\pwsh.exe')) `
+  "install: el ejecutable es el alias de WindowsApps, no 'pwsh' pelado ($xml)"
+Assert ($xml -match '-Action correr') "install: la tarea corre la recolección de todos los repos de la lista ($xml)"
+Assert ($xml -match [regex]::Escape($state)) "install: la tarea lleva el StateDir con el que se instaló ($xml)"
+
+# --- El disparador: diario a las 18:00, corre si se perdió (la PC apagada a esa hora es el caso normal)
+# y sin instancias superpuestas (todas las corridas comparten el clon pm-repo del transporte) ---
+Assert ($xml -match '<ScheduleByDay>\s*<DaysInterval>1</DaysInterval>') "disparador: es diario ($xml)"
+Assert ($xml -match '<StartBoundary>\d{4}-\d{2}-\d{2}T18:00:00</StartBoundary>') "disparador: a las 18:00 ($xml)"
+Assert ($xml -match '<StartWhenAvailable>true</StartWhenAvailable>') `
+  "disparador: corre si se perdió el horario ($xml)"
+Assert ($xml -match '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>') `
+  "disparador: no arranca una segunda instancia si la anterior sigue corriendo ($xml)"
+
+# --- El XML llega en UTF-16 con BOM: schtasks rechaza el XML en UTF-8 ("The task XML contains a value
+# which is incorrectly formatted"), y el falso lo copia en binario justamente para poder mirar los bytes.
+# Y el archivo que se le pasó no queda tirado en el StateDir ---
+$bytes = [IO.File]::ReadAllBytes((Join-Path $sch "tasks\hub-sync.xml"))
+Assert ($bytes.Count -gt 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) `
+  "codificación: el XML va en UTF-16 con BOM (primeros bytes: $($bytes[0..1] -join ','))"
+Assert (@(Get-ChildItem -LiteralPath $state -Filter "*.xml").Count -eq 0) `
+  "install: no deja el XML tirado en el StateDir ($((Get-ChildItem -LiteralPath $state).Name -join ', '))"
+
+# --- Instalar dos veces deja UNA sola tarea: la skill se corre de nuevo para rotar credenciales, y el
+# Programador rechaza un /Create sobre una tarea que ya existe si no se lo fuerza ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r1 = Verbo install $sch $state
+$r2 = Verbo install $sch $state
+Assert ($r1.exit -eq 0 -and $r2.exit -eq 0) "install x2: las dos salen en 0 (fueron $($r1.exit) y $($r2.exit); $($r2.out))"
+Assert ($r2.json -and $r2.json.instalada -eq $true) "install x2: la segunda también deja la tarea instalada ($($r2.out))"
+Assert (@(Get-ChildItem -LiteralPath (Join-Path $sch "tasks")).Count -eq 1) `
+  "install x2: queda una sola tarea ($((Get-ChildItem -LiteralPath (Join-Path $sch 'tasks')).Name -join ', '))"
+
+# --- uninstall saca la tarea del Programador; desinstalar lo que no está no es una falla (el dev que
+# reinstala la máquina, o que corre el verbo dos veces, no tiene por qué ver un error) ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+Verbo install $sch $state | Out-Null
+$r = Verbo uninstall $sch $state
+Assert ($r.exit -eq 0) "uninstall: exit 0 (fue $($r.exit); $($r.out))"
+Assert ($r.json -and $r.json.instalada -eq $false) "uninstall: el resumen dice que ya no está instalada ($($r.out))"
+Assert ((Get-TareaXml $sch) -eq "") "uninstall: la tarea ya no está en el Programador"
+$r2 = Verbo uninstall $sch $state
+Assert ($r2.exit -eq 0) "uninstall x2: desinstalar lo que no está no es una falla (fue $($r2.exit); $($r2.out))"
+Assert ($r2.json -and $r2.json.instalada -eq $false) "uninstall x2: el resumen lo dice igual ($($r2.out))"
+
+# --- status informa si la tarea está instalada, preguntándoselo al Programador y no a un archivo propio:
+# el dev la puede borrar desde el Programador sin pasar por acá ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo status $sch $state
+Assert ($r.exit -eq 0) "status sin tarea: exit 0 (fue $($r.exit); $($r.out))"
+Assert ($r.json -and $r.json.instalada -eq $false) "status sin tarea: dice que no está instalada ($($r.out))"
+Verbo install $sch $state | Out-Null
+$r = Verbo status $sch $state
+Assert ($r.json -and $r.json.instalada -eq $true) "status con tarea: dice que está instalada ($($r.out))"
+
+# --- status informa la ÚLTIMA corrida, con una línea por repo: es lo que contesta "¿está andando?".
+# La corrida vieja, con su falla, no tiene que ensuciar la foto de la última ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+[IO.File]::WriteAllText((Join-Path $state "hub-sync.log"), @"
+2026-09-21T18:00:00Z`tmartin`tForecasting App`tfalló: la ruta no existe
+2026-09-22T18:00:00Z`tmartin`tC:\Repos\Forecasting App`tok (1 lotes)
+2026-09-22T18:00:00Z`tmartin`totro-repo`tsin cambios
+"@)
+$r = Verbo status $sch $state
+Assert ($r.exit -eq 0) "status con log: exit 0 (fue $($r.exit); $($r.out))"
+# Sobre el texto del JSON: `ConvertFrom-Json` coacciona el ISO a un DateTime en la zona local, así que
+# comparar el objeto compararía otra cosa que la que el consumidor lee.
+Assert ($r.out -match '"ultimaCorrida":"2026-09-22T18:00:00Z"') "status con log: informa el momento de la última corrida ($($r.out))"
+Assert (@($r.json.repos).Count -eq 2) "status con log: sólo las líneas de esa corrida ($($r.out))"
+Assert ((@($r.json.repos) | Where-Object { $_.repo -eq "otro-repo" }).resultado -eq "sin cambios") `
+  "status con log: cada repo con su resultado ($($r.out))"
+Assert ($r.json.conFallas -eq $false) "status con log: la falla de la corrida vieja no cuenta ($($r.out))"
+
+# --- Una falla en la última corrida sí se informa: es el caso que el dev tiene que ver ---
+$state2 = New-TestWorkspace $script:runRoot "hubtarea-state"
+[IO.File]::WriteAllText((Join-Path $state2 "hub-sync.log"),
+  "2026-09-22T18:00:00Z`tmartin`t*`tfalló: no se pudo leer hub-sync/repos.json de southpointtech/project-management: HTTP 404`n")
+$r = Verbo status $sch $state2
+Assert ($r.json.conFallas -eq $true) "status con falla: la última corrida falló ($($r.out))"
+
+# --- Sin log todavía (recién instalada), status no falla: dice que nunca corrió ---
+$state3 = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo status $sch $state3
+Assert ($r.exit -eq 0) "status sin log: exit 0 (fue $($r.exit); $($r.out))"
+Assert ($null -eq $r.json.ultimaCorrida) "status sin log: no inventa una última corrida ($($r.out))"
+
+# --- Un Programador que rechaza la instalación no puede salir en verde: la PC quedaría sin recolectar
+# y nadie se enteraría hasta que el PM note que faltan propuestas ---
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo install (New-FakeSchtasks -FallaEn Create) $state
+Assert ($r.exit -eq 1) "install rechazado: exit 1 (fue $($r.exit); $($r.out))"
+Assert ((Get-Log $state) -match "(?m)\tmartin\t\*\tfalló: .*Access is denied") `
+  "install rechazado: el log dice por qué ('$(Get-Log $state)')"
+
+# --- Y un Programador que no se puede ejecutar tampoco: mismo criterio que con gh en la corrida ---
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo install (New-TestWorkspace $script:runRoot "hubtarea-sinsch") $state
+Assert ($r.exit -eq 1) "install sin schtasks: exit 1 (fue $($r.exit); $($r.out))"
+Assert ((Get-Log $state) -match "(?m)\tmartin\t\*\tfalló: no se pudo ejecutar .*schtasks\.cmd") `
+  "install sin schtasks: el log lo dice ('$(Get-Log $state)')"
+
+# --- uninstall se cree por EVIDENCIA, no por el exit del /Delete: si la tarea sigue ahí, falló. Es la
+# diferencia con "desinstalar lo que no está", donde el /Delete también devuelve error ---
+$sch = New-FakeSchtasks -FallaEn Delete
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+Verbo install $sch $state | Out-Null
+$r = Verbo uninstall $sch $state
+Assert ($r.exit -eq 1) "uninstall que no pudo: exit 1 (fue $($r.exit); $($r.out))"
+Assert ((Get-TareaXml $sch) -ne "") "uninstall que no pudo: la tarea sigue instalada (el fixture es válido)"
+Assert ((Get-Log $state) -match "(?m)\tmartin\t\*\tfalló: la tarea hub-sync sigue instalada") `
+  "uninstall que no pudo: el log lo dice ('$(Get-Log $state)')"
+
+# --- Un valor con `&` (un repo en `C:\Repos\R&D`) no puede romper el XML: el Programador lo rechazaría
+# entero con un mensaje que no nombra el ampersand. El `&` entra por `-Dev` y no por el `-StateDir`, que
+# es el portador natural, porque el fixture es un `.cmd`: cmd.exe parte el argumento en el `&` antes de
+# que el script lo vea. El `schtasks.exe` real es un exe y lo recibe entero, así que el límite es del
+# fixture, no del producto. ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$r = Verbo install $sch $state 'R&D'
+Assert ($r.exit -eq 0) "ruta con &: exit 0 (fue $($r.exit); $($r.out))"
+$xmlCrudo = Get-TareaXml $sch
+$doc = try { [xml]$xmlCrudo } catch { $null }
+Assert ($null -ne $doc -and $null -ne $doc.Task) "ruta con &: el XML sigue siendo XML válido ($xmlCrudo)"
+Assert ($doc -and $doc.Task.Actions.Exec.Arguments -match [regex]::Escape('-Dev "R&D"')) `
+  "ruta con &: el valor llega entero al Programador ($($doc.Task.Actions.Exec.Arguments))"
+
+# --- En una PC donde PowerShell NO vino de la Store, el alias de WindowsApps no existe: apuntar la tarea
+# ahí la dejaría fallando con 0x80070002 todos los días, sin escribir una línea de log ---
+$sch = New-FakeSchtasks
+$state = New-TestWorkspace $script:runRoot "hubtarea-state"
+$localAppDataReal = $env:LOCALAPPDATA
+try {
+  $env:LOCALAPPDATA = New-TestWorkspace $script:runRoot "hubtarea-sinalias"
+  $r = Verbo install $sch $state
+} finally { $env:LOCALAPPDATA = $localAppDataReal }
+Assert ($r.exit -eq 0) "sin alias de la Store: exit 0 (fue $($r.exit); $($r.out))"
+$cmdTarea = ([xml](Get-TareaXml $sch)).Task.Actions.Exec.Command
+Assert ($cmdTarea -and (Test-Path -LiteralPath $cmdTarea -PathType Leaf)) `
+  "sin alias de la Store: el ejecutable de la tarea existe de verdad ('$cmdTarea')"
+Assert ($cmdTarea -match 'pwsh\.exe$') "sin alias de la Store: sigue siendo pwsh ('$cmdTarea')"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

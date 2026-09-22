@@ -63,6 +63,19 @@ pwsh -NoProfile -File "$skill\scripts\install-clients.ps1"
 
 Clona el cliente DOMO —el repo oficial `DomoApps/domo-mcp-server`, que **no es un paquete pip**— a `~/.claude/domo-mcp-server`, instala sus dependencias (`pip install -r requirements.txt`) y **setea `DOMO_MCP_HOME`** apuntando ahí; además instala los browsers de Playwright (chromium). Devuelve un resumen con `installed`, `skipped`, `prereqsMissing` y `domoHome`. **No abortes** si reporta prereqs faltantes (Git/Python/Node): seguí y listalos en el reporte como pasos guiados.
 
-## Step 5 — Reporte
+## Step 5 — Instalar la tarea diaria de hub-sync
 
-Reportá: qué env vars quedaron seteadas (solo nombres) —incluida `DOMO_MCP_HOME`, que `install-clients` deja apuntando al clone de DOMO—, qué clientes se instalaron, qué prerequisitos faltan (con la instrucción exacta para resolverlos), y el recordatorio de **reiniciar Claude Code** para que tome las env vars nuevas. Cerrá con: "Máquina lista para Southpoint — ya podés usar `bootstrap-southpoint-project` en cualquier proyecto."
+```powershell
+$skill = "<base directory of this skill>"
+pwsh -NoProfile -File "$skill\scripts\hub-sync-tarea.ps1" -Action install
+```
+
+Registra la Scheduled Task `hub-sync`: todos los días a las 18:00 —y al prender la PC, si a esa hora estaba apagada— recorre los repos que el PM cargó para este dev en `hub-sync/repos.json` de PROJECT MANAGEMENT y manda los slices cerrados a la bandeja. Devuelve un JSON con `instalada`, `ejecutable` y `argumentos`; si el Programador la rechaza, sale con código != 0 y el motivo queda en `%LOCALAPPDATA%\hub-sync\hub-sync.log`. Instalarla dos veces deja una sola tarea, así que re-correr la skill es seguro.
+
+La tarea **necesita `gh` logueado con la cuenta `southpointtech`** (`gh auth login`) para leer esa lista: sin token no recolecta y lo dice en el log. Si el dev todavía no está en la lista, la tarea igual queda instalada y cada corrida anota `sin repos en la lista`.
+
+Los otros verbos, para el reporte y para diagnosticar: `-Action status` (si está instalada + cómo fue la última corrida, por repo), `-Action uninstall` (la saca) y `-Action correr` (la corre a mano, sin esperar las 18:00).
+
+## Step 6 — Reporte
+
+Reportá: qué env vars quedaron seteadas (solo nombres) —incluida `DOMO_MCP_HOME`, que `install-clients` deja apuntando al clone de DOMO—, qué clientes se instalaron, qué prerequisitos faltan (con la instrucción exacta para resolverlos), si la tarea `hub-sync` quedó instalada (y, si falta la cuenta `southpointtech` en `gh`, que hasta arreglarlo no va a recolectar), y el recordatorio de **reiniciar Claude Code** para que tome las env vars nuevas. Cerrá con: "Máquina lista para Southpoint — ya podés usar `bootstrap-southpoint-project` en cualquier proyecto."
