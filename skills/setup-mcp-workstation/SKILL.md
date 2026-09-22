@@ -21,7 +21,7 @@ $alreadyVar = [bool][Environment]::GetEnvironmentVariable("DOMO_SOUTHPOINT_TOKEN
 
 El **archivo de config es la señal canónica** (la env var de DOMO puede estar de un setup viejo a mano y no significa que esta skill haya corrido). Si el archivo **existe**: avisá que ya está configurada y ofrecé **re-aplicar** (útil para rotar un token) o salir; si re-aplica, saltá a Step 2 usando el archivo existente. Si el archivo **no existe** (aunque alguna env var ya esté seteada): tratá la máquina como no configurada y seguí con el setup completo desde Step 1.
 
-**Si el pedido es sobre la tarea de hub-sync** —instalarla, repararla, o entender por qué no está recolectando— no re-configures la máquina: saltá derecho al **Step 5**, corré primero `-Action status` y actuá según lo que informe (no instalada → `-Action install`; instalada pero con fallas → el motivo está en el log que `status` devuelve). Re-aplicar desde el Step 2 vuelve a pedir credenciales y a reinstalar clientes para nada.
+**Si el pedido es sobre la tarea de hub-sync** —instalarla, repararla, o entender por qué no está recolectando— y **el archivo de config YA existe**, no re-configures la máquina: saltá derecho al **Step 5**, corré primero `-Action status` y actuá según lo que informe (no instalada → `-Action install`; instalada pero con fallas → el motivo está en el log que `status` devuelve). Re-aplicar desde el Step 2 vuelve a pedir credenciales y a reinstalar clientes para nada. Si el archivo **no existe**, la máquina no está onboardeada: hacé el setup completo desde el Step 1 —la tarea sola no sirve de nada sin el resto— y avisá que el pedido de hub-sync se resuelve al final, en el Step 5.
 
 ## Step 1 — Pedir las credenciales
 
