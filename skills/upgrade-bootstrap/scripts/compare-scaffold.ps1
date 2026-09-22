@@ -7,7 +7,9 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-function Get-Hash($path) { if (Test-Path $path) { (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() } else { $null } }
+. (Join-Path $PSScriptRoot "normalized-hash.ps1")
+# Get-Hashes and Test-Sealed (the manifest matching rule, legacy raw bases included) live in
+# normalized-hash.ps1, next to this script.
 
 $canonManifestPath = Join-Path $CanonicalScaffold ".bootstrap-manifest.json"
 if (-not (Test-Path $canonManifestPath)) { throw "Canonical scaffold has no manifest: $canonManifestPath" }
@@ -23,12 +25,12 @@ if ($hasProjManifest) {
 $missing = @(); $outdated = @(); $customized = @(); $uptodate = @()
 foreach ($p in $canon.files.PSObject.Properties) {
     $rel = $p.Name; $canonHash = $p.Value
-    $actual = Get-Hash (Join-Path $ProjectDir $rel)
-    if ($null -eq $actual)        { $missing += $rel; continue }
-    if ($actual -eq $canonHash)   { $uptodate += $rel; continue }
+    $actual = Get-Hashes (Join-Path $ProjectDir $rel)
+    if ($null -eq $actual)                 { $missing += $rel; continue }
+    if (Test-Sealed $actual $canonHash)    { $uptodate += $rel; continue }
     if ($hasProjManifest -and $projBase.ContainsKey($rel)) {
         $base = $projBase[$rel]
-        if ($actual -eq $base) { $outdated += $rel }                                   # untouched; canonical moved forward
+        if (Test-Sealed $actual $base) { $outdated += $rel }                           # untouched; canonical moved forward
         else { $customized += [ordered]@{ file = $rel; threeWay = ($canonHash -ne $base) } }  # touched
     } else {
         $customized += [ordered]@{ file = $rel; threeWay = $true }                      # no base: differs, user decides

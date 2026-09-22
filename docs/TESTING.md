@@ -176,8 +176,8 @@ conjunto cerrado de formas y rechaza todo lo demás.
    una grafía que nadie escribe es el lado correcto del error.
 
 3. `. (Join-Path $PSScriptRoot "..\tools\<nombre>.ps1")` — **no** importa el helper: carga una
-   herramienta de `tools/` (hoy `normalized-hash.tests` y `skills-lock.tests`, las dos
-   `tools/normalized-hash.ps1`; `skills-lock.ps1` se corre como subproceso). Mismo molde que la
+   herramienta de `tools/` (hoy `normalized-hash.tests`, `skills-lock.tests` y
+   `manifest-hash-normalizado.tests`, las tres `tools/normalized-hash.ps1`; `skills-lock.ps1` se corre como subproceso). Mismo molde que la
    forma 1, con el relativo anclado: un solo `..`, directo en `tools`. Sólo se admite **después** del
    import del helper, y se rechaza si la herramienta no existe o redefine una función del helper
    (`Get-RedefinicionesEnTools`).
@@ -753,9 +753,9 @@ Lo que hay que saber antes de editarla, porque tres turnos de review lo midieron
 ## Testeo del hashing normalizado (`tools/normalized-hash.ps1`)
 
 `pwsh -NoProfile -File tests/normalized-hash.tests.ps1` — cubre el módulo M1 del release
-`bootstrap-v2`: la **forma canónica** de hashear contenido del repo, que los cálculos crudos hoy
-replicados en `gen-manifest`, `compare-scaffold` y `reseal-manifest` —más las dos variantes
-normalizadas de `NormHash`— todavía **no** usan (migrarlos es un slice aparte, issue 03). Existe porque el hash con el que se sellan los manifests se calculaba sobre los bytes crudos, o
+`bootstrap-v2`: la **forma canónica** de hashear contenido del repo. La usan `gen-manifest`,
+`compare-scaffold` y `reseal-manifest` (issue 03b); las dos variantes normalizadas de `NormHash` de
+los tests siguen con su propio cálculo. Existe porque el hash con el que se sellan los manifests se calculaba sobre los bytes crudos, o
 sea sobre cómo el checkout de cada máquina escribió los fines de línea, y un manifest sellado en una
 máquina reportaba drift falso en otra (memoria `bug-autocrlf-manifests-hashes-mixtos`). El contrato:
 **sha256 hex minúscula de los BYTES del contenido con las secuencias de fin de línea (CRLF y CR)
@@ -799,6 +799,34 @@ evalúa los argumentos antes de entrar a la función—, no `$ExpectedChecks + 1
 afirmando un número equivocado. El BOM se genera anteponiendo sus tres bytes a mano: `GetBytes`
 nunca emite el preámbulo, así que "generar con BOM" vía el flag del constructor daría los mismos
 bytes que sin BOM y el caso no probaría nada.
+
+## Testeo de los manifests con hash normalizado (`tests/manifest-hash-normalizado.tests.ps1`)
+
+`pwsh -NoProfile -File tests/manifest-hash-normalizado.tests.ps1` — cubre el issue 03b: los tres
+consumidores del manifest (`tools/gen-manifest.ps1`, y `compare-scaffold.ps1` y
+`reseal-manifest.ps1` de `upgrade-bootstrap`) hashean con `Get-NormalizedHash`. La skill deployada
+no ve `tools/`, así que lleva una copia de la función en
+`skills/upgrade-bootstrap/scripts/normalized-hash.ps1`; el primer assert verifica que sea la misma
+(comparada normalizada, porque cada checkout puede escribir las dos copias con otro fin de línea).
+
+Los fixtures se escriben con `WriteAllBytes`, porque `Set-Content` reescribiría el fin de línea que
+se está midiendo, y el hash se fija contra literales congelados (`hashlib.sha256`). Casos: el mismo
+contenido en LF y CRLF sella el mismo hash y la misma `version`; `compare` con un manifest nuevo
+(canónico en CRLF → `uptodate`, intacto en CRLF → `outdated`, tocado → `customized`, ausente →
+`missing`); `compare` con un manifest **legacy** sellado con el hash crudo de archivos CRLF (intacto →
+`outdated`, también si ahora está en LF; tocado → `customized`); `reseal` sobre el legacy (lo igual
+al canónico sella el canónico aunque su base vieja no coincida, la base cruda de un archivo intacto
+se convierte a normalizada, la de uno tocado se conserva, y uno sin base se siembra normalizado), y
+una ida y vuelta. La regla de transición que fijan los casos legacy: un hash sellado coincide si es
+el normalizado, el crudo, o el del contenido con todos los fines de línea en CRLF (`Test-Sealed`, que
+vive en `normalized-hash.ps1` junto a `Get-Hashes` y `Get-CrlfHash`, así que la verifica la misma
+prueba de identidad de copias). El crudo solo decide en un archivo con fines de línea mezclados
+(`h.md`): en uno todo LF coincide con el normalizado y en uno todo CRLF con el CRLF. Mutantes que
+mueren, sobre el código actual y mutando las dos copias de `normalized-hash.ps1` igual: sacar de
+`Test-Sealed` la coincidencia cruda (2 FAIL), la CRLF (2) o la normalizada (5); en `reseal`, sembrar
+con el hash crudo (1), no convertir la base (3) y saltear la rama canónica (1). **Sobrevive** uno:
+`Get-CrlfHash` sin pasar primero CRLF y CR sueltos a LF, porque ningún fixture le da una entrada que no
+sea todo LF.
 
 ## Testeo de setup-mcp-workstation
 

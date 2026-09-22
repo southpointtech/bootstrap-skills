@@ -17,8 +17,12 @@ your project's `CLAUDE.md` may now contradict the skills it receives: check it a
 5. In **each** bootstrapped project, say *"update the bootstrap"* (`upgrade-bootstrap`), then do the
    `CLAUDE.md` check below.
 
-Manifests are now hashed with normalized line endings, so the v1.0.0 caveat about `core.autocrlf`
-reporting untouched files as customized no longer applies.
+Manifests are now hashed with normalized line endings (CRLF and LF hash the same), and the upgrade
+re-seals your project's manifest that way. Your project's manifest still holds the old raw hashes
+until this upgrade re-seals it; they are still recognized, including for a file that was sealed as
+CRLF and is LF now (or the reverse). One case is not: a file sealed with **mixed** line endings
+(some lines CRLF, some LF) whose line endings changed since can show up as customized, and keeps
+doing so on later upgrades until you take the canonical version.
 
 ### Doctrine change 1 — TDD is `red → green`
 
