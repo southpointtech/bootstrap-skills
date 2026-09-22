@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-21+2ebfa74",
+  "version": "2026-09-22+2ebfa74",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
