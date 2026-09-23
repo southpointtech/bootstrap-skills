@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 7
+$ExpectedChecks = 19
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -55,6 +55,34 @@ $r = Measure-ContextLoad -Files @(
 )
 Assert ($r.ClaudeMd -eq 6) "CLAUDE.md: a LF b LF c 😀 = 6 code points; el BOM no cuenta y docs/CLAUDE.md no carga (dio $($r.ClaudeMd))"
 Assert ($r.Total -eq 8) "total = CLAUDE.md + comandos = 6 + 2 (dio $($r.Total))"
+
+# --- Agents: suman todos (no hay flag de invocación para un agent); descriptions en code points -----
+# Un comando en subdirectorio también carga (Claude Code lo lista con namespace).
+$r = Measure-ContextLoad -Files @(
+  (F ".claude/agents/r1.md" "---`nname: r1`ndescription: Revisa 😀`ntools: Read`n---`n`nprompt largo")
+  (F ".claude/agents/r2.md" "---`nname: r2`ndescription: ab`n---`n")
+  (F ".claude/commands/sub/x.md" "---`ndescription: x😀`n---`n")
+  (F ".agents/skills/s/SKILL.md" "---`nname: s`ndescription: Claude Code no lee .agents/skills`n---`n")
+)
+Assert ($r.Agents -eq 10) "agents: 'Revisa 😀' (8) + 'ab' (2) = 10 code points; tools y el prompt no suman (dio $($r.Agents))"
+Assert ($r.AgentsLoaded -eq 2) "agents que cargan: 2 (dio $($r.AgentsLoaded))"
+Assert ($r.Commands -eq 2) "comando anidado 'x😀' = 2 code points (dio $($r.Commands))"
+Assert ($r.Total -eq 12) "total = 0 + 2 + 10; .agents/skills no suma (dio $($r.Total))"
+
+# --- Lo que la métrica no sabe medir tira, en vez de dar un número equivocado en silencio --------
+function Tira($files, $patron, $msg) {
+  $err = $null
+  try { Measure-ContextLoad -Files $files | Out-Null } catch { $err = $_.Exception.Message }
+  Assert ($err -and $err -like "*$patron*") "$msg (error: $err)"
+}
+Tira @((F ".claude/commands/q.md" "---`ndescription: `"entre comillas`"`n---`n")) "q.md" "description entre comillas dobles tira nombrando el archivo"
+Tira @((F ".claude/commands/q.md" "---`ndescription: 'simples'`n---`n")) "q.md" "description entre comillas simples tira"
+Tira @((F ".claude/agents/m.md" "---`ndescription: >`n  multilínea`n---`n")) "m.md" "description en bloque (>) tira"
+Tira @((F ".claude/agents/m.md" "---`ndescription: |`n  multilínea`n---`n")) "m.md" "description en bloque (|) tira"
+Tira @((F ".claude/commands/n.md" "---`nname: n`n---`n`ncuerpo")) "n.md" "comando sin description tira (Claude Code usaría el cuerpo)"
+Tira @((F ".claude/commands/f.md" "sin frontmatter")) "f.md" "comando sin frontmatter tira"
+Tira @((F ".claude/commands/t.md" "---`ndescription: sin cierre`n")) "t.md" "frontmatter sin cierre tira"
+Tira @((F ".claude/skills/s/SKILL.md" "---`ndescription: x`n---`n")) ".claude/skills" "un .claude/skills/ tira: la métrica todavía no lo suma"
 
 Write-Host ""
 if ($script:checks -ne $ExpectedChecks) {
