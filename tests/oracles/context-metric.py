@@ -43,7 +43,7 @@ def field(fm, key):
     need(value and value[0] not in "\"'>|", f"{key} no plana")
     need(not re.search(r"(^|\s)#", value), f"{key} con comentario")
     following = [l for l in fm[hits[0] + 1:] if l.strip()]
-    need(not (following and following[0].strip().startswith("#")), f"{key} con comentario en la línea siguiente")
+    need(not (following and re.match(r"\s+#", following[0])), f"{key} con comentario en la línea siguiente")
     need(not (following and following[0][:1].isspace()), f"{key} que sigue en otra línea")
     return value
 

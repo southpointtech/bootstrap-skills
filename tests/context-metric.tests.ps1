@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 59
+$ExpectedChecks = 60
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -113,13 +113,20 @@ Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndisable-model-invocati
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndescription: otra`n---`n")) "w.md" "repetida" "description repetida tira"
 # Una línea indentada que es un comentario no es una continuación: el motivo tiene que decir comentario.
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`n  # nota`n---`n")) "w.md" "comentario" "un comentario indentado bajo la description tira como comentario, no como continuación"
-# Cualquier blanco antes del `#` abre un comentario, no solo el espacio: el oráculo tiene que igualarlo.
-Tira @((F ".claude/commands/w.md" "---`ndescription: abc$([char]0xA0)#x`n---`n")) "w.md" "comentario" "un NBSP antes del # también abre un comentario"
+# En YAML solo el espacio y el tab abren un comentario; `abc<NBSP>#x` es un valor plano. La métrica
+# tira igual ante cualquier blanco antes del `#`: tirar de más no da un número falso, medir un
+# comentario sí. El oráculo tiene que igualarlo.
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc$([char]0xA0)#x`n---`n")) "w.md" "comentario" "un NBSP antes del # también tira, aunque YAML no lo lea como comentario"
 
 # --- Lo que se mide aunque se parezca a lo que tira ------------------------------------------------
 # Un `#` pegado a una palabra no es un comentario en YAML: `C#` es parte del valor.
 $r = Measure-ContextLoad -Files @((F ".claude/commands/c.md" "---`ndescription: C# y abc#def`n---`n"))
 Assert ($r.Commands -eq 12) "un # pegado a una palabra se mide: 'C# y abc#def' = 12 (dio $($r.Commands))"
+# Un comentario en columna 0 bajo la description no la continúa (la continuación va indentada), y
+# YAML lo descarta: se mide el valor de arriba. El oráculo tiene que medirlo igual, no rechazarlo.
+$err = $null
+try { $r = Measure-ContextLoad -Files @((F ".claude/commands/c.md" "---`ndescription: abc`n# nota`n---`n")) } catch { $err = $_.Exception.Message }
+Assert (-not $err -and $r.Commands -eq 3) "un comentario en columna 0 bajo la description se mide: 'abc' = 3 (dio $($r.Commands), error: $err)"
 # El BOM no cuenta tampoco en un comando. Hoy pasa porque el `-ne '---'` de Get-FrontmatterField
 # compara con la cultura, que ignora U+FEFF; una comparación ordinal lo haría tirar con 'no arranca'.
 $err = $null

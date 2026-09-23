@@ -61,7 +61,7 @@ function Get-FrontmatterField([string]$Path, [string]$Text, [string]$Key) {
       throw "${Path}: '${Key}' no es un valor plano de una línea, y la métrica no mide esa forma"
     }
     # Ya recortado: un valor que es solo un comentario arranca con `#` (YAML lo lee vacío).
-    if ($v -match '(^|\s)#') { throw "${Path}: '${Key}' tiene un comentario al final (YAML lo descarta)" }
+    if ($v -match '(^|\s)#') { throw "${Path}: '${Key}' tiene un comentario al final, o un # después de otro blanco, y la métrica no mide esa forma" }
     # Un valor plano sigue en las líneas indentadas de abajo (YAML las pliega); las vacías no cortan.
     $j = $i + 1
     while ($j -lt $end -and $lines[$j].Trim() -eq '') { $j++ }
