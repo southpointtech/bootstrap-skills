@@ -1,3 +1,106 @@
+# Session Handoff — 2026-09-23 (noche tarde) — **Columna 0 cerrada** (`eda1587`) + **juguete del A/B (issue 03) commiteado pero SIN cerrar**: el review-loop no convergió en 2 turnos y está frenado esperando una decisión del usuario.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`2ddff31`** + el commit de este handoff.
+  `origin/main` = `685e592`; **24 commits sin pushear** (antes de este handoff). Push =
+  `gh auth switch -u southpointtech && git push` y volver a MartinDele703 (memoria). No pushear sin
+  que el usuario lo pida.
+- Marcador del review-loop en `2ddff31` (avanzado tras el turno 2). **`slice-open:main` sigue puesto
+  a propósito** (ancla en `eda1587`): el loop del juguete se frenó por decisión pendiente, no cerró;
+  NO correr `-Action close` hasta que el slice cierre de verdad.
+- Issue `.scratch/medicion-v2/issues/03-juguete-cli-inventario.md` sigue en `Status: ready-for-agent`:
+  NO se marcó `done` porque su criterio "assertions objetivas" no se cumple (ver §3).
+- Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajenos, no tocar.
+  Son la causa de los 2 rojos de `run-all`.
+
+## 1. Qué se hizo en esta sesión
+
+**Slice columna 0 + NBSP** (`eda1587`, light, cierre limpio, 1 turno Bugs+Tests sin Medium/High).
+- `tests/oracles/context-metric.py:46`: comentario en la línea siguiente solo si va indentado
+  (`re.match(r"\s+#")`), igual que la métrica.
+- `tests/context-metric.tests.ps1`: Assert de columna 0 (59 → 60 checks); comentario del NBSP corregido.
+- `tools/context-metric.ps1:64`: el mensaje ya no dice "(YAML lo descarta)".
+- Lows sin arreglar (reportados): nada commiteado custodia el oráculo; `# nota` en col 0 seguido de
+  línea indentada se mide 3 en ambos (YAML real lo rechaza); mutante `'\s+#'` sin anclar sobrevive;
+  U+001C–U+001F difieren Python/.NET.
+
+**Issue 03 — juguete del A/B** (`039191d` + `2ddff31`), en `medicion/v2/juguete-inventario/`:
+- `enunciado.md` (pedido al agente: CLI `inv`, 6 comandos, "stock bajo" sin definir, **sin** regla
+  para filas inválidas: solo el ejemplo `stock TOR-001` → 120), `datos/*.csv` (fila `-15` de TOR-001
+  en la línea 12; salida de CLA-004 el 2026-08-01 que deja empate 80/80 con TOR-001),
+  `cliente/respuestas.md` (secciones A=bajo, C=fila -15, B=siempre), `evals/evals.json`
+  (`definiciones`, `ruteo` A/C como regex, prompt, 16 expectations E01-E16, `metricas_no_puntuadas`,
+  `esperado` generado), `oraculo.py` (`--verificar`, `--discriminar`, arg desconocido → exit 2),
+  `README.md` (para el que mide).
+- **Decisiones del usuario (no re-discutir)**: cliente simulado vía `PREGUNTAS.md`; evidencia de RED
+  por git o transcript; commiteado en el repo (no `.scratch`); fricción 3 = sacar la regla del
+  enunciado (el cliente la contesta si preguntan); E14 = al menos 4 rangos de `Slice-Close:`.
+- Decisiones técnicas mías: Python + pytest; slices productos/stock/alta/exportar (ola 1) y
+  rotacion/alertas (ola 2).
+
+## 2. Tests
+
+- `tests/context-metric.tests.ps1` → 60 checks, 0 fail.
+- `run-all` completo (745 s, con el árbol limpio tras `eda1587`): **41/43 verdes**; rojos
+  `skills-lock` y `chicas-y-forks-propios`, ambos por los untracked de Codex.
+- `export-shareable`, `shareable-leaks`, `frontmatter-yaml` verdes con `medicion/` agregado.
+- Juguete: `python oraculo.py --verificar` y `--discriminar` dan ok (correr con
+  `PYTHONIOENCODING=utf-8` desde `medicion/v2/juguete-inventario/`). `--discriminar` sale 1 en
+  copias de los datos con punto de reorden de TUE-002 en 41, sin la fila -15, o sin la salida de
+  CLA-004 del 08-01 (probado a mano, script no commiteado).
+
+## 3. Abierto — por qué el issue 03 está frenado
+
+Review-loop del juguete: turno 1 (light, Bugs+Tests) → 11 Medium puntuados con scorer (ninguno
+High); los arreglé en `2ddff31` y lo promoví a `standard`. **Turno 2 (5 focos, tope) trajo ~9
+Medium nuevos, todos en el texto de los fixes**, sin puntuar (a tope nada se arregla dentro del loop):
+1. E09 rechaza la lectura coherente con valor absoluto (par [70,85]); y con la sección C diciendo
+   "ni para stock ni para rotación", dos lectores separados también pasan: E09 no mide modelo compartido.
+2. `ruteo.A` dispara con "alertas" (nombre del comando) y "baja" ("dar de baja"); `ruteo.C` con
+   "negativ", `TOR-001`, `120` ("¿el stock puede quedar negativo?" entrega la regla de la fila).
+3. E12 pasa con un stub que devuelve 0 (falla `0 != 120`); tendría que exigir 135 o 105 en la falla.
+4. E10 falla una corrida correcta si un mismo commit arregla el modelo compartido (los dos
+   "implementa" caen en el mismo commit y no hay ancestro estricto).
+5. Arreglar el dato (borrar la fila en su `movimientos.csv`) en vez del código se califica mal: se
+   corre sobre `datos/` originales y la sección B dice "decidí vos".
+6. E04 ahora exige `exportar` (acopla alta a exportar/productos, contradice "no dependen
+   funcionalmente" del README) y compara un objeto JSON como texto exacto.
+7. "transcript" en singular: en `v2-olas` y con subagentes los pytest corren en otros JSONL.
+8. E13 no se puede calificar desde la salida de `pytest -q`; y la regex de "test que invoca X"
+   matchea `productos.csv`.
+9. E16: el scaffold (`PARALELISMO.md:210`) borra los worktrees de carril antes de que el harness mire.
+10. Low: el issue 04 no lista los deberes nuevos del harness (bitácora, todos los transcripts,
+    re-correr cada commit, `.scratch` de carriles, `\r\n`).
+
+Es el patrón de memoria "parchar prosa de procedimiento no converge": las expectations son prosa que
+describe cómo calificar, y cada fix abre ambigüedad nueva.
+
+## 4. Próximos pasos (en este orden)
+
+1. **Decisión del usuario (pendiente)**. Recomendación: congelar de 03 lo que se sostiene
+   (enunciado, datos, cliente, oráculo, `--discriminar`) y **mover la calificación al issue 04 como
+   código**: un `calificar.py` que implemente cada expectation, testeado contra repos de fixture
+   chicos (uno correcto y uno equivocado por expectation); los 10 puntos de §3 pasan a ser tests que
+   fallan. Alternativa: tercer turno de parches en prosa (la evidencia dice que no converge).
+2. Según la decisión: cerrar 03 (trailer `Slice-Close:` citando su ruta, correr `-Action close`
+   recién ahí) y reescribir el issue 04 con los deberes del harness.
+3. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- **Hablarle al usuario SIEMPRE en español**, incluidos los resúmenes de lo que devuelven los
+  subagentes (vienen en inglés: traducirlos). Lo pidió explícitamente.
+- El rigor `light` fue un error para el juguete: una definición de medición no es de bajo radio.
+  Usar `standard`.
+- Un `run-all` en background mientras se edita lee el árbol a medio cambiar: correrlo con el árbol
+  limpio y `chcp.com 65001` antes.
+- El `alignment-gate` salta en el primer Edit de la sesión: si el trabajo ya está alineado, decirlo y
+  reintentar.
+- Mensajes de commit: escribirlos a un archivo del scratchpad con heredoc `<<'EOF'` y `git commit -F`.
+
+---
+
 # Session Handoff — 2026-09-23 (tarde-noche) — **Medición 01 HECHA** (compromiso congelado en `0499a97`) + slice de limpieza de la métrica (`fb95fb9`). Próximo: **el Medium de columna 0 del oráculo** (una línea, slice light).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
