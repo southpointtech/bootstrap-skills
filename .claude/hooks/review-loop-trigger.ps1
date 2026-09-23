@@ -73,8 +73,11 @@ function Hide-Literals([string]$s, [bool]$psQuoting) {
     # comilla de apertura, la comilla suelta empareja con la SIGUIENTE, el resto del mensaje queda
     # expuesto, y un `-m "... git push ..."` prende $isPush y saltea la puerta del trailer entera.
     # Verificado con `git commit -m 'fix: it'\''s ready to git push now'`. En PowerShell el mismo rol
-    # lo cumple el backtick, y `\` NO puede tenerlo: consumiría el carácter que le sigue a cada
-    # separador de una ruta suelta.
+    # GRAMATICAL lo cumple el backtick, y `\` NO puede tenerlo: consumiría el carácter que le sigue a
+    # cada separador de una ruta suelta. Pero la CONSECUENCIA no es la misma en las dos gramáticas:
+    # el backtick sólo puede mover el enmascarado, nunca una de las tres banderas, porque un backtick
+    # en la línea ya fuerza el recomputo crudo de abajo. Su efecto se observa en el otro lector del
+    # enmascarado — la lectura de `--base` del paso 4 —, y es ahí donde lo fijan los tests.
     $esc = if ($psQuoting) { '`' } else { '\' }
     $i = 0
     while ($i -lt $s.Length) {

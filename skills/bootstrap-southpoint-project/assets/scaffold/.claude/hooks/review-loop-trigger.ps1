@@ -72,7 +72,11 @@ function Hide-Literals([string]$s, [bool]$psQuoting) {
     # quote, the loose quote pairs with the NEXT one, the remainder of the message is left exposed,
     # and a `-m "... git push ..."` lights up $isPush and skips the whole trailer gate. Verified
     # with `git commit -m 'fix: it'\''s ready to git push now'`. In PowerShell the backtick plays
-    # that role, and `\` cannot: it would swallow the character after every separator of a bare path.
+    # that GRAMMATICAL role, and `\` cannot: it would swallow the character after every separator of
+    # a bare path. The CONSEQUENCE is not the same in both grammars, though: the backtick can only
+    # move the masking, never one of the three flags, because a backtick in the line already forces
+    # the raw recompute below. Its effect shows up in the other reader of the masking — step 4's
+    # `--base` read — and that is where the tests pin it.
     $esc = if ($psQuoting) { '`' } else { '\' }
     $i = 0
     while ($i -lt $s.Length) {

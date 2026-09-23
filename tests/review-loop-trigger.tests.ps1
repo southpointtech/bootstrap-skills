@@ -663,7 +663,10 @@ function Fire-Tool($repo, $cmd, $toolName) {
 
 # El caso que este slice vino a arreglar: la herramienta primaria de esta maquina es PowerShell, y
 # con el matcher en `Bash` un cierre DECLARADO no disparaba nunca. Mutante: volver el matcher a
-# `Bash` deja este assert rojo (y el resto de la suite en verde).
+# `Bash` deja rojo este assert Y el del valor exacto (`-ceq "Bash|PowerShell"`, mas abajo), porque
+# los dos leen el mismo `settings.json`; revertirlo en UNA sola de las cuatro raices pone rojo
+# ademas el de unicidad. La version anterior de esta linea decia "y el resto de la suite en verde",
+# que es falso: el del valor exacto tambien cae.
 $t = New-Repo; Close-Slice $t "cierre commiteado con la herramienta PowerShell"
 $o = Fire-Tool $t "git commit -m cierre" "PowerShell"
 Assert ($o -match "additionalContext") "un cierre declarado desde la herramienta PowerShell despacha el hook y dispara"
@@ -721,7 +724,11 @@ foreach ($sp21 in $rootsSettings) {
 # su herramienta.
 #
 # Mutante que tiene que morir: volver la gramatica de PowerShell a la de bash (o ignorar `tool_name`)
-# deja rojo el primer assert de este bloque y verde el resto de la suite.
+# deja rojos CINCO asserts — los cuatro del bug y el del `\` delante de la comilla de apertura, todos
+# en este bloque — y verde el resto de la suite. El numero importa: "el primer assert" (como decia
+# antes esta linea) invita a podar los otros cuatro por redundantes, y el del `\` es la unica red de
+# la regla del escape de afuera. Medido corriendo la funcion real con `$psQuoting` clavado en $false;
+# los otros nueve asserts del bloque dan banderas identicas con y sin el mutante.
 
 # Los cuatro casos REPRODUCIDOS en el issue 24, todos con un segmento entre comillas DOBLES que
 # termina en `\` antes del token disparador. Los cuatro se perdian en silencio.
@@ -775,8 +782,17 @@ Assert ([string]::IsNullOrEmpty($o)) "PowerShell: un mensaje que menciona 'git p
 Remove-Item -Recurse -Force $t
 
 # En PowerShell la comilla se escapa DUPLICANDOLA, no con `\`: `""` adentro de comillas dobles y
-# `''` adentro de simples. Leidas como cierre, la comilla suelta empareja con la siguiente y el
-# `git push` del mensaje queda expuesto.
+# `''` adentro de simples. Estos dos casos son CONTENCION DE FALSOS POSITIVOS en la forma realista
+# de PowerShell: sin enmascarar nada, los dos prenden $isPush desde el texto del `-m` y saltean la
+# puerta del trailer.
+#
+# Lo que NO hacen —y el comentario anterior decia lo contrario— es fijar la rama de la comilla
+# duplicada. Medido: sacandola, el literal cierra en la primera comilla del par y la segunda abre
+# uno nuevo que se come `git push` igual, asi que las tres banderas quedan identicas y estos dos
+# asserts pasan en verde con la rama y sin ella. Su poder discriminante es el mismo que el del
+# assert de arriba (el mensaje que menciona `git push`): lo que agregan es la forma de PowerShell,
+# no una rama fijada. La rama cambia el ENMASCARADO, que estos asserts no observan; su unico lector
+# es la lectura de `--base` del paso 4, y para eso estan los dos `gh pr create` de mas abajo.
 $t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
 $o = Fire $t 'git commit -m "fix: comillas para detectar ""git push"""' $null 'PowerShell'
 Assert ([string]::IsNullOrEmpty($o)) "PowerShell: una comilla doble duplicada ("""") no expone el mensaje"
@@ -803,6 +819,39 @@ Remove-Item -Recurse -Force $t
 $t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
 $o = Fire $t 'git commit -m \"docs: explicar que el hook dispara en git push\"' $null 'PowerShell'
 Assert ([string]::IsNullOrEmpty($o)) "PowerShell: un \ delante de la comilla no se come la apertura del literal"
+Remove-Item -Recurse -Force $t
+
+# El OTRO lector del enmascarado: la lectura de `--base` del paso 4. Las tres banderas del paso 2
+# no pueden ver estas dos ramas —cualquier backtick en la linea entra al recomputo crudo, que ORea
+# las banderas del comando CRUDO—, asi que el unico canal por el que su efecto es observable es la
+# base que el hook resuelve y nombra en el mensaje inyectado. Sin estos dos casos, las dos ramas
+# sobreviven a su mutante con la suite entera en verde (medido).
+#
+# Los dos son `gh pr create`, que es el unico disparador que lee `--base`. El `--title` NO puede
+# contener la cadena `--base`: con la gramatica correcta no se enmascara nada, asi que el primer
+# match seria el del titulo y el hook bueno resolveria esa base — el assert saldria rojo contra el
+# codigo correcto. Por eso el titulo de abajo no la nombra (el fixture que SI la nombra, mas arriba,
+# corre en gramatica de bash, donde el titulo entrecomillado si se enmascara).
+#
+# `develop` no se crea a proposito: el hook toma el valor de `--base` tal cual, sin verificar que la
+# rama exista. Bajo el mutante la base cae al fallback y `New-Repo` inicializa en `master`, asi que
+# el assert distingue `develop` de `master`.
+
+# Backtick a nivel TOPE (fuera de literal): es la mitad POSITIVA de `$esc` — que en PowerShell el
+# escape de afuera ES el backtick. Mutante: anular solo esa mitad (`$esc = if ($psQuoting) { [char]0 }
+# else { '\' }`, bash intacto) deja este assert rojo y el resto de la suite verde. Sin el, esa mitad
+# no la fija nada: lo unico fijado era la mitad negativa (que `\` NO escapa), por el assert de arriba.
+$t = New-Repo
+$o = Fire $t 'gh pr create --title `"arreglo de comillas`" --base develop' $null 'PowerShell'
+Assert ($o -match "base 'develop'") "PowerShell: un backtick a nivel tope no se traga el --base que viene despues"
+Remove-Item -Recurse -Force $t
+
+# Backtick ADENTRO de comillas dobles, que es otra rama distinta (la del walker, no la de `$esc`).
+# Mutante: sacar esa rama deja el literal cerrando temprano en la comilla que sigue al backtick; la
+# comilla real de cierre abre uno nuevo que se come el resto de la linea, y `--base` desaparece.
+$t = New-Repo
+$o = Fire $t 'gh pr create --title "arreglo de `"comillas`" varias" --base develop' $null 'PowerShell'
+Assert ($o -match "base 'develop'") "PowerShell: un backtick adentro de comillas dobles no se traga el --base"
 Remove-Item -Recurse -Force $t
 
 # Regresion en el otro sentido: la herramienta Bash conserva la gramatica de bash. Estos dos casos
