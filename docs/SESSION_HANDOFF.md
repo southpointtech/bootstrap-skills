@@ -1,3 +1,97 @@
+# Session Handoff — 2026-09-23 (noche) — **Medición 02 HECHA** (`tools/context-metric.ps1`, issue `done`, loop cerró por TOPE). Próximo: **medición 01** (compromiso previo congelado).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`d21ce9b`** + el commit de este handoff.
+  `origin/main` = `685e592`. **Sin pushear**: `c6ed0a9` (handoff anterior) + los 6 del slice
+  (`e532deb`, `b37e3be`, `0372c35`, `459a1cd` ← `Slice-Close:`, `5e5ab39`, `d21ce9b`) + este handoff.
+  Push = `gh auth switch -u southpointtech && git push` y volver a MartinDele703 (memoria).
+- Tags `v2.0.0` y `v2.1.0` ya están en `origin`. `~/.claude/skills` sigue deployado desde `v2.1.0`
+  (este slice no toca el scaffold: no hace falta sync).
+- Marcador del review-loop en `5e5ab39` (avanzado tras el turno 2); **no se corrió `-Action close`**
+  (cierre por tope), así que `slice-open:main` sigue puesta en `685e592`. El próximo slice en `main`
+  hereda esa ancla para su pase de coherencia: si molesta, correr
+  `pwsh -NoProfile -File .claude/scripts/review-marker.ps1 -Action close` antes de abrirlo (decisión
+  consciente, no automática).
+- Worktrees vivos, sin cambios: v2 (`Bootstrap-Skills-bootstrap-v2`), 24
+  (`carriles/Bootstrap Skills/24-gramatica-por-herramienta`, guarda el **issue 28**), hub-sync.
+- Untracked de Codex en `main` (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no
+  tocar; siguen haciendo fallar `skills-lock.tests` y `chicas-y-forks-propios.tests`.
+
+## 1. Qué se hizo en esta sesión
+
+**Medición 02 — métrica de contexto como script con tests** (`.scratch/medicion-v2/issues/02-…`,
+ahora `Status: done` vía `marcar-done.ps1 -Sha 459a1cd`).
+
+Archivos nuevos:
+- `tools/context-metric.ps1` — `Measure-ContextLoad -Files <{Path,Content}[]>` (pura, dot-sourceada),
+  `Get-FrontmatterField`, `Select-ScaffoldPaths`, `$ContextMetricMethod` (el método, sale en el objeto
+  y en la salida) y CLI `pwsh -NoProfile -File tools/context-metric.ps1 -Ref <ref> [-Variant personal|southpoint|ai]`
+  que lee con `git show` (sin checkout, sin escribir, sin red).
+- `tests/context-metric.tests.ps1` — 54 asserts exactos (entra solo a `run-all` por el glob).
+- `tests/oracles/context-metric.py` — oráculo independiente (Python + `git show`), NO corre en la
+  suite; se corre a mano para regrabar literales: `python tests/oracles/context-metric.py <ref> [variante]`.
+
+Decisiones del usuario (esta sesión):
+- **Alcance de la métrica: todo por componente** = CLAUDE.md de la raíz (entero) + `description` de
+  `.claude/commands/**/*.md` sin `disable-model-invocation: true` + `description` de
+  `.claude/agents/**/*.md`; en **code points**, CRLF/CR = un salto, sin BOM. No suma name,
+  argument-hint, la línea del flag, cuerpos, `.agents/skills/`, CLAUDE.md de subdirectorios, hooks.
+  Tira ante lo que no sabe medir (comillas, bloque, vacía/ausente, comentario, repetida, continuación,
+  frontmatter sin apertura/cierre, cualquier cosa bajo `.claude/skills/`).
+- **Seams**: función pura + CLI por ref.
+
+Números (oráculo = herramienta):
+
+| Ref | CLAUDE.md | Comandos | Agents | Total |
+|---|---|---|---|---|
+| `f7ae28f` = scaffold `2026-09-11` personal | 7.724 | 2.121 (9 cargan, 2 con flag) | 0 | **9.845** |
+| `9f45aa4` (v2 antes de ADR-0013) | — | 5.709 (12) | — | — |
+| `v2.1.0` personal | 7.556 | 9.217 (21) | 599 (7) | **17.372** |
+| `v2.1.0` southpoint | 7.690 | 9.217 | 599 | 17.506 |
+
+⚠️ **`567c77a` NO es un commit de este repo**: es el sufijo del `version` del manifest
+(`2026-09-11+567c77a`), sellado en **`f7ae28f`**. El PRD (`.scratch/medicion-v2/PRD.md:7`) y el
+handoff anterior lo citan como si fuera un ref. Para el A/B, el brazo v1 es `f7ae28f` (personal).
+
+**Review-loop `standard`, cierre por TOPE** (2 turnos):
+- Turno 1 (5 focos + mutación + /code-review): 9 Medium reales (casi todos mutantes vivos) →
+  arreglados en `5e5ab39`, cada test RED contra su mutante.
+- Turno 2: 4 Medium (oráculo sin paridad en el flag + mensaje de commit que la afirmaba; `description:
+  # nota` medido; línea vacía en una continuación sin test; método impreso que describía mal el flag)
+  → arreglados en `d21ce9b` **sin revisar** (tope).
+- Coherencia: sin Medium/High.
+- Low sin arreglar: el error de clave repetida dice "(YAML se queda con la última)" — falso en general
+  (YAML 1.2 exige claves únicas); una línea de comentario indentada bajo la description tira con el
+  motivo "sigue en la línea siguiente".
+
+## 2. Tests
+
+- `pwsh -NoProfile -File tests/context-metric.tests.ps1` → **54 checks, 0 fail**.
+- `run-all` (antes de los fixes del loop): 42 suites, 2 rojas = `skills-lock` y
+  `chicas-y-forks-propios`, por los `source-command-*` de Codex. No se re-corrió tras los fixes (solo
+  tocaron los 3 archivos de la métrica).
+
+## 3. Próximos pasos (en este orden)
+
+1. **Medición 01** — congelar el compromiso previo (`.scratch/medicion-v2/issues/01-…`): párrafo con
+   fecha en un archivo versionado, commit anterior a cualquier artefacto de corrida; declara sujeto
+   `v2.1.0` contra el scaffold `2026-09-11` = **`f7ae28f`** (no `567c77a`). Chico, `Review-Rigor: light`.
+2. Corregir `567c77a` → `f7ae28f` en `.scratch/medicion-v2/PRD.md:7` (gitignored, no se commitea) —
+   se puede hacer junto con el 1.
+3. Medición 03 (juguete CLI inventario) o los 2 Low de la métrica + issue 28 + Lows de ADR-0013 en un
+   slice `light` de limpieza. Push cuando el usuario lo pida.
+
+## 4. Lo que la próxima sesión TIENE que saber
+
+- La Bash tool rompe heredocs con comillas mezcladas: escribir scripts con Write al scratchpad.
+- El `/code-review` del turno 1 reviewó el commit `685e592` en vez del rango (cwd/target): su hallazgo
+  igual sirvió, pero no confiar en que cubra el rango del marcador.
+- Todo lo de §5 del handoff de la tarde del 2026-09-23 (abajo) sigue vigente.
+- El usuario prefiere handoff a `/compact`; confía en decisiones técnicas y pregunta diseño.
+
+---
+
 # Session Handoff — 2026-09-23 (tarde) — **v2.1.0 taggeada y deployada** (ADR-0013 + hub-sync + issue 24). Issues de los dos PRDs publicados. Próximo: **medición issue 02** (métrica de contexto como script con tests).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
