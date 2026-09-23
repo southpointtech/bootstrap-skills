@@ -145,8 +145,14 @@ git config user.name  "$($env:SOUTHPOINT_GIT_NAME  ?? 'southpointtech')"
 git config user.email "$($env:SOUTHPOINT_GIT_EMAIL ?? 'mdeleon@agtium.com')"
 ```
 
-**Declaración de hub-sync.** Con la identidad ya fijada (el script toma de ahí los emails del dev),
-preguntale al usuario si el proyecto entra en hub-sync, la actualización diaria del Hub (ADR-0012), y si
+**Declaración de hub-sync.** Solo si `SOUTHPOINT_GIT_EMAIL` está seteada. Sin ella, el email de arriba
+es el de respaldo (`mdeleon@agtium.com`), el de la identidad de servicio compartida: declararlo como
+propio le asignaría a este dev los commits de cualquiera que lo use. En ese caso no declares nada: decile al usuario que
+corra `setup-mcp-workstation` y después `upgrade-bootstrap`, que ofrece la declaración, y anotalo en el
+reporte del Step 6.
+
+Con la variable seteada, la identidad ya fijada es la del dev (el script toma de ahí sus emails).
+Preguntale al usuario si el proyecto entra en hub-sync, la actualización diaria del Hub (ADR-0012), y si
 entra, cuál es su proyecto del Hub y su Ongoing Support (opcional). Son texto libre: el PM confirma el
 destino al aprobar. Con la respuesta:
 

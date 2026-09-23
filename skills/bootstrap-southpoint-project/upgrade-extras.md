@@ -8,7 +8,10 @@ La recolección diaria de hub-sync (ADR-0012) solo recolecta un repo que tiene `
 y dentro de él solo al dev que figura en `devs`. Un repo sin declaración no produce lotes: solo deja
 una línea `sin lote` en el log local de la PC, y a la bandeja no llega nada. Por eso el upgrade se la ofrece:
 
-1. Si falta `.claude/scripts/hub-declarar.ps1`, este upgrade no lo trajo: reportalo y terminá acá.
+1. Si falta `.claude/scripts/hub-declarar.ps1`, este upgrade no lo trajo: reportalo y terminá acá. Si
+   `SOUTHPOINT_GIT_EMAIL` no está seteada, tampoco sigas: la identidad git del repo puede ser la de
+   servicio, compartida, y el script la anotaría como propia de este dev. Reportá que falta correr
+   `setup-mcp-workstation` en esta PC y terminá acá.
 2. Si **no existe** `.claude/hub-sync.json`, preguntale al usuario si el repo entra en hub-sync y, si
    entra, cuál es su proyecto del Hub y su Ongoing Support (opcional). Son texto libre: el PM confirma
    el destino al aprobar. Con la respuesta, corré desde la raíz del proyecto:

@@ -190,7 +190,9 @@ $t = New-Repo "m@x.io"
 Escribir-Decl $t '{ "schemaVersion": 1, "hubProject": '
 $antes = [IO.File]::ReadAllBytes((Ruta-Decl $t))
 $r = Declarar $t @('-Agregarme', '-Dev', 'martin')
-Assert ($r.exit -ne 0 -and $r.err -match 'JSON' -and
+# `-cmatch` anclado al prefijo del script: un `-match 'JSON'` también lo cumple el error sin atrapar de
+# ConvertFrom-Json, y la ruta del archivo (`hub-sync.json`). El acento pide que stderr salga en UTF-8.
+Assert ($r.exit -ne 0 -and $r.err -cmatch '^hub-declarar: .*no es JSON válido' -and
         [Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes((Ruta-Decl $t)))) `
   "JSON roto: falla diciendo que no es JSON válido y no lo pisa (exit $($r.exit); '$($r.err)')"
 
@@ -203,6 +205,61 @@ $t = New-Repo ""
 $r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin')
 Assert ($r.exit -ne 0 -and $r.err -match 'email' -and -not (Test-Path -LiteralPath (Ruta-Decl $t))) `
   "sin ningún email: falla nombrando el email y no crea nada (exit $($r.exit); '$($r.err)')"
+
+# --- Un texto de solo espacios cuenta como vacío ---
+# Con `''` pasa igual con o sin `.Trim()`: sólo los espacios distinguen la guarda.
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', '   ', '-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and -not (Test-Path -LiteralPath (Ruta-Decl $t))) `
+  "hubProject de espacios al crear: falla y no crea nada (exit $($r.exit); '$($r.err)')"
+
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{"schemaVersion":1,"hubProject":"Viejo","devs":{"martin":["m@x.io"]}}'
+$antes = [IO.File]::ReadAllBytes((Ruta-Decl $t))
+$r = Declarar $t @('-HubProject', '   ', '-OngoingSupport', '   ', '-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -eq 0 -and $r.rep.accion -eq 'sin-cambios' -and
+        [Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes((Ruta-Decl $t)))) `
+  "hubProject y ongoingSupport de espacios: no tocan la declaración (fue '$($r.out)'; $($r.err))"
+
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', ' P ', '-Agregarme', '-Dev', 'martin')
+$j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
+Assert ($j.hubProject -ceq 'P') "hubProject con espacios alrededor: se escribe recortado (fue '$($j.hubProject)')"
+
+# --- Sin -Dev, la clave es el usuario de Windows: la misma que usa la tarea diaria ---
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme') @{ USERNAME = 'fulano' }
+Assert ($r.exit -eq 0 -and $r.rep.dev -eq 'fulano' -and (Recolector-Acepta $t 'fulano')) `
+  "sin -Dev: anota al usuario de Windows y el recolector lo acepta (fue '$($r.out)'; $($r.err))"
+
+# --- Las claves se buscan sin distinguir mayúsculas, como el recolector ---
+# Una segunda clave que sólo difiere en mayúsculas hace que ConvertFrom-Json rechace el archivo
+# entero, y el recolector falla para TODOS los devs del repo.
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "HubProject": "P", "Devs": { "Marti": ["viejo@x.io"] } }'
+$r = Declarar $t @('-HubProject', 'Nuevo', '-Agregarme', '-Dev', 'marti')
+$crudo = [IO.File]::ReadAllText((Ruta-Decl $t))
+$j = $crudo | ConvertFrom-Json
+Assert ($r.exit -eq 0 -and $j.HubProject -eq 'Nuevo' -and (@($j.Devs.Marti) -join ',') -eq 'viejo@x.io,m@x.io') `
+  "mayúsculas: reusa las claves que ya estaban (fue: $crudo; $($r.err))"
+Assert ((Recolector-Acepta $t 'marti')) "mayúsculas: el recolector acepta el resultado"
+
+# --- Lo que el recolector rechazaría no se da por declarado ---
+# Aunque el dev ya figure (el camino de `sin-cambios`), y sin tocar el archivo.
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "devs": { "martin": ["m@x.io"] } }'
+$antes = [IO.File]::ReadAllBytes((Ruta-Decl $t))
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and $r.err -cmatch '^hub-declarar: .*hubProject' -and
+        [Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes((Ruta-Decl $t)))) `
+  "declaración sin hubProject: falla nombrándolo y no la toca (exit $($r.exit); '$($r.err)')"
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -eq 0 -and (Recolector-Acepta $t 'martin')) "declaración sin hubProject: -HubProject la repara ($($r.err))"
+
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 2, "hubProject": "P", "ongoingSupport": "", "devs": {} }'
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and $r.err -cmatch '^hub-declarar: ') "schemaVersion u ongoingSupport inválidos: falla (exit $($r.exit); '$($r.err)')"
 
 # --- upgrade-bootstrap trae la recolección a un repo bootstrapeado antes de hub-sync ---
 # El proyecto sale del scaffold real (copy-scaffold) y se lo retrocede a "antes de hub-sync": sin los
