@@ -9,7 +9,7 @@
 #   2. La CLI `tools/context-metric.ps1 -Ref <commit>`, que lee el árbol con `git show`.
 #
 # Los literales de la CLI son oráculos calculados FUERA de la función bajo prueba, con Python sobre
-# `git show` de los mismos árboles (el script está citado en el issue 02).
+# `git show` de los mismos árboles: `tests/oracles/context-metric.py`, que no corre en la suite.
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 $tool = Join-Path $repo "tools/context-metric.ps1"
@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 19
+$ExpectedChecks = 44
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -83,6 +83,60 @@ Tira @((F ".claude/commands/n.md" "---`nname: n`n---`n`ncuerpo")) "n.md" "comand
 Tira @((F ".claude/commands/f.md" "sin frontmatter")) "f.md" "comando sin frontmatter tira"
 Tira @((F ".claude/commands/t.md" "---`ndescription: sin cierre`n")) "t.md" "frontmatter sin cierre tira"
 Tira @((F ".claude/skills/s/SKILL.md" "---`ndescription: x`n---`n")) ".claude/skills" "un .claude/skills/ tira: la métrica todavía no lo suma"
+
+# --- El método viaja con el número ----------------------------------------------------------------
+# Lo que el método tiene que nombrar: lo que suma, la unidad, y las exclusiones que ya dieron un
+# número falso una vez (la línea del flag y el argument-hint sumados a mano el 2026-08-28).
+$m = (Measure-ContextLoad -Files @((F "CLAUDE.md" "x"))).Method
+foreach ($frase in 'CLAUDE.md', '.claude/commands', '.claude/agents', 'disable-model-invocation',
+                   'argument-hint', 'code points', '.agents/skills') {
+  Assert ($m -and $m.Contains($frase)) "el método declarado nombra '$frase'"
+}
+
+# --- CLI por ref, contra los oráculos de tests/oracles/context-metric.py ------------------------
+# Se corre como proceso aparte con -File (con -Command un script que no existe da exit 0). La salida
+# se lee por anclas ASCII: el pwsh hijo escribe en la code page de la consola.
+function Run-Cli([string[]]$cliArgs) {
+  $out = & pwsh -NoProfile -File $tool @cliArgs 2>&1 | Out-String
+  return @{ Code = $LASTEXITCODE; Out = $out }
+}
+function Num($out, $label) {
+  if ($out -match "(?m)^$([regex]::Escape($label))\b[^\r\n]*?(\d+)\s*$") { return [int]$Matches[1] } else { return $null }
+}
+$antes = git -C $repo status --porcelain -- skills | Out-String
+
+# Scaffold 2026-09-11 (manifest `2026-09-11+567c77a`, sellado en f7ae28f), variante personal.
+$c = Run-Cli @('-Ref', 'f7ae28f')
+Assert ($c.Code -eq 0) "CLI sobre f7ae28f sale 0 (salió $($c.Code): $($c.Out))"
+Assert ((Num $c.Out 'CLAUDE.md') -eq 7724) "f7ae28f: CLAUDE.md 7724 (dio $(Num $c.Out 'CLAUDE.md'))"
+Assert ((Num $c.Out 'Comandos') -eq 2121) "f7ae28f: comandos 2121 (dio $(Num $c.Out 'Comandos'))"
+Assert ($c.Out -match '9 cargan, 2 con el flag') "f7ae28f: 9 comandos cargan y 2 llevan el flag"
+Assert ((Num $c.Out 'Agents') -eq 0) "f7ae28f: agents 0 (dio $(Num $c.Out 'Agents'))"
+Assert ((Num $c.Out 'Total') -eq 9845) "f7ae28f: total 9845 (dio $(Num $c.Out 'Total'))"
+Assert ($c.Out -match 'disable-model-invocation') "la salida de la CLI incluye el método"
+
+$c = Run-Cli @('-Ref', 'v2.1.0', '-Variant', 'personal')
+Assert ($c.Code -eq 0) "CLI sobre v2.1.0 sale 0 (salió $($c.Code): $($c.Out))"
+Assert ((Num $c.Out 'CLAUDE.md') -eq 7556) "v2.1.0: CLAUDE.md 7556 (dio $(Num $c.Out 'CLAUDE.md'))"
+Assert ((Num $c.Out 'Comandos') -eq 9217) "v2.1.0: comandos 9217 (dio $(Num $c.Out 'Comandos'))"
+Assert ($c.Out -match '21 cargan, 0 con el flag') "v2.1.0: 21 comandos cargan y ninguno lleva el flag"
+Assert ((Num $c.Out 'Agents') -eq 599) "v2.1.0: agents 599 (dio $(Num $c.Out 'Agents'))"
+Assert ((Num $c.Out 'Total') -eq 17372) "v2.1.0: total 17372 (dio $(Num $c.Out 'Total'))"
+
+# La variante cambia el árbol medido: southpoint tiene su propio CLAUDE.md (oráculo: 7690).
+$c = Run-Cli @('-Ref', 'v2.1.0', '-Variant', 'southpoint')
+Assert ((Num $c.Out 'CLAUDE.md') -eq 7690) "v2.1.0 southpoint: CLAUDE.md 7690 (dio $(Num $c.Out 'CLAUDE.md'))"
+
+$c = Run-Cli @('-Ref', 'no-existe-este-ref')
+Assert ($c.Code -ne 0) "un ref inexistente sale distinto de 0 (salió $($c.Code))"
+Assert ($c.Out -match 'git rev-parse') "y el error nombra el comando git que falló, no un síntoma posterior"
+
+# 8df1b98 es el padre del commit que creó la variante ai: el ref existe pero ese scaffold no.
+$c = Run-Cli @('-Ref', '8df1b98', '-Variant', 'ai')
+Assert ($c.Code -ne 0 -and $c.Out -match 'no hay CLAUDE.md') "un ref sin el scaffold de la variante tira, no mide 0 (salió $($c.Code): $($c.Out))"
+
+$despues = git -C $repo status --porcelain -- skills | Out-String
+Assert ($antes -eq $despues) "la CLI no toca el árbol de trabajo de skills/"
 
 Write-Host ""
 if ($script:checks -ne $ExpectedChecks) {
