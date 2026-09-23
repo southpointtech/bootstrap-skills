@@ -36,6 +36,8 @@ function New-Repo([string]$email = "m@x.io") {
   git -C $t add -A; git -C $t commit -q -m base
   return $t
 }
+$script:gitGlobalVacio = New-TestTempPath $script:runRoot "gitconfig" ".txt"
+[IO.File]::WriteAllText($script:gitGlobalVacio, "")
 function Ruta-Decl([string]$t) { Join-Path $t ".claude/hub-sync.json" }
 
 # Corre un script con el ambiente controlado. `SOUTHPOINT_GIT_EMAIL` se fija SIEMPRE (vacío = se
@@ -50,6 +52,10 @@ function Invoke-Pwsh([string]$script, [string[]]$argumentos, [hashtable]$envs = 
   $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
   $psi.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
   if (-not $envs.ContainsKey('SOUTHPOINT_GIT_EMAIL')) { $envs['SOUTHPOINT_GIT_EMAIL'] = '' }
+  # Lo mismo con el gitconfig global: un repo sin user.email local cae al email global de la
+  # máquina, y el caso "sin email" dejaría de serlo.
+  $envs['GIT_CONFIG_GLOBAL'] = $script:gitGlobalVacio
+  $envs['GIT_CONFIG_NOSYSTEM'] = '1'
   foreach ($k in $envs.Keys) {
     if ($envs[$k]) { $psi.Environment[$k] = $envs[$k] } else { [void]$psi.Environment.Remove($k) }
   }
@@ -84,6 +90,33 @@ Assert ($r.exit -eq 0) "crear: exit 0 (fue $($r.exit); $($r.err))"
 Assert (Test-Path -LiteralPath (Ruta-Decl $t)) "crear: escribe .claude/hub-sync.json"
 Assert ($r.rep.accion -eq 'creada' -and $r.rep.dev -eq 'martin') "crear: reporta accion 'creada' y el dev (fue '$($r.out)')"
 Assert (Recolector-Acepta $t 'martin') "crear: el recolector acepta la declaración y le da un lote al dev"
+
+# --- Los emails salen de la identidad git del repo y de SOUTHPOINT_GIT_EMAIL, sin repetir ---
+function Emails-De([string]$t, [string]$dev) {
+  $j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
+  return @($j.devs.$dev)
+}
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'm.alt@x.io' }
+$e = @(Emails-De $t 'martin')
+Assert ($r.exit -eq 0 -and $e.Count -eq 2 -and $e[0] -eq 'm@x.io' -and $e[1] -eq 'm.alt@x.io') `
+  "emails: el del repo y el de SOUTHPOINT_GIT_EMAIL, en ese orden (fue '$($e -join ', ')'; exit $($r.exit); $($r.err))"
+Assert ((@($r.rep.emails) -join ',') -eq 'm@x.io,m.alt@x.io') "emails: el reporte lista los mismos (fue '$($r.out)')"
+
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'M@X.io' }
+$e = @(Emails-De $t 'martin')
+Assert ($e.Count -eq 1) "emails: el mismo email con otras mayúsculas no se repite (fue '$($e -join ', ')')"
+# Un email solo queda como ARRAY, que es el formato declarado de `devs.<dev>`. El recolector lo lee
+# con `@(...)` y aceptaría un texto suelto: lo que este assert cuida es el formato, no al recolector.
+$crudo = [IO.File]::ReadAllText((Ruta-Decl $t))
+Assert ($crudo -match '"martin":\s*\[') "emails: un solo email queda como array en el archivo (fue: $crudo)"
+
+$t = New-Repo ""
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'solo@env.io' }
+$e = @(Emails-De $t 'martin')
+Assert ($r.exit -eq 0 -and $e.Count -eq 1 -and $e[0] -eq 'solo@env.io') `
+  "emails: sin user.email local alcanza con SOUTHPOINT_GIT_EMAIL (fue '$($e -join ', ')'; exit $($r.exit); $($r.err))"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
