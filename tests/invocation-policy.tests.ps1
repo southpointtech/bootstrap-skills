@@ -68,7 +68,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 288   # 20 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 0 user-invoked + 2 del ADR-0003)
+$ExpectedChecks = 324   # 20 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 0 user-invoked + 9 de ADR-0013 + 2 del ADR-0003)
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -183,6 +183,11 @@ $declarados = @($politica.Keys)
 $userInvoked  = @($declarados | Where-Object { $politica[$_] })
 $modelInvoked = @($declarados | Where-Object { -not $politica[$_] })
 
+# Las nueve que ADR-0013 devolvió a model-invoked: su comando recupera la description ENTERA de su
+# SKILL.md. `Disparadores` sola no lo sostiene: la description vieja de `zoom-out` también dice `Use when`.
+# No vale para las 21: `review-loop`, `slice-review` y `tdd` tienen hoy descriptions distintas en las dos copias.
+$adr0013 = @('grill-me', 'grill-with-docs', 'handoff', 'setup-matt-pocock-skills', 'to-issues', 'to-prd', 'to-questionnaire', 'triage', 'zoom-out')
+
 # Los conteos, fijos: un mutante que da vuelta la clasificación en masa cambia estos dos números.
 Assert ($userInvoked.Count -eq 0)   "la lista declara 0 comandos user-invoked (declara: $($userInvoked.Count))"
 Assert ($modelInvoked.Count -eq 21) "la lista declara 21 comandos model-invoked (declara: $($modelInvoked.Count))"
@@ -216,6 +221,10 @@ foreach ($raiz in $raices) {
     # sella una clasificación que no es la que corre.
     $fmSkill = @(Frontmatter (Texto (Join-Path $raiz ".agents/skills/$n/SKILL.md")))
     Assert ($fmSkill.Count -gt 0 -and (EsUserInvoked $fmSkill) -eq (EsUserInvoked $fmCmd)) "$etq : el SKILL.md de $n declara la misma invocación que el comando"
+    if ($adr0013 -contains $n) {
+      $dCmd = Description $fmCmd
+      Assert ($dCmd.Length -gt 0 -and $dCmd -ceq (Description $fmSkill)) "$etq : el comando $n tiene la misma description que su SKILL.md (ADR-0013)"
+    }
 
     # La forma de la description se sigue de la clasificación, no del largo.
     $d = Description $fmCmd
