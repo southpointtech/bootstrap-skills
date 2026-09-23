@@ -29,10 +29,14 @@ function Close-Slice($repo, $subject) {
 }
 # Invoca el hook con un evento PostToolUse; cwd debe ser un path Windows real (como lo pasa Claude Code).
 # $cwd separado del repo: el evento trae el cwd de la SESION, que en un monorepo es un subdirectorio.
-function Fire($repo, $cmd, $cwd) {
+# $tool es el `tool_name` del evento, con el que el hook elige la GRAMATICA de comillas (issue 24).
+# Omitirlo deja el evento SIN esa clave a proposito: los casos que no lo pasan ejercitan el DEFAULT,
+# que es la gramatica de bash — la conducta que el hook tenia cuando su unico despachador era Bash.
+function Fire($repo, $cmd, $cwd, $tool) {
   if (-not $cwd) { $cwd = $repo }
-  $evt = @{ tool_input = @{ command = $cmd }; cwd = $cwd } | ConvertTo-Json -Compress
-  return ($evt | & pwsh -NoProfile -File $hook)
+  $evt = @{ tool_input = @{ command = $cmd }; cwd = $cwd }
+  if ($tool) { $evt.tool_name = $tool }
+  return (($evt | ConvertTo-Json -Compress) | & pwsh -NoProfile -File $hook)
 }
 
 # --- Hook ---
@@ -604,9 +608,11 @@ Assert ($still -match 'marker:feat/x') "con la cuarentena bloqueada el hook NO p
 Remove-Item -Recurse -Force $t
 
 # --- Despacho por herramienta: el `matcher` de settings.json ---
-# El hook NO mira `tool_name` (lee solo `$evt.tool_input.command`), asi que lo unico que decide si
-# CORRE es el `matcher` del PostToolUse en .claude/settings.json, que Claude Code evalua como regex
-# contra el `tool_name` del evento. Por eso el sujeto de estos casos es el matcher, no el .ps1.
+# Lo unico que decide si el hook CORRE es el `matcher` del PostToolUse en .claude/settings.json, que
+# Claude Code evalua como regex contra el `tool_name` del evento. Por eso el sujeto de estos casos es
+# el matcher, no el .ps1. (El hook tambien lee `tool_name`, pero para otra cosa: elegir la gramatica
+# de comillas, que es lo que cubre el bloque siguiente. Un matcher que no empareja gana antes: el
+# hook no llega a correr.)
 #
 # MEDIDO el 2026-09-19 con un hook de diagnostico en %TEMP% (settings.json desechable con tres
 # entradas PostToolUse: `.*`, `Bash|PowerShell` y `Bash`, cada una volcando el JSON del evento a su
@@ -626,9 +632,10 @@ Remove-Item -Recurse -Force $t
 # asserts sin despachar nada en la realidad — el mismo falso negativo que el slice vino a matar.
 #
 # Lo que el evento NO dice es que la GRAMATICA sea la misma. `tool_input.command` es un string en
-# las dos herramientas, pero `Hide-Literals` lo parsea con comillas de BASH, donde `\` escapa: un
-# `git -C "C:\repo\" commit` hecho desde PowerShell pierde el cierre en silencio (reproducido en el
-# review de este slice; queda en el issue 24). Este slice ensancha el DESPACHO, no esa gramatica.
+# las dos herramientas, pero `Hide-Literals` lo parseaba con comillas de BASH, donde `\` escapa: un
+# `git -C "C:\repo\" commit` hecho desde PowerShell perdia el cierre en silencio (reproducido en el
+# review del slice que ensancho el matcher). Ese hueco se cerro aparte, en el issue 24: el hook elige
+# la gramatica por `tool_name`. Lo cubre el bloque "Gramatica de comillas por herramienta", mas abajo.
 function Get-TriggerMatcher($settingsPath) {
   $j = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
   $entry = @($j.hooks.PostToolUse | Where-Object { ($_.hooks | ConvertTo-Json -Depth 8) -match 'review-loop-trigger' })
@@ -648,7 +655,10 @@ function Fire-Tool($repo, $cmd, $toolName) {
   if (-not $m) { return "" }
   $empareja = try { [regex]::IsMatch($toolName, "^(?:$m)$") } catch { $false }
   if (-not $empareja) { return "" }
-  return (Fire $repo $cmd)
+  # El tool_name viaja tambien DENTRO del evento, no solo al oraculo del matcher: desde el issue 24
+  # el hook lo lee para elegir la gramatica de comillas, asi que un evento sin esa clave modelaria
+  # mal el despacho real.
+  return (Fire $repo $cmd $null $toolName)
 }
 
 # El caso que este slice vino a arreglar: la herramienta primaria de esta maquina es PowerShell, y
@@ -696,6 +706,117 @@ foreach ($sp21 in $rootsSettings) {
   $ag  = @($j21.hooks.PreToolUse | Where-Object { ($_.hooks | ConvertTo-Json -Depth 8) -match 'alignment-gate' })
   Assert (($ag.Count -eq 1) -and ($ag[0].matcher -ceq "Edit|Write|MultiEdit")) "el matcher del alignment-gate sigue intacto en $([IO.Path]::GetRelativePath($repo, $sp21))"
 }
+
+# --- Gramatica de comillas por herramienta (issue 24) ---
+# El matcher `Bash|PowerShell` (arriba) resolvio el DESPACHO: el hook ahora corre tambien cuando el
+# comando vino de la herramienta PowerShell. Lo que el despacho no decide es como se PARSEA ese
+# comando. `Hide-Literals` estaba escrita para comillas de bash, donde `\` escapa dentro de comillas
+# dobles; en PowerShell `\` es un caracter comun y una ruta de Windows entrecomillada TERMINA en `\`.
+# El walker se pasaba de la comilla de cierre, no encontraba otra, enmascaraba hasta el fin de linea
+# y `git commit` desaparecia de $scan: el hook salia sin disparar, en silencio, que es exactamente el
+# falso negativo que existe para eliminar.
+#
+# El hook lee `tool_name` del evento y elige la gramatica: bash para `Bash` (y para un evento sin la
+# clave), PowerShell para `PowerShell`. Los dos juegos de fixtures conviven porque cada uno declara
+# su herramienta.
+#
+# Mutante que tiene que morir: volver la gramatica de PowerShell a la de bash (o ignorar `tool_name`)
+# deja rojo el primer assert de este bloque y verde el resto de la suite.
+
+# Los cuatro casos REPRODUCIDOS en el issue 24, todos con un segmento entre comillas DOBLES que
+# termina en `\` antes del token disparador. Los cuatro se perdian en silencio.
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t ('git -C "{0}\" commit -m cierre' -f $t) $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: git -C con una ruta que termina en \ dispara"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t 'Set-Location "C:\tmp\"; git commit -m cierre' $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: un Set-Location a una ruta terminada en \ no se traga el commit que sigue"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t 'Set-Location "$env:USERPROFILE\"; git commit -m cierre' $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: lo mismo con una variable de entorno expandida"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo
+$o = Fire $t 'git -C "$env:REPO\" push' $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: un push con git -C y ruta terminada en \ dispara"
+Remove-Item -Recurse -Force $t
+
+# Controles positivos: las cuatro formas que la tabla del issue medio como ya funcionando. Sin ellos,
+# un fix que rompiera el parseo entero (enmascarar nada, p. ej.) pasaria los cuatro asserts de arriba.
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t 'git commit -m cierre' $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: control, un commit pelado dispara"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t ('git -C "{0}" commit -m cierre' -f $t) $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: control, git -C con ruta SIN \ final dispara"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t "Set-Location 'C:\tmp\'; git commit -m cierre" $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: control, la misma ruta entre comillas SIMPLES dispara"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; Close-Slice $t "cierre"
+$o = Fire $t 'Set-Location C:\tmp\; git commit -m cierre' $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: control, la misma ruta SIN comillas dispara"
+Remove-Item -Recurse -Force $t
+
+# La otra mitad: la gramatica nueva tiene que seguir conteniendo los falsos POSITIVOS que motivaron
+# Hide-Literals. Un fix que simplemente dejara de enmascarar pasaria todo lo de arriba y rompe esto.
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t 'git commit -m "docs: explicar que el hook dispara en git push"' $null 'PowerShell'
+Assert ([string]::IsNullOrEmpty($o)) "PowerShell: un mensaje que menciona 'git push' no saltea la puerta del trailer"
+Remove-Item -Recurse -Force $t
+
+# En PowerShell la comilla se escapa DUPLICANDOLA, no con `\`: `""` adentro de comillas dobles y
+# `''` adentro de simples. Leidas como cierre, la comilla suelta empareja con la siguiente y el
+# `git push` del mensaje queda expuesto.
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t 'git commit -m "fix: comillas para detectar ""git push"""' $null 'PowerShell'
+Assert ([string]::IsNullOrEmpty($o)) "PowerShell: una comilla doble duplicada ("""") no expone el mensaje"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t "git commit -m 'fix: it''s ready to git push now'" $null 'PowerShell'
+Assert ([string]::IsNullOrEmpty($o)) "PowerShell: un apostrofe duplicado ('') no expone el mensaje"
+Remove-Item -Recurse -Force $t
+
+# Costo aceptado, el mismo de siempre y por el mismo camino: con un backtick en la linea el paso 2
+# recalcula las banderas sobre el comando CRUDO y las OReA, asi que el `git push` del MENSAJE prende
+# $isPush y saltea la puerta del trailer. Queda fijado para que no se degrade a un cambio silencioso.
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t 'git commit -m "fix: comillas `"git push`" escapadas con backtick"' $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: costo aceptado, un backtick en la linea cae al recomputo crudo y dispara"
+Remove-Item -Recurse -Force $t
+
+# El escape de AFUERA de un literal, que en PowerShell es el backtick y NO `\`. Este es el patron
+# que aparece cuando se le pasan comillas a un exe nativo (`-m \"...\"`). Dejando `\` como escape,
+# el walker se come la comilla de APERTURA, el mensaje entero queda expuesto, `git push` prende
+# $isPush y el commit saltea la puerta del trailer: sin gate, sin frescura y sin techo.
+# Mutante: volver `$esc` a `\` para las dos gramaticas deja este assert rojo y el resto verde.
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t 'git commit -m \"docs: explicar que el hook dispara en git push\"' $null 'PowerShell'
+Assert ([string]::IsNullOrEmpty($o)) "PowerShell: un \ delante de la comilla no se come la apertura del literal"
+Remove-Item -Recurse -Force $t
+
+# Regresion en el otro sentido: la herramienta Bash conserva la gramatica de bash. Estos dos casos
+# son los que mueren si alguien aplica la gramatica de PowerShell a TODO (en bash `\"` es una comilla
+# escapada, y leerla como cierre deja el `git push` del mensaje expuesto).
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t 'git commit -m "fix: manejo de comillas para detectar \"git push\""' $null 'Bash'
+Assert ([string]::IsNullOrEmpty($o)) "Bash: la comilla escapada con \ sigue leyendose como escape, no como cierre"
+Remove-Item -Recurse -Force $t
+
+$t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
+$o = Fire $t "git commit -m 'fix: it'\''s ready to git push now'" $null 'Bash'
+Assert ([string]::IsNullOrEmpty($o)) "Bash: el apostrofe escrito a la bash ('\'') sigue sin exponer el mensaje"
+Remove-Item -Recurse -Force $t
 
 # --- Merge de settings (proyecto con settings.json propio, p. ej. enabledPlugins) ---
 $t = New-TestWorkspace $script:runRoot "rlt-ms"

@@ -5,6 +5,9 @@
 # ~400-line guide. Ahead of all of that, step 5c drops any slice that is entirely documentation, on
 # every trigger including `git push`. Commits are also checked for freshness, because the event
 # carries the session's cwd and a commit made in another repo would otherwise be attributed to it.
+# The event's `tool_name` is read too, for exactly one thing: picking the quoting grammar the
+# command is normalised with in step 2 (bash and PowerShell escape differently). What DISPATCHES the
+# hook is not decided here — that is the PostToolUse matcher in settings.json.
 # Shares .git/review-loop-state.json with the review marker: dedupes by SHA there and never
 # destroys the marker's own keys. Any non-applicable path ends in a silent exit 0.
 #
@@ -45,27 +48,45 @@ if (-not $cmd) { exit 0 }
 # fails were reproduced: `-m "... \"git push\" ..."` ends the match at the escaped quote and leaves
 # the text exposed (fires when it must not), and an apostrophe inside double quotes
 # (`-m "don't" && git push`) makes the single-quote pattern span from one apostrophe to the next
-# and swallow the real push in between (does not fire when it must). So the literals are walked:
-# bash escapes with `\` inside double quotes and not at all inside single quotes.
+# and swallow the real push in between (does not fire when it must). So the literals are walked.
+#
+# And they are walked with the grammar of the TOOL that ran the command, which the event names in
+# `tool_name` (measured: `Bash` / `PowerShell`; the dispatch matcher lets nothing else through). In
+# bash the escape is `\`: inside double quotes and outside them too, and inside single quotes
+# nothing escapes. In PowerShell `\` is an ORDINARY character — a quoted Windows path ends in one —
+# and the escape is the backtick, outside and inside double quotes, plus the DOUBLED quote (`""`
+# inside double quotes, `''` inside single ones). Parsing PowerShell with bash's rules made the
+# walker run past the closing quote of `git -C "C:\repo\" commit`, find no other, mask to the end of
+# the line and lose the trigger: `git commit` vanished from $scan and the hook exited mute. That is
+# the dangerous direction — the silent false negative — and it is what the tests' grammar-per-tool
+# block reproduces. An event WITHOUT `tool_name` falls back to bash, the only grammar this hook used
+# to have.
 #
 # The result keeps the ORIGINAL LENGTH — the body is replaced char-for-char with U+0001 — so an
 # index into $scan is also an index into $cmd, which is how step 4 reads the real value of `--base`
 # back out of a literal this function deliberately cannot see through.
-function Hide-Literals([string]$s) {
+function Hide-Literals([string]$s, [bool]$psQuoting) {
     $out = [char[]]$s
+    # The escape OUTSIDE a literal. In bash it is `\`, and skipping that rule is not cosmetic:
+    # `'\''` is how bash writes an apostrophe (close, escaped quote, reopen). Read as an opening
+    # quote, the loose quote pairs with the NEXT one, the remainder of the message is left exposed,
+    # and a `-m "... git push ..."` lights up $isPush and skips the whole trailer gate. Verified
+    # with `git commit -m 'fix: it'\''s ready to git push now'`. In PowerShell the backtick plays
+    # that role, and `\` cannot: it would swallow the character after every separator of a bare path.
+    $esc = if ($psQuoting) { '`' } else { '\' }
     $i = 0
     while ($i -lt $s.Length) {
         $q = $s[$i]
-        # OUTSIDE a literal a backslash escapes the next character, and skipping that rule is not
-        # cosmetic: `'\''` is how bash writes an apostrophe (close, escaped quote, reopen). Read as
-        # an opening quote, the loose quote pairs with the NEXT one, the remainder of the message is
-        # left exposed, and a `-m "... git push ..."` lights up $isPush and skips the whole trailer
-        # gate. Verified with `git commit -m 'fix: it'\''s ready to git push now'`.
-        if ($q -eq '\') { $i += 2; continue }
+        if ($q -eq $esc) { $i += 2; continue }
         if ($q -ne "'" -and $q -ne '"') { $i++; continue }
         $j = $i + 1
         while ($j -lt $s.Length) {
-            if ($q -eq '"' -and $s[$j] -eq '\' -and $j + 1 -lt $s.Length) { $j += 2; continue }
+            if ($psQuoting) {
+                # The DOUBLED quote is the escape that works in both kinds of PowerShell literal,
+                # including the single-quoted one, where the backtick escapes nothing.
+                if ($s[$j] -eq $q -and $j + 1 -lt $s.Length -and $s[$j + 1] -eq $q) { $j += 2; continue }
+                if ($q -eq '"' -and $s[$j] -eq '`' -and $j + 1 -lt $s.Length) { $j += 2; continue }
+            } elseif ($q -eq '"' -and $s[$j] -eq '\' -and $j + 1 -lt $s.Length) { $j += 2; continue }
             if ($s[$j] -eq $q) { break }
             $j++
         }
@@ -79,7 +100,7 @@ function Hide-Literals([string]$s) {
     }
     return (-join $out)
 }
-$scan = Hide-Literals $cmd
+$scan = Hide-Literals $cmd ($evt.tool_name -eq 'PowerShell')
 # `git -C <path> push` matched none of the patterns, so a legitimate push never closed the loop.
 # Git's global options are folded away so the subcommand sits right after `git`. This copy of the
 # command is only used for the flags: the fold changes offsets, so step 4 works off $scan.
