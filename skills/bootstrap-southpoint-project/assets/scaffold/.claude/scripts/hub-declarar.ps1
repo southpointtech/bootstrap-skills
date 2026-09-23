@@ -28,6 +28,9 @@ $propios = @((& git -C $RepoDir config user.email 2>$null), $env:SOUTHPOINT_GIT_
 $existe = Test-Path -LiteralPath $declPath
 if ($existe) { $decl = [IO.File]::ReadAllText($declPath) | ConvertFrom-Json -AsHashtable }
 else { $decl = [ordered]@{ schemaVersion = 1; hubProject = $HubProject; devs = [ordered]@{} } }
+# El contenido de partida, para no reescribir un archivo que no cambió: se compara el contenido y no
+# el texto, así que una declaración escrita a mano con otro formato tampoco se reformatea.
+$inicial = ConvertTo-Json -InputObject $decl -Depth 5 -Compress
 
 # Los emails que el dev ya tenía van primero; los nuevos se suman al final, sin repetir. Sin
 # distinguir mayúsculas, igual que el recolector, que filtra los commits con `-contains`.
@@ -39,8 +42,12 @@ if ($Agregarme) {
   }
   $decl.devs[$Dev] = $emails.ToArray()
 }
-[IO.Directory]::CreateDirectory((Split-Path $declPath -Parent)) | Out-Null
-[IO.File]::WriteAllText($declPath, (ConvertTo-Json -InputObject $decl -Depth 5) + "`n", $utf8)
-$accion = if ($existe) { 'actualizada' } else { 'creada' }
+if (-not $existe) { $accion = 'creada' }
+elseif ((ConvertTo-Json -InputObject $decl -Depth 5 -Compress) -ceq $inicial) { $accion = 'sin-cambios' }
+else { $accion = 'actualizada' }
+if ($accion -ne 'sin-cambios') {
+  [IO.Directory]::CreateDirectory((Split-Path $declPath -Parent)) | Out-Null
+  [IO.File]::WriteAllText($declPath, (ConvertTo-Json -InputObject $decl -Depth 5) + "`n", $utf8)
+}
 Write-Stdout (ConvertTo-Json -Compress -InputObject ([ordered]@{ accion = $accion; dev = $Dev; emails = $emails.ToArray() }))
 exit 0

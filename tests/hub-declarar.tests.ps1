@@ -142,6 +142,19 @@ $e = @(Emails-De $t 'martin')
 Assert ($r.exit -eq 0 -and ($e -join ',') -eq 'viejo@x.io,m@x.io') `
   "agregarse de nuevo: suma el email nuevo después de los que ya tenía (fue '$($e -join ',')'; $($r.err))"
 
+# --- Correrlo de nuevo sin nada nuevo no reescribe el archivo ---
+# Por bytes y por fecha: si reescribe lo mismo, el bytes-iguales pasa en verde igual, y el costo
+# real (un diff de EOL o de formato en un archivo commiteado) no se vería.
+$t = New-Repo "m@x.io"
+Escribir-Decl $t "{`"schemaVersion`":1,`"hubProject`":`"P`",`"devs`":{`"martin`":[`"m@x.io`"]}}"
+$antes = [IO.File]::ReadAllBytes((Ruta-Decl $t))
+[IO.File]::SetLastWriteTimeUtc((Ruta-Decl $t), [DateTime]::new(2020, 1, 1, 0, 0, 0, [DateTimeKind]::Utc))
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+$despues = [IO.File]::ReadAllBytes((Ruta-Decl $t))
+Assert ($r.exit -eq 0 -and $r.rep.accion -eq 'sin-cambios') "sin cambios: exit 0 y accion 'sin-cambios' (fue '$($r.out)'; $($r.err))"
+Assert ([Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String($despues)) "sin cambios: el archivo queda byte a byte igual"
+Assert ([IO.File]::GetLastWriteTimeUtc((Ruta-Decl $t)).Year -eq 2020) "sin cambios: el archivo no se reescribe"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
