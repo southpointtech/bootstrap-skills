@@ -93,7 +93,7 @@ Una skill cuya description queda cargada en el contexto de cada request para que
 _Avoid_: skill automática, skill con triggers
 
 **Skill user-invoked**:
-Una skill que solo puede invocar el humano tipeando su nombre. Su description no entra al contexto y ninguna otra skill puede llamarla. Es el default para todo lo que en el flujo se *sugiere* al usuario en vez de ejecutarse solo.
+Una skill que solo puede invocar el humano tipeando su nombre. Su description no entra al contexto y ninguna otra skill puede llamarla. Hoy el scaffold no tiene ninguna: desde ADR-0013 las 21 son model-invoked, y pasar una a user-invoked es decisión del dueño del repo.
 _Avoid_: comando manual, skill oculta
 
 **Cache de mecanismo**:

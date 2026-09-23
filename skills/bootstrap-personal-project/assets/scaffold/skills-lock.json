@@ -80,7 +80,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "e154ff0623e63c2ce5920e2efff720da3ccf1a0fceda7d7dc928088603b53fc5"
+        "SKILL.md": "bf67bf2095b1c2f712a1104ca8a10d0ab5bacbfc96c400f07fa3eef561e53e66"
       }
     },
     "grill-with-docs": {
@@ -95,7 +95,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "c6e9e7f3234801cf930d46be656cd10a343b6982d40ad71542f253cc7af01a53"
+        "SKILL.md": "7479eae36f9a2a83cbad4c1762ec52ee18efc1b8951251138e4ac57ec5adfe13"
       }
     },
     "grilling": {
@@ -125,7 +125,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "7220271eafc41aea7b06b26bae59135fed6a481c0e56014a79526ee9ad188c01"
+        "SKILL.md": "0fec50c26c1131faddde5693be1539d27ce40bf204ab6a29eecb84414273a32a"
       }
     },
     "research": {
@@ -180,7 +180,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "2bf254bccf458e0a3c8f6b668e3273c427255e77afc0d0fc92958f397b592b24",
+        "SKILL.md": "479ea63af4ae6cb3c58db277e14109d69f3d3c55b8a007c7a0de2571c80522f2",
         "domain.md": "edc6d6131fdffc4b7135704f5262124fc43355c95f61b7399dc5a4db643e28ca",
         "issue-tracker-github.md": "02b8e6445b6514d87c5226373e077ea7f531bd8f7cf1c2fa4be5cf48320b6385",
         "issue-tracker-gitlab.md": "1f1e2f178bea28e39753613687e02621e0f7d6f0e29127e13f2ae4a75fa66c70",
@@ -232,7 +232,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "c6545af257fadd043bab7506c3df30da018ccd4b3ef8d06fd53ab1061c876bf8"
+        "SKILL.md": "c18ee44ac2d0697a0e4489a86a32a6cb7f3da126eb818994d0b8139cc937d57f"
       }
     },
     "to-prd": {
@@ -247,7 +247,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "6092861eb9529d4053fc07cc2ee6e1cbd5375e3bf12dc1fa8f014bbf3f2ef196"
+        "SKILL.md": "39a971a004e89299f546cdec9f5c2749167dcb686e4b957bb892d2ec7f67b683"
       }
     },
     "to-questionnaire": {
@@ -262,7 +262,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "b5eb929842ee0e93d867c5e906d183d350f2f2d149eaeaa86967d94d8eda1d3b"
+        "SKILL.md": "3adf5be66be484778dd5c2b1cc40ab24e98c261d3c6ed3899ee9dd1c9a915518"
       }
     },
     "triage": {
@@ -279,7 +279,7 @@
       "files": {
         "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
         "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
-        "SKILL.md": "26325fd5bb8b953bc3f699769a76b71ee45588cd0b487b8c3d4f35b546a6ea91"
+        "SKILL.md": "60ab8fbbcb1c3c3ecb1c8f7006aaeb9f228d804c4fb2b21d7f176d86308a47bb"
       }
     },
     "verify-downstream-arrival": {
@@ -320,7 +320,7 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "6d6c653eda25e64c2a6220c4372067b790ba398d08738b485eeddad32011d4b9"
+        "SKILL.md": "7956109fbeff2422dbcbe7f64059c8d144467d7eee2531d42221bd436f3b3e32"
       }
     }
   }

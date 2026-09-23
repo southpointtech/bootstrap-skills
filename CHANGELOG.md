@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed — every scaffold skill is agent-invocable again
+
+v2.0.0 made nine skills user-invoked (`grill-me`, `grill-with-docs`, `to-prd`, `to-issues`,
+`triage`, `handoff`, `to-questionnaire`, `setup-matt-pocock-skills`, `zoom-out`): only a human could
+type them, and the agent stopped mid-workflow to ask you to. They are model-invoked again, with their
+trigger descriptions back, so the agent can run the next workflow step itself (ADR-0013).
+
+The cost is context: the command descriptions loaded on every request grow from 5,709 to 9,217
+characters. Take it with `upgrade-bootstrap`.
+
 ### Fixed — the review-loop hook lost slice closes declared from PowerShell
 
 v2.0.0 widened the `review-loop-trigger` matcher to `Bash|PowerShell`, so the hook started receiving

@@ -5,8 +5,8 @@
 # trabajan sobre la interacción con el humano, con el cuerpo literal y dos cosas nuestras encima:
 #
 #   1. La invocación. `wizard` la alcanza el agente: description en español con triggers y sin
-#      `disable-model-invocation`. `to-questionnaire` la escribe solo el humano: description de una
-#      línea, human-facing, y `disable-model-invocation: true` (clasificación firmada en el issue 13).
+#      `disable-model-invocation`. `to-questionnaire` también, desde ADR-0013 (el issue 13 la había
+#      clasificado user-invoked): description con su fórmula de disparo y sin el flag.
 #   2. `wizard/template.sh` VIAJA, y la skill dice por qué, frente a la plantilla HITL que el 10 retiró
 #      de `diagnosing-bugs`: esa la corría el agente; un wizard lo corre el humano en su terminal.
 #
@@ -55,7 +55,7 @@ function PosLinea($t, $linea) {
 }
 
 $descWizard = 'description: Genera un wizard interactivo en bash que guía a un humano, paso a paso, por lo que solo él puede hacer (abrir el dashboard de un tercero, copiar credenciales, cargar secrets de CI, correr una migración o un cutover de una sola vez), y guarda cada valor donde va (.env, GitHub secrets). Usala cuando el usuario diga "wizard", "armá un wizard", "guiame paso a paso", "tengo que configurar las credenciales", "cargá los secrets de CI", "provisioning de infraestructura" o "migración manual", o cuando un procedimiento tenga pasos que solo puede hacer el humano. No la uses para pasos que el agente puede hacer solo.'
-$descQuest  = 'description: Turn a decision you can''t fully answer into a questionnaire for someone else to fill in.'
+$descQuest  = 'description: Turn a decision you can''t fully answer into a questionnaire for someone else to fill in. Use when a decision needs facts or judgement that only another person has, or the user says "armá un cuestionario", "preguntale esto a alguien" or "necesito que otro complete esto".'
 
 $skills = @(
   @{ nombre = "wizard"
@@ -69,7 +69,7 @@ $skills = @(
   @{ nombre = "to-questionnaire"
      archivos = @("SKILL.md")
      description = $descQuest
-     userInvoked = $true
+     userInvoked = $false
      secciones = @('1. **Who is it going to?** Ask, in one exchange, the recipient''s role, expertise, and relationship to the user. This fixes the questionnaire''s tone and how much context it must carry. Done when you know who the recipient is and what they know that the user doesn''t.',
                    '2. **What do you need back?** Ask, in one exchange, the specific decisions or facts the user can''t resolve alone and needs from this person. Done when you have a concrete list of what the user must walk away able to do or decide.',
                    '## Document structure', '<questionnaire-template>', '## Anything else?', '</questionnaire-template>')
