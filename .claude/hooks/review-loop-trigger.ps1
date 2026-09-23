@@ -13,7 +13,7 @@
 # destruye las claves del marcador. Cualquier camino que no aplique termina en exit 0 silencioso.
 #
 # Lo que este hook a propósito NO hace: averiguar en qué repo corrió el comando parseando la línea
-# de comando de bash. Ese bloque existía para no disparar cuando un `git push` se corría en otro
+# de comando. Ese bloque existía para no disparar cuando un `git push` se corría en otro
 # lado desde una sesión abierta acá, y en tres turnos de revisión produjo ocho hallazgos altos
 # propios — todos FALSOS NEGATIVOS que descartaban un cierre de slice declarado en silencio. Las
 # señales que quedan son observables en vez de parseadas: la frescura del HEAD
@@ -114,13 +114,20 @@ $folded   = $scan -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+
 $isPr     = $folded -match '\bgh\s+pr\s+create\b'
 $isPush   = $folded -match '\bgit\s+push\b'
 $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-graph y similares
-# La sustitución de comando `$(...)` y los backticks reinician el contexto de comillas de bash
-# adentro, algo que Hide-Literals no modela: una comilla doble dentro de comillas simples dentro de
-# `$(...)` deja el total de dobles IMPAR, el walker de literales se desincroniza y se traga el resto
-# de la línea, PERDIENDO disparadores reales — `git commit -m "$(sed 's/"/x/' f)" && git push` salía
-# con $isPush FALSE, el push perdido. En vez de modelar `$()` (el pozo del parseo de bash que produjo
-# ocho altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el
-# comando CRUDO y se combinan con OR. El costo es una superficie más ancha de falsos POSITIVOS: un
+# `$(...)` abre adentro un contexto de comillas propio — en bash es la sustitución de comando y en
+# PowerShell la subexpresión —, algo que Hide-Literals no modela en ninguna de sus dos gramáticas:
+# una comilla doble dentro de comillas simples dentro de `$(...)` deja el total de dobles IMPAR, el
+# walker de literales se desincroniza y se traga el resto de la línea, PERDIENDO disparadores reales
+# — `git commit -m "$(sed 's/"/x/' f)" && git push` sale con $isPush FALSE con las dos gramáticas, el
+# push perdido. En vez de modelar `$()` (el pozo de parsear la línea de comando, que produjo ocho
+# altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el comando
+# CRUDO y se combinan con OR.
+# El backtick está en el predicado por bash, donde es la otra forma de la sustitución de comando. En
+# PowerShell no sustituye nada: es el escape, que el walker sí modela. Ahí el predicado es más ancho
+# que su motivo, y el recomputo crudo corre para cualquier comando con un backtick — incluido un
+# mensaje de commit que use `código` al estilo markdown. Se deja ancho a propósito: la gramática de
+# PowerShell del walker no modela here-strings (`@"…"@`) ni el token `--%`, y angostarlo sin medir
+# esas formas arriesga un falso negativo mudo. El costo es una superficie más ancha de falsos POSITIVOS: un
 # commit cuyo MENSAJE mencione "git push" / "gh pr create" adentro de un `$(...)` ahora levanta
 # $isPush/$isPr desde ese texto, y como la puerta del paso 6 es `-not ($isPush -or $isPr)`, ese
 # commit saltea la puerta del trailer, la ventana de frescura Y el techo, y dispara con sólo el gate
@@ -128,8 +135,8 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # gratis —anula el guard de frescura que evita atribuirle a este repo el commit viejo de otro— pero
 # el peor resultado es un `/review-loop` de más, que le pide al marcador el rango de ESTE repo y
 # cierra en vacío: la dirección "revisar de más" que el proyecto ya declaró segura, nunca un cierre
-# perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas,
-# se re-alinean solos y no llegan a esta rama. El falso positivo aceptado está fijado por un fixture,
+# perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas y
+# el walker se re-alinea solo: entran a esta rama por el `$(`, pero el disparador ya estaba en $scan. El falso positivo aceptado está fijado por un fixture,
 # así que no puede degradarse a un cambio de conducta silencioso.
 if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
@@ -429,9 +436,9 @@ if ($root) {
 # 6. Un commit dispara solo cuando el cierre de slice está DECLARADO con un trailer `Slice-Close:`.
 # El trailer se lee del commit recién creado, no se parsea del comando, así que funciona igual con
 # `-m`, `-F archivo`, un heredoc o `--amend`.
-# `git commit && git push` es UN solo comando de Bash y prende las dos banderas, así que la puerta
-# del trailer sólo gobierna al commit cuando es el único disparador: el push SALTEA esa puerta,
-# como lo hacía antes de A2. El gate de docs del paso 5c puede callar un push, pero no es lo único
+# `git commit && git push` es UNA sola llamada a la herramienta (Bash o PowerShell) y prende las
+# dos banderas, así que la puerta del trailer sólo gobierna al commit cuando es el único
+# disparador: el push SALTEA esa puerta, como lo hacía antes de A2. El gate de docs del paso 5c puede callar un push, pero no es lo único
 # que le queda: el dedupe por SHA del paso 7 corre en TODOS los disparadores y calla un segundo push
 # del mismo commit.
 if ($isCommit -and -not ($isPush -or $isPr)) {
@@ -440,7 +447,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     # reciente, el commit ocurrió en otro lado.
     #
     # La ventana es generosa a propósito. Esto es PostToolUse: corre cuando termina TODA la llamada
-    # de Bash, así que `git commit ... && npm test` sella el commit minutos antes de que llegue el
+    # a la herramienta, así que `git commit ... && npm test` sella el commit minutos antes de que llegue el
     # evento, y una ventana angosta se tragaría un cierre declarado — un falso negativo que nadie
     # ve. El HEAD de un repo ajeno tiene horas o días, así que 30 min los separa igual, y el dedupe
     # por SHA de abajo evita que el mismo commit dispare dos veces. Abs() para que un reloj

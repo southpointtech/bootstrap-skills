@@ -662,14 +662,13 @@ function Fire-Tool($repo, $cmd, $toolName) {
 }
 
 # El caso que este slice vino a arreglar: la herramienta primaria de esta maquina es PowerShell, y
-# con el matcher en `Bash` un cierre DECLARADO no disparaba nunca. Mutante: volver el matcher a
-# `Bash` deja este assert rojo (y el resto de la suite en verde).
-# NOTA (issue 27, auditoria de comentarios): el parentesis es impreciso — el assert del
-# valor exacto tambien cae. Se deja como estaba a proposito: es una imprecision PREEXISTENTE, del
-# issue 21 ya cerrado, y arreglarla acá resultó peor que dejarla. El intento anterior la "corrigió"
-# publicando una causa inventada ("porque los dos leen el mismo settings.json": no, este bloque lee
-# el del scaffold personal y el del valor exacto lee el de la raiz del repo). Va al issue junto con
-# los otros comentarios desactualizados, donde se puede medir el reparto completo.
+# con el matcher en `Bash` un cierre DECLARADO no disparaba nunca. Este assert lee el matcher del
+# scaffold personal ($canon); los del bloque de abajo leen las cuatro raices. Mutantes medidos
+# (volver el matcher a `Bash`), con el resto de la suite en verde en los tres:
+#   - en las cuatro raices: caen este assert y el del valor exacto;
+#   - solo en el scaffold personal: caen este y el de identidad entre raices;
+#   - solo en la raiz del repo: caen el de identidad y el del valor exacto, y ESTE NO.
+# Si se agrega un caso que lea el matcher, volver a medir el reparto.
 $t = New-Repo; Close-Slice $t "cierre commiteado con la herramienta PowerShell"
 $o = Fire-Tool $t "git commit -m cierre" "PowerShell"
 Assert ($o -match "additionalContext") "un cierre declarado desde la herramienta PowerShell despacha el hook y dispara"

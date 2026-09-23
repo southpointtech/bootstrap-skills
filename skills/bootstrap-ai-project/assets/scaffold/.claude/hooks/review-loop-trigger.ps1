@@ -12,7 +12,7 @@
 # destroys the marker's own keys. Any non-applicable path ends in a silent exit 0.
 #
 # What this hook deliberately does NOT do: work out which repo the command ran in by parsing the
-# bash command line. That block existed to avoid firing when a `git push` was run elsewhere from a
+# command line. That block existed to avoid firing when a `git push` was run elsewhere from a
 # session opened here, and over three review turns it produced eight high-severity bugs of its own —
 # every one of them a FALSE NEGATIVE that dropped a declared slice close in silence. The signals
 # kept are observable rather than parsed: HEAD freshness (`git log -1 --format=%ct`) for commits and
@@ -112,12 +112,20 @@ $folded   = $scan -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+
 $isPr     = $folded -match '\bgh\s+pr\s+create\b'
 $isPush   = $folded -match '\bgit\s+push\b'
 $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-graph and the like
-# Command substitution `$(...)` and backticks restart bash's quoting context inside, which
-# Hide-Literals does not model: a double quote inside single quotes inside `$(...)` leaves the total
-# count of double quotes ODD, the literal walker desyncs and swallows the rest of the line, DROPPING
-# real triggers — `git commit -m "$(sed 's/"/x/' f)" && git push` came out with $isPush FALSE, the
-# push lost. Rather than model `$()` (the bash-parsing pit that produced eight highs), when the
-# command contains `$(` or a backtick, compute the flags over the RAW command too and OR them in.
+# `$(...)` opens a quoting context of its own inside — command substitution in bash, the
+# subexpression in PowerShell — which Hide-Literals models in neither of its two grammars: a double
+# quote inside single quotes inside `$(...)` leaves the total count of double quotes ODD, the literal
+# walker desyncs and swallows the rest of the line, DROPPING real triggers —
+# `git commit -m "$(sed 's/"/x/' f)" && git push` comes out with $isPush FALSE under both grammars,
+# the push lost. Rather than model `$()` (the command-line-parsing pit that produced eight highs),
+# when the command contains `$(` or a backtick, compute the flags over the RAW command too and OR
+# them in.
+# The backtick is in the predicate because of bash, where it is the other form of command
+# substitution. In PowerShell it substitutes nothing: it is the escape, which the walker does model.
+# There the predicate is wider than its reason, and the raw recompute runs for any command with a
+# backtick — including a commit message that uses markdown-style `code`. It stays wide on purpose:
+# the walker's PowerShell grammar does not model here-strings (`@"…"@`) or the `--%` token, and
+# narrowing it without measuring those forms risks a silent false negative.
 # The cost is a wider false-POSITIVE surface: a commit whose MESSAGE text mentions "git push" /
 # "gh pr create" inside a `$(...)` now raises $isPush/$isPr from that text, and since step 6's gate is
 # `-not ($isPush -or $isPr)`, such a commit skips the trailer gate, the freshness window AND the
@@ -126,8 +134,8 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-gra
 # freshness guard that stops another repo's stale commit from being attributed here — but the worst
 # outcome is one spurious /review-loop, which asks the marker for THIS repo's range and closes on
 # empty: the "review too much" direction the project already declared safe, never a dropped close.
-# Natural uses (`date +"%F"`, `basename "$PWD"`) keep an even quote count, re-align on their own and
-# do not reach this branch. The accepted false positive is pinned by a fixture so it cannot regress
+# Natural uses (`date +"%F"`, `basename "$PWD"`) keep an even quote count and the walker re-aligns
+# on its own: they enter this branch through the `$(`, but the trigger was already in $scan. The accepted false positive is pinned by a fixture so it cannot regress
 # into a silent behavior change.
 if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
@@ -418,8 +426,9 @@ if ($root) {
 # 6. A commit fires only when the slice close is DECLARED with a `Slice-Close:` trailer.
 # The trailer is read from the commit that was just created, not parsed out of the command line,
 # so it works the same for `-m`, `-F file`, a heredoc or `--amend`.
-# `git commit && git push` is ONE bash command and lights up both flags, so the trailer gate only
-# governs a commit that is the sole trigger: the push skips the trailer gate, as it did before A2.
+# `git commit && git push` is ONE tool call (Bash or PowerShell) and lights up both flags, so the
+# trailer gate only governs a commit that is the sole trigger: the push skips the trailer gate, as
+# it did before A2.
 # Step 5c's docs gate can silence a push, but it is not the only thing left: step 7's per-commit
 # dedupe runs on EVERY trigger and silences a second push of the same commit.
 if ($isCommit -and -not ($isPush -or $isPr)) {
@@ -427,7 +436,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     # inside another repo would otherwise be attributed to this one. If this repo's HEAD is not
     # fresh, the commit happened somewhere else.
     #
-    # The window is generous on purpose. This is PostToolUse: it runs when the WHOLE bash call
+    # The window is generous on purpose. This is PostToolUse: it runs when the WHOLE tool call
     # ends, so `git commit ... && npm test` seals the commit minutes before the event arrives, and
     # a narrow window would silently swallow a declared close — a false negative nobody sees. A
     # foreign repo's HEAD is hours or days old, so 30 min separates the two just as well, and the
