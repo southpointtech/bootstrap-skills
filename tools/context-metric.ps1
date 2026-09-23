@@ -26,10 +26,13 @@ No suma: `name:`, `argument-hint:`, la línea del flag ni ninguna otra clave; lo
 y agents (cargan al invocarlos); .agents/skills/ (Claude Code no lo lee); los CLAUDE.md de
 subdirectorios (cargan bajo demanda); settings.json, los hooks ni su salida; las skills y plugins de
 la máquina; el system prompt de Claude Code.
-Tira, en vez de medir mal: en los archivos que cargan, una description entre comillas, en bloque
-(> o |), vacía, ausente, con un comentario al final, repetida o que sigue en la línea de abajo (lo
-mismo para el flag cuando está); un frontmatter sin apertura o sin cierre; y cualquier archivo bajo
-.claude/skills/. De un comando con el flag no se lee la description, porque no carga.
+Tira, en vez de medir mal:
+  - En todo .md de .claude/commands y .claude/agents: un frontmatter sin apertura o sin cierre.
+  - En todo .md de .claude/commands: un flag que esté y sea vacío, entre comillas, en bloque, con
+    un comentario, repetido o que siga en la línea de abajo. Los agents no leen el flag.
+  - En la description de lo que carga (comandos sin el flag y agents): las mismas formas, y además
+    ausente. De un comando con el flag no se lee la description, porque no carga.
+  - Cualquier archivo bajo .claude/skills/.
 '@
 
 # Cuenta code points, no unidades UTF-16: un carácter fuera del BMP es un par de surrogates en .NET.
@@ -57,7 +60,8 @@ function Get-FrontmatterField([string]$Path, [string]$Text, [string]$Key) {
     if ($v -eq '' -or $v[0] -in '"', "'", '>', '|') {
       throw "${Path}: '${Key}' no es un valor plano de una línea, y la métrica no mide esa forma"
     }
-    if ($v -match '\s#') { throw "${Path}: '${Key}' tiene un comentario al final (YAML lo descarta)" }
+    # Ya recortado: un valor que es solo un comentario arranca con `#` (YAML lo lee vacío).
+    if ($v -match '(^|\s)#') { throw "${Path}: '${Key}' tiene un comentario al final (YAML lo descarta)" }
     # Un valor plano sigue en las líneas indentadas de abajo (YAML las pliega); las vacías no cortan.
     $j = $i + 1
     while ($j -lt $end -and $lines[$j].Trim() -eq '') { $j++ }

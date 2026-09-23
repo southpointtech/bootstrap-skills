@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 52
+$ExpectedChecks = 54
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -106,7 +106,9 @@ Tira @((F ".claude/skills/s/SKILL.md" "---`ndescription: x`n---`n")) ".claude/sk
 # YAML que una lectura por línea mediría mal: valor que sigue en la línea de abajo, comentario al
 # final y clave repetida.
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`n  defgh`n---`n")) "w.md" "sigue en la línea" "description que continúa en la línea siguiente tira"
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc`n`n  defgh`n---`n")) "w.md" "sigue en la línea" "una línea vacía en el medio no corta la continuación"
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc # nota`n---`n")) "w.md" "comentario" "description con comentario al final tira"
+Tira @((F ".claude/commands/w.md" "---`ndescription: # nota`n---`n")) "w.md" "comentario" "description que es solo un comentario tira (YAML la lee vacía)"
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndisable-model-invocation: true # off`n---`n")) "w.md" "comentario" "flag con comentario al final tira, no se lee como otro valor"
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndescription: otra`n---`n")) "w.md" "repetida" "description repetida tira"
 
