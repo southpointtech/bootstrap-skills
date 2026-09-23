@@ -178,6 +178,32 @@ Assert ($r.exit -eq 0 -and $r.rep.accion -eq 'actualizada' -and $j.hubProject -e
 Assert ((@($j.devs.otro) -join ',') -eq 'o@x.io' -and $null -eq $j.devs.PSObject.Properties['martin']) `
   "hubProject: sin -Agregarme, los devs quedan como estaban"
 
+# --- Lo que no puede declararse falla sin escribir ---
+# Cada caso chequea exit != 0, un motivo en stderr y el archivo intacto (o ausente): un exit != 0
+# solo lo da también un script que tira por cualquier otra cosa.
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and $r.err -match 'HubProject' -and -not (Test-Path -LiteralPath (Ruta-Decl $t))) `
+  "sin declaración ni -HubProject: falla nombrando -HubProject y no crea nada (exit $($r.exit); '$($r.err)')"
+
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "hubProject": '
+$antes = [IO.File]::ReadAllBytes((Ruta-Decl $t))
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and $r.err -match 'JSON' -and
+        [Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes((Ruta-Decl $t)))) `
+  "JSON roto: falla diciendo que no es JSON válido y no lo pisa (exit $($r.exit); '$($r.err)')"
+
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "hubProject": "P", "devs": ["m@x.io"] }'
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and $r.err -match 'devs') "devs que no es un objeto: falla nombrando devs (exit $($r.exit); '$($r.err)')"
+
+$t = New-Repo ""
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin')
+Assert ($r.exit -ne 0 -and $r.err -match 'email' -and -not (Test-Path -LiteralPath (Ruta-Decl $t))) `
+  "sin ningún email: falla nombrando el email y no crea nada (exit $($r.exit); '$($r.err)')"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

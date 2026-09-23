@@ -18,6 +18,13 @@ function Write-Stdout([string]$texto) {
   $s.Flush()
 }
 
+# El motivo va por stderr con `[Console]::Error.WriteLine` y no con `Write-Error`, que parte el texto
+# según el ancho de la consola (medido en el issue 15 del recolector).
+function Fallar([string]$motivo) {
+  [Console]::Error.WriteLine("hub-declarar: $motivo")
+  exit 1
+}
+
 $declPath = Join-Path $RepoDir ".claude/hub-sync.json"
 # Los emails con los que este dev commitea en el repo: la identidad git efectiva (la local que fija
 # el Step 5 del bootstrap, o la global si no hay) y la de `setup-mcp-workstation`. El recolector
@@ -27,8 +34,16 @@ $propios = @((& git -C $RepoDir config user.email 2>$null), $env:SOUTHPOINT_GIT_
 # La declaración que ya existe se lee como tabla ORDENADA: reescribirla conserva el orden de sus
 # claves y cualquier campo que este script no conoce.
 $existe = Test-Path -LiteralPath $declPath
-if ($existe) { $decl = [IO.File]::ReadAllText($declPath) | ConvertFrom-Json -AsHashtable }
-else { $decl = [ordered]@{ schemaVersion = 1; hubProject = $HubProject; devs = [ordered]@{} } }
+if ($existe) {
+  try { $decl = [IO.File]::ReadAllText($declPath) | ConvertFrom-Json -AsHashtable }
+  catch { Fallar "$declPath no es JSON válido: $($_.Exception.Message)" }
+  if (-not ($decl -is [Collections.IDictionary]) -or -not ($decl.devs -is [Collections.IDictionary])) {
+    Fallar "$declPath no tiene un objeto devs; corregila a mano"
+  }
+} else {
+  if (-not $HubProject.Trim()) { Fallar "el repo no tiene declaración: pasá -HubProject con el proyecto del Hub" }
+  $decl = [ordered]@{ schemaVersion = 1; hubProject = $HubProject; devs = [ordered]@{} }
+}
 # El contenido de partida, para no reescribir un archivo que no cambió: se compara el contenido y no
 # el texto, así que una declaración escrita a mano con otro formato tampoco se reformatea.
 $inicial = ConvertTo-Json -InputObject $decl -Depth 5 -Compress
@@ -45,6 +60,7 @@ if ($Agregarme) {
     $e = "$e".Trim()
     if ($e -and -not ($emails | Where-Object { $_ -ieq $e })) { $emails.Add($e) }
   }
+  if (-not $emails.Count) { Fallar "no hay email para '$Dev': ni git config user.email ni SOUTHPOINT_GIT_EMAIL" }
   $decl.devs[$Dev] = $emails.ToArray()
 }
 if (-not $existe) { $accion = 'creada' }
