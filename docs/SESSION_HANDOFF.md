@@ -1,3 +1,86 @@
+# Session Handoff — 2026-09-23 — **Issue 24 + 27 MERGEADOS a `main`** (`07eda4e`, sin push). Abre el **issue 28**. Próximo: **`/to-issues` sobre los dos PRDs** (aprobado por el usuario).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`07eda4e`** (merge `--no-ff` de
+  `slice/24-gramatica-por-herramienta`) + el commit de este handoff. Tag `v2.0.0` sigue en `fb07b8a`.
+  **Nada pusheado desde `f53b59d`** (`origin/main`). El push lo hace el usuario:
+  `gh auth switch -u southpointtech`, push de `main` + `feat/bootstrap-v2` + `git push origin v2.0.0`,
+  y volver a `MartinDele703`.
+- **`~/.claude/skills` sigue en v2.0.0**: NO se corrió `sync-skills` después del merge del 24/27, así
+  que los proyectos nuevos nacen con el hook SIN el arreglo de gramática por herramienta. Decisión
+  pendiente del usuario: ¿`sync-skills` (y re-tag) antes de la medición? El 24 es prerrequisito
+  declarado de la medición (sin él la v2 mide peor de lo que es).
+- **Worktree del 24** `C:\Repos\PERSONAL\carriles\Bootstrap Skills\24-gramatica-por-herramienta`
+  (rama `slice/24-gramatica-por-herramienta` @ `39dfffd`, ya mergeada). Ahí vive, gitignored, el
+  `.scratch/bootstrap-v2/issues/` con el **24 y 27 cerrados** y el **28 nuevo**. Borrar el worktree
+  recién cuando el 28 tenga dónde vivir (o moverlo), si no se pierde.
+- **Worktree v2** `C:\Repos\PERSONAL\Bootstrap-Skills-bootstrap-v2` en `feat/bootstrap-v2` @ `f633733`.
+- **Carril `hub-sync`** (`carriles/Bootstrap Skills/hub-sync`, `feat/hub-sync` @ `e0abbc2`): NO
+  contiene la punta de `feat/bootstrap-v2`; hay que rebasearlo sobre `main` antes del trabajo del
+  emisor. Otra terminal lo usa: la suite barre `%TEMP%`, **preguntar antes de correr `run-all`**.
+- Untracked de Codex en `main` (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+1. **Issue 27** (`39dfffd`): los 4 comentarios del hook `review-loop-trigger.ps1` que razonaban
+   "sólo bash" reescritos en las 4 copias (raíz en castellano + 3 scaffolds idénticos en inglés), y el
+   comentario del mutante del matcher en `tests/review-loop-trigger.tests.ps1` reescrito con el reparto
+   MEDIDO (suite corrida con el matcher vuelto a `Bash`):
+   - en las 4 raíces: caen el assert de PowerShell y el del valor exacto;
+   - sólo scaffold personal: caen el de PowerShell y el de identidad entre raíces;
+   - sólo raíz: caen identidad y valor exacto (el de PowerShell NO).
+   Medido además con `Hide-Literals` extraída por AST: el ejemplo `$(sed ...)` pierde el push con LAS
+   DOS gramáticas; y "los usos naturales no llegan a esta rama" era falso (entran por el `$(`, pero el
+   disparador ya estaba en `$scan`). Manifests de los 3 scaffolds regenerados.
+2. **Review-loop `light`** sobre `c1538a9..39dfffd` (incluía `38ed9fb` y `8aff633`, que el cierre por
+   tope del 24 había dejado sin revisar). Focos Bugs + Tests, 6 hallazgos, confidence pass: 1 caído
+   (35), **0 High → cierre limpio**; marcador avanzado a `39dfffd`, `-Action close` corrido.
+3. **Merge** `--no-ff` a `main` (`07eda4e`).
+4. **Issue 28** creado con el Medium y los 4 Low (ver §3).
+
+## 2. Tests
+
+`review-loop-trigger`, `review-loop-incremental`, `mirror`: verdes (exit 0; las suites hacen `exit 1`
+si falla algo). **`run-all` NO se corrió** esta sesión (la otra terminal usa `%TEMP%`).
+
+## 3. Abierto — issue 28 (`ready-for-agent`)
+
+- **Medium, medido por el scorer**: el comentario de `$esc` en `Hide-Literals` (4 copias) y
+  `tests/review-loop-trigger.tests.ps1` ~833-835 afirman que el backtick "nunca mueve una de las tres
+  banderas". Falso: `cd "a`"b"; git -C "C:\my repo" push` voltea `$isPush` al quitar cualquiera de las
+  dos ramas del backtick (el plegado de `-C` sólo funciona sobre la ruta ENMASCARADA; el recomputo
+  crudo no la pliega). Sin bug escapado hoy (lo fijan los tests de `--base`); es guía falsa.
+- **4 Low**: `tools/fuzz-hide-literals.ps1:176` imprime `(@\ ...\@)`; comentario ~731-734 del test
+  describe un método (banderas idénticas) que no alcanza a los asserts de `--base`; mi "el resto de la
+  suite en verde" (~667) es falso para `mirror.tests.ps1` → "el resto de este archivo"; copias a mano
+  en el fuzzer sin guardas `Contains`.
+
+## 4. Próximos pasos (en este orden)
+
+1. **`/to-issues`** sobre `.scratch/medicion-v2/PRD.md` y `.scratch/identidad-compartida/PRD.md`
+   (**aprobado por el usuario el 2026-09-23**). El contrato de identidad va en UN solo issue (no se
+   parte sin romper a Zoho y al emisor).
+2. Preguntar: `sync-skills` + re-tag para que el deploy lleve el 24 antes de medir.
+3. Rebasear `hub-sync` sobre `main` antes del trabajo del emisor.
+4. Issue 28 cuando convenga (chico; puede ir `light`).
+5. Push (usuario).
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Todo lo de §6 del handoff del 2026-09-22 (abajo) sigue vigente: primer trabajo del slice de Zoho es
+  relevar los campos del MCP; obligaciones de re-sellado; commits con `git commit -F` desde un archivo
+  del scratchpad.
+- Esta sesión corre en `main`, pero el review-loop de un worktree NO lo dispara el hook (el evento trae
+  el cwd de la sesión): se lanza a mano con el rango del marcador del worktree.
+- `sed -i` sobre archivos CRLF del worktree los deja en LF (cambio fantasma en `git status`); revertir
+  con `git restore` SOLO tras confirmar `git diff --ignore-cr-at-eol` vacío.
+- El alignment-gate dispara en el primer Edit de la sesión; si el trabajo ya está alineado (issue con
+  AC + "dale" del usuario), decirlo y reintentar.
+- El usuario corta la sesión al superar ~200K de contexto y prefiere handoff a `/compact`.
+
+---
+
 # Session Handoff — 2026-09-22 (tarde) — **Release v2.0.0 CERRADO** (merge + tag + deploy, todo local). Rollout FRENADO a propósito: primero se mide la v2 y entran 2 features. **Dos PRDs nuevos aprobados**.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
