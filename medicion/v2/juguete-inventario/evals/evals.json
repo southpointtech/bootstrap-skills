@@ -1,0 +1,87 @@
+{
+  "skill_name": "juguete-inventario",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Sos el desarrollador de este proyecto. El cliente pidió lo que está en `enunciado.md`, con los datos en `datos/`. Construilo entero, trabajando como indica el `CLAUDE.md` del proyecto. Tenés autorización para encadenar las fases del flujo sin pedir aprobación entre una y otra. No hay un humano disponible durante la corrida: si necesitás preguntarle algo al cliente, escribí tus preguntas en `PREGUNTAS.md`, en la raíz, y terminá el turno; vas a recibir su respuesta y vas a seguir. Cuando el pedido esté completo, terminá el turno sin dejar `PREGUNTAS.md`.",
+      "expected_output": "Los seis comandos de `enunciado.md` implementados y con tests, commiteados por slices; la salida de cada comando igual a la de `esperado`.",
+      "files": [
+        "enunciado.md",
+        "datos/productos.csv",
+        "datos/movimientos.csv"
+      ],
+      "expectations": [
+        "[E01] Sobre una copia fresca de `datos/`, `python -m inv productos` sale 0 e imprime exactamente `esperado.productos`.",
+        "[E02] `python -m inv stock TOR-001` sale 0, imprime exactamente `120` y un salto de línea, y su stderr contiene cada línea de `esperado.avisos_de_carga`.",
+        "[E03] `python -m inv stock <SKU>` imprime `esperado.stock[SKU]` para los seis SKUs, y `python -m inv stock NOP-999` sale 1.",
+        "[E04] Sobre una copia de `datos/`: `alta XYZ-007 Tapa unidad --punto-reorden 5` sale 0 y después `productos` incluye la línea `XYZ-007<TAB>Tapa<TAB>unidad`; `alta xyz-7 Tapa unidad` y `alta TOR-001 Otro unidad` salen 2 y dejan `productos.csv` idéntico byte a byte.",
+        "[E05] `python -m inv exportar` sale 0 y su stdout, leído como JSON, es igual a `esperado.exportar`.",
+        "[E06] `python -m inv rotacion --desde 2026-08-01 --hasta 2026-08-31` sale 0 e imprime exactamente `esperado[\"rotacion 2026-08-01 2026-08-31\"]`.",
+        "[E07] `python -m inv alertas` sale 0 e imprime exactamente `esperado.alertas`.",
+        "[E08] La copia de `PREGUNTAS.md` que conserva el harness tiene una ronda que contiene `bajo` y cuya hora es anterior a la del primer commit donde un `.py` fuera de los tests contiene `alertas`.",
+        "[E09] En el árbol final, exactamente un archivo `.py` fuera de los tests contiene el literal `movimientos.csv`.",
+        "[E10] El primer commit donde un `.py` fuera de los tests contiene `rotacion` tiene como ancestro (o es) un commit donde ya existía el archivo de E09 con el literal `movimientos.csv`.",
+        "[E11] En el árbol final, `python -m pytest -q` sale 0.",
+        "[E12] Hay evidencia de RED para `stock`: un commit con un test de `stock` y sin su implementación en el que ese test falla, o una corrida de pytest en el transcript con ese test en FAILED o ERROR antes del primer Write o Edit que implementa `stock`.",
+        "[E13] Hay evidencia de RED, con el mismo criterio de E12, para cada uno de los seis comandos.",
+        "[E14] Para cada uno de los seis comandos, el primer commit que lo implementa o uno de sus descendientes en la historia de HEAD lleva una línea `Slice-Close:` en el mensaje.",
+        "[E15] Para cada commit con `Slice-Close:`, las líneas agregadas más las borradas en `.py` fuera de los tests, desde su ancestro más cercano con `Slice-Close:` (o desde la raíz), suman 400 o menos.",
+        "[E16] Existe al menos un issue en `.scratch/*/issues/*.md` y todos tienen la línea `Status: done`."
+      ]
+    }
+  ],
+  "esperado": {
+    "avisos_de_carga": [
+      "movimientos.csv:11: cantidad no positiva"
+    ],
+    "productos": "ARA-003\tArandela 6mm\tunidad\nBRO-006\tBroca 6mm\tunidad\nCLA-004\tClavo 2 pulgadas\tunidad\nTAR-005\tTarugo 8mm\tunidad\nTOR-001\tTornillo 6mm\tunidad\nTUE-002\tTuerca 6mm\tunidad\n",
+    "stock": {
+      "ARA-003": 3,
+      "BRO-006": 0,
+      "CLA-004": 85,
+      "TAR-005": 12,
+      "TOR-001": 120,
+      "TUE-002": 40
+    },
+    "exportar": [
+      {
+        "sku": "ARA-003",
+        "nombre": "Arandela 6mm",
+        "unidad": "unidad",
+        "punto_reorden": null
+      },
+      {
+        "sku": "BRO-006",
+        "nombre": "Broca 6mm",
+        "unidad": "unidad",
+        "punto_reorden": null
+      },
+      {
+        "sku": "CLA-004",
+        "nombre": "Clavo 2 pulgadas",
+        "unidad": "unidad",
+        "punto_reorden": 100
+      },
+      {
+        "sku": "TAR-005",
+        "nombre": "Tarugo 8mm",
+        "unidad": "unidad",
+        "punto_reorden": 30
+      },
+      {
+        "sku": "TOR-001",
+        "nombre": "Tornillo 6mm",
+        "unidad": "unidad",
+        "punto_reorden": 50
+      },
+      {
+        "sku": "TUE-002",
+        "nombre": "Tuerca 6mm",
+        "unidad": "unidad",
+        "punto_reorden": 40
+      }
+    ],
+    "rotacion 2026-08-01 2026-08-31": "TOR-001\t80\nCLA-004\t70\nTAR-005\t28\nTUE-002\t20\nARA-003\t7\n",
+    "alertas": "CLA-004\t85\nTAR-005\t12\n"
+  }
+}

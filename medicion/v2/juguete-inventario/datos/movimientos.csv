@@ -1,0 +1,16 @@
+fecha,sku,tipo,cantidad
+2026-07-15,TOR-001,entrada,210
+2026-07-20,TUE-002,entrada,60
+2026-07-25,CLA-004,entrada,150
+2026-07-30,TOR-001,salida,10
+2026-08-01,TAR-005,entrada,40
+2026-08-02,TOR-001,salida,30
+2026-08-03,ARA-003,entrada,10
+2026-08-05,TUE-002,salida,20
+2026-08-07,CLA-004,salida,40
+2026-08-10,TOR-001,salida,-15
+2026-08-12,TAR-005,salida,28
+2026-08-14,ARA-003,salida,7
+2026-08-18,TOR-001,salida,50
+2026-08-20,CLA-004,entrada,5
+2026-08-31,CLA-004,salida,30
