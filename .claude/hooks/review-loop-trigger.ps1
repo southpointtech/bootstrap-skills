@@ -6,11 +6,14 @@
 # documentación, en TODOS los disparadores, `git push` incluido. A los commits se les verifica además
 # la frescura, porque el evento trae el cwd de la sesión y un commit hecho en otro repo se le
 # atribuiría a éste.
+# Del evento se lee también `tool_name`, y para una sola cosa: elegir con qué gramática de comillas
+# se normaliza el comando en el paso 2 (bash y PowerShell escapan distinto). Quién DESPACHA el hook
+# no se decide acá — eso es el matcher del PostToolUse en settings.json.
 # Comparte .git/review-loop-state.json con el marcador de revisión: deduplica por SHA ahí y nunca
 # destruye las claves del marcador. Cualquier camino que no aplique termina en exit 0 silencioso.
 #
 # Lo que este hook a propósito NO hace: averiguar en qué repo corrió el comando parseando la línea
-# de comando de bash. Ese bloque existía para no disparar cuando un `git push` se corría en otro
+# de comando. Ese bloque existía para no disparar cuando un `git push` se corría en otro
 # lado desde una sesión abierta acá, y en tres turnos de revisión produjo ocho hallazgos altos
 # propios — todos FALSOS NEGATIVOS que descartaban un cierre de slice declarado en silencio. Las
 # señales que quedan son observables en vez de parseadas: la frescura del HEAD
@@ -46,27 +49,49 @@ if (-not $cmd) { exit 0 }
 # falla están reproducidas: `-m "... \"git push\" ..."` corta el match en la comilla escapada y deja
 # el texto expuesto (dispara cuando no debe), y un apóstrofe adentro de comillas dobles
 # (`-m "don't" && git push`) hace que el patrón de comilla simple empareje de un apóstrofe al otro y
-# se coma el push REAL del medio (no dispara cuando debe). Por eso los literales se recorren: bash
-# escapa con `\` adentro de comillas dobles, y adentro de comillas simples no escapa nada.
+# se coma el push REAL del medio (no dispara cuando debe). Por eso los literales se recorren.
+#
+# Y se recorren con la gramática de la HERRAMIENTA que corrió el comando, que el evento nombra en
+# `tool_name` (medido: `Bash` / `PowerShell`; el matcher del paso de despacho no deja pasar otra).
+# En bash el escape es `\`: adentro de comillas dobles y también afuera, y adentro de comillas
+# simples no escapa nada. En PowerShell `\` es un carácter COMÚN — una ruta de Windows entrecomillada
+# termina en `\` — y el escape es el backtick afuera y adentro de comillas dobles, más la comilla
+# DUPLICADA (`""` adentro de dobles, `''` adentro de simples). Parsear PowerShell con las reglas de
+# bash hacía que el walker se pasara de la comilla de cierre en `git -C "C:\repo\" commit`, no
+# encontrara otra, enmascarara hasta el fin de línea y perdiera el disparador: `git commit`
+# desaparecía de $scan y el hook salía mudo. Esa es la dirección peligrosa — el falso negativo
+# silencioso — y es lo que reproduce el bloque de gramática por herramienta de los tests.
+# Un evento SIN `tool_name` cae a bash, que era la única gramática que el hook tenía.
 #
 # El resultado conserva la LONGITUD ORIGINAL — el interior se reemplaza carácter por carácter con
 # U+0001 —, así que un índice de $scan también es un índice de $cmd, que es como el paso 4 recupera
 # el valor real de `--base` de adentro de un literal que esta función a propósito no puede leer.
-function Hide-Literals([string]$s) {
+function Hide-Literals([string]$s, [bool]$psQuoting) {
     $out = [char[]]$s
+    # El escape de AFUERA de un literal. En bash es `\`, y saltear esa regla no es cosmético: `'\''`
+    # es como bash escribe un apóstrofe (cierra, comilla escapada, vuelve a abrir). Leída como
+    # comilla de apertura, la comilla suelta empareja con la SIGUIENTE, el resto del mensaje queda
+    # expuesto, y un `-m "... git push ..."` prende $isPush y saltea la puerta del trailer entera.
+    # Verificado con `git commit -m 'fix: it'\''s ready to git push now'`. En PowerShell el mismo rol
+    # GRAMATICAL lo cumple el backtick, y `\` NO puede tenerlo: consumiría el carácter que le sigue a
+    # cada separador de una ruta suelta. Pero la CONSECUENCIA no es la misma en las dos gramáticas:
+    # el backtick sólo puede mover el enmascarado, nunca una de las tres banderas, porque un backtick
+    # en la línea ya fuerza el recomputo crudo de abajo. Su efecto se observa en el otro lector del
+    # enmascarado — la lectura de `--base` del paso 4 —, y es ahí donde lo fijan los tests.
+    $esc = if ($psQuoting) { '`' } else { '\' }
     $i = 0
     while ($i -lt $s.Length) {
         $q = $s[$i]
-        # AFUERA de un literal, la barra invertida escapa al carácter siguiente, y saltear esa regla
-        # no es cosmético: `'\''` es como bash escribe un apóstrofe (cierra, comilla escapada, vuelve
-        # a abrir). Leída como comilla de apertura, la comilla suelta empareja con la SIGUIENTE, el
-        # resto del mensaje queda expuesto, y un `-m "... git push ..."` prende $isPush y saltea la
-        # puerta del trailer entera. Verificado con `git commit -m 'fix: it'\''s ready to git push now'`.
-        if ($q -eq '\') { $i += 2; continue }
+        if ($q -eq $esc) { $i += 2; continue }
         if ($q -ne "'" -and $q -ne '"') { $i++; continue }
         $j = $i + 1
         while ($j -lt $s.Length) {
-            if ($q -eq '"' -and $s[$j] -eq '\' -and $j + 1 -lt $s.Length) { $j += 2; continue }
+            if ($psQuoting) {
+                # La comilla DUPLICADA es el escape que funciona en las dos clases de literal de
+                # PowerShell, incluida la de comillas simples, donde el backtick no escapa nada.
+                if ($s[$j] -eq $q -and $j + 1 -lt $s.Length -and $s[$j + 1] -eq $q) { $j += 2; continue }
+                if ($q -eq '"' -and $s[$j] -eq '`' -and $j + 1 -lt $s.Length) { $j += 2; continue }
+            } elseif ($q -eq '"' -and $s[$j] -eq '\' -and $j + 1 -lt $s.Length) { $j += 2; continue }
             if ($s[$j] -eq $q) { break }
             $j++
         }
@@ -80,7 +105,7 @@ function Hide-Literals([string]$s) {
     }
     return (-join $out)
 }
-$scan = Hide-Literals $cmd
+$scan = Hide-Literals $cmd ($evt.tool_name -eq 'PowerShell')
 # `git -C <path> push` no matcheaba ningún patrón, así que un push legítimo nunca cerraba el ciclo.
 # Las opciones globales de git se pliegan para que el subcomando quede pegado a `git`. Esta copia
 # del comando se usa SOLO para las banderas: el plegado corre los offsets, así que el paso 4
@@ -89,13 +114,20 @@ $folded   = $scan -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+
 $isPr     = $folded -match '\bgh\s+pr\s+create\b'
 $isPush   = $folded -match '\bgit\s+push\b'
 $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-graph y similares
-# La sustitución de comando `$(...)` y los backticks reinician el contexto de comillas de bash
-# adentro, algo que Hide-Literals no modela: una comilla doble dentro de comillas simples dentro de
-# `$(...)` deja el total de dobles IMPAR, el walker de literales se desincroniza y se traga el resto
-# de la línea, PERDIENDO disparadores reales — `git commit -m "$(sed 's/"/x/' f)" && git push` salía
-# con $isPush FALSE, el push perdido. En vez de modelar `$()` (el pozo del parseo de bash que produjo
-# ocho altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el
-# comando CRUDO y se combinan con OR. El costo es una superficie más ancha de falsos POSITIVOS: un
+# `$(...)` abre adentro un contexto de comillas propio — en bash es la sustitución de comando y en
+# PowerShell la subexpresión —, algo que Hide-Literals no modela en ninguna de sus dos gramáticas:
+# una comilla doble dentro de comillas simples dentro de `$(...)` deja el total de dobles IMPAR, el
+# walker de literales se desincroniza y se traga el resto de la línea, PERDIENDO disparadores reales
+# — `git commit -m "$(sed 's/"/x/' f)" && git push` sale con $isPush FALSE con las dos gramáticas, el
+# push perdido. En vez de modelar `$()` (el pozo de parsear la línea de comando, que produjo ocho
+# altas), cuando el comando contiene `$(` o un backtick se recalculan las banderas sobre el comando
+# CRUDO y se combinan con OR.
+# El backtick está en el predicado por bash, donde es la otra forma de la sustitución de comando. En
+# PowerShell no sustituye nada: es el escape, que el walker sí modela. Ahí el predicado es más ancho
+# que su motivo, y el recomputo crudo corre para cualquier comando con un backtick — incluido un
+# mensaje de commit que use `código` al estilo markdown. Se deja ancho a propósito: la gramática de
+# PowerShell del walker no modela here-strings (`@"…"@`) ni el token `--%`, y angostarlo sin medir
+# esas formas arriesga un falso negativo mudo. El costo es una superficie más ancha de falsos POSITIVOS: un
 # commit cuyo MENSAJE mencione "git push" / "gh pr create" adentro de un `$(...)` ahora levanta
 # $isPush/$isPr desde ese texto, y como la puerta del paso 6 es `-not ($isPush -or $isPr)`, ese
 # commit saltea la puerta del trailer, la ventana de frescura Y el techo, y dispara con sólo el gate
@@ -103,8 +135,8 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # gratis —anula el guard de frescura que evita atribuirle a este repo el commit viejo de otro— pero
 # el peor resultado es un `/review-loop` de más, que le pide al marcador el rango de ESTE repo y
 # cierra en vacío: la dirección "revisar de más" que el proyecto ya declaró segura, nunca un cierre
-# perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas,
-# se re-alinean solos y no llegan a esta rama. El falso positivo aceptado está fijado por un fixture,
+# perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas y
+# el walker se re-alinea solo: entran a esta rama por el `$(`, pero el disparador ya estaba en $scan. El falso positivo aceptado está fijado por un fixture,
 # así que no puede degradarse a un cambio de conducta silencioso.
 if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
@@ -404,9 +436,9 @@ if ($root) {
 # 6. Un commit dispara solo cuando el cierre de slice está DECLARADO con un trailer `Slice-Close:`.
 # El trailer se lee del commit recién creado, no se parsea del comando, así que funciona igual con
 # `-m`, `-F archivo`, un heredoc o `--amend`.
-# `git commit && git push` es UN solo comando de Bash y prende las dos banderas, así que la puerta
-# del trailer sólo gobierna al commit cuando es el único disparador: el push SALTEA esa puerta,
-# como lo hacía antes de A2. El gate de docs del paso 5c puede callar un push, pero no es lo único
+# `git commit && git push` es UNA sola llamada a la herramienta (Bash o PowerShell) y prende las
+# dos banderas, así que la puerta del trailer sólo gobierna al commit cuando es el único
+# disparador: el push SALTEA esa puerta, como lo hacía antes de A2. El gate de docs del paso 5c puede callar un push, pero no es lo único
 # que le queda: el dedupe por SHA del paso 7 corre en TODOS los disparadores y calla un segundo push
 # del mismo commit.
 if ($isCommit -and -not ($isPush -or $isPr)) {
@@ -415,7 +447,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
     # reciente, el commit ocurrió en otro lado.
     #
     # La ventana es generosa a propósito. Esto es PostToolUse: corre cuando termina TODA la llamada
-    # de Bash, así que `git commit ... && npm test` sella el commit minutos antes de que llegue el
+    # a la herramienta, así que `git commit ... && npm test` sella el commit minutos antes de que llegue el
     # evento, y una ventana angosta se tragaría un cierre declarado — un falso negativo que nadie
     # ve. El HEAD de un repo ajeno tiene horas o días, así que 30 min los separa igual, y el dedupe
     # por SHA de abajo evita que el mismo commit dispare dos veces. Abs() para que un reloj

@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed — the review-loop hook lost slice closes declared from PowerShell
+
+v2.0.0 widened the `review-loop-trigger` matcher to `Bash|PowerShell`, so the hook started receiving
+commands from the PowerShell tool — but it still parsed them with **bash** quoting, where `\`
+escapes. In PowerShell `\` is an ordinary character and a quoted Windows path *ends* in one, so the
+literal walker ran past the closing quote, masked to the end of the line, and the trigger vanished:
+`git -C "C:\repo\" commit` with a declared `Slice-Close:` trailer fired **nothing, silently**. Same
+for `Set-Location "C:\tmp\"; git commit` and `git -C "$env:REPO\" push`.
+
+The hook now picks the quoting grammar from the event's `tool_name`: backtick and doubled quotes for
+PowerShell, `\` for bash, and bash for an event without the field. Nothing changes for the Bash tool.
+
+No action needed beyond taking the new hook (`upgrade-bootstrap`). If you closed slices from the
+PowerShell tool with a quoted path ending in `\`, those closes never got a review turn — the marker
+still holds the range, so the next close reviews them together.
+
 ## v2.0.0 — 2026-09-21
 
 Skills refreshed from upstream by three-way merge, a thinner `CLAUDE.md`, lanes for parallel work,
