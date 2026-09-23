@@ -8,6 +8,8 @@
 #
 # Rutas relativas a la carpeta de la skill, con `/`.
 $soloSouthpoint = @(
+  "assets/scaffold/.claude/scripts/hub-declarar.ps1"
   "assets/scaffold/.claude/scripts/hub-enviar.ps1"
   "assets/scaffold/.claude/scripts/hub-recolectar.ps1"
+  "upgrade-extras.md"
 )

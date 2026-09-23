@@ -145,6 +145,21 @@ git config user.name  "$($env:SOUTHPOINT_GIT_NAME  ?? 'southpointtech')"
 git config user.email "$($env:SOUTHPOINT_GIT_EMAIL ?? 'mdeleon@agtium.com')"
 ```
 
+**Declaración de hub-sync.** Con la identidad ya fijada (el script toma de ahí los emails del dev),
+preguntale al usuario si el proyecto entra en hub-sync, la actualización diaria del Hub (ADR-0012), y si
+entra, cuál es su proyecto del Hub y su Ongoing Support (opcional). Son texto libre: el PM confirma el
+destino al aprobar. Con la respuesta:
+
+```powershell
+pwsh -NoProfile -File "$proj\.claude\scripts\hub-declarar.ps1" -RepoDir $proj -HubProject "<proyecto>" [-OngoingSupport "<soporte>"] -Agregarme
+```
+
+Escribe `.claude/hub-sync.json` con este dev anotado, y ese archivo entra en el commit de abajo. Un exit
+distinto de 0 trae el motivo en stderr: reportalo y seguí sin declaración. Si `AskUserQuestion` no está
+disponible, no declares nada. En los dos casos, anotá en el reporte del Step 6 si el proyecto quedó
+declarado, y recordá que el PM tiene que cargar la ruta del repo en la bandeja, para cada dev que trabaje
+en él, antes de que la tarea diaria lo recolecte.
+
 Then commit everything as `chore: project scaffolding (AI workflow + skills)` — **except `.bootstrap-backup/`**. That directory holds copies of the project's own files and is deliberately not gitignored so the user sees it; whether it belongs in history is their call, not the skill's. Stage with an exclusion rather than a bare `git add -A` — `git add -A -- . ':!.bootstrap-backup'` — and point the directory out in the Step 6 report.
 
 If it is already its own repo root, still set the local identity and commit the scaffolding files on the current branch.

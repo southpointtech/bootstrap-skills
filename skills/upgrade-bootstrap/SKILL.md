@@ -63,9 +63,13 @@ pwsh -File <this-skill>/scripts/reseal-manifest.ps1 -ProjectDir "<project>" -Can
 
 For a legacy project this seeds `.bootstrap-manifest.json` for the first time — the project is now "adopted" into the versioning system.
 
+### 5b. Variant extras
+
+The bootstrap skill the canonical scaffold belongs to (the folder holding its `assets/scaffold`) may ship an `upgrade-extras.md` at its root: steps only that variant needs after an upgrade. If the file exists, read it and follow it now; its own completion criterion says what the step 6 report must carry. If it does not exist, there are no extras.
+
 ### 6. Report what changed
 
-List files copied, updated, left customized (skipped), and orphans flagged. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
+List files copied, updated, left customized (skipped), orphans flagged, and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
 
 ## Guardrails
 

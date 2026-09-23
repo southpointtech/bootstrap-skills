@@ -204,6 +204,30 @@ $r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin')
 Assert ($r.exit -ne 0 -and $r.err -match 'email' -and -not (Test-Path -LiteralPath (Ruta-Decl $t))) `
   "sin ningún email: falla nombrando el email y no crea nada (exit $($r.exit); '$($r.err)')"
 
+# --- upgrade-bootstrap trae la recolección a un repo bootstrapeado antes de hub-sync ---
+# El proyecto sale del scaffold real (copy-scaffold) y se lo retrocede a "antes de hub-sync": sin los
+# scripts y sin sus entradas en el manifest. compare-scaffold tiene que listarlos como `missing`, que
+# es lo que el paso 4 de upgrade-bootstrap copia. Si uno falta del manifest canónico (un gen-manifest
+# olvidado), el upgrade no lo trae y este caso se pone rojo.
+$skillSp = Join-Path $repo "skills/bootstrap-southpoint-project"
+$proj = New-TestWorkspace $script:runRoot "hubdecl-proj"
+pwsh -NoProfile -File (Join-Path $skillSp "scripts/copy-scaffold.ps1") -SkillDir $skillSp -ProjectDir $proj | Out-Null
+$hubScripts = @('.claude/scripts/hub-declarar.ps1', '.claude/scripts/hub-enviar.ps1', '.claude/scripts/hub-recolectar.ps1')
+$manPath = Join-Path $proj ".bootstrap-manifest.json"
+$man = [IO.File]::ReadAllText($manPath) | ConvertFrom-Json -AsHashtable
+foreach ($h in $hubScripts) {
+  [void]$man.files.Remove($h)
+  Remove-Item -LiteralPath (Join-Path $proj $h) -ErrorAction SilentlyContinue
+}
+[IO.File]::WriteAllText($manPath, (ConvertTo-Json -InputObject $man -Depth 5))
+$cmp = pwsh -NoProfile -File (Join-Path $repo "skills/upgrade-bootstrap/scripts/compare-scaffold.ps1") `
+  -ProjectDir $proj -CanonicalScaffold (Join-Path $skillSp "assets/scaffold") | Out-String | ConvertFrom-Json
+foreach ($h in $hubScripts) {
+  Assert (@($cmp.missing) -contains $h) "upgrade: compare-scaffold lista $h como missing"
+}
+Assert (@($cmp.missing).Count -eq $hubScripts.Count) `
+  "upgrade: lo único que falta son los scripts de hub-sync (missing: $(@($cmp.missing) -join ', '))"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
