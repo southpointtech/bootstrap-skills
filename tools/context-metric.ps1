@@ -26,8 +26,10 @@ No suma: `name:`, `argument-hint:`, la línea del flag ni ninguna otra clave; lo
 y agents (cargan al invocarlos); .agents/skills/ (Claude Code no lo lee); los CLAUDE.md de
 subdirectorios (cargan bajo demanda); settings.json, los hooks ni su salida; las skills y plugins de
 la máquina; el system prompt de Claude Code.
-Tira, en vez de medir mal: una description entre comillas, en bloque (> o |), vacía o ausente, un
-frontmatter sin cierre, y cualquier archivo bajo .claude/skills/.
+Tira, en vez de medir mal: en los archivos que cargan, una description entre comillas, en bloque
+(> o |), vacía, ausente, con un comentario al final, repetida o que sigue en la línea de abajo (lo
+mismo para el flag cuando está); un frontmatter sin apertura o sin cierre; y cualquier archivo bajo
+.claude/skills/. De un comando con el flag no se lee la description, porque no carga.
 '@
 
 # Cuenta code points, no unidades UTF-16: un carácter fuera del BMP es un par de surrogates en .NET.
@@ -44,15 +46,35 @@ function Get-FrontmatterField([string]$Path, [string]$Text, [string]$Key) {
   if ($lines[0] -ne '---') { throw "${Path}: no arranca con frontmatter" }
   $end = [Array]::IndexOf($lines, '---', 1)
   if ($end -lt 0) { throw "${Path}: el frontmatter no cierra" }
-  foreach ($l in $lines[1..($end - 1)]) {
+  $found = $null
+  # `for` y no `$lines[1..($end - 1)]`: con el frontmatter vacío ($end = 1) ese rango es 1..0, que
+  # PowerShell recorre al revés en vez de dejarlo vacío.
+  for ($i = 1; $i -lt $end; $i++) {
+    $l = $lines[$i]
     if (-not $l.StartsWith("${Key}:", [StringComparison]::Ordinal)) { continue }
+    if ($null -ne $found) { throw "${Path}: '${Key}' está repetida (YAML se queda con la última)" }
     $v = $l.Substring($Key.Length + 1).Trim()
     if ($v -eq '' -or $v[0] -in '"', "'", '>', '|') {
       throw "${Path}: '${Key}' no es un valor plano de una línea, y la métrica no mide esa forma"
     }
-    return $v
+    if ($v -match '\s#') { throw "${Path}: '${Key}' tiene un comentario al final (YAML lo descarta)" }
+    # Un valor plano sigue en las líneas indentadas de abajo (YAML las pliega); las vacías no cortan.
+    $j = $i + 1
+    while ($j -lt $end -and $lines[$j].Trim() -eq '') { $j++ }
+    if ($j -lt $end -and $lines[$j] -match '^\s') {
+      throw "${Path}: '${Key}' sigue en la línea siguiente, y la métrica solo lee una"
+    }
+    $found = $v
   }
-  return $null
+  return $found
+}
+
+# Las rutas (relativas a la raíz del scaffold) que la CLI le pasa a Measure-ContextLoad: lo que mide y
+# lo que tiene que rechazar. Dejar afuera .claude/skills/ haría que la CLI imprima un número menor.
+function Select-ScaffoldPaths([string[]]$Paths) {
+  $Paths | Where-Object {
+    $_ -eq 'CLAUDE.md' -or $_ -like '.claude/commands/*' -or $_ -like '.claude/agents/*' -or $_ -like '.claude/skills/*'
+  }
 }
 
 function Measure-ContextLoad {
@@ -104,9 +126,9 @@ if ($MyInvocation.InvocationName -ne '.') {
   $repoRoot = Split-Path $PSScriptRoot -Parent
   $root = "skills/bootstrap-$Variant-project/assets/scaffold"
   $sha = (Invoke-GitUtf8 $repoRoot @('rev-parse', '--short', "$Ref^{commit}")).Trim()
-  $paths = (Invoke-GitUtf8 $repoRoot @('ls-tree', '-r', '-z', '--name-only', $sha, '--', $root)) -split "`0" |
-    Where-Object { $_ } | ForEach-Object { $_.Substring($root.Length + 1) } |
-    Where-Object { $_ -eq 'CLAUDE.md' -or $_ -like '.claude/commands/*' -or $_ -like '.claude/agents/*' -or $_ -like '.claude/skills/*' }
+  $paths = @(Select-ScaffoldPaths @(
+    (Invoke-GitUtf8 $repoRoot @('ls-tree', '-r', '-z', '--name-only', $sha, '--', $root)) -split "`0" |
+      Where-Object { $_ } | ForEach-Object { $_.Substring($root.Length + 1) }))
   # Sin CLAUDE.md no hay scaffold en ese ref (variante que todavía no existía, ruta movida): medir
   # igual daría un número chico y creíble.
   if ('CLAUDE.md' -notin $paths) { throw "no hay CLAUDE.md en $root @ $Ref ($sha)" }

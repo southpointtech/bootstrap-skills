@@ -22,7 +22,8 @@ def show(path):
 def ls(path):
     r = subprocess.run(["git", "ls-tree", "-r", "--name-only", f"{ref}:{path}"],
                        capture_output=True, text=True)
-    return r.stdout.split() if r.returncode == 0 else []
+    names = r.stdout.split() if r.returncode == 0 else []
+    return [n for n in names if n.endswith(".md")]
 
 
 def frontmatter(text):
@@ -31,7 +32,15 @@ def frontmatter(text):
 
 
 def description(fm):
-    return [l for l in fm if l.startswith("description:")][0][len("description:"):].strip()
+    # Formas que la métrica rechaza; si aparecen, el oráculo tampoco da un número.
+    hits = [i for i, l in enumerate(fm) if l.startswith("description:")]
+    assert len(hits) == 1, "description ausente o repetida"
+    value = fm[hits[0]][len("description:"):].strip()
+    following = [l for l in fm[hits[0] + 1:] if l.strip()]
+    assert value and value[0] not in "\"'>|", "description no plana"
+    assert " #" not in value and "\t#" not in value, "description con comentario"
+    assert not (following and following[0][:1].isspace()), "description que sigue en otra línea"
+    return value
 
 
 claude_md = len(show(f"{root}/CLAUDE.md"))

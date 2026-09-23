@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 44
+$ExpectedChecks = 52
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -34,9 +34,11 @@ function F($path, $content) { [pscustomobject]@{ Path = $path; Content = $conten
 # --- Comandos: suma la description de los que NO llevan disable-model-invocation: true ----------
 $r = Measure-ContextLoad -Files @(
   (F ".claude/commands/a.md" "---`nname: a`ndescription: abcde`nargument-hint: <xyz>`n---`n`ncuerpo largo que no carga")
-  (F ".claude/commands/b.md" "---`nname: b`ndescription: 1234567`ndisable-model-invocation: true`n---`n")
+  (F ".claude/commands/b.md" "---`nname: b`ndescription: `"1234567`"`ndisable-model-invocation: true`n---`n")
   (F ".claude/commands/c.md" "---`ndescription: xyz`n---`n")
 )
+# b.md lleva una description entre comillas, que tiraría si se leyera: el flag se mira antes y la
+# description de un comando que no carga no se lee.
 Assert ($r.Commands -eq 8) "comandos: 5 + 3; el flag excluye a b, y ni name, ni argument-hint, ni el cuerpo suman (dio $($r.Commands))"
 Assert ($r.CommandsLoaded -eq 2) "comandos que cargan: 2 de 3 (dio $($r.CommandsLoaded))"
 Assert ($r.CommandsFlagged -eq 1) "comandos excluidos por el flag: 1 (dio $($r.CommandsFlagged))"
@@ -45,6 +47,15 @@ Assert ($r.Total -eq 8) "total sin CLAUDE.md ni agents = comandos (dio $($r.Tota
 # Un flag en false no excluye: se mira el valor, no la presencia de la clave.
 $r = Measure-ContextLoad -Files @((F ".claude/commands/a.md" "---`ndescription: abcd`ndisable-model-invocation: false`n---`n"))
 Assert ($r.Commands -eq 4) "disable-model-invocation: false carga igual (dio $($r.Commands))"
+
+# El frontmatter con CRLF o con CR sueltos mide lo mismo que con LF, flag incluido.
+$r = Measure-ContextLoad -Files @(
+  (F ".claude/commands/lf.md"   "---`ndescription: abcd`n---`n")
+  (F ".claude/commands/crlf.md" "---`r`ndescription: abcd`r`n---`r`n")
+  (F ".claude/commands/cr.md"   "---`rdescription: abcd`r---`r")
+  (F ".claude/commands/fl.md"   "---`r`ndescription: zz`r`ndisable-model-invocation: true`r`n---`r`n")
+)
+Assert ($r.Commands -eq 12 -and $r.CommandsFlagged -eq 1) "LF, CRLF y CR: 4 + 4 + 4, y el flag con CRLF excluye (dio $($r.Commands), $($r.CommandsFlagged) con flag)"
 
 # --- CLAUDE.md de la raíz: entero, en code points, con CRLF/CR como un solo salto y sin BOM --------
 # "😀" es un code point fuera del BMP: .Length de .NET lo cuenta 2, el oráculo de Python 1.
@@ -63,26 +74,47 @@ $r = Measure-ContextLoad -Files @(
   (F ".claude/agents/r2.md" "---`nname: r2`ndescription: ab`n---`n")
   (F ".claude/commands/sub/x.md" "---`ndescription: x😀`n---`n")
   (F ".agents/skills/s/SKILL.md" "---`nname: s`ndescription: Claude Code no lee .agents/skills`n---`n")
+  # Fija el método declarado (todos los agents suman), no un comportamiento verificado de Claude Code.
+  (F ".claude/agents/r3.md" "---`ndescription: abc`ndisable-model-invocation: true`n---`n")
+  # Solo los .md: un archivo de otro tipo en esas carpetas no suma ni tira.
+  (F ".claude/commands/notas.txt" "sin frontmatter")
+  (F ".claude/agents/datos.json" "{}")
 )
-Assert ($r.Agents -eq 10) "agents: 'Revisa 😀' (8) + 'ab' (2) = 10 code points; tools y el prompt no suman (dio $($r.Agents))"
-Assert ($r.AgentsLoaded -eq 2) "agents que cargan: 2 (dio $($r.AgentsLoaded))"
+Assert ($r.Agents -eq 13) "agents: 'Revisa 😀' (8) + 'ab' (2) + 'abc' con el flag (3) = 13; tools y el prompt no suman (dio $($r.Agents))"
+Assert ($r.AgentsLoaded -eq 3 -and $r.CommandsFlagged -eq 0) "agents que cargan: 3, el flag no excluye a un agent (dio $($r.AgentsLoaded))"
 Assert ($r.Commands -eq 2) "comando anidado 'x😀' = 2 code points (dio $($r.Commands))"
-Assert ($r.Total -eq 12) "total = 0 + 2 + 10; .agents/skills no suma (dio $($r.Total))"
+Assert ($r.Total -eq 15) "total = 0 + 2 + 13; .agents/skills, .txt y .json no suman (dio $($r.Total))"
 
 # --- Lo que la métrica no sabe medir tira, en vez de dar un número equivocado en silencio --------
-function Tira($files, $patron, $msg) {
+# Mira el archivo Y el motivo: con solo el archivo, un error de otra rama (p. ej. "no cierra" en vez
+# de "no arranca") deja pasar el test aunque la guarda que se quería probar no exista.
+function Tira($files, $archivo, $motivo, $msg) {
   $err = $null
   try { Measure-ContextLoad -Files $files | Out-Null } catch { $err = $_.Exception.Message }
-  Assert ($err -and $err -like "*$patron*") "$msg (error: $err)"
+  Assert ($err -and $err -like "*$archivo*" -and $err -like "*$motivo*") "$msg (error: $err)"
 }
-Tira @((F ".claude/commands/q.md" "---`ndescription: `"entre comillas`"`n---`n")) "q.md" "description entre comillas dobles tira nombrando el archivo"
-Tira @((F ".claude/commands/q.md" "---`ndescription: 'simples'`n---`n")) "q.md" "description entre comillas simples tira"
-Tira @((F ".claude/agents/m.md" "---`ndescription: >`n  multilínea`n---`n")) "m.md" "description en bloque (>) tira"
-Tira @((F ".claude/agents/m.md" "---`ndescription: |`n  multilínea`n---`n")) "m.md" "description en bloque (|) tira"
-Tira @((F ".claude/commands/n.md" "---`nname: n`n---`n`ncuerpo")) "n.md" "comando sin description tira (Claude Code usaría el cuerpo)"
-Tira @((F ".claude/commands/f.md" "sin frontmatter")) "f.md" "comando sin frontmatter tira"
-Tira @((F ".claude/commands/t.md" "---`ndescription: sin cierre`n")) "t.md" "frontmatter sin cierre tira"
-Tira @((F ".claude/skills/s/SKILL.md" "---`ndescription: x`n---`n")) ".claude/skills" "un .claude/skills/ tira: la métrica todavía no lo suma"
+Tira @((F ".claude/commands/q.md" "---`ndescription: `"entre comillas`"`n---`n")) "q.md" "no es un valor plano" "description entre comillas dobles tira"
+Tira @((F ".claude/commands/q.md" "---`ndescription: 'simples'`n---`n")) "q.md" "no es un valor plano" "description entre comillas simples tira"
+Tira @((F ".claude/agents/m.md" "---`ndescription: >`n  multilínea`n---`n")) "m.md" "no es un valor plano" "description en bloque (>) tira"
+Tira @((F ".claude/agents/m.md" "---`ndescription: |`n  multilínea`n---`n")) "m.md" "no es un valor plano" "description en bloque (|) tira"
+Tira @((F ".claude/commands/e.md" "---`ndescription: `n---`n")) "e.md" "no es un valor plano" "description vacía tira"
+Tira @((F ".claude/commands/n.md" "---`nname: n`n---`n`ncuerpo")) "n.md" "no tiene description" "comando sin description tira (Claude Code usaría el cuerpo)"
+# Sin `---` de apertura pero con uno más abajo: sin la guarda de apertura, esto se mediría.
+Tira @((F ".claude/commands/f.md" "hola`ndescription: x`n---`ncuerpo")) "f.md" "no arranca" "comando sin frontmatter tira"
+Tira @((F ".claude/commands/t.md" "---`ndescription: sin cierre`n")) "t.md" "no cierra" "frontmatter sin cierre tira"
+Tira @((F ".claude/skills/s/SKILL.md" "---`ndescription: x`n---`n")) ".claude/skills" "todavía no lo suma" "un .claude/skills/ tira: la métrica todavía no lo suma"
+# YAML que una lectura por línea mediría mal: valor que sigue en la línea de abajo, comentario al
+# final y clave repetida.
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc`n  defgh`n---`n")) "w.md" "sigue en la línea" "description que continúa en la línea siguiente tira"
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc # nota`n---`n")) "w.md" "comentario" "description con comentario al final tira"
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndisable-model-invocation: true # off`n---`n")) "w.md" "comentario" "flag con comentario al final tira, no se lee como otro valor"
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndescription: otra`n---`n")) "w.md" "repetida" "description repetida tira"
+
+# --- El filtro de rutas de la CLI deja pasar lo que la función mide o rechaza ---------------------
+# Si dejara afuera .claude/skills/, la CLI imprimiría un número menor en vez de tirar.
+$sel = @(Select-ScaffoldPaths @('CLAUDE.md', '.claude/commands/a.md', '.claude/agents/b.md', '.claude/skills/s/SKILL.md',
+                                '.claude/settings.json', 'docs/x.md', '.agents/skills/y/SKILL.md'))
+Assert (($sel -join '|') -eq 'CLAUDE.md|.claude/commands/a.md|.claude/agents/b.md|.claude/skills/s/SKILL.md') "el filtro de la CLI pasa CLAUDE.md, commands, agents y skills, y nada más (dio $($sel -join '|'))"
 
 # --- El método viaja con el número ----------------------------------------------------------------
 # Lo que el método tiene que nombrar: lo que suma, la unidad, y las exclusiones que ya dieron un
@@ -122,6 +154,8 @@ Assert ((Num $c.Out 'Comandos') -eq 9217) "v2.1.0: comandos 9217 (dio $(Num $c.O
 Assert ($c.Out -match '21 cargan, 0 con el flag') "v2.1.0: 21 comandos cargan y ninguno lleva el flag"
 Assert ((Num $c.Out 'Agents') -eq 599) "v2.1.0: agents 599 (dio $(Num $c.Out 'Agents'))"
 Assert ((Num $c.Out 'Total') -eq 17372) "v2.1.0: total 17372 (dio $(Num $c.Out 'Total'))"
+# v2.1.0 es un tag anotado: sin pelarlo a commit, el header mostraría el sha del objeto tag (79a8844).
+Assert ($c.Out -match '\(4d205ec[0-9a-f]*\)') "v2.1.0: el header nombra el commit 4d205ec, no el objeto del tag"
 
 # La variante cambia el árbol medido: southpoint tiene su propio CLAUDE.md (oráculo: 7690).
 $c = Run-Cli @('-Ref', 'v2.1.0', '-Variant', 'southpoint')
