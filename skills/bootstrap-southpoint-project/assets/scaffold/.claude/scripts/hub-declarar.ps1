@@ -83,6 +83,15 @@ $devs = $decl[(Get-Clave $decl 'devs')]
 # distinguir mayúsculas, igual que el recolector, que filtra los commits con `-contains`.
 $emails = [Collections.Generic.List[string]]::new()
 if ($Agregarme) {
+  # Un email LOCAL distinto de SOUTHPOINT_GIT_EMAIL puede ser el que el Step 5 del bootstrap fijó
+  # antes de que la PC tuviera la variable: el respaldo de la identidad de servicio, compartida.
+  # Declararlo le asignaría a este dev los commits de cualquiera que lo use, así que no se adivina:
+  # se falla y se pide alinear la identidad. Sin email local (la efectiva es la global) no se frena.
+  $local = "$(& git -C $RepoDir config --local user.email 2>$null)".Trim()
+  $var = "$env:SOUTHPOINT_GIT_EMAIL".Trim()
+  if ($local -and $var -and $local -ine $var) {
+    Fallar "el email local del repo ($local) no es el de SOUTHPOINT_GIT_EMAIL ($var): corré ``git config user.email $var`` en el repo y volvé a correr esto"
+  }
   $Dev = Get-Clave $devs $Dev
   foreach ($e in @($devs[$Dev]) + $propios) {
     $e = "$e".Trim()

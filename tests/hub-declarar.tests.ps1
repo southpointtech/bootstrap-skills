@@ -54,7 +54,7 @@ function Invoke-Pwsh([string]$script, [string[]]$argumentos, [hashtable]$envs = 
   if (-not $envs.ContainsKey('SOUTHPOINT_GIT_EMAIL')) { $envs['SOUTHPOINT_GIT_EMAIL'] = '' }
   # Lo mismo con el gitconfig global: un repo sin user.email local cae al email global de la
   # máquina, y el caso "sin email" dejaría de serlo.
-  $envs['GIT_CONFIG_GLOBAL'] = $script:gitGlobalVacio
+  if (-not $envs.ContainsKey('GIT_CONFIG_GLOBAL')) { $envs['GIT_CONFIG_GLOBAL'] = $script:gitGlobalVacio }
   $envs['GIT_CONFIG_NOSYSTEM'] = '1'
   foreach ($k in $envs.Keys) {
     if ($envs[$k]) { $psi.Environment[$k] = $envs[$k] } else { [void]$psi.Environment.Remove($k) }
@@ -91,17 +91,31 @@ Assert (Test-Path -LiteralPath (Ruta-Decl $t)) "crear: escribe .claude/hub-sync.
 Assert ($r.rep.accion -eq 'creada' -and $r.rep.dev -eq 'martin') "crear: reporta accion 'creada' y el dev (fue '$($r.out)')"
 Assert (Recolector-Acepta $t 'martin') "crear: el recolector acepta la declaración y le da un lote al dev"
 
-# --- Los emails salen de la identidad git del repo y de SOUTHPOINT_GIT_EMAIL, sin repetir ---
+# --- Los emails salen de la identidad git efectiva del repo y de SOUTHPOINT_GIT_EMAIL, sin repetir ---
 function Emails-De([string]$t, [string]$dev) {
   $j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
   return @($j.devs.$dev)
 }
-$t = New-Repo "m@x.io"
-$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'm.alt@x.io' }
+# Sin email local, la identidad efectiva es la global: ese es el caso legítimo de dos emails distintos.
+$t = New-Repo ""
+$global = New-TestTempPath $script:runRoot "gitconfig-global" ".txt"
+[IO.File]::WriteAllText($global, "[user]`n`temail = m@x.io`n")
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'm.alt@x.io'; GIT_CONFIG_GLOBAL = $global }
 $e = @(Emails-De $t 'martin')
 Assert ($r.exit -eq 0 -and $e.Count -eq 2 -and $e[0] -eq 'm@x.io' -and $e[1] -eq 'm.alt@x.io') `
-  "emails: el del repo y el de SOUTHPOINT_GIT_EMAIL, en ese orden (fue '$($e -join ', ')'; exit $($r.exit); $($r.err))"
+  "emails: el global y el de SOUTHPOINT_GIT_EMAIL, en ese orden (fue '$($e -join ', ')'; exit $($r.exit); $($r.err))"
 Assert ((@($r.rep.emails) -join ',') -eq 'm@x.io,m.alt@x.io') "emails: el reporte lista los mismos (fue '$($r.out)')"
+
+# Un email LOCAL distinto de SOUTHPOINT_GIT_EMAIL es la identidad que el Step 5 fijó antes de que la
+# PC tuviera la variable: la de servicio, compartida. Declararla le asignaría a este dev los commits
+# de cualquiera que la use, así que falla nombrando las dos y no escribe nada.
+$t = New-Repo "svc@x.io"
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'dev@x.io' }
+Assert ($r.exit -ne 0 -and $r.err -cmatch '^hub-declarar: .*svc@x\.io.*dev@x\.io' -and -not (Test-Path -LiteralPath (Ruta-Decl $t))) `
+  "email local distinto de SOUTHPOINT_GIT_EMAIL: falla nombrando los dos y no escribe (exit $($r.exit); '$($r.err)')"
+$t = New-Repo "Dev@X.io"
+$r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'dev@x.io' }
+Assert ($r.exit -eq 0) "email local igual a SOUTHPOINT_GIT_EMAIL salvo mayúsculas: declara ($($r.err))"
 
 $t = New-Repo "m@x.io"
 $r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin') @{ SOUTHPOINT_GIT_EMAIL = 'M@X.io' }
@@ -256,10 +270,20 @@ Assert ($r.exit -ne 0 -and $r.err -cmatch '^hub-declarar: .*hubProject' -and
 $r = Declarar $t @('-HubProject', 'P', '-Agregarme', '-Dev', 'martin')
 Assert ($r.exit -eq 0 -and (Recolector-Acepta $t 'martin')) "declaración sin hubProject: -HubProject la repara ($($r.err))"
 
-$t = New-Repo "m@x.io"
-Escribir-Decl $t '{ "schemaVersion": 2, "hubProject": "P", "ongoingSupport": "", "devs": {} }'
-$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
-Assert ($r.exit -ne 0 -and $r.err -cmatch '^hub-declarar: ') "schemaVersion u ongoingSupport inválidos: falla (exit $($r.exit); '$($r.err)')"
+# Un fixture por regla: con dos reglas rotas a la vez, borrar cualquiera de las dos deja la otra
+# fallando y el caso en verde. Sin -HubProject ni -OngoingSupport, que pisarían el campo roto.
+foreach ($caso in @(
+    @{ regla = 'schemaVersion';  json = '{ "schemaVersion": 2, "hubProject": "P", "devs": { "martin": ["m@x.io"] } }' }
+    @{ regla = 'ongoingSupport'; json = '{ "schemaVersion": 1, "hubProject": "P", "ongoingSupport": "", "devs": { "martin": ["m@x.io"] } }' }
+    @{ regla = 'hubProject';     json = '{ "schemaVersion": 1, "hubProject": "   ", "devs": { "martin": ["m@x.io"] } }' })) {
+  $t = New-Repo "m@x.io"
+  Escribir-Decl $t $caso.json
+  $antes = [IO.File]::ReadAllBytes((Ruta-Decl $t))
+  $r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+  Assert ($r.exit -ne 0 -and $r.err -cmatch "^hub-declarar: .*$($caso.regla)" -and
+          [Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes((Ruta-Decl $t)))) `
+    "$($caso.regla) inválido en la declaración: falla nombrándolo y no la toca (exit $($r.exit); '$($r.err)')"
+}
 
 # --- upgrade-bootstrap trae la recolección a un repo bootstrapeado antes de hub-sync ---
 # El proyecto sale del scaffold real (copy-scaffold) y se lo retrocede a "antes de hub-sync": sin los

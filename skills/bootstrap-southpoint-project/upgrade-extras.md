@@ -23,7 +23,10 @@ una línea `sin lote` en el log local de la PC, y a la bandeja no llega nada. Po
    Si **ya existe**, corré solo `-Agregarme`: anota al dev de esta PC si faltaba, y si no, responde
    `sin-cambios`.
 3. Leé el JSON que imprime el script. `accion` es `creada`, `actualizada` o `sin-cambios`. Un exit
-   distinto de 0 trae el motivo en stderr: reportalo tal cual y no edites la declaración a mano.
+   distinto de 0 trae el motivo en stderr: reportalo tal cual y no edites la declaración a mano. Si
+   el motivo es que el email local del repo no es el de `SOUTHPOINT_GIT_EMAIL`, el repo quedó con la
+   identidad de servicio: con el OK del usuario, corré el `git config user.email` que el motivo
+   indica y volvé al paso 2.
 
 Hecho cuando el reporte final del upgrade dice qué `accion` dio el script (o que el usuario dejó el repo
 fuera de hub-sync) y recuerda los dos pasos que el upgrade no hace:
