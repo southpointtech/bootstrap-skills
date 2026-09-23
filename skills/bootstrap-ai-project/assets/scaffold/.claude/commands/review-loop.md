@@ -203,7 +203,10 @@ One turn = one complete pass through these steps:
    advanced marker, so a re-run never under-scopes the coherence pass. A missing or pruned marker
    records nothing, and the coherence pass falls back to the branch base. A `light` loop runs
    `open` too: it costs nothing, and if a High promotes the slice, its coherence pass reads the
-   anchor turn 1 recorded (`-Action slice-base`).
+   anchor turn 1 recorded (`-Action slice-base`). Also on the first turn, note the commit that
+   declared this close: HEAD, when it carries the `Slice-Close:` that fired this loop. At close, the
+   issues are marked from that commit only. A loop fired by `git push` or the ~400-line net, with no
+   `Slice-Close:` on HEAD, has none, and marks nothing.
 2. Run `/slice-review` on `git diff <range>` (pass the range as its argument), plus the untracked
    files the range does not carry. In a `light` loop pass **`--light`** and no other flag. In
    `standard`, on the **first turn only**, add **`--mutation` and
@@ -301,6 +304,26 @@ Name the close before acting on it; the final report states it:
 A stop because you are blocked on a human decision, and an empty range on the first turn, are
 **not** closes.
 
+**Mark the closed issues `done`** after the coherence pass (in `light`, right after the loop ends),
+if **no High finding is left open**: any clean or prose-only close, and a cap close whose open
+findings are all Medium. Mark only the commit that declared **this** close, the one you noted on
+turn 1 (step 1):
+
+```powershell
+pwsh -NoProfile -File .claude/scripts/marcar-done.ps1 -RepoDir . -Sha <the commit noted on turn 1>
+```
+
+Do not collect commits from `-Action slice-base` or a branch range for this. `slice-base` falls back
+to the branch base when there is no anchor, and an anchor left by a capped slice outlives it, so a
+range would sweep in earlier slices' closes, including one left open with a High. The
+`Slice-Close:` trailer cites each issue by its path, e.g.
+`Slice-Close: .scratch/<feature>/issues/07-<slug>.md — <what closed>`. The script rewrites only the
+`Status:` line of each cited issue under `.scratch/<feature>/issues/` and prints a JSON with
+`marcados`, `yaDone`, `noEncontrados`, `sinStatus`, `noUtf8`, `lineasSliceClose` and `sinRuta`.
+`.scratch/` is gitignored, so there is nothing to commit. With a High still open, do not run it:
+the issue stays as it was and the final report says why. A trailer that cites no path marks nothing
+(`sinRuta` lists it). Say so in the report; do not guess the issue from free text.
+
 Run `-Action close` on a **clean** or **prose-only** close only, strictly after the coherence pass
 when one runs (a `light` loop has none to wait for). It deletes `slice-open:<branch>` so the next
 slice's first-turn `open` records its own start instead of inheriting this one's. Do **not** run it
@@ -324,3 +347,6 @@ the anchor via `-Action slice-base`, so `close` runs strictly after it. See `doc
 - List the findings resolved this run.
 - State the tests/typechecks run and their result, including which fixes went RED before green.
 - Note any finding deliberately not fixed (with reason) and any blocker that needs a human.
+- List the issues marked `done` (the script's `marcados`) and the reason for every one that was
+  not: a High left open, no `Slice-Close:` on the commit noted on turn 1, or each non-empty `yaDone`,
+  `noEncontrados`, `sinStatus`, `noUtf8` or `sinRuta` entry.

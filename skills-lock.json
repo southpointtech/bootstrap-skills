@@ -165,7 +165,7 @@
       "base": null,
       "forkFiles": [],
       "files": {
-        "SKILL.md": "be72038b4a6bef70546bbf61230ad2e9361bed686d1c679aaaf3ddbdfadcfe85"
+        "SKILL.md": "ae867e9233d5ea33db8bcc0dab028120d5216c6421f164b1ed54dfaacdfa0661"
       }
     },
     "setup-matt-pocock-skills": {
@@ -180,12 +180,12 @@
       },
       "forkFiles": [],
       "files": {
-        "SKILL.md": "e37aba0a9ddcb87547c430b4daaf65d351753910a4b0dbac7d666d2945df21e2",
+        "SKILL.md": "2bf254bccf458e0a3c8f6b668e3273c427255e77afc0d0fc92958f397b592b24",
         "domain.md": "edc6d6131fdffc4b7135704f5262124fc43355c95f61b7399dc5a4db643e28ca",
         "issue-tracker-github.md": "02b8e6445b6514d87c5226373e077ea7f531bd8f7cf1c2fa4be5cf48320b6385",
         "issue-tracker-gitlab.md": "1f1e2f178bea28e39753613687e02621e0f7d6f0e29127e13f2ae4a75fa66c70",
         "issue-tracker-local.md": "e16b3fe28ad6e389887e001b4da82fd8751ca12f95b355c432a2b39b8c0bff4a",
-        "triage-labels.md": "4f53c9b40ce2651e3611aa090eaedbd6dbc9b71ef8c5f7e65eac0d8263190d0d"
+        "triage-labels.md": "516369386797e4587a507966c570538d87d1de3de2c24f41b1f9a9640313c0ab"
       }
     },
     "slice-review": {
@@ -213,7 +213,7 @@
         "interface-design.md"
       ],
       "files": {
-        "SKILL.md": "d5e60409b211964160d532662293bdf70a139491acf218291fa40118450792b1",
+        "SKILL.md": "6bc65496574a5f34efc5180f4572fde8a4844b0f131cc46c26ad72053828e21c",
         "deep-modules.md": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32",
         "interface-design.md": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d",
         "mocking.md": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef",
@@ -279,7 +279,7 @@
       "files": {
         "AGENT-BRIEF.md": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f",
         "OUT-OF-SCOPE.md": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d",
-        "SKILL.md": "da80dabef6c5ccc93085bfcc9dff0fc79acad7ddd711b0858a44459333c8c576"
+        "SKILL.md": "26325fd5bb8b953bc3f699769a76b71ee45588cd0b487b8c3d4f35b546a6ea91"
       }
     },
     "verify-downstream-arrival": {

@@ -34,5 +34,15 @@ foreach ($t in ($targets | Where-Object { Test-Path $_ })) {
   Assert ($hits.Count -eq 0) "$([IO.Path]::GetRelativePath($repo, $t)) sin marcadores de fuga"
 }
 
+# Los archivos sólo-Southpoint (tests/lib/solo-southpoint.ps1) no llegan a lo publicable. El escaneo de
+# marcadores de arriba no alcanza: el recolector de hub-sync no tiene por qué nombrar ninguno, y
+# copiado a bootstrap-ai-project pasaría limpio.
+. (Join-Path $PSScriptRoot "lib\solo-southpoint.ps1")
+Assert ($soloSouthpoint.Count -gt 0) "la lista de archivos sólo-Southpoint no está vacía"
+foreach ($s in $soloSouthpoint) {
+  Assert (-not (Test-Path -LiteralPath (Join-Path $repo "skills/bootstrap-ai-project/$s"))) `
+    "skills/bootstrap-ai-project no tiene el archivo sólo-Southpoint $s"
+}
+
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

@@ -392,6 +392,30 @@ function Get-RelativoDeTools($dotSource) {
   return $rel
 }
 
+# La forma 4: OTRA librería de `tests/lib/`, sólo DESPUÉS del canónico. Existe porque el helper de
+# temporales dejó de ser la única: `lib\consola-propia.ps1` corre un script en su propia consola, que
+# es lo que evita que una suite le deje su code page a las demás (issue 15). Mismo criterio que la
+# forma 3: conjunto cerrado, anclado, un solo segmento y nunca antes del helper. Lo que estas
+# librerías definen NO necesita un chequeo aparte como el de tools/: viven bajo `tests/`, así que el
+# lint recursivo de este mismo archivo ya las mira (raíz de %TEMP% y redefiniciones del helper).
+function Get-RelativoDeLib($dotSource) {
+  $obj = @($dotSource.CommandElements)[0]
+  $j = Get-DentroDelParen $obj
+  if ($j -isnot [System.Management.Automation.Language.CommandAst]) { return $null }
+  if ($j.GetCommandName() -ne 'Join-Path') { return $null }
+  $els = @($j.CommandElements)
+  if ($els.Count -ne 3) { return $null }
+  if ($els[1] -isnot [System.Management.Automation.Language.VariableExpressionAst] -or
+      $els[1].VariablePath.UserPath -ne 'PSScriptRoot') { return $null }
+  if ($els[2] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { return $null }
+  $rel = $els[2].Value.Replace('/', '\')
+  if ($rel -notmatch '^lib\\[A-Za-z0-9_-]+\.ps1$') { return $null }
+  # El canónico entra por su propia forma, no por ésta: si entrara por acá, se aceptaría importado
+  # en cualquier posición y la guarda de orden dejaría de existir.
+  if ($rel -eq 'lib\temp-workspace.ps1') { return $null }
+  return $rel
+}
+
 function Test-ImportaElHelper([string]$path, [string]$relativo) {
   $ast = Get-AstDe $path
   $ds = @($ast.FindAll({
@@ -419,6 +443,8 @@ function Test-ImportaElHelper([string]$path, [string]$relativo) {
     # Antes del helper, un error al cargar la herramienta dispara el trap sin `Remove-TestRunRoot`
     # definido, y ese error tapa al de la herramienta.
     if ($null -ne (Get-RelativoDeTools $c)) { if (-not $vioElHelper) { return $false }; continue }
+    # La forma 4 tampoco importa el helper, y por el mismo motivo sólo vale después de él.
+    if ($null -ne (Get-RelativoDeLib $c)) { if (-not $vioElHelper) { return $false }; continue }
     return $false
   }
   return $vioElHelper
@@ -603,6 +629,14 @@ $casosDeImport = @(
   # El orden importa: si la herramienta tira al cargarse antes del helper, el trap llama a
   # `Remove-TestRunRoot` sin que exista y ese error reemplaza al de la herramienta.
   @{ ok = $false; n = 'la herramienta de tools/ ANTES del canónico';   codigo = ". (Join-Path `$PSScriptRoot `"..\tools\normalized-hash.ps1`")`n. (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")" }
+  # La forma 4: otra librería de `tests/lib/`. Mismos negativos que la forma 3, porque la evasión es
+  # la misma: un stub colgado de un subdirectorio, de otra raíz o detrás de un escape.
+  @{ ok = $true;  n = 'el canónico MÁS otra lib de lib/';              codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"lib\consola-propia.ps1`")" }
+  @{ ok = $true;  n = 'otra lib de lib/ con separador /';              codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"lib/consola-propia.ps1`")" }
+  @{ ok = $false; n = 'otra lib de lib/ ANTES del canónico';           codigo = ". (Join-Path `$PSScriptRoot `"lib\consola-propia.ps1`")`n. (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")" }
+  @{ ok = $false; n = 'el canónico MÁS un subdirectorio de lib/';      codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"lib\sub\stub.ps1`")" }
+  @{ ok = $false; n = 'el canónico MÁS lib/ en otra raíz';             codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"..\lib\stub.ps1`")" }
+  @{ ok = $false; n = 'el canónico MÁS un escape detrás de lib/';      codigo = ". (Join-Path `$PSScriptRoot `"lib\temp-workspace.ps1`")`n. (Join-Path `$PSScriptRoot `"lib\stub.ps1\..\..\stub.ps1`")" }
 )
 # Piso, y por CLASE: la lista es el único control de que `Test-ImportaElHelper` no devuelve siempre
 # lo mismo. Sin negativos, un predicado que acepta todo pasa; sin positivos, uno que rechaza todo
@@ -648,6 +682,12 @@ $ramasExigidas = @(
   'la herramienta de tools/ con un segmento de más'
   'la herramienta de tools/ desde otra raíz'
   'la herramienta de tools/ ANTES del canónico'
+  'el canónico MÁS otra lib de lib/'
+  'otra lib de lib/ con separador /'
+  'otra lib de lib/ ANTES del canónico'
+  'el canónico MÁS un subdirectorio de lib/'
+  'el canónico MÁS lib/ en otra raíz'
+  'el canónico MÁS un escape detrás de lib/'
 )
 $nombresDeCaso = @($casosDeImport | ForEach-Object { $_.n })
 $ramasFaltantes = @($ramasExigidas | Where-Object { $_ -notin $nombresDeCaso })
@@ -939,9 +979,12 @@ foreach ($s in $suites) {
 $suitesConHelperEsperadas = @(
   'alignment-gate.tests.ps1'
   'apply-env.tests.ps1'
+  'consola-propia.tests.ps1'
   'copy-scaffold.tests.ps1'
   'export-shareable.tests.ps1'
   'gen-mcp-json.tests.ps1'
+  'hub-enviar.tests.ps1'
+  'hub-sync-tarea.tests.ps1'
   'normalized-hash.tests.ps1'
   'review-loop-docs-gate.tests.ps1'
   'review-loop-trigger.tests.ps1'
