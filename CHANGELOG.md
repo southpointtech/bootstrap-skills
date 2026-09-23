@@ -1,16 +1,33 @@
 # Changelog
 
-## Unreleased
+## v2.1.0 — 2026-09-23
 
 ### Changed — every scaffold skill is agent-invocable again
 
-v2.0.0 made nine skills user-invoked (`grill-me`, `grill-with-docs`, `to-prd`, `to-issues`,
-`triage`, `handoff`, `to-questionnaire`, `setup-matt-pocock-skills`, `zoom-out`): only a human could
-type them, and the agent stopped mid-workflow to ask you to. They are model-invoked again, with their
-trigger descriptions back, so the agent can run the next workflow step itself (ADR-0013).
+In v2.0.0 nine skills were user-invoked (`grill-me`, `grill-with-docs`, `to-prd`, `to-issues`,
+`triage`, `handoff`, `to-questionnaire`, `setup-matt-pocock-skills`, `zoom-out`; the last three
+already were before v2): only a human could type them, and the agent stopped mid-workflow to ask you
+to. All nine are model-invoked now, and each command's description carries a trigger formula (copied
+from its `SKILL.md` where it had one; `grill-me`, `grill-with-docs` and `to-questionnaire` never had
+one and gained it), so the agent can run the next workflow step itself (ADR-0013).
 
 The cost is context: the command descriptions loaded on every request grow from 5,709 to 9,217
 characters. Take it with `upgrade-bootstrap`.
+
+### Added — issues are marked `done` when their slice closes
+
+Triage has a sixth state, `done`. When `/review-loop` closes a slice with no High finding left open,
+it runs `.claude/scripts/marcar-done.ps1`, which rewrites the `Status:` line of every issue that the
+closing commit's `Slice-Close:` trailer cites **by path**
+(`Slice-Close: .scratch/<feature>/issues/07-<slug>.md — <what closed>`). A trailer that cites no
+path marks nothing, and the loop says so.
+
+### Added — daily hub-sync collection (Southpoint only)
+
+Southpoint projects get `.claude/scripts/hub-recolectar.ps1` and `hub-enviar.ps1`: a script with no
+LLM that collects your closed slices and `Status:` transitions and pushes them as proposals to the
+PROJECT MANAGEMENT inbox (ADR-0012). `setup-mcp-workstation` installs, repairs and checks the daily
+Scheduled Task that runs it.
 
 ### Fixed — the review-loop hook lost slice closes declared from PowerShell
 
