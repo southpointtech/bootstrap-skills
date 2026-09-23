@@ -9,18 +9,28 @@ function Get-FrontmatterField([string]$Text, [string]$Key) {
   return $null
 }
 
+function Get-CodePointCount([string]$Text) {
+  $n = 0
+  foreach ($c in $Text.ToCharArray()) { if (-not [char]::IsLowSurrogate($c)) { $n++ } }
+  return $n
+}
+
 function Measure-ContextLoad {
   param([Parameter(Mandatory)][object[]]$Files)
-  $commands = 0; $loaded = 0; $flagged = 0
+  $claudeMd = 0; $commands = 0; $loaded = 0; $flagged = 0
   foreach ($f in $Files) {
-    if ($f.Path -like '.claude/commands/*.md') {
+    if ($f.Path -eq 'CLAUDE.md') {
+      $t = $f.Content.TrimStart([char]0xFEFF) -replace "`r`n", "`n" -replace "`r", "`n"
+      $claudeMd = Get-CodePointCount $t
+    } elseif ($f.Path -like '.claude/commands/*.md') {
       if ((Get-FrontmatterField $f.Content 'disable-model-invocation') -eq 'true') { $flagged++; continue }
       $commands += (Get-FrontmatterField $f.Content 'description').Length
       $loaded++
     }
   }
   [pscustomobject]@{
+    ClaudeMd = $claudeMd
     Commands = $commands; CommandsLoaded = $loaded; CommandsFlagged = $flagged
-    Total = $commands
+    Total = $claudeMd + $commands
   }
 }

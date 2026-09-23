@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 5
+$ExpectedChecks = 7
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -45,6 +45,16 @@ Assert ($r.Total -eq 8) "total sin CLAUDE.md ni agents = comandos (dio $($r.Tota
 # Un flag en false no excluye: se mira el valor, no la presencia de la clave.
 $r = Measure-ContextLoad -Files @((F ".claude/commands/a.md" "---`ndescription: abcd`ndisable-model-invocation: false`n---`n"))
 Assert ($r.Commands -eq 4) "disable-model-invocation: false carga igual (dio $($r.Commands))"
+
+# --- CLAUDE.md de la raíz: entero, en code points, con CRLF/CR como un solo salto y sin BOM --------
+# "😀" es un code point fuera del BMP: .Length de .NET lo cuenta 2, el oráculo de Python 1.
+$r = Measure-ContextLoad -Files @(
+  (F "CLAUDE.md" ([char]0xFEFF + "a`r`nb`rc😀"))
+  (F "docs/CLAUDE.md" "no es el de la raíz")
+  (F ".claude/commands/a.md" "---`ndescription: xy`n---`n")
+)
+Assert ($r.ClaudeMd -eq 6) "CLAUDE.md: a LF b LF c 😀 = 6 code points; el BOM no cuenta y docs/CLAUDE.md no carga (dio $($r.ClaudeMd))"
+Assert ($r.Total -eq 8) "total = CLAUDE.md + comandos = 6 + 2 (dio $($r.Total))"
 
 Write-Host ""
 if ($script:checks -ne $ExpectedChecks) {
