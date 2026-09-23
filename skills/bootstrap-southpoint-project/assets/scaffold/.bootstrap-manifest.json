@@ -1,7 +1,7 @@
 {
   "variant": "southpoint",
   "generatedFrom": "bootstrap-southpoint-project",
-  "version": "2026-09-23+ced4de3",
+  "version": "2026-09-23+cc2178c",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
@@ -70,6 +70,7 @@
     ".claude/hooks/alignment-gate.ps1": "09e7751ffe376d84282dce49efb7cb2ee0d10599cb88d4fbdfd031d687f8c7e1",
     ".claude/hooks/review-loop-trigger.ps1": "2e0298bdaf59b73bc8540ab53d6b79688338c20afa5107c1b48a2d7b51cb358a",
     ".claude/scripts/abrir-carril.ps1": "4695236b910630c00442ed1f5eac744a49163451c3ad841c6663824f550c81d1",
+    ".claude/scripts/hub-declarar.ps1": "20fdd8aaf1a7c1bad169c8c99b51cc7a87eefef9b397117483166ae9a302183d",
     ".claude/scripts/hub-enviar.ps1": "7601c6a48a68336512ea6aaed3cd72d34179473554f73db9d9392acd616e647a",
     ".claude/scripts/hub-recolectar.ps1": "bf59c180eaec635e499ceaa0eaadebe2da8b9be5eeb5aa3ca47aee970340279a",
     ".claude/scripts/marcar-done.ps1": "4cd90b2757878f9f35fdb587aee077b1f867148624f7eedd50aa5a00dba129f6",

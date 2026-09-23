@@ -983,6 +983,7 @@ $suitesConHelperEsperadas = @(
   'copy-scaffold.tests.ps1'
   'export-shareable.tests.ps1'
   'gen-mcp-json.tests.ps1'
+  'hub-declarar.tests.ps1'
   'hub-enviar.tests.ps1'
   'hub-sync-tarea.tests.ps1'
   'normalized-hash.tests.ps1'
