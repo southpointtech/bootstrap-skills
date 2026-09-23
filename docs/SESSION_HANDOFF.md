@@ -1,3 +1,92 @@
+# Session Handoff — 2026-09-23 (tarde-noche) — **Medición 01 HECHA** (compromiso congelado en `0499a97`) + slice de limpieza de la métrica (`fb95fb9`). Próximo: **el Medium de columna 0 del oráculo** (una línea, slice light).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`fb95fb9`** + el commit de este handoff.
+  `origin/main` = `685e592`; **20 commits sin pushear** (antes de este handoff). Push =
+  `gh auth switch -u southpointtech && git push` y volver a MartinDele703 (memoria).
+- ⚠️ **Otra sesión mergeó en `main` el hub-sync 14a** (`15dc1bf`, merge de `0244e89`; 10 commits
+  `884fb60..0244e89`) mientras esta sesión trabajaba en el mismo árbol. Toca el **scaffold** de
+  southpoint (`hub-declarar.ps1`, `.bootstrap-manifest.json`, `SKILL.md`, `upgrade-extras.md`) y
+  `skills/upgrade-bootstrap/SKILL.md`: puede que falte `tools/sync-skills.ps1` para deployarlo; eso es
+  del carril hub-sync (su handoff vive en `.scratch/hub-sync/`), no de este. El worktree hub-sync está
+  en `15dc1bf` [`feat/hub-sync-16`].
+- Marcador del review-loop en `fb95fb9`; `-Action close` corrido (cierre limpio): **no hay
+  `slice-open:main` colgando**.
+- Worktrees: v2 (`Bootstrap-Skills-bootstrap-v2`), 24 (`carriles/Bootstrap Skills/24-gramatica-por-herramienta`,
+  guarda el **issue 28**), hub-sync.
+- Untracked de Codex en `main` (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no
+  tocar; hacen fallar `skills-lock.tests` y `chicas-y-forks-propios.tests`.
+
+## 1. Qué se hizo en esta sesión
+
+**Medición 01 — compromiso previo congelado** (`0499a97`, issue `01-…` → `Status: done`).
+- Nuevo: `docs/superpowers/notes/2026-09-23-medicion-v2-compromiso-previo.md`. Sujeto: `v2.1.0`
+  contra el scaffold `2026-09-11` = **commit `f7ae28f` en las tres variantes** (verificado con
+  `git show f7ae28f:skills/*/assets/scaffold/.bootstrap-manifest.json`). `567c77a` (personal),
+  `441e753` (southpoint), `1f9f297` (ai) y `3b3d849` (manifest de `v2.1.0`) son **sufijos del
+  `version`, no commits** (`git cat-file` los rechaza).
+- **Decisión del usuario**: "empeora" = la media de `pass_rate` de un brazo v2 (`v2-serie` o
+  `v2-olas`) cae por debajo de la de `v1-serie` por más de un desvío de `v1-serie`; desvío 0 →
+  cualquier caída; cada brazo v2 por separado, basta uno para frenar. "Queda igual" = dentro de un
+  desvío. Incluye el contexto medido: 9.845 → 17.372 (la segunda rama ya está armada).
+- Gitignored, sin commit: `.scratch/medicion-v2/PRD.md` (líneas 8 y 104-107) e
+  `issues/04-aparato-de-los-tres-brazos.md` ahora dicen construir cada brazo desde su **ref**
+  (`f7ae28f`, tag `v2.1.0`) y verificar por el string `version` del manifest materializado
+  (`2026-09-11+567c77a` / `2026-09-23+3b3d849`), no "desde el commit que el manifest declara".
+- Review-loop light, cierre limpio; también revisó `d21ce9b` (los fixes sin revisar del slice 02).
+
+**Slice de limpieza de la métrica** (`fb95fb9`, sin issue: el trailer no cita ruta → `sinRuta`).
+- `tests/oracles/context-metric.py`: comentario con `(^|\s)#`; línea siguiente que es comentario
+  tira; `.md` case-insensitive; `assert` → `Rechazo`/`need()` (`python -O` borra asserts);
+  docstring acotado a "las formas de los fixtures `Tira`".
+- `tools/context-metric.ps1`: comentario indentado bajo la clave tira con "comentario en la línea
+  siguiente"; el error de clave repetida ya no afirma que YAML se queda con la última.
+- `tests/context-metric.tests.ps1`: 54 → **59** checks.
+
+## 2. Tests
+
+- `pwsh -NoProfile -File tests/context-metric.tests.ps1` → **59 checks, 0 fail** (el del comentario
+  indentado estuvo RED antes del fix; los otros 4 nuevos fijan comportamiento que ya andaba).
+- Paridad del oráculo: script de scratch (no commiteado) con 17 fixtures Tira + 9 de aceptación → 0
+  fallas; `python -O tests/oracles/context-metric.py f7ae28f` = 9.845, `v2.1.0` = 17.372, `v2.1.0
+  southpoint` = 17.506.
+- `run-all` (43 suites): **incompleto** — lo corté con `timeout 590`; `temp-hygiene` salió 143 por
+  ese corte (no es un veredicto). Rojos confirmados: `skills-lock` y `chicas-y-forks-propios`
+  (Codex). Correrlo entero sin timeout (tarda >10 min): `chcp.com 65001` antes (memoria).
+
+## 3. Abierto
+
+- **Medium (score 92), introducido en `fb95fb9`, sin arreglar por la regla de light**:
+  `tests/oracles/context-metric.py:46` hace `following[0].strip().startswith("#")`, así que rechaza
+  un `# nota` en **columna 0** bajo `description:` que la métrica (`'^\s+#'`) mide como 3. Fix:
+  `re.match(r"\s+#", following[0])` + un Assert "se mide" de ese caso en la suite (`$ExpectedChecks`
+  59 → 60) y en el chequeo de paridad.
+- Low: el comentario del test del NBSP (`tests/context-metric.tests.ps1`, "Cualquier blanco antes del
+  `#` abre un comentario") es falso en YAML (solo espacio y tab); la métrica tira de más ahí, que es
+  el lado seguro, pero su mensaje "(YAML lo descarta)" también es falso para NBSP.
+- Low (descartado, score 35): el comando con BOM se mide porque `-ne '---'` compara con la cultura
+  (ignora U+FEFF); con `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` tiraría. Endurecer opcional:
+  `TrimStart([char]0xFEFF)` en `Get-FrontmatterField`.
+- Issue 28 (worktree del 24) y Lows de ADR-0013: siguen pendientes.
+
+## 4. Próximos pasos (en este orden)
+
+1. **Slice light**: el Medium de columna 0 + el comentario/mensaje falso del NBSP (test RED primero).
+2. Medición 03 (juguete CLI inventario, `.scratch/medicion-v2/issues/03-…`); desbloquea la 04.
+3. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- El `alignment-gate` salta en el primer Write de la sesión (aunque sea al scratchpad): si el trabajo
+  ya está alineado (PRD aprobado, issue `ready-for-agent`), decirlo y reintentar.
+- Reemplazos con `python -` y heredoc rompen los escapes: usar Edit.
+- Si el rango del marcador trae commits ajenos (otro carril mergeado), revisar solo el propio
+  (`git diff <padre-del-propio>`) y decirlo.
+- El usuario escribe en español y quiere las respuestas en español.
+
+---
+
 # Session Handoff — 2026-09-23 (noche) — **Medición 02 HECHA** (`tools/context-metric.ps1`, issue `done`, loop cerró por TOPE). Próximo: **medición 01** (compromiso previo congelado).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
