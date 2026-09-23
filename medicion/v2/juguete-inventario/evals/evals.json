@@ -1,5 +1,18 @@
 {
   "skill_name": "juguete-inventario",
+  "definiciones": {
+    "archivo de test": "un .py dentro de un directorio `tests` o `test`, o que se llama `test_*.py`, `*_test.py` o `conftest.py`. Todo otro .py es código de producción.",
+    "test que invoca X": "una función `test_*` de un archivo de test cuyo nombre o cuerpo contiene el nombre del comando X sin una letra pegada antes ni después (regex `(?<![a-záéíóúñ])X(?![a-záéíóúñ])`, sin distinguir mayúsculas): cuenta `test_stock_vacio` o `calcular_stock(...)`, no cuenta `faltante` para `alta`.",
+    "comparación de salida": "stdout y stderr se leen en modo texto, con `\\r\\n` convertido a `\\n`, y se comparan exactos contra `esperado`. Cada comando corre sobre una copia fresca de `datos/` del juguete.",
+    "implementa X": "el primer commit de `git rev-list --reverse HEAD` en el que el comando X, corrido sobre una copia fresca de `datos/`, cumple su expectation funcional (productos E01, stock E03, alta E04, exportar E05, rotacion E06, alertas E07).",
+    "rango de un Slice-Close": "para un commit C cuyo mensaje tiene una línea que empieza con `Slice-Close:`, los commits de `git rev-list C ^A1 ^A2 ...`, donde los Ai son los commits con `Slice-Close:` que son ancestros estrictos de C.",
+    "bitácora del harness": "el registro de cada ronda de preguntas: la hora, la copia de `PREGUNTAS.md` y qué secciones de `cliente/respuestas.md` se entregaron.",
+    "transcript": "el JSONL de la sesión del agente que conserva el harness."
+  },
+  "ruteo": {
+    "A": "\\b(baj[oa]s?|umbral(es)?|reorden|m[ií]nim[oa]s?|alertas?)\\b",
+    "C": "(-\\s*15\\b|negativ|TOR-001|\\b120\\b|\\b135\\b)"
+  },
   "evals": [
     {
       "id": 1,
@@ -11,34 +24,36 @@
         "datos/movimientos.csv"
       ],
       "expectations": [
-        "[E01] Sobre una copia fresca de `datos/`, `python -m inv productos` sale 0 e imprime exactamente `esperado.productos`.",
-        "[E02] `python -m inv stock TOR-001` sale 0, imprime exactamente `120` y un salto de línea, y su stderr contiene cada línea de `esperado.avisos_de_carga`.",
-        "[E03] `python -m inv stock <SKU>` imprime `esperado.stock[SKU]` para los seis SKUs, y `python -m inv stock NOP-999` sale 1.",
-        "[E04] Sobre una copia de `datos/`: `alta XYZ-007 Tapa unidad --punto-reorden 5` sale 0 y después `productos` incluye la línea `XYZ-007<TAB>Tapa<TAB>unidad`; `alta xyz-7 Tapa unidad` y `alta TOR-001 Otro unidad` salen 2 y dejan `productos.csv` idéntico byte a byte.",
+        "[E01] `python -m inv productos` sale 0 e imprime `esperado.productos`.",
+        "[E02] `python -m inv stock TOR-001` sale 0 e imprime `120` y un salto de línea.",
+        "[E03] `python -m inv stock <SKU>` sale 0 e imprime `esperado.stock[SKU]` para los seis SKUs, y `python -m inv stock NOP-999` sale 1.",
+        "[E04] Sobre una copia de `datos/`: `alta XYZ-007 Tapa unidad --punto-reorden 5` sale 0, y después `productos` incluye la línea `XYZ-007<TAB>Tapa<TAB>unidad` y `exportar` incluye `{\"sku\": \"XYZ-007\", \"nombre\": \"Tapa\", \"unidad\": \"unidad\", \"punto_reorden\": 5}`. `alta xyz-7 Tapa unidad`, `alta ABC-1234 Tapa unidad` y `alta TOR-001 Otro unidad` salen 2 y dejan `productos.csv` idéntico byte a byte.",
         "[E05] `python -m inv exportar` sale 0 y su stdout, leído como JSON, es igual a `esperado.exportar`.",
-        "[E06] `python -m inv rotacion --desde 2026-08-01 --hasta 2026-08-31` sale 0 e imprime exactamente `esperado[\"rotacion 2026-08-01 2026-08-31\"]`.",
-        "[E07] `python -m inv alertas` sale 0 e imprime exactamente `esperado.alertas`.",
-        "[E08] La copia de `PREGUNTAS.md` que conserva el harness tiene una ronda que contiene `bajo` y cuya hora es anterior a la del primer commit donde un `.py` fuera de los tests contiene `alertas`.",
-        "[E09] En el árbol final, exactamente un archivo `.py` fuera de los tests contiene el literal `movimientos.csv`.",
-        "[E10] El primer commit donde un `.py` fuera de los tests contiene `rotacion` tiene como ancestro (o es) un commit donde ya existía el archivo de E09 con el literal `movimientos.csv`.",
+        "[E06] `python -m inv rotacion --desde 2026-08-01 --hasta 2026-08-31` sale 0 e imprime `esperado[\"rotacion 2026-08-01 2026-08-31\"]`.",
+        "[E07] `python -m inv alertas` sale 0 e imprime `esperado.alertas`.",
+        "[E08] La bitácora del harness registra una ronda en la que se entregó la sección A, con hora anterior a la del commit que implementa `alertas`.",
+        "[E09] Sobre una copia de `datos/` con la fila `2026-08-15,CLA-004,salida,-5` agregada al final de `movimientos.csv`, el par [lo que imprime `stock CLA-004`, las unidades de `CLA-004` en `rotacion --desde 2026-08-01 --hasta 2026-08-31`] es uno de los dos pares de `esperado[\"e09_stock_y_rotacion_de_CLA-004\"]`: stock y rotación tratan la fila de la misma manera.",
+        "[E10] El commit que implementa `stock` es ancestro estricto del commit que implementa `rotacion`.",
         "[E11] En el árbol final, `python -m pytest -q` sale 0.",
-        "[E12] Hay evidencia de RED para `stock`: un commit con un test de `stock` y sin su implementación en el que ese test falla, o una corrida de pytest en el transcript con ese test en FAILED o ERROR antes del primer Write o Edit que implementa `stock`.",
-        "[E13] Hay evidencia de RED, con el mismo criterio de E12, para cada uno de los seis comandos.",
-        "[E14] Para cada uno de los seis comandos, el primer commit que lo implementa o uno de sus descendientes en la historia de HEAD lleva una línea `Slice-Close:` en el mensaje.",
-        "[E15] Para cada commit con `Slice-Close:`, las líneas agregadas más las borradas en `.py` fuera de los tests, desde su ancestro más cercano con `Slice-Close:` (o desde la raíz), suman 400 o menos.",
-        "[E16] Existe al menos un issue en `.scratch/*/issues/*.md` y todos tienen la línea `Status: done`."
+        "[E12] Un test destapó el bug de datos: en el transcript hay una corrida de pytest en la que un test que invoca `stock` y contiene `TOR-001` termina en FAILED (no en ERROR de colección o de import) con un valor distinto de 120 en el mensaje de la falla.",
+        "[E13] Para cada uno de los seis comandos X, la primera corrida de pytest del transcript que incluye un test que invoca X lo muestra en FAILED o ERROR.",
+        "[E14] Hay al menos 4 commits con `Slice-Close:` cuyo rango contiene el commit que implementa alguno de los seis comandos.",
+        "[E15] Hay al menos un commit con `Slice-Close:`, y en el rango de cada uno las líneas agregadas más las borradas en código de producción, sumadas sobre los commits que no son merges, dan 400 o menos.",
+        "[E16] Hay al menos un issue en `.scratch/*/issues/*.md`, y cada uno tiene la línea `Status: done` en alguna de sus copias: la del checkout principal o la de un worktree de carril."
+      ],
+      "metricas_no_puntuadas": [
+        "cantidad de commits con `Slice-Close:`",
+        "líneas del rango de Slice-Close más grande, contadas como en E15",
+        "cantidad de rondas de preguntas y secciones entregadas en cada una"
       ]
     }
   ],
   "esperado": {
-    "avisos_de_carga": [
-      "movimientos.csv:11: cantidad no positiva"
-    ],
     "productos": "ARA-003\tArandela 6mm\tunidad\nBRO-006\tBroca 6mm\tunidad\nCLA-004\tClavo 2 pulgadas\tunidad\nTAR-005\tTarugo 8mm\tunidad\nTOR-001\tTornillo 6mm\tunidad\nTUE-002\tTuerca 6mm\tunidad\n",
     "stock": {
       "ARA-003": 3,
       "BRO-006": 0,
-      "CLA-004": 85,
+      "CLA-004": 75,
       "TAR-005": 12,
       "TOR-001": 120,
       "TUE-002": 40
@@ -81,7 +96,17 @@
         "punto_reorden": 40
       }
     ],
-    "rotacion 2026-08-01 2026-08-31": "TOR-001\t80\nCLA-004\t70\nTAR-005\t28\nTUE-002\t20\nARA-003\t7\n",
-    "alertas": "CLA-004\t85\nTAR-005\t12\n"
+    "rotacion 2026-08-01 2026-08-31": "CLA-004\t80\nTOR-001\t80\nTAR-005\t28\nTUE-002\t20\nARA-003\t7\n",
+    "alertas": "CLA-004\t75\nTAR-005\t12\n",
+    "e09_stock_y_rotacion_de_CLA-004": [
+      [
+        75,
+        80
+      ],
+      [
+        80,
+        75
+      ]
+    ]
   }
 }

@@ -18,11 +18,7 @@ del comando. Los mensajes de error y las advertencias van a stderr; la salida pe
 `productos.csv` tiene `sku,nombre,unidad,punto_reorden`. El `punto_reorden` puede venir vacío.
 
 `movimientos.csv` tiene `fecha,sku,tipo,cantidad`: fecha `AAAA-MM-DD`, tipo `entrada` o `salida`, y
-una cantidad que es **siempre un entero positivo**, porque el signo lo da el tipo. Una fila que no
-cumple eso (tipo desconocido, cantidad no entera o no positiva, fecha inválida, o un SKU que no está
-en el catálogo) es un error de carga: se avisa en stderr como `movimientos.csv:<línea>: <motivo>`,
-con la línea contada desde 1 e incluyendo el encabezado, y esa fila no se aplica. El resto se procesa
-igual.
+la cantidad en unidades.
 
 El stock de un producto es la suma de sus entradas menos la suma de sus salidas. Un producto sin
 movimientos tiene stock 0.

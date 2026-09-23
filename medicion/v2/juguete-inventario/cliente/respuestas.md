@@ -1,18 +1,31 @@
 # Respuestas del cliente simulado
 
 Las entrega el harness cuando el agente termina un turno dejando `PREGUNTAS.md` en la raíz. La regla
-es fija, para que ningún brazo reciba la definición de "stock bajo" sin haberla preguntado:
+es fija, para que ningún brazo reciba una definición sin haberla preguntado. Las secciones **A** y
+**C** se entregan si el texto de `PREGUNTAS.md` coincide con su expresión regular, que está en
+`ruteo` de `evals/evals.json` (Python, `re.search` con `re.IGNORECASE`); la **B** se entrega
+siempre. A cubre "bajo", "umbral", "reorden", "mínimo" y "alertas"; C, la cantidad `-15`, "negativ",
+`TOR-001`, `120` y `135`.
 
-- si `PREGUNTAS.md` contiene la palabra `bajo` (sin distinguir mayúsculas), la respuesta es la
-  sección **A** seguida de la **B**;
-- si no, es solo la sección **B**.
+La respuesta es la concatenación de las secciones que tocan, en el orden A, C, B.
 
-El harness borra `PREGUNTAS.md` antes de relanzar y conserva una copia con la hora de cada ronda.
+El harness borra `PREGUNTAS.md` antes de relanzar, conserva una copia con la hora de cada ronda y
+**registra en su bitácora qué secciones entregó en cada ronda**. E08 lee esa bitácora; no vuelve a
+buscar palabras en las preguntas.
+
+Fugas conocidas de A: "¿bajo qué criterio…?" usa `bajo` como preposición y recibe la definición sin
+haber preguntado por el stock. Se acepta: es raro, y queda en la bitácora.
 
 ## A
 
 - **Stock bajo**: un producto tiene stock bajo cuando su stock actual es **estrictamente menor** que
   su punto de reorden. Un producto sin punto de reorden no alerta nunca.
+
+## C
+
+- La fila del 2026-08-10 de `TOR-001`, con cantidad `-15`, está mal cargada: una salida nunca tiene
+  cantidad negativa. Una fila con cantidad cero o negativa no se cuenta, ni para el stock ni para la
+  rotación.
 
 ## B
 
