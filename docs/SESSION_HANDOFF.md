@@ -1,3 +1,100 @@
+# Session Handoff — 2026-09-23 (tarde) — **v2.1.0 taggeada y deployada** (ADR-0013 + hub-sync + issue 24). Issues de los dos PRDs publicados. Próximo: **medición issue 02** (métrica de contexto como script con tests).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`4d205ec`** + el commit de este handoff.
+  **Tag `v2.1.0` (anotado) en `4d205ec`**; `v2.0.0` sigue en `fb07b8a`. **Nada pusheado desde
+  `f53b59d`** (`origin/main`). El push lo hace el usuario: `gh auth switch -u southpointtech`, push de
+  `main` + `feat/bootstrap-v2` + `git push origin v2.0.0 v2.1.0`, y volver a `MartinDele703`.
+- **`~/.claude/skills` DEPLOYADO desde `main` @ `v2.1.0`** (`tools/sync-skills.ps1`; `diff -rq` del
+  scaffold personal contra lo instalado: idéntico). Los proyectos nuevos nacen con: el hook con
+  gramática por herramienta (24), marcar-done + hub-sync (merge `9f45aa4`) y las 21 skills model-invoked.
+- **Rama `slice/todas-model-invoked`**: mergeada (`7131d3d`) y borrada.
+- **Worktrees vivos**: v2 (`Bootstrap-Skills-bootstrap-v2`, `feat/bootstrap-v2` @ `f633733`), 24
+  (`carriles/Bootstrap Skills/24-gramatica-por-herramienta`, ya mergeado; ahí vive gitignored el
+  `.scratch/bootstrap-v2/issues/` con el **issue 28 abierto** — no borrar el worktree sin mover el 28),
+  hub-sync (`carriles/Bootstrap Skills/hub-sync`, `feat/hub-sync` @ `0c3f739`, ya mergeado a `main`).
+- **La otra terminal (hub-sync) está quieta** esperando que el repo PROJECT MANAGEMENT cierre su issue
+  17; el usuario dijo que no la usa hasta nuevo aviso. Igual: la suite barre `%TEMP%`, preguntar antes
+  de `run-all` si esa terminal vuelve a estar activa.
+- Untracked de Codex en `main` (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajeno, no
+  tocar. **Hacen fallar `skills-lock.tests` y `chicas-y-forks-propios.tests` y el `Seal` del lockfile de
+  la raíz** (ver §5).
+
+## 1. Qué se hizo en esta sesión
+
+1. **Merge de hub-sync a `main`** (`9f45aa4`): lo hizo la otra terminal, no esta. Trae issues 03, 04,
+   07, 08, 12, 15 de hub-sync (rebaseado sobre `feat/bootstrap-v2` antes de mergear).
+2. **ADR-0013 — las 9 skills user-invoked vuelven a ser model-invoked** (decisión del usuario:
+   "Quiero que todas esas skills vuelvan a ser invocables por vos. No estoy de acuerdo con ese
+   cambio."). `grill-me`, `grill-with-docs`, `to-prd`, `to-issues`, `triage`, `handoff`,
+   `to-questionnaire`, `setup-matt-pocock-skills`, `zoom-out`: sin `disable-model-invocation` en las 4
+   raíces × 2 copias; cada comando lleva la description de su SKILL.md; grill-me, grill-with-docs y
+   to-questionnaire ganaron fórmula de disparo nueva. Commits `caf1ecc` + `0601084`, merge `7131d3d`.
+   Costo medido: 12 comandos / 5.709 → 21 / 9.217 caracteres de description por request.
+3. **Review-loop standard** sobre ese slice: turno 1 (5 focos + mutación + /code-review) → 1 Medium real
+   (ningún test exigía comando == SKILL.md en la description; fix en `0601084`, RED visto con el
+   mutante de zoom-out en las 4 raíces), 8 mutantes muertos; turno 2 limpio; coherencia OK; `-Action
+   close` corrido. Issue `.scratch/todas-model-invoked/issue.md` marcado `done` A MANO (el script lo
+   reportó `sinRuta` porque no está bajo `issues/NN-…`).
+4. **`/to-issues` sobre los dos PRDs** (ya invocable por el agente): publicados
+   `.scratch/identidad-compartida/issues/01..06` y `.scratch/medicion-v2/issues/01..09`.
+   PRD de medición: sujeto pasa a **`v2.1.0`** (decisión del usuario) + nota del costo de ADR-0013.
+   PRD de identidad: que el recolector de hub-sync LEA el archivo del emisor queda **para el carril
+   hub-sync** (decisión del usuario), no está entre los issues.
+5. **Release v2.1.0**: `sync-skills` (manifests sin cambios), CHANGELOG `Unreleased` → `v2.1.0` con la
+   entrada de ADR-0013 corregida + `done`/marcar-done + hub-sync (`4d205ec`), tag anotado `v2.1.0`.
+
+## 2. Tests
+
+- `run-all` (antes del fix del turno 1): 41 suites, **2 rojas solo por la basura de Codex**
+  (`skills-lock`, `chicas-y-forks-propios`); en un worktree limpio de `caf1ecc` ambas exit 0.
+- Después del fix: `invocation-policy` 324/0. Suites tocadas verdes: `wizard-y-to-questionnaire`,
+  `grilling-y-punteros`, `merge-triage-handoff-setup`, `nombres-propios-de-skills`, `mirror`.
+
+## 3. Abierto
+
+- **Issue 28** (en el worktree del 24): Medium de prosa sobre `$esc`/backtick + 4 Low. Chico, `light`.
+- **Lows del slice ADR-0013, sin arreglar** (anotados en su issue): `CONTEXT.md` entrada "Skill
+  model-invoked" dice "se justifica únicamente cuando el agente debe llegar a ella…" (contradice
+  ADR-0013); `tests/invocation-policy.tests.ps1` :114-115 ("setup-matt-pocock-skills es user-invoked",
+  falso) y :44-59 (header no menciona el chequeo de igualdad de ADR-0013).
+- **Frontier de issues**: identidad 01 (HITL, contrato), 02 (HITL, relevar Zoho), 03 (AFK); medición
+  01, 02, 03 (AFK). El usuario eligió **medición 02** para la próxima terminal.
+
+## 4. Próximos pasos (en este orden)
+
+1. **Medición 02 — métrica de contexto como script con tests** (`.scratch/medicion-v2/issues/02-…`).
+   Aprobado por el usuario para la próxima terminal. Referencia: el cálculo a mano de esta sesión
+   (suma del valor de `description:` de cada comando sin el flag, LF-normalizado, sobre
+   `skills/bootstrap-personal-project/assets/scaffold/.claude/commands`) dio 5.709 en `9f45aa4` y
+   9.217 en `v2.1.0` — sirven como literales oráculo SOLO si se recalculan fuera de la función bajo
+   prueba. Scaffold `2026-09-11` = `567c77a` (personal).
+2. Medición 01 (compromiso previo congelado) — chico, antes de cualquier corrida del A/B.
+3. Push (usuario), incluido el tag `v2.1.0`.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- **Las 21 skills del scaffold son model-invoked** (ADR-0013): `/to-issues`, `/triage`, etc. se invocan
+  por Skill tool. No volver a pasar ninguna a user-invoked para ahorrar contexto sin que lo decida el
+  usuario.
+- **Sellar el lockfile de la raíz** con Codex presente: `tools/skills-lock.ps1 -Action Seal -Repo .`
+  falla por los `source-command-*`. Se selló desde una copia en el scratchpad (`skills-lock.json` +
+  `.agents/skills/` sin `source-command-*`) y se copió el lockfile de vuelta. Los 3 scaffolds sellan
+  normal con `-Repo skills/<bootstrap>/assets/scaffold`.
+- **Suites que dan rojo espurio por Codex**: `skills-lock`, `chicas-y-forks-propios`. Verificar en un
+  worktree limpio (`git worktree add --detach <scratch> HEAD`) antes de creer el rojo; borrarlo después.
+- **`marcar-done.ps1` solo marca issues bajo `.scratch/<feature>/issues/NN-<slug>.md`**: citar esa
+  ruta en el `Slice-Close:`; un issue suelto sale en `sinRuta`.
+- El alignment-gate dispara en el primer Write/Edit de la sesión (no en ediciones hechas por script);
+  si el trabajo ya está alineado, decirlo y reintentar.
+- Heredoc con comillas mezcladas en la Bash tool puede fallar el parseo ("unexpected EOF"): escribir el
+  script con Write al scratchpad y correrlo.
+- Todo lo de §5 del handoff de la mañana del 2026-09-23 y §6 del 2026-09-22 (abajo) sigue vigente.
+- El usuario corta la sesión al superar ~200K de contexto y prefiere handoff a `/compact`.
+
+---
+
 # Session Handoff — 2026-09-23 — **Issue 24 + 27 MERGEADOS a `main`** (`07eda4e`, sin push). Abre el **issue 28**. Próximo: **`/to-issues` sobre los dos PRDs** (aprobado por el usuario).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
