@@ -3,9 +3,8 @@
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
 - **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`4d205ec`** + el commit de este handoff.
-  **Tag `v2.1.0` (anotado) en `4d205ec`**; `v2.0.0` sigue en `fb07b8a`. **Nada pusheado desde
-  `f53b59d`** (`origin/main`). El push lo hace el usuario: `gh auth switch -u southpointtech`, push de
-  `main` + `feat/bootstrap-v2` + `git push origin v2.0.0 v2.1.0`, y volver a `MartinDele703`.
+  **Tag `v2.1.0` (anotado) en `4d205ec`**; `v2.0.0` sigue en `fb07b8a`. **PUSHEADO 2026-09-23**: `main` @ `685e592`, `feat/bootstrap-v2` (con upstream) y los tags `v2.0.0` +
+  `v2.1.0` están en `origin`. Este commit de handoff queda local hasta el próximo push.
 - **`~/.claude/skills` DEPLOYADO desde `main` @ `v2.1.0`** (`tools/sync-skills.ps1`; `diff -rq` del
   scaffold personal contra lo instalado: idéntico). Los proyectos nuevos nacen con: el hook con
   gramática por herramienta (24), marcar-done + hub-sync (merge `9f45aa4`) y las 21 skills model-invoked.
