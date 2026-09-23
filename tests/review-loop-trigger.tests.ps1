@@ -664,7 +664,7 @@ function Fire-Tool($repo, $cmd, $toolName) {
 # El caso que este slice vino a arreglar: la herramienta primaria de esta maquina es PowerShell, y
 # con el matcher en `Bash` un cierre DECLARADO no disparaba nunca. Mutante: volver el matcher a
 # `Bash` deja este assert rojo (y el resto de la suite en verde).
-# NOTA (issue de auditoria de comentarios, ver mas abajo): el parentesis es impreciso — el assert del
+# NOTA (issue 27, auditoria de comentarios): el parentesis es impreciso — el assert del
 # valor exacto tambien cae. Se deja como estaba a proposito: es una imprecision PREEXISTENTE, del
 # issue 21 ya cerrado, y arreglarla acá resultó peor que dejarla. El intento anterior la "corrigió"
 # publicando una causa inventada ("porque los dos leen el mismo settings.json": no, este bloque lee
