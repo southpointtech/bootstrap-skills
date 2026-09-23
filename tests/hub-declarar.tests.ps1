@@ -155,6 +155,29 @@ Assert ($r.exit -eq 0 -and $r.rep.accion -eq 'sin-cambios') "sin cambios: exit 0
 Assert ([Convert]::ToBase64String($antes) -eq [Convert]::ToBase64String($despues)) "sin cambios: el archivo queda byte a byte igual"
 Assert ([IO.File]::GetLastWriteTimeUtc((Ruta-Decl $t)).Year -eq 2020) "sin cambios: el archivo no se reescribe"
 
+# --- -OngoingSupport y -HubProject fijan esos campos; vacíos no escriben nada ---
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', 'P', '-OngoingSupport', 'Soporte P', '-Agregarme', '-Dev', 'martin')
+$j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
+Assert ($r.exit -eq 0 -and $j.ongoingSupport -eq 'Soporte P') "ongoingSupport: se escribe si viene (fue '$($j.ongoingSupport)'; $($r.err))"
+Assert (Recolector-Acepta $t 'martin') "ongoingSupport: el recolector acepta la declaración que lo trae"
+
+# Vacío no se escribe: el recolector rechaza un ongoingSupport vacío como declaración inválida.
+$t = New-Repo "m@x.io"
+$r = Declarar $t @('-HubProject', 'P', '-OngoingSupport', '', '-Agregarme', '-Dev', 'martin')
+$j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
+Assert ($r.exit -eq 0 -and $null -eq $j.PSObject.Properties['ongoingSupport']) "ongoingSupport vacío: no se escribe ($($r.err))"
+Assert (Recolector-Acepta $t 'martin') "ongoingSupport vacío: el recolector acepta la declaración"
+
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "hubProject": "Viejo", "devs": { "otro": ["o@x.io"] } }'
+$r = Declarar $t @('-HubProject', 'Nuevo')
+$j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
+Assert ($r.exit -eq 0 -and $r.rep.accion -eq 'actualizada' -and $j.hubProject -eq 'Nuevo') `
+  "hubProject: se actualiza sobre una declaración existente (fue '$($j.hubProject)', '$($r.out)'; $($r.err))"
+Assert ((@($j.devs.otro) -join ',') -eq 'o@x.io' -and $null -eq $j.devs.PSObject.Properties['martin']) `
+  "hubProject: sin -Agregarme, los devs quedan como estaban"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }

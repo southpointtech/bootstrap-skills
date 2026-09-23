@@ -1,9 +1,10 @@
 # .claude/scripts/hub-declarar.ps1 — crea o actualiza la declaración de hub-sync del repo.
 #
-#   pwsh -File .claude/scripts/hub-declarar.ps1 -RepoDir <repo> [-HubProject <texto>] [-Agregarme] [-Dev <usuario>]
+#   pwsh -File .claude/scripts/hub-declarar.ps1 -RepoDir <repo> [-HubProject <texto>] [-OngoingSupport <texto>] [-Agregarme] [-Dev <usuario>]
 param(
   [Parameter(Mandatory)][string]$RepoDir,
   [string]$HubProject,
+  [string]$OngoingSupport,
   [switch]$Agregarme,
   [string]$Dev = $env:USERNAME
 )
@@ -31,6 +32,10 @@ else { $decl = [ordered]@{ schemaVersion = 1; hubProject = $HubProject; devs = [
 # El contenido de partida, para no reescribir un archivo que no cambió: se compara el contenido y no
 # el texto, así que una declaración escrita a mano con otro formato tampoco se reformatea.
 $inicial = ConvertTo-Json -InputObject $decl -Depth 5 -Compress
+
+# Un texto vacío no escribe el campo: el recolector rechaza un ongoingSupport vacío.
+if ($HubProject.Trim()) { $decl.hubProject = $HubProject.Trim() }
+if ($OngoingSupport.Trim()) { $decl.ongoingSupport = $OngoingSupport.Trim() }
 
 # Los emails que el dev ya tenía van primero; los nuevos se suman al final, sin repetir. Sin
 # distinguir mayúsculas, igual que el recolector, que filtra los commits con `-contains`.
