@@ -8,6 +8,13 @@
 # listado; una model-invoked la carga entera, triggers en español incluidos, porque esos triggers
 # son la razón por la que el agente la alcanza.
 #
+# REVERTIDO el 2026-09-23 (ADR-0013): el dueño del repo pidió que las nueve que el issue 13 había
+# pasado a user-invoked vuelvan a ser model-invoked, y hoy la lista declara las 21 así. La
+# maquinaria de user-invoked (`MarcasDeAgente`, `EsEscalarPlano`, sus anclas) se queda: la lista
+# sigue siendo declarada, y un comando que se clasifique user-invoked mañana vuelve a pasar por ella.
+# Las mediciones de abajo son del 2026-09-19 y describen el árbol de ese día; la del 2026-09-23 está
+# en el ADR.
+#
 # MEDIDO el 2026-09-19 sobre `skills/bootstrap-personal-project/assets/scaffold` (sumando el valor de
 # la línea `description:` de cada comando que NO lleva el flag, sin el prefijo `description: `):
 #   antes de este slice  : 18 comandos model-invoked, 6.667 caracteres
@@ -61,7 +68,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin ella, un mutante que borra asserts sale en verde (0 de 0).
-$ExpectedChecks = 324   # 20 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 9 user-invoked + 2 del ADR-0003)
+$ExpectedChecks = 324   # 20 fijas + 4 raíces x (2 direcciones + 21 comandos x 3 + 0 user-invoked + 9 de ADR-0013 + 2 del ADR-0003)
 
 $scaffoldsEsperados = @("bootstrap-ai-project", "bootstrap-personal-project", "bootstrap-southpoint-project")
 $scaffolds = @($scaffoldsEsperados | ForEach-Object { Join-Path $repo "skills/$_/assets/scaffold" })
@@ -96,7 +103,9 @@ function EsUserInvoked($fm) {
 
 # La fórmula de disparo: lo que le dice al agente CUÁNDO alcanzar la skill solo. Sin ella, una
 # model-invoked paga su description en cada request y no se dispara nunca.
-$disparadores = @('Use when', 'Use as', 'Usala cuando', 'Usala antes')
+# `Trigger when` es la fórmula de `setup-matt-pocock-skills`, cuya description pinea EXACTA
+# merge-triage-handoff-setup.tests.ps1.
+$disparadores = @('Use when', 'Use as', 'Usala cuando', 'Usala antes', 'Trigger when')
 function Disparadores($d) { return @($disparadores | Where-Object { $d.Contains($_) }) }
 
 # La marca de que una description le habla al AGENTE sobre el usuario en tercera persona, o le lista
@@ -152,31 +161,36 @@ $politica = [ordered]@{
   'diagnosing-bugs'            = $false   # la alcanza el agente ante un bug
   'domain-modeling'            = $false   # la invoca el puntero /grill-with-docs por Skill tool
   'git-guardrails-claude-code' = $false
-  'grill-me'                   = $true    # paso 1 del flujo: lo escribe el humano
-  'grill-with-docs'            = $true    # paso 1 del flujo: lo escribe el humano
+  'grill-me'                   = $false   # paso 1 del flujo (ADR-0013: el agente lo alcanza solo)
+  'grill-with-docs'            = $false   # paso 1 del flujo (ADR-0013)
   'grilling'                   = $false   # la invocan los dos punteros por Skill tool
-  'handoff'                    = $true    # lo pide el humano al cerrar la sesión
+  'handoff'                    = $false   # ADR-0013
   'research'                   = $false
   'resolving-merge-conflicts'  = $false
   'review-loop'                = $false   # LA ORDENA EL HOOK review-loop-trigger (ADR-0003)
-  'setup-matt-pocock-skills'   = $true
+  'setup-matt-pocock-skills'   = $false   # ADR-0013
   'slice-review'               = $false   # LA INVOCA review-loop por Skill tool (ADR-0003)
   'tdd'                        = $false
-  'to-issues'                  = $true    # paso 6 del flujo: lo escribe el humano
-  'to-prd'                     = $true    # paso 4 del flujo: lo escribe el humano
-  'to-questionnaire'           = $true
-  'triage'                     = $true
+  'to-issues'                  = $false   # paso 6 del flujo (ADR-0013)
+  'to-prd'                     = $false   # paso 4 del flujo (ADR-0013)
+  'to-questionnaire'           = $false   # ADR-0013
+  'triage'                     = $false   # ADR-0013
   'verify-downstream-arrival'  = $false   # la alcanza el agente antes de afirmar que algo llegó
   'wizard'                     = $false
-  'zoom-out'                   = $true
+  'zoom-out'                   = $false   # ADR-0013
 }
 $declarados = @($politica.Keys)
 $userInvoked  = @($declarados | Where-Object { $politica[$_] })
 $modelInvoked = @($declarados | Where-Object { -not $politica[$_] })
 
+# Las nueve que ADR-0013 devolvió a model-invoked: su comando recupera la description ENTERA de su
+# SKILL.md. `Disparadores` sola no lo sostiene: la description vieja de `zoom-out` también dice `Use when`.
+# No vale para las 21: `review-loop`, `slice-review` y `tdd` tienen hoy descriptions distintas en las dos copias.
+$adr0013 = @('grill-me', 'grill-with-docs', 'handoff', 'setup-matt-pocock-skills', 'to-issues', 'to-prd', 'to-questionnaire', 'triage', 'zoom-out')
+
 # Los conteos, fijos: un mutante que da vuelta la clasificación en masa cambia estos dos números.
-Assert ($userInvoked.Count -eq 9)   "la lista declara 9 comandos user-invoked (declara: $($userInvoked.Count))"
-Assert ($modelInvoked.Count -eq 12) "la lista declara 12 comandos model-invoked (declara: $($modelInvoked.Count))"
+Assert ($userInvoked.Count -eq 0)   "la lista declara 0 comandos user-invoked (declara: $($userInvoked.Count))"
+Assert ($modelInvoked.Count -eq 21) "la lista declara 21 comandos model-invoked (declara: $($modelInvoked.Count))"
 
 # Los dos que NO se pueden clasificar mal, por nombre y contra la lista misma.
 Assert ($politica.Contains('review-loop')  -and -not $politica['review-loop'])  "la lista declara review-loop model-invoked (el hook review-loop-trigger ordena correrla)"
@@ -207,6 +221,10 @@ foreach ($raiz in $raices) {
     # sella una clasificación que no es la que corre.
     $fmSkill = @(Frontmatter (Texto (Join-Path $raiz ".agents/skills/$n/SKILL.md")))
     Assert ($fmSkill.Count -gt 0 -and (EsUserInvoked $fmSkill) -eq (EsUserInvoked $fmCmd)) "$etq : el SKILL.md de $n declara la misma invocación que el comando"
+    if ($adr0013 -contains $n) {
+      $dCmd = Description $fmCmd
+      Assert ($dCmd.Length -gt 0 -and $dCmd -ceq (Description $fmSkill)) "$etq : el comando $n tiene la misma description que su SKILL.md (ADR-0013)"
+    }
 
     # La forma de la description se sigue de la clasificación, no del largo.
     $d = Description $fmCmd

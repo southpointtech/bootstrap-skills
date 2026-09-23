@@ -1,7 +1,6 @@
 ---
 name: to-prd
 description: Turn the current conversation context into a PRD (product requirements document) and publish it to the project issue tracker. Use when the user wants to create a PRD from the current context, formalize what was just discussed into a spec, or says "armá un PRD de esto", "convertí esta charla en un PRD", "documentá esto como PRD/spec", or "escribí el product requirements doc de lo que venimos hablando".
-disable-model-invocation: true
 ---
 
 This skill takes the current conversation context and codebase understanding and produces a PRD. Do NOT interview the user; just synthesize what you already know.
