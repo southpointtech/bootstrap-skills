@@ -118,6 +118,30 @@ $e = @(Emails-De $t 'martin')
 Assert ($r.exit -eq 0 -and $e.Count -eq 1 -and $e[0] -eq 'solo@env.io') `
   "emails: sin user.email local alcanza con SOUTHPOINT_GIT_EMAIL (fue '$($e -join ', ')'; exit $($r.exit); $($r.err))"
 
+# --- Agregarse a una declaración que ya existe no toca lo demás ---
+function Escribir-Decl([string]$t, [string]$json) {
+  [IO.Directory]::CreateDirectory((Join-Path $t ".claude")) | Out-Null
+  [IO.File]::WriteAllText((Ruta-Decl $t), $json)
+}
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "hubProject": "Proyecto X", "ongoingSupport": "Soporte X", "devs": { "otro": ["o@x.io"] } }'
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+$j = [IO.File]::ReadAllText((Ruta-Decl $t)) | ConvertFrom-Json
+Assert ($r.exit -eq 0 -and $r.rep.accion -eq 'actualizada') "agregarse: exit 0 y accion 'actualizada' (fue '$($r.out)'; $($r.err))"
+Assert ((@($j.devs.otro) -join ',') -eq 'o@x.io') "agregarse: el otro dev queda igual (fue '$(@($j.devs.otro) -join ',')')"
+Assert ((@($j.devs.martin) -join ',') -eq 'm@x.io') "agregarse: el dev queda anotado con su email"
+Assert ($j.hubProject -eq 'Proyecto X' -and $j.ongoingSupport -eq 'Soporte X') `
+  "agregarse: hubProject y ongoingSupport se conservan (fue '$($j.hubProject)' / '$($j.ongoingSupport)')"
+Assert ((Recolector-Acepta $t 'martin') -and (Recolector-Acepta $t 'otro')) "agregarse: el recolector acepta la declaración para los dos devs"
+
+# Un dev que ya estaba suma los emails nuevos después de los que tenía, sin perder ninguno.
+$t = New-Repo "m@x.io"
+Escribir-Decl $t '{ "schemaVersion": 1, "hubProject": "P", "devs": { "martin": ["viejo@x.io"] } }'
+$r = Declarar $t @('-Agregarme', '-Dev', 'martin')
+$e = @(Emails-De $t 'martin')
+Assert ($r.exit -eq 0 -and ($e -join ',') -eq 'viejo@x.io,m@x.io') `
+  "agregarse de nuevo: suma el email nuevo después de los que ya tenía (fue '$($e -join ',')'; $($r.err))"
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -eq 0) { Write-Host "TODOS LOS TESTS PASARON"; exit 0 }
 else { Write-Host "$($script:failures) test(s) FALLARON"; exit 1 }
