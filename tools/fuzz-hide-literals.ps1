@@ -16,8 +16,14 @@
 # no modelaba. Las dos sobrevivían a su mutante con la suite entera en verde. Antes de declarar una
 # rama "no observable", chequeá contra qué se midió.
 #
-# La función se EXTRAE del hook real por parseo, nunca se copia acá: una copia se desincroniza y la
-# medición pasa a hablar de otro código. Si el hook cambia de forma, este script falla ruidoso.
+# `Hide-Literals` se EXTRAE del hook real por parseo, nunca se copia acá: una copia se desincroniza y
+# la medición pasa a hablar de otro código. Si el hook cambia de forma, esa parte falla ruidoso (las
+# tres anclas se verifican y tiran).
+#
+# Sus CONSUMIDORES no: `$fold`, `Decidir` (los pasos 2 y 4) y `Cerrado` son copias a mano del hook,
+# sin guarda. Si alguien mueve el regex de plegado, el predicado del recomputo crudo o la lectura de
+# `--base`, este script sigue en verde midiendo un hook que ya no existe. Revisalos a mano cuando
+# toques esas partes; es el límite conocido de esta herramienta, no un descuido.
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -64,13 +70,20 @@ function Decidir([string]$cmd, [string]$scan) {
         $pu = $pu -or ($rf -match '\bgit\s+push\b')
         $co = $co -or ($rf -match '\bgit\s+commit(?![\w-])')
     }
-    # Paso 4: la bandera se ubica sobre $scan y el valor se lee de $cmd en el mismo índice.
+    # El hook sale acá cuando no hay disparador. Sin esto, la comparación seguiría al paso 4 para
+    # comandos que el hook descarta, y el contraejemplo que este script imprime sería uno que la
+    # conducta real nunca alcanza: evidencia falsa, que es justo lo que la herramienta viene a evitar.
+    if (-not ($pr -or $pu -or $co)) { return 'sin-disparador' }
+    # Paso 4: la bandera se ubica sobre $scan y el valor se lee de $cmd en el mismo índice. Va
+    # DENTRO de `if ($isPr)`, como en el hook: `--base` sólo se lee para un `gh pr create`.
     $base = ''
-    $bm = [regex]::Match($scan, '--base(?:\s+|=)')
-    if ($bm.Success) {
-        $tail = $cmd.Substring($bm.Index + $bm.Length)
-        if ($tail -match '^(?:''([^'']*)''|"([^"]*)"|([^\s;&|]+))') {
-            foreach ($g in 1, 2, 3) { if ($matches[$g]) { $base = $matches[$g]; break } }
+    if ($pr) {
+        $bm = [regex]::Match($scan, '--base(?:\s+|=)')
+        if ($bm.Success) {
+            $tail = $cmd.Substring($bm.Index + $bm.Length)
+            if ($tail -match '^(?:''([^'']*)''|"([^"]*)"|([^\s;&|]+))') {
+                foreach ($g in 1, 2, 3) { if ($matches[$g]) { $base = $matches[$g]; break } }
+            }
         }
     }
     return "$pr|$pu|$co|$base"
@@ -79,7 +92,7 @@ function Decidir([string]$cmd, [string]$scan) {
 # Piezas, no caracteres: sin un token disparador real ninguna bandera se mueve, y sin `--base` el
 # paso 4 no tiene nada que leer.
 $piezas = @('"', "'", '`', '\', 'git push', 'git commit', 'gh pr create', '--base develop', 'x', ' ')
-$profundidad = 4      # 10 piezas: 10+100+1000+10000 = 11.110 comandos. Con 5 son 111.110 y tarda.
+$profundidad = 5      # 10 piezas => 111.110 comandos. Medido: 14 s.
 
 $hallazgos = @{}; foreach ($r in $ramas) { $hallazgos[$r.Id] = $null }
 $total = 0; $bienFormados = 0
@@ -124,10 +137,11 @@ function Generar([string]$pref, [int]$resto) {
 
 foreach ($n in 1..$profundidad) { Generar '' $n }
 
-# SEMILLAS. El barrido ciego tiene un alcance corto: el contraejemplo más chico de `backtick-interno`
-# necesita siete piezas (`"` + texto + backtick + `"` + texto + `"` + `--base …`), y a profundidad 4
-# no aparece. Sin esto, el script reportaría "sin contraejemplo" para una rama que SÍ es observable —
-# la misma conclusión de más que esta herramienta existe para no repetir. Son los comandos de los dos
+# SEMILLAS. Un contraejemplo ÚTIL tiene que ser un comando que el hook no descarte antes: necesita
+# un disparador (`gh pr create`) Y el `--base`, porque el canal por el que estas ramas se observan es
+# el paso 4. Con eso ya gastadas dos piezas, la forma de comillas que activa la rama no entra en el
+# barrido. Sin estas semillas el script diría "sin contraejemplo" para una rama que SÍ es observable,
+# que es la conclusión de más que esta herramienta existe para no repetir. Son los comandos de los dos
 # fixtures `gh pr create` de la suite: acá sirven de regresión de la medición, no de cobertura.
 $semillas = @(
   'gh pr create --title `"arreglo de comillas`" --base develop',
@@ -138,9 +152,9 @@ foreach ($s in $semillas) {
     Probar $s
 }
 
-Write-Host "(el barrido ciego llega a $profundidad piezas; las dos semillas cubren el caso de siete)"
+Write-Host "(barrido ciego hasta $profundidad piezas, mas 2 semillas: un contraejemplo util necesita disparador + --base, y eso no entra en el barrido)"
 Write-Host "alfabeto: $($piezas.Count) piezas, hasta $profundidad de largo"
-Write-Host "comandos probados: $total   bien formados: $bienFormados"
+Write-Host "comandos probados: $total (incluye las 2 semillas)   bien formados: $bienFormados"
 Write-Host ""
 $observables = 0
 foreach ($r in $ramas) {

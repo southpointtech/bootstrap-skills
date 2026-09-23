@@ -663,10 +663,13 @@ function Fire-Tool($repo, $cmd, $toolName) {
 
 # El caso que este slice vino a arreglar: la herramienta primaria de esta maquina es PowerShell, y
 # con el matcher en `Bash` un cierre DECLARADO no disparaba nunca. Mutante: volver el matcher a
-# `Bash` deja rojo este assert Y el del valor exacto (`-ceq "Bash|PowerShell"`, mas abajo), porque
-# los dos leen el mismo `settings.json`; revertirlo en UNA sola de las cuatro raices pone rojo
-# ademas el de unicidad. La version anterior de esta linea decia "y el resto de la suite en verde",
-# que es falso: el del valor exacto tambien cae.
+# `Bash` deja este assert rojo (y el resto de la suite en verde).
+# NOTA (issue de auditoria de comentarios, ver mas abajo): el parentesis es impreciso — el assert del
+# valor exacto tambien cae. Se deja como estaba a proposito: es una imprecision PREEXISTENTE, del
+# issue 21 ya cerrado, y arreglarla acá resultó peor que dejarla. El intento anterior la "corrigió"
+# publicando una causa inventada ("porque los dos leen el mismo settings.json": no, este bloque lee
+# el del scaffold personal y el del valor exacto lee el de la raiz del repo). Va al issue junto con
+# los otros comentarios desactualizados, donde se puede medir el reparto completo.
 $t = New-Repo; Close-Slice $t "cierre commiteado con la herramienta PowerShell"
 $o = Fire-Tool $t "git commit -m cierre" "PowerShell"
 Assert ($o -match "additionalContext") "un cierre declarado desde la herramienta PowerShell despacha el hook y dispara"
@@ -725,10 +728,11 @@ foreach ($sp21 in $rootsSettings) {
 #
 # Mutante que tiene que morir: volver la gramatica de PowerShell a la de bash (o ignorar `tool_name`)
 # deja rojos CINCO asserts — los cuatro del bug y el del `\` delante de la comilla de apertura, todos
-# en este bloque — y verde el resto de la suite. El numero importa: "el primer assert" (como decia
-# antes esta linea) invita a podar los otros cuatro por redundantes, y el del `\` es la unica red de
-# la regla del escape de afuera. Medido corriendo la funcion real con `$psQuoting` clavado en $false;
-# los otros nueve asserts del bloque dan banderas identicas con y sin el mutante.
+# en este bloque — y verde el resto de la suite. Cuales son importa mas que cuantos: "el primer
+# assert" (como decia antes esta linea) invita a podar los otros cuatro por redundantes, y el del `\`
+# es la unica red de la regla del escape de afuera. Medido corriendo la funcion real con `$psQuoting`
+# clavado en $false, caso por caso; los demas asserts del bloque dan banderas identicas con y sin el
+# mutante.
 
 # Los cuatro casos REPRODUCIDOS en el issue 24, todos con un segmento entre comillas DOBLES que
 # termina en `\` antes del token disparador. Los cuatro se perdian en silencio.
@@ -789,10 +793,13 @@ Remove-Item -Recurse -Force $t
 # Lo que NO hacen —y el comentario anterior decia lo contrario— es fijar la rama de la comilla
 # duplicada. Medido: sacandola, el literal cierra en la primera comilla del par y la segunda abre
 # uno nuevo que se come `git push` igual, asi que las tres banderas quedan identicas y estos dos
-# asserts pasan en verde con la rama y sin ella. Su poder discriminante es el mismo que el del
-# assert de arriba (el mensaje que menciona `git push`): lo que agregan es la forma de PowerShell,
-# no una rama fijada. La rama cambia el ENMASCARADO, que estos asserts no observan; su unico lector
-# es la lectura de `--base` del paso 4, y para eso estan los dos `gh pr create` de mas abajo.
+# asserts pasan en verde con la rama y sin ella. La rama cambia el ENMASCARADO, que estos asserts no
+# observan; su unico lector es la lectura de `--base` del paso 4, y para eso estan los dos
+# `gh pr create` de mas abajo.
+#
+# No los podes por "redundantes" con el de arriba: son la UNICA cobertura de un literal de comilla
+# SIMPLE en gramatica de PowerShell. Un mutante que deje de tratar `'` como delimitador deja verde el
+# de arriba (comillas dobles) y rojo el de aca.
 $t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
 $o = Fire $t 'git commit -m "fix: comillas para detectar ""git push"""' $null 'PowerShell'
 Assert ([string]::IsNullOrEmpty($o)) "PowerShell: una comilla doble duplicada ("""") no expone el mensaje"
@@ -815,7 +822,10 @@ Remove-Item -Recurse -Force $t
 # que aparece cuando se le pasan comillas a un exe nativo (`-m \"...\"`). Dejando `\` como escape,
 # el walker se come la comilla de APERTURA, el mensaje entero queda expuesto, `git push` prende
 # $isPush y el commit saltea la puerta del trailer: sin gate, sin frescura y sin techo.
-# Mutante: volver `$esc` a `\` para las dos gramaticas deja este assert rojo y el resto verde.
+# Mutante: volver `$esc` a `\` para las dos gramaticas deja rojo este assert Y el `gh pr create` con
+# backtick a nivel tope de mas abajo (medido: mata dos). Antes esta linea decia "y el resto verde",
+# cierto cuando se escribio y falso desde que existe ese fixture: el mismo turno que lo agrego no
+# volvio a medir la frase de al lado.
 $t = New-Repo; git -C $t commit --allow-empty -q -m "sin declarar cierre"
 $o = Fire $t 'git commit -m \"docs: explicar que el hook dispara en git push\"' $null 'PowerShell'
 Assert ([string]::IsNullOrEmpty($o)) "PowerShell: un \ delante de la comilla no se come la apertura del literal"
@@ -827,11 +837,11 @@ Remove-Item -Recurse -Force $t
 # base que el hook resuelve y nombra en el mensaje inyectado. Sin estos dos casos, las dos ramas
 # sobreviven a su mutante con la suite entera en verde (medido).
 #
-# Los dos son `gh pr create`, que es el unico disparador que lee `--base`. El `--title` NO puede
-# contener la cadena `--base`: con la gramatica correcta no se enmascara nada, asi que el primer
-# match seria el del titulo y el hook bueno resolveria esa base — el assert saldria rojo contra el
-# codigo correcto. Por eso el titulo de abajo no la nombra (el fixture que SI la nombra, mas arriba,
-# corre en gramatica de bash, donde el titulo entrecomillado si se enmascara).
+# Los dos son `gh pr create`, que es el unico disparador que lee `--base`. En el PRIMERO el `--title`
+# no puede contener la cadena `--base`: sus backticks estan a nivel tope, asi que no se abre ningun
+# literal, no se enmascara nada, y el primer match seria el del titulo — el assert saldria rojo
+# contra el codigo CORRECTO. En el segundo el titulo SI queda enmascarado, asi que esa restriccion no
+# le aplica; se escribe igual sin `--base` adentro para que los dos se lean iguales.
 #
 # `develop` no se crea a proposito: el hook toma el valor de `--base` tal cual, sin verificar que la
 # rama exista. Bajo el mutante la base cae al fallback y `New-Repo` inicializa en `master`, asi que
