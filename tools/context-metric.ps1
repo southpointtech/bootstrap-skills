@@ -55,7 +55,7 @@ function Get-FrontmatterField([string]$Path, [string]$Text, [string]$Key) {
   for ($i = 1; $i -lt $end; $i++) {
     $l = $lines[$i]
     if (-not $l.StartsWith("${Key}:", [StringComparison]::Ordinal)) { continue }
-    if ($null -ne $found) { throw "${Path}: '${Key}' está repetida (YAML se queda con la última)" }
+    if ($null -ne $found) { throw "${Path}: '${Key}' está repetida (YAML no la admite, y la métrica no elige cuál vale)" }
     $v = $l.Substring($Key.Length + 1).Trim()
     if ($v -eq '' -or $v[0] -in '"', "'", '>', '|') {
       throw "${Path}: '${Key}' no es un valor plano de una línea, y la métrica no mide esa forma"
@@ -65,6 +65,9 @@ function Get-FrontmatterField([string]$Path, [string]$Text, [string]$Key) {
     # Un valor plano sigue en las líneas indentadas de abajo (YAML las pliega); las vacías no cortan.
     $j = $i + 1
     while ($j -lt $end -and $lines[$j].Trim() -eq '') { $j++ }
+    if ($j -lt $end -and $lines[$j] -match '^\s+#') {
+      throw "${Path}: '${Key}' tiene un comentario en la línea siguiente, y la métrica no mide esa forma"
+    }
     if ($j -lt $end -and $lines[$j] -match '^\s') {
       throw "${Path}: '${Key}' sigue en la línea siguiente, y la métrica solo lee una"
     }

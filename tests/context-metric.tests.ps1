@@ -22,7 +22,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin este número un mutante que borra asserts sale en verde.
-$ExpectedChecks = 54
+$ExpectedChecks = 59
 
 if (-not (Test-Path -LiteralPath $tool)) {
   Write-Host "FAIL: no existe la herramienta en $tool"; exit 1
@@ -111,6 +111,24 @@ Tira @((F ".claude/commands/w.md" "---`ndescription: abc # nota`n---`n")) "w.md"
 Tira @((F ".claude/commands/w.md" "---`ndescription: # nota`n---`n")) "w.md" "comentario" "description que es solo un comentario tira (YAML la lee vacía)"
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndisable-model-invocation: true # off`n---`n")) "w.md" "comentario" "flag con comentario al final tira, no se lee como otro valor"
 Tira @((F ".claude/commands/w.md" "---`ndescription: abc`ndescription: otra`n---`n")) "w.md" "repetida" "description repetida tira"
+# Una línea indentada que es un comentario no es una continuación: el motivo tiene que decir comentario.
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc`n  # nota`n---`n")) "w.md" "comentario" "un comentario indentado bajo la description tira como comentario, no como continuación"
+# Cualquier blanco antes del `#` abre un comentario, no solo el espacio: el oráculo tiene que igualarlo.
+Tira @((F ".claude/commands/w.md" "---`ndescription: abc$([char]0xA0)#x`n---`n")) "w.md" "comentario" "un NBSP antes del # también abre un comentario"
+
+# --- Lo que se mide aunque se parezca a lo que tira ------------------------------------------------
+# Un `#` pegado a una palabra no es un comentario en YAML: `C#` es parte del valor.
+$r = Measure-ContextLoad -Files @((F ".claude/commands/c.md" "---`ndescription: C# y abc#def`n---`n"))
+Assert ($r.Commands -eq 12) "un # pegado a una palabra se mide: 'C# y abc#def' = 12 (dio $($r.Commands))"
+# El BOM no cuenta tampoco en un comando. Hoy pasa porque el `-ne '---'` de Get-FrontmatterField
+# compara con la cultura, que ignora U+FEFF; una comparación ordinal lo haría tirar con 'no arranca'.
+$err = $null
+try { $r = Measure-ContextLoad -Files @((F ".claude/commands/b.md" ([char]0xFEFF + "---`ndescription: ab`n---`n"))) } catch { $err = $_.Exception.Message }
+Assert (-not $err -and $r.Commands -eq 2) "un comando con BOM se mide: 'ab' = 2 (dio $($r.Commands), error: $err)"
+# Los agents no leen el flag: uno entre comillas, que en un comando tiraría, en un agent no molesta.
+$err = $null
+try { $r = Measure-ContextLoad -Files @((F ".claude/agents/a.md" "---`ndescription: abc`ndisable-model-invocation: `"x`"`n---`n")) } catch { $err = $_.Exception.Message }
+Assert (-not $err -and $r.Agents -eq 3) "un agent con el flag entre comillas se mide: 'abc' = 3 (dio $($r.Agents), error: $err)"
 
 # --- El filtro de rutas de la CLI deja pasar lo que la función mide o rechaza ---------------------
 # Si dejara afuera .claude/skills/, la CLI imprimiría un número menor en vez de tirar.

@@ -2,13 +2,24 @@
 
 Calcula lo mismo que la métrica por otro camino (Python sobre `git show`, sin compartir código con la
 función bajo prueba) y de acá salen los literales congelados de tests/context-metric.tests.ps1.
-Rechaza las mismas formas de frontmatter que la métrica: donde ella tira, este tampoco da un número.
+Rechaza las formas de frontmatter que rechazan los fixtures `Tira` de la suite (comillas, bloque,
+vacía, comentario, continuación, repetida, sin apertura o sin cierre); más allá de eso no se probó.
 No corre en la suite: se corre a mano cuando hay que regrabar un literal.
 
     python tests/oracles/context-metric.py <ref> [personal|southpoint|ai]
 """
+import re
 import subprocess
 import sys
+
+
+class Rechazo(Exception):
+    """Una forma que la métrica no mide. No es `assert`: `python -O` borra los asserts."""
+
+
+def need(cond, msg):
+    if not cond:
+        raise Rechazo(msg)
 
 
 def normalize(raw):
@@ -17,8 +28,8 @@ def normalize(raw):
 
 def frontmatter(text):
     lines = text.split("\n")
-    assert lines[0] == "---", "no arranca con frontmatter"
-    assert "---" in lines[1:], "el frontmatter no cierra"
+    need(lines[0] == "---", "no arranca con frontmatter")
+    need("---" in lines[1:], "el frontmatter no cierra")
     return lines[1:lines.index("---", 1)]
 
 
@@ -27,18 +38,19 @@ def field(fm, key):
     hits = [i for i, l in enumerate(fm) if l.startswith(key + ":")]
     if not hits:
         return None
-    assert len(hits) == 1, f"{key} repetida"
+    need(len(hits) == 1, f"{key} repetida")
     value = fm[hits[0]][len(key) + 1:].strip()
-    assert value and value[0] not in "\"'>|", f"{key} no plana"
-    assert not value.startswith("#") and " #" not in value and "\t#" not in value, f"{key} con comentario"
+    need(value and value[0] not in "\"'>|", f"{key} no plana")
+    need(not re.search(r"(^|\s)#", value), f"{key} con comentario")
     following = [l for l in fm[hits[0] + 1:] if l.strip()]
-    assert not (following and following[0][:1].isspace()), f"{key} que sigue en otra línea"
+    need(not (following and following[0].strip().startswith("#")), f"{key} con comentario en la línea siguiente")
+    need(not (following and following[0][:1].isspace()), f"{key} que sigue en otra línea")
     return value
 
 
 def description(fm):
     value = field(fm, "description")
-    assert value is not None, "sin description"
+    need(value is not None, "sin description")
     return value
 
 
@@ -56,7 +68,7 @@ def agent(text):
 
 
 def check_no_skills(names):
-    assert not names, ".claude/skills no se mide"
+    need(not names, ".claude/skills no se mide")
 
 
 def main(ref, variant):
@@ -70,7 +82,7 @@ def main(ref, variant):
         return [n.decode("utf-8") for n in r.stdout.split(b"\0") if n] if r.returncode == 0 else []
 
     def ls(path):
-        return [n for n in ls_all(path) if n.endswith(".md")]
+        return [n for n in ls_all(path) if n.lower().endswith(".md")]
 
     # Cualquier archivo, no solo .md: la métrica tira ante todo lo que haya bajo .claude/skills/.
     check_no_skills(ls_all(f"{root}/.claude/skills"))
