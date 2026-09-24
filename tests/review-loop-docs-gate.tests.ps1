@@ -152,6 +152,21 @@ $o = Fire $t "git push"
 Assert ($o -match "additionalContext") "un .ts NUEVO sin trackear dispara aunque lo commiteado sea solo prosa"
 Remove-Item -Recurse -Force $t
 
+# El `--` de las llamadas del gate tiene que llegarle a git. El hook llama a git por la función de la
+# lib (issue 16), y una función de PowerShell se come el `--` pelado como fin de parámetros: git.exe
+# lo recibía, la función no. Sin él, `git diff HEAD .` en un repo que tiene un ARCHIVO llamado `HEAD`
+# sale 128 ("ambiguous argument"), el gate queda abierto y un slice de prosa dispara. El archivo va en
+# la base, no en el slice: en el slice sería un no-doc y el gate tendría que abrirse de todos modos.
+$t = New-Repo
+git -C $t checkout -q master
+Commit-Files $t @("HEAD")
+git -C $t checkout -q -B feat/x master
+Commit-Files $t @("docs/notas.md")
+Assert (Test-Path -LiteralPath (Join-Path $t "HEAD") -PathType Leaf) "guard: el repo tiene un archivo llamado HEAD en la raíz"
+$o = Fire $t "git push"
+Assert (-not ($o -match "additionalContext")) "un slice de prosa no dispara aunque el repo tenga un archivo llamado HEAD (el -- llega a git)"
+Remove-Item -Recurse -Force $t
+
 # El gate vale para todos los disparadores, no solo para el push: un cierre DECLARADO de un slice
 # de prosa tampoco tiene que gastar un loop.
 $t = New-Repo

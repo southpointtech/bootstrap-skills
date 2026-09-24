@@ -28,9 +28,24 @@ $ErrorActionPreference = "SilentlyContinue"
 # trae una ruta no-ASCII (`C:\Users\Martín\…`) volvía mojibake, el `Set-Location` de abajo fallaba
 # en silencio, y el hook corría sobre el repo AMBIENTE y disparaba. Las dos cosas se leen con la lib
 # y no fijando [Console]::OutputEncoding/InputEncoding: ésas son de la CONSOLA, y se las queda todo
-# lo que arranque después en ella (issue 16). Si falta la lib, leer stdin no da nada y el hook sale
-# 0, que es como falla ante todo lo que no aplica.
+# lo que arranque después en ella (issue 16).
 . (Join-Path $PSScriptRoot "..\scripts\lib\git-utf8.ps1")
+# Un hook portado a mano, o un upgrade aplicado a medias, llega sin la lib, y el dot-source de arriba
+# falla callado. Leer stdin con una función que no existe daba vacío y el hook salía 0 en CADA
+# evento: el falso negativo silencioso que este hook llama la dirección peligrosa. Por eso sus dos
+# funciones de entrada y salida se definen también acá. git cae entonces al exe, que sólo deforma las
+# rutas no-ASCII.
+if (-not (Get-Command Read-StdinUtf8 -CommandType Function)) {
+    function Read-StdinUtf8 {
+        $m = [IO.MemoryStream]::new()
+        [Console]::OpenStandardInput().CopyTo($m)
+        [Text.UTF8Encoding]::new($false).GetString($m.ToArray())
+    }
+    function Write-Stdout([string]$texto) {
+        $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
+        $s = [Console]::OpenStandardOutput(); $s.Write($b, 0, $b.Length); $s.Flush()
+    }
+}
 
 # 1. Leer el evento del hook por stdin
 $raw = Read-StdinUtf8
@@ -398,7 +413,7 @@ if ($root) {
     # DESTINO: mover código a un nombre `.md` aparecía como un único archivo de doc y silenciaba la
     # revisión de lo que se sacó. Apagada, el mismo movimiento lista también el path viejo, y con
     # una sola entrada no-doc alcanza.
-    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange -- . 2>$null)
+    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange '--' . 2>$null)
     $touchedOk = ($LASTEXITCODE -eq 0)
     # Sin marcador el rango es `<base>...HEAD`, un rango de COMMITS: el árbol de trabajo no está
     # adentro, así que un archivo TRACKEADO modificado y todavía sin commitear no aparecía en ninguna
@@ -406,7 +421,7 @@ if ($root) {
     # marcador no hay nada que sumar: su ref se emite pelado justamente para que `git diff <ref>` ya
     # cubra el árbol.
     if ($touchedOk -and -not $range) {
-        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD -- . 2>$null)
+        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD '--' . 2>$null)
         $touchedOk = ($LASTEXITCODE -eq 0)
     }
     if ($touchedOk) {
@@ -482,7 +497,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         # `git -C $root` en los dos conteos: los pathspec y `ls-files` se resuelven contra el cwd del
         # proceso git, y el evento trae el cwd de la SESIÓN, que en un monorepo es un subdirectorio.
         # Sin anclar, el techo medía sólo ese subárbol y la red de seguridad desaparecía en silencio.
-        $rows = @(git -C $root diff --numstat $range -- . @skip 2>$null)
+        $rows = @(git -C $root diff --numstat $range '--' . @skip 2>$null)
         # Si el conteo es confiable siquiera. El rango de fallback `<base>...HEAD` falla de plano en
         # historias no relacionadas (`fatal: no merge base`), y con el error tragado eso se leía como
         # "0 líneas": el techo desapareciendo justo en el camino donde el marcador ya había dicho que

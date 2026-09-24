@@ -247,6 +247,30 @@ $r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Dire
 Assert ($r.exit -eq 0) "un repo con acentos en la ruta sale 0 con la consola en cp850 (salió $($r.exit); $($r.err))"
 Assert ($r.out -match 'DryRun: no se creo nada') "con acentos y cp850 el dry run llega hasta el final"
 Assert ($r.cpSonda -eq 850) "abrir-carril no le cambia el encoding al proceso siguiente de su consola (la sonda arrancó en $($r.cpSonda), esperaba 850)"
+# Lo que el script ESCRIBE también: el agente encuentra el worktree nuevo por la línea `Worktree:`, y
+# la lee como UTF-8. Sin fijar la code page (issue 16), un `Write-Host` sale en la de la consola y la
+# ñ llega como un byte suelto de cp850.
+$hoja = Split-Path $t -Leaf
+Assert ($r.out -match ('(?m)^Worktree: .*' + [regex]::Escape($hoja) + '[\\/]slice-07\s*$')) "con acentos y cp850, la línea Worktree: trae la ruta legible en UTF-8"
+# Y el motivo de un rechazo, que también nombra la ruta.
+$ocupada = Join-Path (Split-Path $t -Parent) (Join-Path "carriles" (Join-Path $hoja "slice-07"))
+[IO.Directory]::CreateDirectory($ocupada) | Out-Null
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Directorio $t `
+  -Argumentos @('-Slice', '07', '-Slug', 'padron') -StderrUtf8
+Assert ($r.exit -eq 1) "con la carpeta del carril ocupada, se niega (salió $($r.exit))"
+Assert ($r.err.Contains("La carpeta '$ocupada' ya existe")) "con acentos y cp850, el rechazo nombra la ruta legible en UTF-8 ('$($r.err)')"
+
+# --- Si `worktree add` falla, el motivo de git le llega a quien lo corre ---
+# Es la única llamada que no pasa por la función de la lib, porque ésa descarta el stderr: un slug
+# que no sirve como nombre de rama pasa los chequeos previos (show-ref sólo dice "no existe") y lo
+# rechaza git. El motivo se busca en una línea que no sea la del propio script: las líneas `Rama:` y
+# `Worktree:` ya nombran la rama.
+$t = New-Repo
+$root = Join-Path (Split-Path $t -Parent) "carriles"
+$out = Abrir $t @("-Slice", "07", "-Slug", "a..b", "-Root", $root)
+Assert ($script:lastExit -ne 0) "una rama inválida sale distinto de 0 (salió $script:lastExit)"
+$deGit = @($out -split "`n" | Where-Object { $_ -match '07-a\.\.b' -and $_ -notmatch '^(Rama|Worktree):' })
+Assert ($deGit.Count -gt 0) "el motivo de git nombra la rama inválida ($out)"
 
 # --- El bloque mal formado es un error, con y sin -DryRun ---
 # Las tres guardas fallan ABIERTO si se las saca: dos bloques hace que se ignore el bloque entero,

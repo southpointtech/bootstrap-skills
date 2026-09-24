@@ -883,6 +883,22 @@ $o = Fire $t "git commit -m 'fix: it'\''s ready to git push now'" $null 'Bash'
 Assert ([string]::IsNullOrEmpty($o)) "Bash: el apostrofe escrito a la bash ('\'') sigue sin exponer el mensaje"
 Remove-Item -Recurse -Force $t
 
+# --- Sin la lib al lado, el hook dispara igual ---
+# El hook lee el evento y emite su JSON con la lib (issue 16). Un hook portado a mano, o un upgrade
+# aplicado a medias, lo deja sin ella: bajo `SilentlyContinue` el dot-source falla callado, y leer
+# stdin con una función que no existe daba vacío y `exit 0` en CADA evento. Es el falso negativo
+# silencioso que el hook declara la dirección peligrosa: sin la lib tiene que seguir disparando.
+$t = New-Repo; Close-Slice $t "slice"
+$suelto = New-TestWorkspace $script:runRoot "rlt-sin-lib"
+New-Item -ItemType Directory -Path (Join-Path $suelto ".claude/hooks") -Force | Out-Null
+$hookSinLib = Join-Path $suelto ".claude/hooks/review-loop-trigger.ps1"
+Copy-Item $hook $hookSinLib
+Assert (-not (Test-Path -LiteralPath (Join-Path $suelto ".claude/scripts/lib/git-utf8.ps1"))) "guard: al hook copiado no lo acompaña la lib"
+$evt = @{ tool_input = @{ command = "git commit -m slice" }; cwd = $t } | ConvertTo-Json -Compress
+$o = ($evt | & pwsh -NoProfile -File $hookSinLib)
+Assert (($o -match "additionalContext") -and ($o -match "review-loop NOW")) "sin la lib, un cierre declarado dispara igual"
+Remove-Item -Recurse -Force $t, $suelto
+
 # --- Merge de settings (proyecto con settings.json propio, p. ej. enabledPlugins) ---
 $t = New-TestWorkspace $script:runRoot "rlt-ms"
 $sp = Join-Path $t "settings.json"

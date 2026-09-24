@@ -35,6 +35,12 @@ foreach ($f in $archivos) {
 # Control positivo: si el patrón o la lectura estuvieran rotos, no habría ofensores y el caso de abajo
 # pasaría en verde sin mirar nada. El boot tiene las dos asignaciones, salida y entrada.
 Assert ($enPermitido -eq 2) "control positivo: el patrón encuentra las dos asignaciones del boot de la consola propia ($enPermitido)"
+# El boot escribe una sola forma; las otras que PowerShell acepta tienen que caer igual, o el guard deja
+# pasar al ofensor de mañana que las use (sacar `(System\.)?` sobrevivía la suite).
+# Armadas por partes: escritas enteras, este archivo sería un ofensor más.
+foreach ($forma in ('[System.Console]::Input' + 'Encoding=$x'), ('[console]::Output' + 'Encoding = $x')) {
+  Assert ($forma -match $patron) "el patrón también reconoce '$forma'"
+}
 Assert ($ofensores.Count -eq 0) "ningún otro .ps1 le cambia la code page a la consola ($($ofensores -join ', '))"
 
 Write-Host ""

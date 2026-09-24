@@ -555,6 +555,41 @@ $out = (& pwsh -NoProfile -File $sonda $lib $t) -join ';'
 Assert ($out -eq "$esperado;exit=0") "la git de la lib aplana un array y omite un `$null (dio '$out')"
 Remove-Item -Recurse -Force -LiteralPath $t
 
+# --- La lib entrecomilla cada argumento como lo parte un programa de Windows ---
+# El exe recibía los argumentos de PowerShell; la función los junta a mano en `.Arguments`. Ningún
+# fixture tenía un espacio en la ruta (%TEMP% no lo tiene) y los repos reales sí ("Bootstrap
+# Skills"): sacar el `\s` del test de comillas, o la duplicación de las barras finales, sobrevivía la
+# suite. `rev-parse --sq-quote` le devuelve a git cada argumento tal como lo recibió. En los dos shells:
+# `.Arguments` está ahí justamente por Windows PowerShell 5.1.
+$t = New-Repo
+$sonda = Join-Path $t "sonda-comillas.ps1"
+Set-Content -LiteralPath $sonda -Encoding UTF8 -Value @'
+param($lib)
+. $lib
+(git rev-parse --sq-quote 'a b' 'c"d' 'e\' '' 'f\"g' 'h\ i\' "t`tab").Trim()
+'@
+$esperado = "'a b' 'c`"d' 'e\' '' 'f\`"g' 'h\ i\' 't`tab'"
+foreach ($shell in 'pwsh', 'powershell.exe') {
+  $out = (& $shell -NoProfile -File $sonda $lib) -join "`n"
+  Assert ($out -eq $esperado) "$shell`: la git de la lib le pasa a git cada argumento entero (dio '$out')"
+}
+Remove-Item -Recurse -Force -LiteralPath $t
+
+# Y de punta a punta, que es como falla de verdad: un `-RepoDir` con espacio (y con la barra final que
+# deja un autocompletado) llegaba partido a `git -C`, y el marcador salía 2 sin decir nada.
+foreach ($sufijo in '', '\') {
+  $padre = New-TestWorkspace $script:runRoot "rm con espacio"
+  $t = Join-Path $padre "repo x"
+  [IO.Directory]::CreateDirectory($t) | Out-Null
+  Init-Repo $t "master"
+  "base" | Set-Content (Join-Path $t "file.txt")
+  git -C $t add -A; git -C $t commit -q -m base
+  git -C $t checkout -q -b feat/x
+  $adv = Marker ($t + $sufijo) advance
+  Assert ($script:lastExit -eq 0 -and $adv -match '^[0-9a-f]{40}$') "con un espacio en la ruta del repo$(if ($sufijo) { ' y barra final' }), advance emite un marcador (exit $script:lastExit, '$adv')"
+  Remove-Item -Recurse -Force -LiteralPath $padre
+}
+
 # --- `-Action base` resuelve la base del slice para el hook (Alta A: repos con base no estándar) ---
 # El hook delega acá la resolución de base cuando las ramas nombradas (main/master/develop/origin-HEAD)
 # fallan, para no quedar mudo en un repo cuya base se llama `trunk`, `dev`, etc. Devuelve el

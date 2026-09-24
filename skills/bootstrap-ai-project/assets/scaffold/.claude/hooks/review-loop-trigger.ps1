@@ -27,9 +27,24 @@ $ErrorActionPreference = "SilentlyContinue"
 # `cwd` holds a non-ASCII path (`C:\Users\Martín\…`) came back mojibake, `Set-Location` below failed
 # silently, and the hook ran against the AMBIENT repo and fired. Both are read through the lib and
 # not by setting [Console]::OutputEncoding/InputEncoding: those belong to the CONSOLE, and whatever
-# starts in it afterwards inherits them (issue 16). If the lib is missing, reading stdin yields
-# nothing and the hook exits 0, which is its failure mode for anything that does not apply.
+# starts in it afterwards inherits them (issue 16).
 . (Join-Path $PSScriptRoot "..\scripts\lib\git-utf8.ps1")
+# A hook ported by hand, or an upgrade applied halfway, arrives without the lib, and the dot-source
+# above fails silently. Reading stdin with a function that does not exist yielded nothing and the
+# hook exited 0 on EVERY event: the silent false negative this hook calls the dangerous direction.
+# So its two I/O functions are defined here too. git then goes to the exe, which only mangles
+# non-ASCII paths.
+if (-not (Get-Command Read-StdinUtf8 -CommandType Function)) {
+    function Read-StdinUtf8 {
+        $m = [IO.MemoryStream]::new()
+        [Console]::OpenStandardInput().CopyTo($m)
+        [Text.UTF8Encoding]::new($false).GetString($m.ToArray())
+    }
+    function Write-Stdout([string]$texto) {
+        $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
+        $s = [Console]::OpenStandardOutput(); $s.Write($b, 0, $b.Length); $s.Flush()
+    }
+}
 
 # 1. Read the hook event from stdin
 $raw = Read-StdinUtf8
@@ -389,14 +404,14 @@ if ($root) {
     # `--no-renames` because with rename detection on, `--name-only` reports only the DESTINATION:
     # moving code to a `.md` name showed up as a single doc file and silenced the review of what was
     # removed. Off, the same move lists the old path too, and one non-doc entry is enough.
-    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange -- . 2>$null)
+    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange '--' . 2>$null)
     $touchedOk = ($LASTEXITCODE -eq 0)
     # Without a marker the range is `<base>...HEAD`, a range of COMMITS: the working tree is not in
     # it, so a TRACKED file modified and not yet committed appeared in neither half and a slice
     # whose only code was uncommitted got suppressed. With a marker there is nothing to add — its
     # ref is emitted bare precisely so that `git diff <ref>` already covers the tree.
     if ($touchedOk -and -not $range) {
-        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD -- . 2>$null)
+        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD '--' . 2>$null)
         $touchedOk = ($LASTEXITCODE -eq 0)
     }
     if ($touchedOk) {
@@ -473,7 +488,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         # `git -C $root` on both counts: pathspecs and `ls-files` resolve against the git process's
         # cwd, and the event carries the SESSION's cwd, which in a monorepo is a subdirectory. Left
         # unanchored, the guide measured that subtree alone and the safety net silently vanished.
-        $rows = @(git -C $root diff --numstat $range -- . @skip 2>$null)
+        $rows = @(git -C $root diff --numstat $range '--' . @skip 2>$null)
         # Whether the count is trustworthy at all. The fallback range `<base>...HEAD` fails outright
         # on unrelated histories (`fatal: no merge base`), and with the error swallowed that read as
         # "0 lines" — the guide silently disappearing on the exact path where the marker had already

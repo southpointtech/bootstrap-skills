@@ -1,4 +1,4 @@
-# .claude/scripts/lib/git-utf8.ps1 — leer git, stdin y escribir stdout en UTF-8 sin tocar la consola.
+# .claude/scripts/lib/git-utf8.ps1 — leer git y stdin, y escribir stdout y stderr, en UTF-8 sin tocar la consola.
 #
 # git escribe UTF-8 y pwsh decodifica la salida de un hijo con [Console]::OutputEncoding, que en un
 # pwsh con stdout redirigido (un hook, un script que otro lanza) es la code page OEM de la máquina.
@@ -20,6 +20,8 @@
 # - el cwd es la ubicación de PowerShell, no la del proceso: `Set-Location` no mueve la segunda, y
 #   el hook resuelve su repo con `git rev-parse` sin `-C` después de un `Set-Location`;
 # - un array pasado como argumento se aplana y un `$null` se omite, como con un exe.
+# Lo que NO puede imitar: un `--` pelado. PowerShell lo consume como fin de parámetros antes de llamar
+# a una función, así que nunca llega a `$args`; al exe sí le llegaba. Va entre comillas: `'--'`.
 # El stderr de git se descarta: todas las llamadas que pasan por acá lo tiraban con `2>$null` o
 # usaban `--quiet`. Una llamada que necesite mostrarlo tiene que llamar a `git.exe` por su nombre.
 function git {
@@ -72,6 +74,14 @@ function Read-StdinUtf8 {
 # [Console]::OutputEncoding. Quien lo lee (Claude Code, con el JSON de un hook) decodifica UTF-8.
 function Write-Stdout([string]$texto) {
   $s = [Console]::OpenStandardOutput()
+  $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
+  $s.Write($b, 0, $b.Length)
+  $s.Flush()
+}
+
+# Lo mismo sobre stderr: `[Console]::Error` también codifica con la code page de la consola.
+function Write-Stderr([string]$texto) {
+  $s = [Console]::OpenStandardError()
   $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
   $s.Write($b, 0, $b.Length)
   $s.Flush()
