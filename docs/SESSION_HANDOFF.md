@@ -1,3 +1,98 @@
+# Session Handoff — 2026-09-24 (tarde) — **Ola 1 cerrada**: 04b slice 1 (`cd14028` + `76335ae`) ‖ 04a slice 2 (`cb7dd5d`), integradas en `main` con su review-loop. Próximo: **ola 2** (04a slice 3 ‖ 04b slice 2).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`cb7dd5d`** + el commit de este handoff.
+  `origin/main` = `685e592`; **35 commits sin pushear** (antes de este handoff) y el tag `v2.1.0`
+  tampoco. Push = `gh auth switch -u southpointtech && git push && git push origin v2.1.0` y volver a
+  MartinDele703. No pushear sin que el usuario lo pida.
+- Marcador del review-loop en `cb7dd5d`; `-Action close` corrido tras el loop del 04a: **no hay
+  `slice-open:main` colgando**.
+- Worktrees de los carriles removidos. Ramas sobrantes (no borrar sin pedido):
+  `worktree-agent-a540b3033915a1e82`, `worktree-agent-ae7a85d291b180f17` (04b, `bf3ba4c`),
+  `worktree-agent-a3efba9576ac2ac98` (04a, `3d0250d`).
+- Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajenos, no tocar.
+- Issues 04a y 04b siguen `ready-for-agent` (partidos; el `Slice-Close:` va sin ruta a propósito).
+  Cada uno tiene al final una sección "Slice N hecho" con lo que queda abierto: **es la spec de la
+  ola 2**. Están en `.scratch/medicion-v2/issues/` (gitignored: pegarlos en el brief del carril).
+
+## 1. Qué se hizo en esta sesión
+
+Ola de 2 carriles (`Agent` general-purpose, `isolation: worktree`, background), integrada por
+cherry-pick, review-loop corrido por el orquestador en `main`, de a un carril:
+
+- **04b slice 1** — `medicion/v2/juguete-inventario/calificar.py` + `pytest.ini` +
+  `tests/fixture_inv.py` + `tests/test_calificar.py`. `python calificar.py <dir-corrida>` →
+  `<dir-corrida>/grading.json` (formato skill-creator; si existe `proyecto/` ese es el repo).
+  E01-E07 calificadas sobre una copia del repo (sin `.git`), con `datos/` pisado por el fresco del
+  juguete antes de cada comando (agujero 5); E04 mira `productos.csv` parseado por header, exige
+  filas originales + la nueva **al final** (lo dice `enunciado.md`), sin correr `productos` ni
+  `exportar` (agujero 6); E05 compara JSON como objeto. E08-E16 `passed: null`, fuera del summary,
+  ids en `summary.no_calificadas`. Review `standard`: turno 1 → 5 Medium arreglados en `76335ae`
+  (excepción de un calificador aislada; variantes de fixture que rompen un solo subchequeo:
+  `exit_final`, `exit_alta_invalida`, `valida_duplicado`, `alta_escribe`,
+  `borra_productos_si_invalido`; test de no-mutación con datos distintos). Turno 2 (tope): 1
+  Medium abierto. Cierre por TOPE.
+- **04a slice 2** — `medicion/v2/aparato/` (`materializar.py`, `__main__.py`, README, tests nuevos
+  `test_fallas.py`). Bitácora: `materializacion_fallida` (`brazo`, `ref`, `sha`, `paso` ∈
+  git_archive/copy_scaffold/copiar_juguete/leer_manifest/git_init, `error`); `materializado` con
+  `juguete_sha256` y `commit_inicial`; `version_incorrecta` con `brazo`. `proyecto/` es repo git
+  (rama main, un commit, identidad por `-c`). `--raiz` dentro del repo → `RaizDentroDelRepo` antes
+  del mkdir. CLI sale 1 con `error: <Tipo>: ...`. Review `light` limpio (sin High).
+
+## 2. Tests
+
+- `python -m pytest -q` en `medicion/v2/juguete-inventario/` → **46 passed** (~40 s).
+- `python -m pytest -q` en `medicion/v2/aparato/` → **35 passed** (~25 s), en `main` tras el cherry-pick.
+- `oraculo.py --verificar` / `--discriminar` → ok (`PYTHONIOENCODING=utf-8`).
+- 9 mutantes de `calificar.py` corridos a mano sobre una copia en el scratchpad: todos mueren.
+- `run-all` completo NO corrido.
+
+## 3. Abierto (detalle en las secciones "Slice N hecho" de cada issue)
+
+- **04b**: Medium — ninguna variante aísla el "sale 0" del `alta` válido de E04 (fix:
+  `("E04", {"exit_final": {"alta": 1}})` en `FALLAN`). Lows: test de F1 no fija el guard local de
+  E04; error del calificador cuenta como fallo del agente (propuesta: `passed: null` +
+  `summary.errores_del_calificador` + `main` ≠ 0); E05 acepta `100.0`/`true`; visor muestra `null`
+  como ✗; estado fuera de `datos/` persiste; docstring "stdout y stderr"; timeout y nietos; README
+  sin marcar agujeros 5 y 6 como cerrados en código. Y E08-E16 enteras.
+- **04a**: Medium — `paso` `copiar_juguete` y `git_init` sin test. Lows: manifest JSON no-objeto y
+  `TarError` → traceback; `GIT_DIR`/`GIT_WORK_TREE` heredados; se pierde la excepción original si
+  falla registrar la falla; `-b main`, formato de la huella, etc. sin test.
+- Issue 28 y Lows de ADR-0013: fuera de la medición.
+
+## 4. Próximos pasos
+
+1. **Ola 2 en paralelo** (el usuario la pidió para esta terminal): **04a slice 3** (primero el Medium
+   de `paso` y los Lows de manifest no-objeto y `GIT_*`; después `claude -p`, rondas de
+   `PREGUNTAS.md`, transcripts en ruta fija, copia de `.scratch/` de carriles antes del paso 8 de
+   `PARALELISMO.md`, corrida en seco de un caso) ‖ **04b slice 2** (primero el Medium de E04 exit 0;
+   después E08-E16 — definir cuántas entran en ~400 líneas de lógica; E09 coherencia, E10 a
+   `metricas_no_puntuadas`, orden de JSONL por timestamp). No comparten archivos: 04a es dueño de
+   `medicion/v2/aparato/**`, 04b de `calificar.py` + `tests/` del juguete. `evals.json` (`ruteo`, que
+   aplica el harness 04a) no es de ninguno de los dos: si hay que cambiarlo, lo hace el
+   orquestador entre olas. Contrato a fijar antes
+   de despachar: dónde deja 04a los transcripts (`<corrida>/transcripts/*.jsonl`) y las copias de
+   `.scratch/` de carriles, y la bitácora de preguntas — el 04b los lee.
+2. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- **Hablarle al usuario SIEMPRE en español**, también al relayar subagentes.
+- **Receta de carril que funcionó hoy**: el worktree de `isolation: worktree` sale de `origin/main`;
+  el brief le ordena como primer paso `git reset --hard main` (verificar `git log -1` = sha de main),
+  y después prohíbe checkout/switch/branch/rebase/merge/push/reset/stash. Así el commit del carril
+  cae sobre main local y el cherry-pick es limpio. Commit con Write + `git commit -F`. El carril no
+  corre `/review-loop` (el hook se lo pide igual: ignorarlo).
+- **No cherry-pickear un carril mientras corre el review-loop de otro**: el `advance` del marcador lo
+  daría por revisado. Integrar y revisar de a uno.
+- `calificar.py` y sus tests usan subprocess: la suite del juguete tarda ~40 s.
+- Rigor: 04b `standard` (el calificador define la medición); 04a `light` (herramienta local).
+- Mensajes de commit: a un archivo del scratchpad y `git commit -F`.
+- El `alignment-gate` salta en el primer Edit: el trabajo ya está alineado, decirlo y reintentar.
+
+---
+
 # Session Handoff — 2026-09-24 — **Issue 03 CERRADO** (`5869c71`) + **04 partido en 04a/04b** + **04a slice 1 en main** (`cd662a2`). Próximo: **ola de 2 carriles** (04a slice 2 ‖ 04b slice 1).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
