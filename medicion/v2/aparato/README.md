@@ -3,23 +3,38 @@
 Issue `04a`. Corre el juguete (`../juguete-inventario/`) en los tres brazos del A/B. Vive fuera de
 la suite y fuera del scaffold: nada de acá corre en `tests/run-all.ps1`.
 
-Por ahora **materializa un brazo y abre su corrida** (slices 1 y 2). Lanzar al agente, las rondas
-de `PREGUNTAS.md`, los transcripts y las olas son el slice 3; la calificación es el `04b`.
+**Materializa un brazo y abre su corrida** (slices 1 y 2) y **lanza al agente sobre ella**
+(slice 3): rondas de `PREGUNTAS.md`, transcripts, `.scratch/` de los carriles y credencial. Lo que
+escribe una corrida y lee el calificador (`04b`) está fijado en `../CORRIDA.md`.
 
 ## Uso
 
-Desde esta carpeta (`medicion/v2/aparato/`), con Python 3.12, git y `pwsh` en el PATH:
+Desde esta carpeta (`medicion/v2/aparato/`), con Python 3.12, git y `pwsh` en el PATH (y `claude`
+para `correr`):
 
 ```
 python -m aparato materializar --brazo v1-serie --raiz <dir fuera del repo>
+python -m aparato correr --brazo v2-olas --raiz <dir fuera del repo>
 python -m pytest -q
 ```
 
 `--raiz` es obligatorio, no tiene default y no puede caer dentro del repo (se rechaza antes de
-crear nada). Imprime la carpeta de la corrida. Sale con 1 y una línea `error: <Tipo>: ...` en
-stderr, sin traceback, si el `version` materializado no es el del brazo (el mensaje nombra el
-esperado y el obtenido), si el `ref` no existe, si falla git o el `copy-scaffold.ps1`, si falta un
-ejecutable o si el manifest materializado falta o no es JSON.
+crear nada). Los dos imprimen la carpeta de la corrida (`correr`, apenas la materializa). Salen con
+1 y una línea `error: <Tipo>: ...` en stderr, sin traceback, si el `version` materializado no es el
+del brazo (el mensaje nombra el esperado y el obtenido), si el `ref` no existe, si falla git o el
+`copy-scaffold.ps1`, si falta un ejecutable, si el tar del ref está roto, si el manifest
+materializado falta, no es JSON o no es un objeto, o (en `correr`) si una sesión de claude sale
+distinto de 0. `correr` sale con 0 si la corrida cierra `completa` y con 3 si cierra por
+`tope_rondas`.
+
+Flags técnicos de `correr`:
+
+| Flag | Default | Qué es |
+|---|---|---|
+| `--claude` | `claude` del PATH | el ejecutable; un `.py` corre con el mismo Python (el `claude` falso de los tests) |
+| `--tope-rondas` | 5 | rondas de preguntas respondidas; si la sesión siguiente deja otra `PREGUNTAS.md`, cierra con `tope_rondas` |
+| `--sondeo` | 2.0 | segundos entre dos miradas a los worktrees de carril |
+| `--credencial` | `~/.claude/.credentials.json` | lo que se copia a `config/.credentials.json` |
 
 ## Los brazos
 
@@ -43,7 +58,40 @@ no sirve como `ref`.
    config del repo: los commits del agente salen con la identidad de la máquina.
 
 Si un paso del 3 al 7 falla, la bitácora se cierra con `materializacion_fallida` y el error se
-propaga. La corrida fallida queda como está; relanzar abre otra carpeta (otro segundo).
+propaga (si además falla escribir ese evento, el error original sigue siendo el que sale, con una
+nota). Los `git` corren sin los `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` heredados, que los
+mandarían a otro repo. La corrida fallida queda como está; relanzar abre otra carpeta (otro segundo).
+
+## Qué hace `correr`
+
+`materializar` y después `lanzar` (`aparato/correr.py`), según `../CORRIDA.md`:
+
+1. Crea `config/` y copia la credencial a `config/.credentials.json`, su único archivo. Se borra
+   siempre al terminar, también si la corrida falla. Su contenido no se imprime ni se registra.
+2. Lanza `claude -p --output-format json --model claude-opus-5-5 --dangerously-skip-permissions`
+   con cwd en `proyecto/` y `CLAUDE_CONFIG_DIR=<corrida>/config`. El prompt va por stdin: el de
+   `evals[0].prompt`, una línea en blanco y la frase del modo (`FRASE_MODO` en
+   `aparato/brazos.py`). El entorno del agente no lleva ninguna variable `CLAUDE*` de quien lanza
+   (esfuerzo, id de sesión) ni los `GIT_*` heredados: los tres brazos arrancan igual.
+3. Si la sesión sale con 0 y dejó `PREGUNTAS.md`: la copia a `preguntas/ronda-NN.md`, arma la
+   respuesta con `ruteo` (A y C por `re.search` con `re.IGNORECASE`, B siempre, en orden A, C, B;
+   el cuerpo de cada sección de `cliente/respuestas.md`, separados por una línea en blanco),
+   registra `ronda_preguntas`, borra `PREGUNTAS.md` y relanza con la respuesta como prompt,
+   **continuando la sesión**: `--resume <session_id>` con el `session_id` que devolvió el JSON de
+   la sesión anterior, o `--continue` si no vino ninguno, para que el agente siga con el contexto de
+   lo que preguntó (que `--resume` conserve el `session_id` con el `claude` real lo mide la corrida
+   en seco; la bitácora registra el que devuelve cada sesión). Pasado el tope, la última `PREGUNTAS.md` queda en `proyecto/` sin responder.
+4. Mientras corre, un hilo mira cada `--sondeo` segundos `git -C proyecto worktree list
+   --porcelain` y, por cada worktree que no es el principal y tiene `.scratch/`, guarda su copia
+   en `carriles/<nombre de la carpeta>/.scratch/` (copia nueva completa y después reemplaza: si el
+   agente la borra a mitad, queda la anterior). Mira una vez más al terminar. El agente borra los
+   worktrees al cerrar cada ola, así que lo que queda es la última copia vista.
+5. Al final (también si falla) copia crudos a `transcripts/` todos los `*.jsonl` de
+   `config/projects/`, recursivo y con las mismas subcarpetas, y cierra con `corrida_cerrada`.
+
+Eventos nuevos en la bitácora: `sesion_lanzada`, `sesion_terminada`, `ronda_preguntas` y
+`corrida_cerrada`, con los campos de `../CORRIDA.md`. Una sesión que sale distinto de 0 cierra con
+`motivo: error` y `error: "SesionFallida: ..."`.
 
 ## Una corrida
 
@@ -53,6 +101,10 @@ propaga. La corrida fallida queda como está; relanzar abre otra carpeta (otro s
 | `skill-en-ref/` | la skill tal como salió del `git archive` |
 | `copy-scaffold.json` | el reporte (`created` / `overwritten`) del `copy-scaffold.ps1` del ref |
 | `bitacora.jsonl` | append-only, un evento JSON por línea con `ts` UTC ISO |
+| `config/` | el `CLAUDE_CONFIG_DIR` de la corrida (`correr`); la credencial ya no está al terminar |
+| `preguntas/ronda-NN.md` | copia byte a byte de cada `PREGUNTAS.md` respondida (`correr`) |
+| `transcripts/` | los JSONL de `config/projects/`, crudos (`correr`) |
+| `carriles/<nombre>/.scratch/` | la última copia vista del `.scratch/` de cada carril (`correr`, solo si hubo) |
 
 Eventos, en orden: `corrida_abierta` (brazo, ref, sha, modo) y después uno terminal (falta solo si
 el proceso muere sin llegar a escribirlo, por ejemplo matado desde afuera):

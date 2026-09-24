@@ -52,10 +52,21 @@ def _ahora_utc():
     return datetime.now(timezone.utc)
 
 
+# Heredadas (por ejemplo, de un hook de git), mandan `git -C <dir>` a otro repo.
+GIT_HEREDADAS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
+
+
+def entorno_sin_git_heredado(base=None):
+    env = dict(os.environ if base is None else base)
+    for v in GIT_HEREDADAS:
+        env.pop(v, None)
+    return env
+
+
 def _correr(args, cwd=None):
     """Corre un proceso y devuelve stdout; si sale distinto de 0, tira con el comando y su stderr."""
     try:
-        r = subprocess.run(args, cwd=cwd, capture_output=True)
+        r = subprocess.run(args, cwd=cwd, capture_output=True, env=entorno_sin_git_heredado())
     except FileNotFoundError as e:
         raise FileNotFoundError(f"no se encontró el ejecutable {args[0]!r} en el PATH") from e
     if r.returncode != 0:
@@ -109,6 +120,14 @@ class Bitacora:
             f.write(linea + "\n")
 
 
+def registrar_sin_tapar(bitacora, original, evento, **campos):
+    """Registra el evento de una falla sin que un error al registrar reemplace a `original`."""
+    try:
+        bitacora.registrar(evento, **campos)
+    except Exception as e:
+        original.add_note(f"además falló registrar {evento} en la bitácora: {type(e).__name__}: {e}")
+
+
 def materializar(brazo, raiz, *, repo=None, juguete=JUGUETE, ahora=_ahora_utc):
     """Abre una corrida de `brazo` bajo `raiz` y devuelve su carpeta."""
     repo = Path(repo) if repo else _repo()
@@ -159,6 +178,10 @@ def materializar(brazo, raiz, *, repo=None, juguete=JUGUETE, ahora=_ahora_utc):
         manifest = json.loads(
             (proyecto / ".bootstrap-manifest.json").read_text(encoding="utf-8-sig")
         )
+        if not isinstance(manifest, dict):
+            raise ValueError(
+                f".bootstrap-manifest.json no es un objeto JSON: {type(manifest).__name__}"
+            )
         version = manifest.get("version")
         if version != brazo.version:
             bitacora.registrar(
@@ -177,8 +200,8 @@ def materializar(brazo, raiz, *, repo=None, juguete=JUGUETE, ahora=_ahora_utc):
     except VersionIncorrecta:
         raise
     except BaseException as e:
-        bitacora.registrar(
-            "materializacion_fallida", brazo=brazo.nombre, ref=brazo.ref, sha=sha,
+        registrar_sin_tapar(
+            bitacora, e, "materializacion_fallida", brazo=brazo.nombre, ref=brazo.ref, sha=sha,
             paso=paso, error=f"{type(e).__name__}: {e}",
         )
         raise

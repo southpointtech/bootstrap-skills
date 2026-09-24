@@ -15,6 +15,14 @@ class Brazo:
     modo: str  # "serie" u "olas"
 
 
+# La frase que se suma al prompt de `evals.json` según el modo del brazo, textual de CORRIDA.md
+# (decisión del dueño del repo, 2026-09-24).
+FRASE_MODO = {
+    "serie": "Trabajá un slice por vez, sin carriles ni worktrees paralelos.",
+    "olas": "Trabajá por olas de carriles en paralelo, como indica "
+            "`docs/ai-workflow/PARALELISMO.md`.",
+}
+
 BRAZOS = {
     b.nombre: b
     for b in (

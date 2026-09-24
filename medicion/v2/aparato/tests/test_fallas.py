@@ -272,3 +272,90 @@ def test_raiz_hermana_con_el_mismo_prefijo_no_se_rechaza(tmp_path):
     repo = _repo_falso(tmp_path, SCRIPT_OK)
     corrida = materializar(FALSO, tmp_path / "repo-corridas", repo=repo, ahora=lambda: T0)
     assert corrida.parent == tmp_path / "repo-corridas"
+
+
+# --- slice 3: los pasos copiar_juguete y git_init, y los Lows del slice 2 -----------------------
+
+def test_juguete_incompleto_cierra_la_corrida_en_copiar_juguete(tmp_path):
+    repo = _repo_falso(tmp_path, SCRIPT_OK)
+    incompleto = tmp_path / "juguete"
+    incompleto.mkdir()
+    shutil.copy2(JUGUETE / "enunciado.md", incompleto / "enunciado.md")  # sin datos/
+
+    with pytest.raises(FileNotFoundError):
+        materializar(FALSO, tmp_path / "corridas", repo=repo, juguete=incompleto, ahora=lambda: T0)
+
+    (corrida,) = _corridas(tmp_path / "corridas")
+    fallida = _eventos(corrida)[-1]
+    assert (fallida["evento"], fallida["paso"]) == ("materializacion_fallida", "copiar_juguete")
+    assert (fallida["ref"], fallida["sha"]) == ("HEAD", _git(repo, "rev-parse", "HEAD"))
+
+
+def test_git_init_que_falla_cierra_la_corrida_en_git_init(tmp_path, monkeypatch):
+    repo = _repo_falso(tmp_path, SCRIPT_OK)
+    original = mat._correr
+
+    def _correr(args, cwd=None):
+        if "init" in args:
+            raise RuntimeError("git init roto a proposito")
+        return original(args, cwd=cwd)
+
+    monkeypatch.setattr(mat, "_correr", _correr)
+    with pytest.raises(RuntimeError, match="init roto"):
+        materializar(FALSO, tmp_path / "corridas", repo=repo, ahora=lambda: T0)
+
+    (corrida,) = _corridas(tmp_path / "corridas")
+    fallida = _eventos(corrida)[-1]
+    assert (fallida["evento"], fallida["paso"]) == ("materializacion_fallida", "git_init")
+
+
+SCRIPT_MANIFEST_LISTA = """param([string]$SkillDir, [string]$ProjectDir)
+Set-Content -LiteralPath (Join-Path $ProjectDir '.bootstrap-manifest.json') -Value '[]' -Encoding utf8
+'{"created":[],"overwritten":[]}'
+"""
+SCRIPT_MANIFEST_NULL = SCRIPT_MANIFEST_LISTA.replace("'[]'", "'null'")
+
+
+@pytest.mark.parametrize("script", [SCRIPT_MANIFEST_LISTA, SCRIPT_MANIFEST_NULL],
+                         ids=["lista", "null"])
+def test_manifest_que_no_es_objeto_es_value_error(tmp_path, script):
+    repo = _repo_falso(tmp_path, script)
+
+    with pytest.raises(ValueError, match="no es un objeto"):
+        materializar(FALSO, tmp_path / "corridas", repo=repo, ahora=lambda: T0)
+
+    (corrida,) = _corridas(tmp_path / "corridas")
+    assert _eventos(corrida)[-1]["paso"] == "leer_manifest"
+
+
+def test_git_dir_heredado_no_desvia_los_commits(tmp_path, monkeypatch):
+    repo = _repo_falso(tmp_path, SCRIPT_OK)
+    (tmp_path / "ajeno").mkdir()
+    ajeno = _repo_falso(tmp_path / "ajeno", SCRIPT_OK)
+    antes = _git(ajeno, "rev-list", "--count", "HEAD")
+    monkeypatch.setenv("GIT_DIR", str(ajeno / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(ajeno))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(ajeno / ".git" / "index"))
+
+    corrida = materializar(FALSO, tmp_path / "corridas", repo=repo, ahora=lambda: T0)
+
+    for v in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        monkeypatch.delenv(v)
+    assert _git(ajeno, "rev-list", "--count", "HEAD") == antes
+    assert _eventos(corrida)[0]["sha"] == _git(repo, "rev-parse", "HEAD")
+    assert _git(corrida / "proyecto", "rev-list", "--count", "HEAD") == "1"
+
+
+def test_si_falla_registrar_la_falla_no_se_pierde_la_excepcion_original(tmp_path, monkeypatch):
+    repo = _repo_falso(tmp_path, SCRIPT_FALLA)
+    original = mat.Bitacora.registrar
+
+    def registrar(self, evento, **campos):
+        if evento == "materializacion_fallida":
+            raise OSError("disco lleno a proposito")
+        return original(self, evento, **campos)
+
+    monkeypatch.setattr(mat.Bitacora, "registrar", registrar)
+    with pytest.raises(RuntimeError, match="copy-scaffold roto") as exc:
+        materializar(FALSO, tmp_path / "corridas", repo=repo, ahora=lambda: T0)
+    assert any("disco lleno" in n for n in getattr(exc.value, "__notes__", []))

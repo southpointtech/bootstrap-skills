@@ -90,3 +90,23 @@ def test_raiz_dentro_del_repo_sale_con_1_y_mensaje(tmp_path, monkeypatch, capsys
     _falla_controlada(capsys, ["materializar", "--brazo", "v2-olas",
                                "--raiz", str(repo / "corridas")], "RaizDentroDelRepo")
     assert not (repo / "corridas").exists()
+
+
+def test_tar_corrupto_sale_con_1_sin_traceback(tmp_path, monkeypatch, capsys):
+    repo = _repo_falso(tmp_path, SCRIPT_OK)
+    monkeypatch.setattr(mat, "_repo", lambda: repo)
+    monkeypatch.setitem(brazos.BRAZOS, "v2-olas", FALSO)
+    original = mat._correr
+    monkeypatch.setattr(mat, "_correr", lambda args, cwd=None:
+                        b"esto no es un tar" if "archive" in args else original(args, cwd=cwd))
+    _falla_controlada(capsys, ["materializar", "--brazo", "v2-olas",
+                               "--raiz", str(tmp_path / "corridas")], "ReadError")
+
+
+def test_manifest_lista_sale_con_1_sin_traceback(tmp_path, monkeypatch, capsys):
+    from test_fallas import SCRIPT_MANIFEST_LISTA
+    repo = _repo_falso(tmp_path, SCRIPT_MANIFEST_LISTA)
+    monkeypatch.setattr(mat, "_repo", lambda: repo)
+    monkeypatch.setitem(brazos.BRAZOS, "v2-olas", FALSO)
+    _falla_controlada(capsys, ["materializar", "--brazo", "v2-olas",
+                               "--raiz", str(tmp_path / "corridas")], "ValueError")
