@@ -1,3 +1,104 @@
+# Session Handoff — 2026-09-24 (noche) — **Ola 2 integrada**: 04a slice 3 (`b1b7c78`, loop cerrado) ‖ 04b slice 2 (`c36c055`, **loop ABIERTO tras el turno 1**: faltan 5 Medium + turno 2 + coherencia). Contrato `medicion/v2/CORRIDA.md`.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`c36c055`** + el commit de este handoff.
+  `origin/main` = `685e592`; **40 commits sin pushear** (antes de este handoff) y el tag `v2.1.0`
+  tampoco. Push = `gh auth switch -u southpointtech && git push && git push origin v2.1.0` y volver a
+  MartinDele703. No pushear sin que el usuario lo pida.
+- **Review-loop del 04b slice 2 A MEDIAS**: turno 1 corrido, marcador avanzado a `c36c055`, ancla
+  `slice-open:main` **puesta** (la registró el turno 1 sobre `b1b7c78`; NO correr `-Action close`
+  hasta cerrar el loop). El commit de este handoff cae en el rango del turno 2: es prosa `.md` fuera
+  de los paths que gobiernan al agente, no es un fix a revisar.
+  Lo que falta, en orden: (1) la decisión de E11 del usuario (abajo); (2) arreglar los 5 Medium
+  con test en RED cada uno; (3) commit; (4) turno 2 = `/slice-review <range>` SIN `--mutation` ni
+  `--code-review`; (5) `/slice-review --coherence`; (6) `marcar-done` sobre `c36c055` (va a dar
+  `sinRuta`: el issue está partido, a propósito) y `-Action close` si el cierre es limpio.
+  La lista de los 5 Medium y los Lows está en la sección "Slice 2 (`c36c055`)" del issue
+  `.scratch/medicion-v2/issues/04b-calificador-como-codigo.md`.
+- **Decisión pendiente del usuario (preguntada y diferida)**: E11 corre `pytest -q` sobre los datos
+  que dejó el agente (lo que hace hoy el código y dice el README; recomendado, porque borrar la fila
+  `-15` ya lo castigan E02/E03/E06) o sobre datos frescos. Preguntar antes de tocar E11.
+- 04a: loop del slice 3 cerrado limpio (`light`). Issue 04a sigue abierto: le falta la **corrida en
+  seco con el `claude` real** (criterio de aceptación) y, antes, conviene un slice chico con los 5
+  Medium que `light` dejó sin arreglar (sección "Slice 3 hecho" del issue 04a). La corrida en seco
+  gasta tokens: avisar al usuario antes.
+- Worktrees de carril de la ola 2 removidos. Ramas sobrantes (no borrar sin pedido):
+  `worktree-agent-a1fb8a0a83d04257b` (04b s2, `f8015a7`), `worktree-agent-a7936a5a03006b775` (04a
+  s3, `b4f8606`), más las de la ola 1 (`worktree-agent-a540b3033915a1e82`,
+  `worktree-agent-ae7a85d291b180f17`, `worktree-agent-a3efba9576ac2ac98`).
+- Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajenos, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+- **`c78b94c` — `medicion/v2/CORRIDA.md`**: contrato de una corrida entre el aparato (escribe) y el
+  calificador (lee): `proyecto/`, `bitacora.jsonl`, `preguntas/ronda-NN.md`, `transcripts/**/*.jsonl`
+  (crudos, glob recursivo), `carriles/<nombre>/.scratch/`, `config/` (el `CLAUDE_CONFIG_DIR`),
+  `grading.json`; eventos nuevos `sesion_lanzada`, `sesion_terminada`, `ronda_preguntas`,
+  `corrida_cerrada`. Ningún carril lo edita.
+- **Decisiones del usuario (2026-09-24, están en `CORRIDA.md`, no re-discutir)**:
+  `CLAUDE_CONFIG_DIR` limpio por corrida con solo una copia de `~/.claude/.credentials.json` (se
+  borra al terminar); modelo `claude-opus-5-5`; `--dangerously-skip-permissions`; al prompt de
+  `evals.json` se le suma **una** frase por modo (`serie`: "Trabajá un slice por vez, sin carriles
+  ni worktrees paralelos."; `olas`: "Trabajá por olas de carriles en paralelo, como indica
+  `docs/ai-workflow/PARALELISMO.md`."), igual para `v1-serie` y `v2-serie`.
+- **Medido**: con config limpia + credencial copiada, `claude -p` (2.1.281) autentica y el JSONL
+  queda en `config/projects/<slug>/<session_id>.jsonl`; las skills sincronizadas de la cuenta
+  claude.ai bajan a `config/skills/synced/` (igual en los tres brazos).
+- **`0b1b329`**: E09 acepta `[70, 85]` (tercer par, del oráculo con `valor_absoluto`);
+  `--verificar`/`--discriminar` ok. La prosa de E09 en `evals.json` sigue diciendo "dos pares", a
+  propósito (manda el código).
+- **Ola 2** (2 carriles `Agent` general-purpose, `isolation: worktree`, background; receta de abajo):
+  - **`b1b7c78` — 04a slice 3**: `python -m aparato correr --brazo <b> --raiz <dir>` en
+    `medicion/v2/aparato/aparato/correr.py`: materializa, lanza `claude -p` (prompt por stdin,
+    `--output-format json`, `--resume <id>` o `--continue`), rondas de `PREGUNTAS.md` con `ruteo`,
+    transcripts, sondeo de carriles en un hilo cada 2 s, credencial en `finally`, entorno sin
+    `CLAUDE*` ni `GIT_*` heredados. Sale 0 `completa`, 3 `tope_rondas`, 1 error. Tests con
+    `tests/claude_falso.py`. Review `light`: limpio (5 Medium sin arreglar por regla).
+  - **`c36c055` — 04b slice 2**: `calificar.py` califica E08, E09, E11, E14, E15, E16; "implementa
+    X" por commit (`git archive` + caché `CUMPLE`); E10 a `metricas_no_puntuadas`; errores del
+    calificador `passed: null` + `summary.errores_del_calificador` + exit 3; E12/E13 `null`.
+
+## 2. Tests
+
+- `python -m pytest -q` en `medicion/v2/aparato/` → **61 passed** (~60 s), en `main`.
+- `python -m pytest -q` en `medicion/v2/juguete-inventario/` → **111 passed** (~55-140 s), en `main`.
+- `oraculo.py --verificar` / `--discriminar` → ok (`PYTHONIOENCODING=utf-8`).
+- Los carriles corrieron `shareable-leaks` y `temp-hygiene` → verdes. `run-all` completo NO corrido.
+- Mutación del turno 1 del 04b: 8 mutantes, 2 sobrevivientes (`%cI`→`%aI`; E15 sin `borradas`).
+
+## 3. Abierto
+
+- 04b slice 2: 5 Medium + decisión E11 (arriba). Después, slice 3: E12/E13 con transcripts reales.
+- 04a: 5 Medium del slice 3 + corrida en seco real. Riesgos a medir en la corrida en seco: prompt
+  por stdin, si `--resume` conserva el `session_id`, dónde quedan los JSONL de subagentes, y si el
+  refresh token OAuth rota al renovarse (la copia renovada se borra y el original podría quedar
+  inválido): comparar el hash de la copia con el original antes de borrarla.
+- 05 (correr el A/B) bloqueado por 04a y 04b. 06 (piloto) desbloqueado, del usuario. 08
+  (retrospectivo) desbloqueado, ready-for-agent. Issue 28 y Lows de ADR-0013 fuera de la medición.
+
+## 4. Próximos pasos
+
+1. Preguntar E11 → cerrar el review-loop del 04b slice 2 (5 Medium, turno 2, coherencia, close).
+2. Slice chico del 04a con sus 5 Medium (`light`), después la corrida en seco real (avisar costo).
+3. 04b slice 3 (E12/E13) contra los transcripts reales que deje la corrida en seco.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- **Hablarle al usuario SIEMPRE en español**, también al relayar subagentes.
+- **Receta de carril** (funcionó en las dos olas): el worktree de `isolation: worktree` sale de
+  `origin/main`; el brief ordena primero `git reset --hard <sha de main>` y verificar `git log -1`,
+  después prohíbe checkout/switch/branch/rebase/merge/push/reset/stash. Issues gitignored: el brief
+  apunta al path absoluto del árbol principal, solo lectura. Integrar por cherry-pick, un carril por
+  vez; no cherry-pickear mientras corre el review-loop de otro.
+- Rigor: 04b `standard` (define la medición); 04a `light` (herramienta local).
+- Escribir diffs para los reviewers desde Bash (`git diff > archivo`), no con PowerShell
+  `Set-Content`: pwsh decodifica la salida de git en cp850 y rompe las tildes.
+- Mensajes de commit: a un archivo del scratchpad y `git commit -F`.
+- El `alignment-gate` salta en el primer Edit: el trabajo ya está alineado, decirlo y reintentar.
+
+---
+
 # Session Handoff — 2026-09-24 (tarde) — **Ola 1 cerrada**: 04b slice 1 (`cd14028` + `76335ae`) ‖ 04a slice 2 (`cb7dd5d`), integradas en `main` con su review-loop. Próximo: **ola 2** (04a slice 3 ‖ 04b slice 2).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
