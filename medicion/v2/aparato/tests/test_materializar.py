@@ -11,15 +11,14 @@ from aparato.materializar import VersionIncorrecta, materializar
 REPO = Path(__file__).resolve().parents[4]
 
 
-def _git(*args):
+def _git_en(repo, *args):
     return subprocess.run(
-        ["git", "-C", str(REPO), *args], capture_output=True, check=True
+        ["git", "-C", str(repo), *args], capture_output=True, check=True
     ).stdout.decode("utf-8").strip()
 
 
-def _reloj(*instantes):
-    it = iter(instantes)
-    return lambda: next(it)
+def _git(*args):
+    return _git_en(REPO, *args)
 
 
 T0 = datetime(2026, 9, 24, 12, 0, 0, tzinfo=timezone.utc)
@@ -31,7 +30,7 @@ def _eventos(corrida):
     return [json.loads(l) for l in lineas]
 
 
-@pytest.mark.parametrize("nombre", ["v1-serie", "v2-serie"])
+@pytest.mark.parametrize("nombre", ["v1-serie", "v2-serie", "v2-olas"])
 def test_materializa_el_ref_real_y_su_version(tmp_path, nombre):
     brazo = BRAZOS[nombre]
     assert _git("cat-file", "-t", brazo.ref) in ("commit", "tag")
@@ -47,14 +46,18 @@ def test_materializa_el_ref_real_y_su_version(tmp_path, nombre):
     assert (proyecto / "CLAUDE.md").is_file()
     assert (proyecto / ".gitignore").is_file()
 
-    evento = [e for e in _eventos(corrida) if e["evento"] == "materializado"]
-    assert len(evento) == 1
-    e = evento[0]
+    eventos = _eventos(corrida)
+    assert [e["evento"] for e in eventos] == ["corrida_abierta", "materializado"]
+    abierta, e = eventos
+    assert (abierta["brazo"], abierta["modo"]) == (nombre, brazo.modo)
     assert e["ref"] == brazo.ref
     assert e["sha"] == _git("rev-parse", brazo.ref + "^{commit}")
     assert e["version"] == brazo.version
     assert e["brazo"] == nombre
     assert datetime.fromisoformat(e["ts"]).utcoffset().total_seconds() == 0
+    assert e["commit_inicial"] == _git_en(proyecto, "rev-parse", "HEAD")
+    assert _git_en(proyecto, "status", "--porcelain") == ""
+    assert "enunciado.md" in _git_en(proyecto, "ls-files").splitlines()
 
 
 def test_el_agente_recibe_enunciado_y_datos_y_nada_mas_del_juguete(tmp_path):

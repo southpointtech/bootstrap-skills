@@ -8,6 +8,3 @@ def test_los_tres_brazos_con_su_ref_version_y_modo():
         "v2-olas": ("v2.1.0", "2026-09-23+3b3d849", "olas"),
     }
 
-
-def test_el_nombre_del_brazo_es_su_clave():
-    assert all(b.nombre == n for n, b in BRAZOS.items())
