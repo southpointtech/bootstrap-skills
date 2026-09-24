@@ -260,6 +260,14 @@ $r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Dire
 Assert ($r.exit -eq 1) "con la carpeta del carril ocupada, se niega (salió $($r.exit))"
 Assert ($r.err.Contains("La carpeta '$ocupada' ya existe")) "con acentos y cp850, el rechazo nombra la ruta legible en UTF-8 ('$($r.err)')"
 
+# Y un aviso: con marcas sin rellenar y -DryRun, el aviso nombra el archivo de datos, cuya ruta trae
+# la ñ del repo. Tiene que salir por stdout, legible en UTF-8 y con su prefijo.
+$t = New-Repo -datos $conMarcas -nombre ("proyecto-acentuado-" + [string][char]0x00F1)
+$hoja = Split-Path $t -Leaf
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Directorio $t `
+  -Argumentos @('-Slice', '07', '-Slug', 'padron', '-DryRun')
+Assert ($r.out -match ('(?m)^AVISO: .*' + [regex]::Escape($hoja))) "con acentos y cp850, el aviso sale por stdout con la ruta legible en UTF-8 ('$($r.out)')"
+
 # --- Si `worktree add` falla, el motivo de git le llega a quien lo corre ---
 # Es la única llamada que no pasa por la función de la lib, porque ésa descarta el stderr: un slug
 # que no sirve como nombre de rama pasa los chequeos previos (show-ref sólo dice "no existe") y lo

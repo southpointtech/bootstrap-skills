@@ -36,9 +36,9 @@ $ErrorActionPreference = 'Stop'
 # --show-toplevel` llega deformado en un repo con acentos en la ruta y el script muere con un error
 # crudo en vez de abrir el carril. La lib la lee asi por llamada, sin fijar Console::OutputEncoding:
 # esa es de la CONSOLA y se la queda todo lo que arranque despues en ella (issue 16). Por lo mismo,
-# todo lo que el script escribe sale en bytes UTF-8 (`Write-Stdout`, `Write-Stderr`): con
-# `Write-Host` o `[Console]::Error` una ruta con acentos salia en la code page de la consola, y el
-# agente, que lee UTF-8, recibia la linea `Worktree:` rota.
+# todo lo que el script escribe pasa por `Write-Stdout` y `Write-Stderr`, que con la salida
+# redirigida la emiten en bytes UTF-8: con `Write-Host` o `[Console]::Error` una ruta con acentos
+# salia en la code page de la consola, y el agente, que lee UTF-8, recibia la linea `Worktree:` rota.
 . (Join-Path $PSScriptRoot "lib\git-utf8.ps1")
 
 # Un rechazo sale con 1 y el motivo en stderr. `throw` tambien saldria con 1, pero con el

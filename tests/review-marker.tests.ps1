@@ -575,6 +575,36 @@ foreach ($shell in 'pwsh', 'powershell.exe') {
 }
 Remove-Item -Recurse -Force -LiteralPath $t
 
+# --- Write-Stdout y Write-Stderr se leen bien también en una consola de verdad ---
+# Los bytes UTF-8 son para quien lee la salida redirigida (el agente, Claude Code con el JSON del
+# hook). Una persona que corre abrir-carril en su terminal no redirige nada, y una consola en cp850
+# decodifica esos bytes con su code page: la ñ se veía `├▒` (medido leyendo el buffer de pantalla).
+# El hijo va en una consola PROPIA sin redirigir, y lee su propio buffer: lo que se ve, no lo que se
+# escribió. Se devuelven puntos de código, porque cualquier tubería de por medio vuelve a codificar.
+$t = New-TestWorkspace $script:runRoot "rm-consola"
+$sonda = Join-Path $t "sonda-pantalla.ps1"
+$res = Join-Path $t "pantalla.txt"
+Set-Content -LiteralPath $sonda -Encoding UTF8 -Value @'
+param($lib, $res)
+. $lib
+Clear-Host
+$enye = [string][char]0x00F1
+Write-Stdout ("A:" + $enye)
+Write-Stderr ("B:" + $enye)
+$celdas = $Host.UI.RawUI.GetBufferContents([Management.Automation.Host.Rectangle]::new(0, 0, 9, 1))
+$filas = foreach ($f in 0, 1) { -join (0..9 | ForEach-Object { [int]$celdas[$f, $_].Character; ' ' }) }
+[IO.File]::WriteAllText($res, "$([Console]::OutputEncoding.CodePage)`n" + ($filas -join "`n"))
+'@
+$p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', "`"$sonda`"", "`"$lib`"", "`"$res`"" -WindowStyle Hidden -Wait -PassThru
+$renglones = @(if (Test-Path -LiteralPath $res) { [IO.File]::ReadAllText($res) -split "`n" })
+Assert ($p.ExitCode -eq 0 -and $renglones.Count -eq 3) "guard: la sonda leyó su pantalla (exit $($p.ExitCode), $($renglones.Count) renglones)"
+Assert ($renglones.Count -eq 3 -and $renglones[0] -ne '65001') "guard: la consola propia no está en UTF-8, o el caso no ejercita nada (cp $($renglones[0]))"
+# "A:ñ" en puntos de código es 65 58 241; "├▒" habría dejado 9500 9618 después de los dos puntos.
+foreach ($i in 1, 2) {
+  Assert ($renglones.Count -eq 3 -and $renglones[$i] -match '^(65|66) 58 241 ') "en una consola en cp850 sin redirigir, $(if ($i -eq 1) { 'Write-Stdout' } else { 'Write-Stderr' }) muestra la ñ ('$(if ($renglones.Count -eq 3) { $renglones[$i].Trim() })')"
+}
+Remove-Item -Recurse -Force -LiteralPath $t
+
 # Y de punta a punta, que es como falla de verdad: un `-RepoDir` con espacio (y con la barra final que
 # deja un autocompletado) llegaba partido a `git -C`, y el marcador salía 2 sin decir nada.
 foreach ($sufijo in '', '\') {

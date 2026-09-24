@@ -23,7 +23,9 @@
 # Lo que NO puede imitar: un `--` pelado. PowerShell lo consume como fin de parámetros antes de llamar
 # a una función, así que nunca llega a `$args`; al exe sí le llegaba. Va entre comillas: `'--'`.
 # El stderr de git se descarta: todas las llamadas que pasan por acá lo tiraban con `2>$null` o
-# usaban `--quiet`. Una llamada que necesite mostrarlo tiene que llamar a `git.exe` por su nombre.
+# usaban `--quiet`. Una llamada que necesite mostrarlo tiene que ir al ejecutable, resuelto con
+# `Get-Command git -CommandType Application` (como el `worktree add` de abrir-carril): `git.exe` por
+# su nombre no existe fuera de Windows.
 function git {
   $lista = @()
   foreach ($a in $args) {
@@ -70,9 +72,12 @@ function Read-StdinUtf8 {
   try { $s.CopyTo($m); [Text.UTF8Encoding]::new($false).GetString($m.ToArray()) } finally { $m.Dispose() }
 }
 
-# Un texto a stdout en bytes UTF-8, más un salto: por la tubería se codificaría con
-# [Console]::OutputEncoding. Quien lo lee (Claude Code, con el JSON de un hook) decodifica UTF-8.
+# Un texto a stdout, más un salto. Redirigido va en bytes UTF-8: por la tubería se codificaría con
+# [Console]::OutputEncoding, y quien lo lee (Claude Code, con el JSON de un hook) decodifica UTF-8.
+# A una consola de verdad, en cambio, va por `[Console]::Out`: la consola decodifica los bytes crudos
+# con SU code page, y en cp850 la ñ se veía `├▒` (medido leyendo el buffer de pantalla).
 function Write-Stdout([string]$texto) {
+  if (-not [Console]::IsOutputRedirected) { [Console]::Out.WriteLine($texto); return }
   $s = [Console]::OpenStandardOutput()
   $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
   $s.Write($b, 0, $b.Length)
@@ -81,6 +86,7 @@ function Write-Stdout([string]$texto) {
 
 # Lo mismo sobre stderr: `[Console]::Error` también codifica con la code page de la consola.
 function Write-Stderr([string]$texto) {
+  if (-not [Console]::IsErrorRedirected) { [Console]::Error.WriteLine($texto); return }
   $s = [Console]::OpenStandardError()
   $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
   $s.Write($b, 0, $b.Length)

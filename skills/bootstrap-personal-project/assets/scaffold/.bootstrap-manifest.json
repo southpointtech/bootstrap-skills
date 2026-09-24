@@ -1,7 +1,7 @@
 {
   "variant": "personal",
   "generatedFrom": "bootstrap-personal-project",
-  "version": "2026-09-23+51e38e7",
+  "version": "2026-09-23+9b9d445",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
@@ -69,8 +69,8 @@
     ".claude/commands/zoom-out.md": "7956109fbeff2422dbcbe7f64059c8d144467d7eee2531d42221bd436f3b3e32",
     ".claude/hooks/alignment-gate.ps1": "09e7751ffe376d84282dce49efb7cb2ee0d10599cb88d4fbdfd031d687f8c7e1",
     ".claude/hooks/review-loop-trigger.ps1": "7e23ae3f575e703b8e888eaaf617f9c0ca772587031e715fabd78b7b37b17b45",
-    ".claude/scripts/abrir-carril.ps1": "ef12862cada177dad5db226a2d20abac1fdf8cef82bd20ccf0bfd8d5f486f7f0",
-    ".claude/scripts/lib/git-utf8.ps1": "a36f8b63a75ef76a27c56b10edc708d03aaedae1865e38539447cc77e6f584f7",
+    ".claude/scripts/abrir-carril.ps1": "c641000b10336e863ebc9a779972abe0d6a2fda7e691ba407928d3939720db90",
+    ".claude/scripts/lib/git-utf8.ps1": "02cbae46f4f2e4644897a2cc8830f68c54edb84d8155681339e966b0c89d126b",
     ".claude/scripts/marcar-done.ps1": "4cd90b2757878f9f35fdb587aee077b1f867148624f7eedd50aa5a00dba129f6",
     ".claude/scripts/review-marker.ps1": "5ebcbdd4ae624139ec0af7c9747133b8c86d33f0aa875a43ef7975701be7f452",
     ".claude/settings.json": "0443bad9b8f815be10b18917ec11f17a72b4a9ef8780dc902f0a6521ff668a12",
