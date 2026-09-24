@@ -18,6 +18,8 @@ AQUI = Path(__file__).parent
 DESDE, HASTA = date(2026, 8, 1), date(2026, 8, 31)
 CLAVE_ROTACION = f"rotacion {DESDE} {HASTA}"
 # E09: una salida negativa más de CLA-004 en agosto, que stock y rotacion tienen que tratar igual.
+# Pasa cualquiera de las tres lecturas coherentes (descartarla, tal cual, valor absoluto): E09 mide
+# coherencia, no si el modelo es compartido (decisión del dueño del repo, 2026-09-24).
 FILA_EXTRA_E09 = ("2026-08-15", "CLA-004", "salida", "-5")
 
 
@@ -78,6 +80,7 @@ def esperado(datos):
     movs_e09 = movimientos(datos, [FILA_EXTRA_E09])
     rot_e09 = dict(l.split("\t") for l in rotacion(movs_e09).splitlines())
     rot_e09_tal_cual = dict(l.split("\t") for l in rotacion(movs_e09, "tal_cual").splitlines())
+    rot_e09_abs = dict(l.split("\t") for l in rotacion(movs_e09, "valor_absoluto").splitlines())
     return {
         "productos": "".join(f"{p['sku']}\t{p['nombre']}\t{p['unidad']}\n" for p in prods),
         "stock": {s: st[s] for s in sorted(st)},
@@ -88,6 +91,7 @@ def esperado(datos):
         "e09_stock_y_rotacion_de_CLA-004": [
             [stock(prods, movs_e09)["CLA-004"], int(rot_e09["CLA-004"])],
             [stock(prods, movs_e09, "tal_cual")["CLA-004"], int(rot_e09_tal_cual["CLA-004"])],
+            [stock(prods, movs_e09, "valor_absoluto")["CLA-004"], int(rot_e09_abs["CLA-004"])],
         ],
     }
 
