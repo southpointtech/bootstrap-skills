@@ -1,3 +1,97 @@
+# Session Handoff — 2026-09-24 — **Issue 03 CERRADO** (`5869c71`) + **04 partido en 04a/04b** + **04a slice 1 en main** (`cd662a2`). Próximo: **ola de 2 carriles** (04a slice 2 ‖ 04b slice 1).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `C:\Repos\PERSONAL\Bootstrap Skills`, `main` @ **`cd662a2`** + el commit de este handoff.
+  `origin/main` = `685e592`; **31 commits sin pushear** (antes de este handoff), y el tag `v2.1.0`
+  tampoco está pusheado (los tests del aparato lo necesitan). Push = `gh auth switch -u southpointtech
+  && git push && git push origin v2.1.0` y volver a MartinDele703. No pushear sin que el usuario lo pida.
+- Marcador del review-loop en `cd662a2`; `-Action close` corrido: **no hay `slice-open:main` colgando**.
+- Esta terminal es la del **A/B v1 vs v2** (medición). La otra terminal del usuario trabaja hub-sync
+  en `C:\Repos\SOUTHPOINTLABS\PROJECT MANAGEMENT` (issue 17); no toca este repo.
+- Rama sobrante del carril: `worktree-agent-a540b3033915a1e82` (worktree ya removido). No borrarla
+  sin que el usuario lo pida.
+- Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajenos, no tocar;
+  ponen en rojo `skills-lock`, `chicas-y-forks-propios` y `consola-intacta` en este checkout.
+
+## 1. Qué se hizo en esta sesión
+
+**Issue 03 (juguete del A/B) cerrado** — `5869c71`, `Review-Rigor: light`, cierre limpio (Bugs+Tests,
+sin High), `Status: done` por `marcar-done`. Decisión del usuario: congelar las 16 expectations en
+prosa como intención y pasar la calificación a código. `medicion/v2/juguete-inventario/README.md`
+declara que manda `calificar.py` (04b) y lista 9 agujeros abiertos (verificados contra `evals.json`
+y `git show v2.1.0:.../PARALELISMO.md` paso 8).
+
+**Issue 04 partido** (en `.scratch/medicion-v2/issues/`, gitignored):
+- `04a-aparato-de-los-tres-brazos.md` (renombrado desde `04-…`): el aparato. Criterios nuevos:
+  cumplir "Lo que le toca al harness" del README y copiar `.scratch/` de los worktrees de carril
+  antes de que `PARALELISMO.md` paso 8 los borre. Al final, sección "Slice 1 hecho" con los 5
+  Medium y los Lows pendientes.
+- `04b-calificador-como-codigo.md` (nuevo): `calificar.py` → `grading.json`, fixtures correcto /
+  equivocado por expectation, un test por agujero, y la sección "Lo que dejó el review del cierre
+  del 03" (los 8 Medium de ese review convertidos en spec).
+- `05-correr-el-ab.md`: bloqueado por 04a y 04b.
+
+**Decisiones del usuario sobre el 04b (2026-09-24, no re-discutir):**
+- **E09 mide coherencia, no modelo compartido**: pasa con [75, 80], [80, 75] o [70, 85].
+- **E10 pasa a `metricas_no_puntuadas`** (se reporta el orden, no puntúa).
+- **Una corrida que borra la fila `-15` de sus datos falla E02** (y E03, E06): se califica siempre
+  sobre datos frescos. Técnico (mío): el calificador pisa `datos/` de la corrida con una copia
+  fresca antes de cada comando, así no depende de `--datos`.
+
+**04a slice 1** — `cd662a2` (cherry-pick de `ffab6b1`, hecho por un subagente en worktree aislado):
+`medicion/v2/aparato/` (Python + pytest): `aparato/brazos.py` (tabla brazo → ref, version esperada,
+modo), `aparato/materializar.py` (`git archive` del sha del ref + `copy-scaffold.ps1` de ese ref →
+`<raiz>/<brazo>-<ts>/proyecto/`; copia solo `enunciado.md` y `datos/`; verifica `version` del
+manifest; bitácora `bitacora.jsonl`; nunca pisa una corrida), `aparato/__main__.py`
+(`python -m aparato materializar --brazo <b> --raiz <dir>`, desde `medicion/v2/aparato/`), README,
+3 archivos de test. Review `light` limpio.
+
+## 2. Tests
+
+- `python -m pytest -q` en `medicion/v2/aparato/` → **11 passed** (en main, tras el cherry-pick).
+- `oraculo.py --verificar` / `--discriminar` → ok (con `PYTHONIOENCODING=utf-8`, desde el juguete).
+- `shareable-leaks`, `export-shareable`, `frontmatter-yaml`, `temp-hygiene` → exit 0 con el aparato.
+- `run-all` completo NO corrido esta sesión.
+
+## 3. Abierto
+
+- 04a: 5 Medium + Lows listados al final del issue 04a (evento terminal si falla tras el `mkdir`;
+  hash del juguete copiado; test de append-only; test de `corrida_abierta`/`modo` y de `v2-olas`;
+  tests de caminos de error de git/pwsh y `FileNotFoundError`/`JSONDecodeError` en el CLI). Más
+  `git init` en `proyecto/` y rechazar `--raiz` dentro del repo.
+- 04b: todo por hacer; spec completa en el issue.
+- Issue 28 (worktree del 24) y Lows de ADR-0013: siguen pendientes (fuera de la medición).
+
+## 4. Próximos pasos (en este orden)
+
+1. **Ola de 2 carriles en paralelo** (el usuario lo pidió para la próxima terminal): 04a slice 2
+  (los Medium de arriba, en `medicion/v2/aparato/`) ‖ 04b slice 1 (esqueleto de `calificar.py` +
+  fixtures para E01-E07, en `medicion/v2/juguete-inventario/`). No comparten archivos. Receta usada
+  hoy y que funcionó: `Agent` `general-purpose` con `isolation: worktree` y `run_in_background`;
+  brief con el issue pegado (`.scratch/` no viaja al worktree), prohibido checkout/branch/rebase/
+  push/merge, commit con `Slice-Close:` sin ruta si el issue está partido + `Review-Rigor: light`.
+  Al volver: `git cherry-pick <sha>` en main, correr sus tests, `git worktree remove --force`, y el
+  review-loop lo corre el orquestador en main (el hook no dispara en el worktree).
+2. 04a slice 3: lanzar `claude -p`, rondas de `PREGUNTAS.md`, transcripts, corrida en seco.
+3. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- **Hablarle al usuario SIEMPRE en español**, también al relayar subagentes.
+- **El worktree de `isolation: worktree` sale de `origin/main` (`685e592`), NO de `main` local**: el
+  carril de hoy no tenía `medicion/v2/juguete-inventario/` y lo trajo con `git restore --source=main`
+  sin commitear. En el brief, decirle que haga `git restore --source=main -- <dirs que necesita>`
+  (o lo que corresponda) y que NO lo commitee; o pushear antes.
+- El rango del marcador puede traer commits de otro carril mergeado (hoy: hub-sync 16): revisar solo
+  el diff propio y decirlo.
+- `PARALELISMO-DEL-PROYECTO.md` está escrito para las olas del release v2 (`base: feat/bootstrap-v2`);
+  la medición trabaja sobre `main` y hoy no se usó `abrir-carril.ps1`.
+- Mensajes de commit: a un archivo del scratchpad con heredoc `<<'EOF'` y `git commit -F`.
+- El `alignment-gate` salta en el primer Edit: si el trabajo ya está alineado, decirlo y reintentar.
+
+---
+
 # Session Handoff — 2026-09-23 (noche tarde) — **Columna 0 cerrada** (`eda1587`) + **juguete del A/B (issue 03) commiteado pero SIN cerrar**: el review-loop no convergió en 2 turnos y está frenado esperando una decisión del usuario.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
