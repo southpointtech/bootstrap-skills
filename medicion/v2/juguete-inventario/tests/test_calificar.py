@@ -74,21 +74,35 @@ def test_el_fixture_correcto_pasa(grading_correcto, eid):
 
 FALLAN = [
     ("E01", {"ordenar_productos": False}),
+    ("E01", {"exit_final": {"productos": 1}}),
     ("E02", {"cantidad": "tal_cual"}),
     ("E02", {"cantidad": "valor_absoluto"}),
+    ("E02", {"exit_final": {"stock": 1}}),
     ("E03", {"cantidad": "valor_absoluto"}),
     ("E03", {"exit_desconocido": 0}),
+    ("E03", {"exit_desconocido": 2}),
     ("E04", {"regex_sku": r"[A-Z]{3}-[0-9]{3,4}"}),
+    ("E04", {"regex_sku": r"[A-Za-z]{3}-[0-9]{1,3}"}),
+    ("E04", {"valida_duplicado": False}),
+    ("E04", {"exit_alta_invalida": 1}),
     ("E04", {"escribe_antes_de_validar": True}),
     ("E04", {"rotos": ["alta"]}),
+    ("E04", {"alta_escribe": "nada"}),
+    ("E04", {"alta_escribe": "sin_punto"}),
+    ("E04", {"alta_escribe": "al_principio"}),
+    ("E04", {"alta_escribe": "pierde_original"}),
     ("E05", {"punto_como_texto": True}),
+    ("E05", {"exit_final": {"exportar": 1}}),
     ("E06", {"hasta_exclusivo": True}),
     ("E06", {"cantidad": "tal_cual"}),
+    ("E06", {"exit_final": {"rotacion": 1}}),
     ("E07", {"alertas_menor_o_igual": True}),
+    ("E07", {"exit_final": {"alertas": 1}}),
 ]
 
 
-@pytest.mark.parametrize("eid,variante", FALLAN, ids=[f"{e}-{sorted(v)[0]}" for e, v in FALLAN])
+@pytest.mark.parametrize("eid,variante", FALLAN,
+                         ids=[f"{e}-" + ",".join(f"{k}={v}" for k, v in var.items()) for e, var in FALLAN])
 def test_el_fixture_equivocado_falla(calificar_variante, eid, variante):
     e = entrada(calificar_variante(**variante), eid)
     assert e["passed"] is False
@@ -99,6 +113,26 @@ def test_un_comando_roto_no_arrastra_a_los_demas(calificar_variante):
     g = calificar_variante(rotos=["rotacion"])
     assert entrada(g, "E06")["passed"] is False
     assert all(entrada(g, eid)["passed"] for eid in ("E01", "E02", "E03", "E04", "E05", "E07"))
+
+
+def test_un_alta_invalida_que_borra_productos_falla_e04_sin_cortar_la_calificacion(calificar_variante):
+    g = calificar_variante(borra_productos_si_invalido=True)
+    e04 = entrada(g, "E04")
+    assert e04["passed"] is False
+    assert "productos.csv" in e04["evidence"]
+    assert all(entrada(g, eid)["passed"] for eid in ("E01", "E02", "E03", "E05", "E06", "E07"))
+
+
+def test_un_calificador_que_tira_falla_su_expectation_y_sigue(calificar_variante, monkeypatch):
+    def tira(copia):
+        raise RuntimeError("se rompió")
+
+    monkeypatch.setitem(calificar.CALIFICADORES, "E03", tira)
+    g = calificar_variante()
+    e03 = entrada(g, "E03")
+    assert e03["passed"] is False
+    assert "RuntimeError" in e03["evidence"] and "se rompió" in e03["evidence"]
+    assert all(entrada(g, eid)["passed"] for eid in ("E01", "E02", "E04", "E05", "E06", "E07"))
 
 
 # --- Agujero 5: datos frescos siempre ----------------------------------------------------------
@@ -132,7 +166,8 @@ def test_agujero6_exportar_con_otro_formato_json_pasa_e05(calificar_variante):
 # --- No muta la corrida ------------------------------------------------------------------------
 
 def test_no_muta_el_repo_de_la_corrida(tmp_path):
-    repo = armar_repo(tmp_path / "repo")
+    # Con los datos de la corrida distintos de los frescos, calificar en el lugar los pisaría.
+    repo = armar_repo(tmp_path / "repo", sin_fila_menos_15=True)
     antes = {p.relative_to(repo): p.read_bytes() for p in repo.rglob("*") if p.is_file()}
     calificar.calificar(repo)
     despues = {p.relative_to(repo): p.read_bytes() for p in repo.rglob("*") if p.is_file()}

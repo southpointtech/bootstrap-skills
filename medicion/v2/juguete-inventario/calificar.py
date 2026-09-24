@@ -128,8 +128,13 @@ def e04(copia):
         salida = copia.inv_sobre_datos_actuales(*args)
         if salida[0] != 2:
             malos.append(mostrar(args, salida) + " (se esperaba 2)")
-        if (copia.datos / "productos.csv").read_bytes() != antes:
-            malos.append(f"{mostrar(args, salida)} y cambió productos.csv")
+        try:
+            cambio = (copia.datos / "productos.csv").read_bytes() != antes
+        except OSError as e:
+            cambio = f"productos.csv ilegible: {e}"
+        if cambio:
+            malos.append(f"{mostrar(args, salida)} y cambió productos.csv"
+                         + (f" ({cambio})" if isinstance(cambio, str) else ""))
     return not malos, "; ".join(malos) or "el alta válida agrega la fila y las tres inválidas salen 2 sin tocar el archivo"
 
 
@@ -161,7 +166,10 @@ def calificar(repo):
         for texto in EXPECTATIONS:
             eid = texto[1:4]
             if eid in CALIFICADORES:
-                passed, evidencia = CALIFICADORES[eid](copia)
+                try:
+                    passed, evidencia = CALIFICADORES[eid](copia)
+                except Exception as e:
+                    passed, evidencia = False, f"el calificador tiró {type(e).__name__}: {e}"
             else:
                 passed, evidencia = None, "no calificada: calificar.py todavía no implementa esta expectation (04b slice 1)"
                 no_calificadas.append(eid)

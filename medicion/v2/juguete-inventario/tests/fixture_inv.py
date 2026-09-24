@@ -20,6 +20,11 @@ CORRECTO = {
     "hasta_exclusivo": False,
     "alertas_menor_o_igual": False,
     "rotos": [],                   # comandos que salen 1 sin hacer nada
+    "exit_final": {},              # p. ej. {"productos": 1}: hace su trabajo y sale con ese código
+    "exit_alta_invalida": 2,
+    "valida_duplicado": True,
+    "alta_escribe": "al_final",    # "nada", "sin_punto", "al_principio" o "pierde_original"
+    "borra_productos_si_invalido": False,
 }
 
 FUENTE = '''\
@@ -74,13 +79,28 @@ def main(a):
         punto = args[4] if args[3:4] == ["--punto-reorden"] else ""
 
         def escribir():
-            with open(d / "productos.csv", "a", encoding="utf-8", newline="") as f:
-                csv.writer(f).writerow([sku, nombre, unidad, punto])
+            modo = V["alta_escribe"]
+            if modo == "nada":
+                return
+            fila = [sku, nombre, unidad, "" if modo == "sin_punto" else punto]
+            with open(d / "productos.csv", encoding="utf-8", newline="") as f:
+                filas = list(csv.reader(f))
+            if modo == "al_principio":
+                filas.insert(1, fila)
+            else:
+                filas.append(fila)
+            if modo == "pierde_original":
+                del filas[1]
+            with open(d / "productos.csv", "w", encoding="utf-8", newline="") as f:
+                csv.writer(f, lineterminator="\\n").writerows(filas)
 
         if V["escribe_antes_de_validar"]:
             escribir()
-        if not re.fullmatch(V["regex_sku"], sku) or sku in {{p["sku"] for p in prods}}:
-            fallar("SKU invalido o repetido: " + sku, 2)
+        repetido = V["valida_duplicado"] and sku in {{p["sku"] for p in prods}}
+        if not re.fullmatch(V["regex_sku"], sku) or repetido:
+            if V["borra_productos_si_invalido"]:
+                (d / "productos.csv").unlink()
+            fallar("SKU invalido o repetido: " + sku, V["exit_alta_invalida"])
         if not V["escribe_antes_de_validar"]:
             escribir()
     elif cmd == "exportar":
@@ -114,6 +134,7 @@ def main(a):
                     print(f"{{p['sku']}}\\t{{st[p['sku']]}}")
     else:
         fallar("comando desconocido: " + cmd, 2)
+    sys.exit(V["exit_final"].get(cmd, 0))
 
 
 main(sys.argv[1:])
