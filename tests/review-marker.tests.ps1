@@ -5,6 +5,7 @@ $repo   = Split-Path $PSScriptRoot -Parent
 $marker = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/scripts/review-marker.ps1"
 $script:failures = 0
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+. (Join-Path $PSScriptRoot "lib\consola-propia.ps1")
 $script:runRoot = New-TestRunRoot "rm"
 trap { Remove-TestRunRoot $script:runRoot; break }
 
@@ -506,11 +507,10 @@ Remove-Item -Recurse -Force $t
 # 65001 del padre, así que `rev-parse --show-toplevel` volvía mojibake: $dir dejaba de ser un repo y
 # las TRES acciones salían con exit 2 en silencio. `advance` no avanzaba nunca y el loop volvía a
 # revisar la rama entera en cada turno, sin que nada lo dijera.
-# El fixture fuerza la code page DENTRO del hijo para que el caso sea determinístico en cualquier
-# máquina. El control positivo va primero: si `GetEncoding(850)` fallara, el `catch` se lo tragaría y
-# el caso pasaría en verde sin ejercitar nada — que es la trampa que ya apareció tres veces.
-$cp = ((& pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); [Console]::OutputEncoding.CodePage") | Out-String).Trim()
-Assert ($cp -eq "850") "control positivo: el pwsh hijo del fixture corre en code page 850 (dio '$cp')"
+# El 850 se fija en una consola PROPIA (issue 16): fijarlo en la de la suite se lo dejaba puesto a
+# cualquier proceso que arrancara después en ella, incluidas las otras suites de run-all. El boot de
+# la consola propia corre con `Stop` y sin `catch`, así que si `GetEncoding(850)` fallara el caso
+# tiraría en vez de pasar en verde sin ejercitar nada.
 # El nombre se arma por punto de código y no como literal: así el caso no depende de con qué
 # encoding se guardó ESTE archivo ni de con cuál lo lea el runner.
 $enye = [string][char]0x00F1
@@ -522,15 +522,103 @@ git -C $t add -A; git -C $t commit -q -m base
 git -C $t checkout -q -b feat/x
 # El `exit $LASTEXITCODE` final es necesario: sin él, `pwsh -Command` devuelve su propio código (1
 # ante cualquier error) y el assert no distinguiría el exit 2 del marcador de un fallo del host.
-$acc = & pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); & '$marker' -Action advance -RepoDir '$t'; exit `$LASTEXITCODE"
-$accExit = $LASTEXITCODE
-$acc = (($acc | Out-String)).Trim()
-Assert ($accExit -eq 0) "bajo ruta no-ASCII y code page OEM, advance no sale con exit 2 (dio $accExit)"
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $marker -Argumentos @('-Action', 'advance', '-RepoDir', $t) -ConSonda
+$acc = $r.out.Trim()
+Assert ($r.exit -eq 0) "bajo ruta no-ASCII y code page OEM, advance no sale con exit 2 (dio $($r.exit); $($r.err))"
 Assert ($acc -match '^[0-9a-f]{40}$') "bajo ruta no-ASCII, advance emite un marcador ('$acc')"
 # El estado tiene que aterrizar DENTRO del repo: con $gitDir mojibake se escribía en una ruta
 # paralela inexistente, así que el marcador se perdía entre turnos aunque advance dijera que sí.
 Assert (Test-Path -LiteralPath (Join-Path $t ".git/review-loop-state.json")) "bajo ruta no-ASCII, el estado se escribe dentro del repo"
+Assert ($r.cpSonda -eq 850) "advance no le cambia el encoding al proceso siguiente de su consola (la sonda arrancó en $($r.cpSonda), esperaba 850)"
 Remove-Item -Recurse -Force -LiteralPath $t
+
+# --- La función `git` de la lib aplana un array y omite un `$null`, como el exe ---
+# `Get-SliceBase` le pasa las ramas al octopus como `@($others)`, UN argumento. Sin aplanar, la lib
+# le daría a git "a b" como una sola ref: el octopus falla y el fallback de a pares devuelve lo
+# mismo en una historia lineal, así que por el marcador no se ve (el mutante sobrevivía). Se mira
+# la lib directo, en un hijo: dot-sourcearla acá taparía el git.exe de toda la suite.
+$lib = Join-Path (Split-Path $marker -Parent) "lib\git-utf8.ps1"
+$t = New-Repo
+"x" | Set-Content (Join-Path $t "x.txt")
+git -C $t add -A; git -C $t commit -q -m x
+$esperado = @((git -C $t rev-parse HEAD).Trim(), (git -C $t rev-parse HEAD~1).Trim()) -join ','
+$sonda = Join-Path $t "sonda-lib.ps1"
+Set-Content -LiteralPath $sonda -Encoding UTF8 -Value @'
+param($lib, $dir)
+. $lib
+$refs = @('HEAD', 'HEAD~1')
+(git -C $dir rev-parse $refs $null) -join ','
+"exit=$LASTEXITCODE"
+'@
+# El exit también: con el `$null` pasado como "", git igual imprime los dos SHAs y sólo el 128 lo delata.
+$out = (& pwsh -NoProfile -File $sonda $lib $t) -join ';'
+Assert ($out -eq "$esperado;exit=0") "la git de la lib aplana un array y omite un `$null (dio '$out')"
+Remove-Item -Recurse -Force -LiteralPath $t
+
+# --- La lib entrecomilla cada argumento como lo parte un programa de Windows ---
+# El exe recibía los argumentos de PowerShell; la función los junta a mano en `.Arguments`. Ningún
+# fixture tenía un espacio en la ruta (%TEMP% no lo tiene) y los repos reales sí ("Bootstrap
+# Skills"): sacar el `\s` del test de comillas, o la duplicación de las barras finales, sobrevivía la
+# suite. `rev-parse --sq-quote` le devuelve a git cada argumento tal como lo recibió. En los dos shells:
+# `.Arguments` está ahí justamente por Windows PowerShell 5.1.
+$t = New-Repo
+$sonda = Join-Path $t "sonda-comillas.ps1"
+Set-Content -LiteralPath $sonda -Encoding UTF8 -Value @'
+param($lib)
+. $lib
+(git rev-parse --sq-quote 'a b' 'c"d' 'e\' '' 'f\"g' 'h\ i\' "t`tab").Trim()
+'@
+$esperado = "'a b' 'c`"d' 'e\' '' 'f\`"g' 'h\ i\' 't`tab'"
+foreach ($shell in 'pwsh', 'powershell.exe') {
+  $out = (& $shell -NoProfile -File $sonda $lib) -join "`n"
+  Assert ($out -eq $esperado) "$shell`: la git de la lib le pasa a git cada argumento entero (dio '$out')"
+}
+Remove-Item -Recurse -Force -LiteralPath $t
+
+# --- Write-Stdout y Write-Stderr se leen bien también en una consola de verdad ---
+# Los bytes UTF-8 son para quien lee la salida redirigida (el agente, Claude Code con el JSON del
+# hook). Una persona que corre abrir-carril en su terminal no redirige nada, y una consola en cp850
+# decodifica esos bytes con su code page: la ñ se veía `├▒` (medido leyendo el buffer de pantalla).
+# El hijo va en una consola PROPIA sin redirigir, y lee su propio buffer: lo que se ve, no lo que se
+# escribió. Se devuelven puntos de código, porque cualquier tubería de por medio vuelve a codificar.
+$t = New-TestWorkspace $script:runRoot "rm-consola"
+$sonda = Join-Path $t "sonda-pantalla.ps1"
+$res = Join-Path $t "pantalla.txt"
+Set-Content -LiteralPath $sonda -Encoding UTF8 -Value @'
+param($lib, $res)
+. $lib
+Clear-Host
+$enye = [string][char]0x00F1
+Write-Stdout ("A:" + $enye)
+Write-Stderr ("B:" + $enye)
+$celdas = $Host.UI.RawUI.GetBufferContents([Management.Automation.Host.Rectangle]::new(0, 0, 9, 1))
+$filas = foreach ($f in 0, 1) { -join (0..9 | ForEach-Object { [int]$celdas[$f, $_].Character; ' ' }) }
+[IO.File]::WriteAllText($res, "$([Console]::OutputEncoding.CodePage)`n" + ($filas -join "`n"))
+'@
+$p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', "`"$sonda`"", "`"$lib`"", "`"$res`"" -WindowStyle Hidden -Wait -PassThru
+$renglones = @(if (Test-Path -LiteralPath $res) { [IO.File]::ReadAllText($res) -split "`n" })
+Assert ($p.ExitCode -eq 0 -and $renglones.Count -eq 3) "guard: la sonda leyó su pantalla (exit $($p.ExitCode), $($renglones.Count) renglones)"
+Assert ($renglones.Count -eq 3 -and $renglones[0] -ne '65001') "guard: la consola propia no está en UTF-8, o el caso no ejercita nada (cp $($renglones[0]))"
+# "A:ñ" en puntos de código es 65 58 241; "├▒" habría dejado 9500 9618 después de los dos puntos.
+foreach ($i in 1, 2) {
+  Assert ($renglones.Count -eq 3 -and $renglones[$i] -match '^(65|66) 58 241 ') "en una consola en cp850 sin redirigir, $(if ($i -eq 1) { 'Write-Stdout' } else { 'Write-Stderr' }) muestra la ñ ('$(if ($renglones.Count -eq 3) { $renglones[$i].Trim() })')"
+}
+Remove-Item -Recurse -Force -LiteralPath $t
+
+# Y de punta a punta, que es como falla de verdad: un `-RepoDir` con espacio (y con la barra final que
+# deja un autocompletado) llegaba partido a `git -C`, y el marcador salía 2 sin decir nada.
+foreach ($sufijo in '', '\') {
+  $padre = New-TestWorkspace $script:runRoot "rm con espacio"
+  $t = Join-Path $padre "repo x"
+  [IO.Directory]::CreateDirectory($t) | Out-Null
+  Init-Repo $t "master"
+  "base" | Set-Content (Join-Path $t "file.txt")
+  git -C $t add -A; git -C $t commit -q -m base
+  git -C $t checkout -q -b feat/x
+  $adv = Marker ($t + $sufijo) advance
+  Assert ($script:lastExit -eq 0 -and $adv -match '^[0-9a-f]{40}$') "con un espacio en la ruta del repo$(if ($sufijo) { ' y barra final' }), advance emite un marcador (exit $script:lastExit, '$adv')"
+  Remove-Item -Recurse -Force -LiteralPath $padre
+}
 
 # --- `-Action base` resuelve la base del slice para el hook (Alta A: repos con base no estándar) ---
 # El hook delega acá la resolución de base cuando las ramas nombradas (main/master/develop/origin-HEAD)

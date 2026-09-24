@@ -5,6 +5,7 @@ $repo   = Split-Path $PSScriptRoot -Parent
 $script:abrir = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.claude/scripts/abrir-carril.ps1"
 $script:failures = 0
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+. (Join-Path $PSScriptRoot "lib\consola-propia.ps1")
 $script:runRoot = New-TestRunRoot "ac"
 trap { Remove-TestRunRoot $script:runRoot; break }
 
@@ -234,18 +235,50 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $sub "wt-bloque"))) "el worktree
 # --- Un repo con acentos en la ruta, con la consola en cp850 ---
 # git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Con un
 # code page OEM, `rev-parse --show-toplevel` llega deformado y el script muere con un error crudo.
-# Control positivo antes del caso: si el `GetEncoding(850)` del hijo fallara en silencio, el caso
-# quedaría verde sin ejercitar el code page OEM, que es todo lo que prueba. Y el nombre se arma por
-# punto de código y no como literal, para que el caso no dependa de con qué encoding se guardó ESTE
-# archivo. Las dos cosas son las que ya fijó tests/review-marker.tests.ps1 para su propio caso.
-$cp = ((& pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); [Console]::OutputEncoding.CodePage") | Out-String).Trim()
-Assert ($cp -eq "850") "control positivo: el pwsh hijo del fixture corre en code page 850 (dio '$cp')"
+# El 850 se fija en una consola PROPIA (issue 16), que muere con el caso: fijarlo en la de la suite
+# se lo dejaba puesto a todo lo que arrancara después en ella. El boot corre con `Stop` y sin
+# `catch`, así que un `GetEncoding(850)` que fallara tira en vez de dejar el caso verde sin ejercitar
+# nada. Y el nombre se arma por punto de código y no como literal, para que el caso no dependa de con
+# qué encoding se guardó ESTE archivo.
 $t = New-Repo -nombre ("proyecto-acentuado-" + [string][char]0x00F1)
 Assert ($t -match '[^\x00-\x7F]') "control positivo: la ruta del fixture tiene un caracter no ASCII"
-$cmd = "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); Set-Location -LiteralPath '$t'; & '$script:abrir' -Slice 07 -Slug padron -DryRun; exit `$LASTEXITCODE"
-$out = (@((& pwsh -NoProfile -Command $cmd 2>&1) | ForEach-Object { "$_" }) -join "`n")
-Assert ($LASTEXITCODE -eq 0) "un repo con acentos en la ruta sale 0 con la consola en cp850 (salió $LASTEXITCODE)"
-Assert ($out -match 'DryRun: no se creo nada') "con acentos y cp850 el dry run llega hasta el final"
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Directorio $t `
+  -Argumentos @('-Slice', '07', '-Slug', 'padron', '-DryRun') -ConSonda
+Assert ($r.exit -eq 0) "un repo con acentos en la ruta sale 0 con la consola en cp850 (salió $($r.exit); $($r.err))"
+Assert ($r.out -match 'DryRun: no se creo nada') "con acentos y cp850 el dry run llega hasta el final"
+Assert ($r.cpSonda -eq 850) "abrir-carril no le cambia el encoding al proceso siguiente de su consola (la sonda arrancó en $($r.cpSonda), esperaba 850)"
+# Lo que el script ESCRIBE también: el agente encuentra el worktree nuevo por la línea `Worktree:`, y
+# la lee como UTF-8. Sin fijar la code page (issue 16), un `Write-Host` sale en la de la consola y la
+# ñ llega como un byte suelto de cp850.
+$hoja = Split-Path $t -Leaf
+Assert ($r.out -match ('(?m)^Worktree: .*' + [regex]::Escape($hoja) + '[\\/]slice-07\s*$')) "con acentos y cp850, la línea Worktree: trae la ruta legible en UTF-8"
+# Y el motivo de un rechazo, que también nombra la ruta.
+$ocupada = Join-Path (Split-Path $t -Parent) (Join-Path "carriles" (Join-Path $hoja "slice-07"))
+[IO.Directory]::CreateDirectory($ocupada) | Out-Null
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Directorio $t `
+  -Argumentos @('-Slice', '07', '-Slug', 'padron') -StderrUtf8
+Assert ($r.exit -eq 1) "con la carpeta del carril ocupada, se niega (salió $($r.exit))"
+Assert ($r.err.Contains("La carpeta '$ocupada' ya existe")) "con acentos y cp850, el rechazo nombra la ruta legible en UTF-8 ('$($r.err)')"
+
+# Y un aviso: con marcas sin rellenar y -DryRun, el aviso nombra el archivo de datos, cuya ruta trae
+# la ñ del repo. Tiene que salir por stdout, legible en UTF-8 y con su prefijo.
+$t = New-Repo -datos $conMarcas -nombre ("proyecto-acentuado-" + [string][char]0x00F1)
+$hoja = Split-Path $t -Leaf
+$r = Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $script:abrir -Directorio $t `
+  -Argumentos @('-Slice', '07', '-Slug', 'padron', '-DryRun')
+Assert ($r.out -match ('(?m)^AVISO: .*' + [regex]::Escape($hoja))) "con acentos y cp850, el aviso sale por stdout con la ruta legible en UTF-8 ('$($r.out)')"
+
+# --- Si `worktree add` falla, el motivo de git le llega a quien lo corre ---
+# Es la única llamada que no pasa por la función de la lib, porque ésa descarta el stderr: un slug
+# que no sirve como nombre de rama pasa los chequeos previos (show-ref sólo dice "no existe") y lo
+# rechaza git. El motivo se busca en una línea que no sea la del propio script: las líneas `Rama:` y
+# `Worktree:` ya nombran la rama.
+$t = New-Repo
+$root = Join-Path (Split-Path $t -Parent) "carriles"
+$out = Abrir $t @("-Slice", "07", "-Slug", "a..b", "-Root", $root)
+Assert ($script:lastExit -ne 0) "una rama inválida sale distinto de 0 (salió $script:lastExit)"
+$deGit = @($out -split "`n" | Where-Object { $_ -match '07-a\.\.b' -and $_ -notmatch '^(Rama|Worktree):' })
+Assert ($deGit.Count -gt 0) "el motivo de git nombra la rama inválida ($out)"
 
 # --- El bloque mal formado es un error, con y sin -DryRun ---
 # Las tres guardas fallan ABIERTO si se las saca: dos bloques hace que se ignore el bloque entero,

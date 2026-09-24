@@ -51,15 +51,15 @@ param(
 $ErrorActionPreference = "SilentlyContinue"
 
 # git writes UTF-8 and PowerShell decodes child output with Console::OutputEncoding, so EVERY git
-# call whose output can carry a path needs this — not just `ls-files`, which is the only one that
-# used to have it. A child `pwsh` with stdout redirected (exactly how the trigger hook invokes this
-# script) does not inherit the parent's 65001 and reports an OEM code page instead, so this cannot
-# be left to the environment. Under a non-ASCII path (`C:\Users\Martín\…`) `rev-parse
-# --show-toplevel` came back mangled: $dir stopped being a repo, $statePath pointed at a directory
-# that does not exist, and all THREE actions exited 2 — `advance` never advancing, the marker never
-# persisting, and the loop re-reviewing the whole branch every turn with nothing to say so.
-# Set once and not restored: this script always runs as a short-lived child process.
-try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# call whose output can carry a path has to be read as UTF-8 — not just `ls-files`, which is the
+# only one that used to be. A child `pwsh` with stdout redirected (exactly how the trigger hook
+# invokes this script) reports an OEM code page, so this cannot be left to the environment. Under a
+# non-ASCII path (`C:\Users\Martín\…`) `rev-parse --show-toplevel` came back mangled: $dir stopped
+# being a repo, $statePath pointed at a directory that does not exist, and all THREE actions exited
+# 2 — `advance` never advancing, the marker never persisting, and the loop re-reviewing the whole
+# branch every turn with nothing to say so. The lib reads git as UTF-8 per call instead of setting
+# [Console]::OutputEncoding, which belongs to the CONSOLE and outlives this process (issue 16).
+. (Join-Path $PSScriptRoot "lib\git-utf8.ps1")
 
 $dir = if ($RepoDir) { $RepoDir } else { (Get-Location).Path }
 if (-not (Test-Path -LiteralPath $dir)) { exit 2 }

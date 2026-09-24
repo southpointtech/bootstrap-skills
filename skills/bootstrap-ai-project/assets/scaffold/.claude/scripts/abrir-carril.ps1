@@ -32,18 +32,24 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding, que en
-# un pwsh con stdout redirigido es el code page OEM de la maquina. Sin esto, `rev-parse
+# un pwsh con stdout redirigido es el code page OEM de la maquina. Sin leerla como UTF-8, `rev-parse
 # --show-toplevel` llega deformado en un repo con acentos en la ruta y el script muere con un error
-# crudo en vez de abrir el carril. Es el mismo arreglo que ya tiene review-marker.ps1. Se setea y no
-# se restaura: este script siempre corre como proceso hijo y efimero.
-try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# crudo en vez de abrir el carril. La lib la lee asi por llamada, sin fijar Console::OutputEncoding:
+# esa es de la CONSOLA y se la queda todo lo que arranque despues en ella (issue 16). Por lo mismo,
+# todo lo que el script escribe pasa por `Write-Stdout` y `Write-Stderr`, que con la salida
+# redirigida la emiten en bytes UTF-8: con `Write-Host` o `[Console]::Error` una ruta con acentos
+# salia en la code page de la consola, y el agente, que lee UTF-8, recibia la linea `Worktree:` rota.
+. (Join-Path $PSScriptRoot "lib\git-utf8.ps1")
 
 # Un rechazo sale con 1 y el motivo en stderr. `throw` tambien saldria con 1, pero con el
 # motivo enterrado en el formato de error de PowerShell.
 function Rechazar([string] $motivo) {
-  [Console]::Error.WriteLine("abrir-carril: $motivo")
+  Write-Stderr "abrir-carril: $motivo"
   exit 1
 }
+
+# Un aviso no frena. Va a stdout, que es donde `Write-Warning` lo dejaba con la salida redirigida.
+function Avisar([string] $motivo) { Write-Stdout "AVISO: $motivo" }
 
 $repo = (git rev-parse --show-toplevel 2>$null)
 if (-not $repo) { Rechazar 'No estoy dentro de un repo git.' }
@@ -55,7 +61,7 @@ $datosPath = if ([IO.Path]::IsPathRooted($Datos)) { $Datos } else { Join-Path $r
 # Un dato que falta bloquea la ola: sin -DryRun se rechaza, con -DryRun se avisa y se sigue.
 function Bloqueo([string] $motivo) {
   if (-not $DryRun) { Rechazar $motivo }
-  Write-Warning $motivo
+  Avisar $motivo
 }
 
 $lineas = @()
@@ -130,21 +136,26 @@ if ($LASTEXITCODE -eq 0) { Rechazar "La rama '$branch' ya existe. Un carril no v
 if (Test-Path -LiteralPath $path) { Rechazar "La carpeta '$path' ya existe." }
 
 $baseSha = (git -C $repo rev-parse --short $Base).Trim()
-Write-Host "Repo:     $repo"
-Write-Host "Worktree: $path"
-Write-Host "Rama:     $branch  (desde $Base @ $baseSha)"
+Write-Stdout "Repo:     $repo"
+Write-Stdout "Worktree: $path"
+Write-Stdout "Rama:     $branch  (desde $Base @ $baseSha)"
 
 if ($DryRun) {
   foreach ($rel in $Copy) {
     $src = Join-Path $repo $rel
-    Write-Host ("Copiaria: {0}  {1}" -f $rel, $(if (Test-Path -LiteralPath $src) { '(existe)' } else { '(no existe, se saltea)' }))
+    Write-Stdout ("Copiaria: {0}  {1}" -f $rel, $(if (Test-Path -LiteralPath $src) { '(existe)' } else { '(no existe, se saltea)' }))
   }
-  Write-Host 'DryRun: no se creo nada.'
+  Write-Stdout 'DryRun: no se creo nada.'
   return
 }
 
 New-Item -ItemType Directory -Force $Root | Out-Null
-git -C $repo worktree add -b $branch $path $Base
+# El ejecutable y no la funcion `git`: la de la lib descarta el stderr, y aca es el motivo que ve
+# quien lo corre si falla. No se lee nada de su salida, asi que no hay nada que decodificar. Por
+# `Get-Command` y no `git.exe`, que no existe fuera de Windows (el scaffold compartible corre en pwsh
+# de macOS y Linux).
+$gitExe = Get-Command git -CommandType Application | Select-Object -First 1
+& $gitExe -C $repo worktree add -b $branch $path $Base
 if ($LASTEXITCODE -ne 0) { Rechazar 'git worktree add fallo.' }
 
 $copied = @(); $skipped = @()
@@ -164,14 +175,14 @@ foreach ($rel in $Copy) {
   $copied += $rel
 }
 
-Write-Host ''
-Write-Host ("Copiado:  {0}" -f $(if ($copied) { $copied -join ', ' } else { '(nada)' }))
-if ($skipped) { Write-Host ("Salteado: {0}  (no existen en el repo)" -f ($skipped -join ', ')) }
+Write-Stdout ''
+Write-Stdout ("Copiado:  {0}" -f $(if ($copied) { $copied -join ', ' } else { '(nada)' }))
+if ($skipped) { Write-Stdout ("Salteado: {0}  (no existen en el repo)" -f ($skipped -join ', ')) }
 
 # Lo copiado tiene que seguir fuera del diff del carril
 $dirty = git -C $path status --porcelain
 if ($dirty) {
-  Write-Warning "El worktree nuevo no esta limpio: algo de lo copiado no esta gitignoreado.`n$dirty"
+  Avisar "El worktree nuevo no esta limpio: algo de lo copiado no esta gitignoreado.`n$dirty"
 } else {
-  Write-Host 'Worktree limpio: lo copiado no entra en el diff.'
+  Write-Stdout 'Worktree limpio: lo copiado no entra en el diff.'
 }

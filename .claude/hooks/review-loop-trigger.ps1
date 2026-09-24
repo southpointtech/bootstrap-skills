@@ -21,20 +21,34 @@
 # aceptado es un review-loop de más cuando el push sí corrió en otro repo, que es la dirección segura.
 $ErrorActionPreference = "SilentlyContinue"
 
-# git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Un hook
-# corre como proceso hijo con stdout redirigido, así que no hereda una consola en UTF-8: lo necesita
-# TODA llamada a git cuya salida pueda traer una ruta, no sólo el `ls-files` del techo. Bajo una ruta
-# no-ASCII, `rev-parse --show-toplevel` volvía mojibake y el marcador ya no se podía encontrar.
-try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
-# El JSON del evento llega por STDIN, decodificado con Console::InputEncoding — y un hook lanzado con
-# la consola en OEM (el default de Windows) tampoco hereda UTF-8 en la entrada. Sin esto, un evento
-# cuyo `cwd` trae una ruta no-ASCII (`C:\Users\Martín\…`) volvía mojibake, el `Set-Location` de abajo
-# fallaba en silencio, y el hook corría sobre el repo AMBIENTE y disparaba — desubicando todo. Se
-# fuerza antes de la primera lectura de [Console]::In para que el reader se (re)construya con UTF-8.
-try { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# git escribe UTF-8 y un hook corre como proceso hijo con stdout redirigido, en la code page OEM de
+# la máquina: TODA llamada a git cuya salida pueda traer una ruta se tiene que leer como UTF-8, no
+# sólo el `ls-files` del techo — bajo una ruta no-ASCII, `rev-parse --show-toplevel` volvía mojibake
+# y el marcador ya no se podía encontrar. Lo mismo el JSON del evento por STDIN: un evento cuyo `cwd`
+# trae una ruta no-ASCII (`C:\Users\Martín\…`) volvía mojibake, el `Set-Location` de abajo fallaba
+# en silencio, y el hook corría sobre el repo AMBIENTE y disparaba. Las dos cosas se leen con la lib
+# y no fijando [Console]::OutputEncoding/InputEncoding: ésas son de la CONSOLA, y se las queda todo
+# lo que arranque después en ella (issue 16).
+. (Join-Path $PSScriptRoot "..\scripts\lib\git-utf8.ps1")
+# Un hook portado a mano, o un upgrade aplicado a medias, llega sin la lib, y el dot-source de arriba
+# falla callado. Leer stdin con una función que no existe daba vacío y el hook salía 0 en CADA
+# evento: el falso negativo silencioso que este hook llama la dirección peligrosa. Por eso sus dos
+# funciones de entrada y salida se definen también acá. git cae entonces al exe, que sólo deforma las
+# rutas no-ASCII.
+if (-not (Get-Command Read-StdinUtf8 -CommandType Function)) {
+    function Read-StdinUtf8 {
+        $m = [IO.MemoryStream]::new()
+        [Console]::OpenStandardInput().CopyTo($m)
+        [Text.UTF8Encoding]::new($false).GetString($m.ToArray())
+    }
+    function Write-Stdout([string]$texto) {
+        $b = [Text.UTF8Encoding]::new($false).GetBytes($texto + "`n")
+        $s = [Console]::OpenStandardOutput(); $s.Write($b, 0, $b.Length); $s.Flush()
+    }
+}
 
 # 1. Leer el evento del hook por stdin
-$raw = [Console]::In.ReadToEnd()
+$raw = Read-StdinUtf8
 if (-not $raw) { exit 0 }
 try { $evt = $raw | ConvertFrom-Json } catch { exit 0 }
 $cmd = $evt.tool_input.command
@@ -399,7 +413,7 @@ if ($root) {
     # DESTINO: mover código a un nombre `.md` aparecía como un único archivo de doc y silenciaba la
     # revisión de lo que se sacó. Apagada, el mismo movimiento lista también el path viejo, y con
     # una sola entrada no-doc alcanza.
-    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange -- . 2>$null)
+    $touched = @(git -C $root -c core.quotepath=false diff --name-only --no-renames $docRange '--' . 2>$null)
     $touchedOk = ($LASTEXITCODE -eq 0)
     # Sin marcador el rango es `<base>...HEAD`, un rango de COMMITS: el árbol de trabajo no está
     # adentro, así que un archivo TRACKEADO modificado y todavía sin commitear no aparecía en ninguna
@@ -407,7 +421,7 @@ if ($root) {
     # marcador no hay nada que sumar: su ref se emite pelado justamente para que `git diff <ref>` ya
     # cubra el árbol.
     if ($touchedOk -and -not $range) {
-        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD -- . 2>$null)
+        $touched += @(git -C $root -c core.quotepath=false diff --name-only --no-renames HEAD '--' . 2>$null)
         $touchedOk = ($LASTEXITCODE -eq 0)
     }
     if ($touchedOk) {
@@ -483,7 +497,7 @@ if ($isCommit -and -not ($isPush -or $isPr)) {
         # `git -C $root` en los dos conteos: los pathspec y `ls-files` se resuelven contra el cwd del
         # proceso git, y el evento trae el cwd de la SESIÓN, que en un monorepo es un subdirectorio.
         # Sin anclar, el techo medía sólo ese subárbol y la red de seguridad desaparecía en silencio.
-        $rows = @(git -C $root diff --numstat $range -- . @skip 2>$null)
+        $rows = @(git -C $root diff --numstat $range '--' . @skip 2>$null)
         # Si el conteo es confiable siquiera. El rango de fallback `<base>...HEAD` falla de plano en
         # historias no relacionadas (`fatal: no merge base`), y con el error tragado eso se leía como
         # "0 líneas": el techo desapareciendo justo en el camino donde el marcador ya había dicho que
@@ -546,6 +560,6 @@ $msg = "Cerraste un commit/slice en el branch '$branch' (base '$base'). " +
        "El rango sale del marcador ('.claude/scripts/review-marker.ps1 -Action range'), no del branch entero: " +
        "solo si ese script no existe, usá 'git diff $base...HEAD'. " +
        "No marques el trabajo como completo hasta que el loop cierre como dice /review-loop (limpio: cero hallazgos media/alta, o sin High en light; por un delta de solo prosa; o por el tope de turnos: 2, o 1 si el slice declara 'Review-Rigor: light')."
-@{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
-    ConvertTo-Json -Depth 4 -Compress
+Write-Stdout (@{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
+    ConvertTo-Json -Depth 4 -Compress)
 exit 0
