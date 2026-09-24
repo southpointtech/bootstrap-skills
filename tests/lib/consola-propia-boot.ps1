@@ -20,23 +20,35 @@ $p = [IO.File]::ReadAllText($Plan, [Text.UTF8Encoding]::new($false)) | ConvertFr
 
 # Éste es el ambiente del caso. En esta consola no hay nadie más: muere con este proceso.
 [Console]::OutputEncoding = [Text.Encoding]::GetEncoding([int]$p.cp)
+# La de entrada también: es la que decodifica el stdin de un hook, y también es de la consola.
+[Console]::InputEncoding = [Text.Encoding]::GetEncoding([int]$p.cp)
 
 # Entrecomillado a mano, y no `@()` pelado: `Start-Process -ArgumentList` pega los elementos con un
 # espacio sin entrecomillar ninguno, así que una ruta con espacio llega partida (pwsh sale 64).
 function Citar([string]$a) { if ($a -match '[\s"]') { '"' + ($a -replace '"', '\"') + '"' } else { $a } }
 $argumentos = @('-NoProfile', '-File', (Citar $p.script)) + @($p.argumentos | ForEach-Object { Citar "$_" })
-$proc = Start-Process pwsh -ArgumentList $argumentos -NoNewWindow -Wait -PassThru `
-  -RedirectStandardOutput $p.rawOut -RedirectStandardError $p.rawErr
+$opciones = @{ RedirectStandardOutput = $p.rawOut; RedirectStandardError = $p.rawErr }
+if ($p.directorio) { $opciones.WorkingDirectory = $p.directorio }
+# Redirigido a nivel del sistema operativo, como el stdout: el hijo recibe los bytes del archivo tal
+# cual, sin que ninguna tubería de PowerShell los recodifique en el camino.
+if ($p.stdin) { $opciones.RedirectStandardInput = $p.stdin }
+$proc = Start-Process pwsh -ArgumentList $argumentos -NoNewWindow -Wait -PassThru @opciones
 
 # La sonda mide lo único que no se ve desde afuera: con qué encoding ARRANCA un proceso lanzado
 # después del script. Si el script fijó `[Console]::OutputEncoding`, la sonda hereda ese valor
 # aunque `chcp.com` siga informando el viejo (medido el 2026-09-20).
+# Pregunta las dos, salida y entrada, en ese orden y una por renglón.
 $cpSonda = $null
+$cpSondaEntrada = $null
 if ($p.conSonda) {
-  $s = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', '[Console]::OutputEncoding.CodePage' `
+  $s = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', '[Console]::OutputEncoding.CodePage; [Console]::InputEncoding.CodePage' `
     -NoNewWindow -Wait -PassThru -RedirectStandardOutput $p.sondaOut
-  if ($s.ExitCode -eq 0) { $cpSonda = ([IO.File]::ReadAllText($p.sondaOut)).Trim() }
+  if ($s.ExitCode -eq 0) {
+    $renglones = @(([IO.File]::ReadAllText($p.sondaOut)).Trim() -split '\r?\n')
+    $cpSonda = $renglones[0].Trim()
+    if ($renglones.Count -gt 1) { $cpSondaEntrada = $renglones[1].Trim() }
+  }
 }
 
-$meta = [ordered]@{ exit = $proc.ExitCode; cpSonda = $cpSonda }
+$meta = [ordered]@{ exit = $proc.ExitCode; cpSonda = $cpSonda; cpSondaEntrada = $cpSondaEntrada }
 [IO.File]::WriteAllText($p.meta, ($meta | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))

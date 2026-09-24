@@ -29,6 +29,9 @@
 #     $r.err       # stderr del script, decodificado con la code page del caso
 #     $r.exit      # exit code del script
 #     $r.cpSonda   # con qué encoding arranca un proceso lanzado DESPUÉS del script ($null sin -ConSonda)
+#     $r.cpSondaEntrada  # lo mismo, para la de entrada ([Console]::InputEncoding)
+#
+# `-Directorio` fija el cwd del script y `-Stdin` le pasa por stdin los bytes de un archivo.
 
 function Invoke-EnConsolaPropia {
   param(
@@ -37,7 +40,11 @@ function Invoke-EnConsolaPropia {
     [string[]]$Argumentos = @(),
     # El ambiente del caso: 850 es el de una máquina que no está en UTF-8, lo que ve una Scheduled Task.
     [int]$Cp = 850,
-    [switch]$ConSonda
+    [switch]$ConSonda,
+    # El cwd del script: los que resuelven su repo con `git rev-parse` sin `-C` (abrir-carril, el hook).
+    [string]$Directorio,
+    # Un archivo cuyos BYTES le llegan al script por stdin, como el JSON del evento a un hook.
+    [string]$Stdin
   )
   $boot = Join-Path $PSScriptRoot "consola-propia-boot.ps1"
   if (-not (Test-Path -LiteralPath $boot -PathType Leaf)) { throw "falta el boot de la consola propia: $boot" }
@@ -56,6 +63,8 @@ function Invoke-EnConsolaPropia {
     sondaOut   = $sondaOut
     meta       = $meta
     conSonda   = [bool]$ConSonda
+    directorio = $Directorio
+    stdin      = $Stdin
   }
   [IO.File]::WriteAllText($plan, ($p | ConvertTo-Json -Depth 5), $utf8)
 
@@ -81,6 +90,7 @@ function Invoke-EnConsolaPropia {
     err     = (Read-TextoEnCp $rawErr $Cp)
     exit    = [int]$m.exit
     cpSonda = $(if ($null -ne $m.cpSonda -and "$($m.cpSonda)") { [int]$m.cpSonda } else { $null })
+    cpSondaEntrada = $(if ($null -ne $m.cpSondaEntrada -and "$($m.cpSondaEntrada)") { [int]$m.cpSondaEntrada } else { $null })
   }
 }
 

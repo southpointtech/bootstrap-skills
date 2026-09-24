@@ -7,6 +7,7 @@ $canon = Join-Path $repo "skills/bootstrap-personal-project/assets/scaffold/.cla
 $ms    = Join-Path $repo "skills/upgrade-bootstrap/scripts/merge-settings.ps1"
 $script:failures = 0
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
+. (Join-Path $PSScriptRoot "lib\consola-propia.ps1")
 $script:runRoot = New-TestRunRoot "rlt"
 trap { Remove-TestRunRoot $script:runRoot; break }
 
@@ -37,6 +38,17 @@ function Fire($repo, $cmd, $cwd, $tool) {
   $evt = @{ tool_input = @{ command = $cmd }; cwd = $cwd }
   if ($tool) { $evt.tool_name = $tool }
   return (($evt | ConvertTo-Json -Compress) | & pwsh -NoProfile -File $hook)
+}
+
+# Lo mismo que Fire, pero en una consola PROPIA en 850 (issue 16): el padre escribe el evento en bytes
+# UTF-8, como Claude Code, y la consola del hijo está en OEM, como una máquina Windows típica. La de
+# la suite no se toca. Devuelve lo de Invoke-EnConsolaPropia: out, err, exit y las dos sondas.
+function Fire-EnConsolaPropia($repo, $cmd, $cwd) {
+  if (-not $cwd) { $cwd = $repo }
+  $evtPath = New-TestTempPath $script:runRoot "rlt-evt" ".json"
+  $evt = @{ tool_input = @{ command = $cmd }; cwd = $cwd } | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText($evtPath, $evt, [Text.UTF8Encoding]::new($false))
+  return (Invoke-EnConsolaPropia -RunRoot $script:runRoot -Script $hook -Stdin $evtPath -ConSonda)
 }
 
 # --- Hook ---
@@ -464,17 +476,20 @@ git -C $t commit --allow-empty -q -m "commit chico sin declarar"
 Set-Content (Join-Path $t "revisión.ps1") ((1..600 | ForEach-Object { "linea $_" }) -join "`n") -Encoding UTF8
 # La code page se fuerza a OEM: en una consola que ya esta en UTF-8 el bug no se manifiesta y el
 # assert pasa sin ejercitar nada (verificado: en esta maquina pasaba en verde sin el fix). El hook
-# corre como proceso hijo y hereda la code page de la consola.
-# El `catch {}` del GetEncoding se traga la falla, asi que sin el control positivo de abajo el caso
-# pasaria en verde con la code page intacta, sin ejercitar nada.
-$prevCp = [Console]::OutputEncoding
-$cpSet = $false
-try {
-  try { [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(850); $cpSet = ([Console]::OutputEncoding.CodePage -eq 850) } catch { }
-  $o = Fire $t "git commit -m chico"
-} finally { try { [Console]::OutputEncoding = $prevCp } catch { } }
-Assert $cpSet "guard: la code page se forzo a 850 de verdad (si no, el caso no ejercita el bug)"
-Assert ($o -match "additionalContext") "la red de seguridad cuenta un untracked con nombre acentuado"
+# corre como proceso hijo y hereda la code page de la consola, que es una PROPIA (issue 16): fijarla
+# en la de la suite se la dejaba puesta a todo lo que arrancara despues ahi.
+# La rama lleva una ñ (por punto de código, para no depender del encoding de ESTE archivo): el hook
+# la lee de git y la escribe en su JSON, así que el mismo caso prueba los dos canales.
+$ramaEnye = "feat/a" + [string][char]0x00F1 + "o"
+git -C $t branch -q -m $ramaEnye
+$r = Fire-EnConsolaPropia $t "git commit -m chico"
+Assert ($r.out -match "additionalContext") "la red de seguridad cuenta un untracked con nombre acentuado ($($r.err))"
+# Claude Code lee el JSON del hook como UTF-8. Con la consola en 850, un JSON escrito por la tubería
+# sale en 850 y la ñ de la rama llega rota.
+$ctx = $null
+try { $ctx = ($r.out | ConvertFrom-Json).hookSpecificOutput.additionalContext } catch { }
+Assert ($ctx -and $ctx.Contains("'$ramaEnye'")) "con la consola en 850 el JSON del hook sale en UTF-8 y nombra la rama con su ñ ($ctx)"
+Assert ($r.cpSonda -eq 850 -and $r.cpSondaEntrada -eq 850) "el hook no le cambia el encoding al proceso siguiente de su consola (la sonda arrancó en $($r.cpSonda)/$($r.cpSondaEntrada), esperaba 850/850)"
 Remove-Item -Recurse -Force $t
 
 # El caso de arriba ejercita el nombre de ARCHIVO acentuado; este ejercita la RUTA DEL REPO. El evento
@@ -482,8 +497,8 @@ Remove-Item -Recurse -Force $t
 # hijo con la consola en code page OEM (lo normal en Windows) NO hereda UTF-8 en la entrada. Sin
 # forzar InputEncoding, el `cwd` con `ñ` vuelve mojibake, `Set-Location` falla en silencio y el hook
 # opera sobre el repo AMBIENTE y dispara mal. Este caso invoca el hook como `pwsh -File` (igual que
-# Claude Code), alimenta el evento como bytes UTF-8 por redireccion y fuerza la consola a 850 con
-# `chcp`, que es el escenario real de produccion: bytes UTF-8 en stdin, consola OEM.
+# Claude Code), alimenta el evento como bytes UTF-8 por redireccion y corre en una consola propia en
+# 850, que es el escenario real de produccion: bytes UTF-8 en stdin, consola OEM.
 # CONTROL POSITIVO: el repo temporal trae un cierre DECLARADO fresco, asi que si el hook resuelve el
 # cwd no-ASCII, dispara nombrando SU rama (feat/x). Con el bug, mojibakea, cae al ambiente y nombra
 # la rama de ESTE repo (o el hardening lo saca con exit 0): en cualquier caso no aparece 'feat/x'.
@@ -495,17 +510,9 @@ function Fire-File($repo, $cmd) {
   $rt = New-TestTempPath $script:runRoot ("rlt-test-" + $enye2 + "andu")
   Rename-Item -LiteralPath $repo -NewName (Split-Path $rt -Leaf) -ErrorAction SilentlyContinue
   if (-not (Test-Path -LiteralPath $rt)) { $rt = $repo }   # si el rename fallo, seguimos con el original
-  $evt = @{ tool_input = @{ command = $cmd }; cwd = $rt } | ConvertTo-Json -Compress
-  # El padre escribe bytes UTF-8 (como Claude Code manda el JSON del evento); el hijo arranca con la
-  # consola de ENTRADA en OEM (850), como una maquina Windows tipica. El hook debe forzar
-  # InputEncoding a UTF-8 para leer bien el cwd acentuado; sin eso, mojibakea y opera sobre el
-  # ambiente. Se restaura el OutputEncoding del runner al salir.
-  $prev = [Console]::OutputEncoding
-  try {
-    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-    $out = ($evt | & pwsh -NoProfile -Command "[Console]::InputEncoding = [Text.Encoding]::GetEncoding(850); & '$hook'") | Out-String
-  } finally { [Console]::OutputEncoding = $prev }
-  return @{ out = $out; path = $rt }
+  $r = Fire-EnConsolaPropia $repo $cmd $rt
+  $r.path = $rt
+  return $r
 }
 $t = New-Repo   # feat/x con un commit 'slice'
 Close-Slice $t "cierre bajo ruta acentuada"   # HEAD fresco con trailer Slice-Close

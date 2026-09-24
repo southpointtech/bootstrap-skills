@@ -21,20 +21,19 @@
 # aceptado es un review-loop de más cuando el push sí corrió en otro repo, que es la dirección segura.
 $ErrorActionPreference = "SilentlyContinue"
 
-# git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding. Un hook
-# corre como proceso hijo con stdout redirigido, así que no hereda una consola en UTF-8: lo necesita
-# TODA llamada a git cuya salida pueda traer una ruta, no sólo el `ls-files` del techo. Bajo una ruta
-# no-ASCII, `rev-parse --show-toplevel` volvía mojibake y el marcador ya no se podía encontrar.
-try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
-# El JSON del evento llega por STDIN, decodificado con Console::InputEncoding — y un hook lanzado con
-# la consola en OEM (el default de Windows) tampoco hereda UTF-8 en la entrada. Sin esto, un evento
-# cuyo `cwd` trae una ruta no-ASCII (`C:\Users\Martín\…`) volvía mojibake, el `Set-Location` de abajo
-# fallaba en silencio, y el hook corría sobre el repo AMBIENTE y disparaba — desubicando todo. Se
-# fuerza antes de la primera lectura de [Console]::In para que el reader se (re)construya con UTF-8.
-try { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# git escribe UTF-8 y un hook corre como proceso hijo con stdout redirigido, en la code page OEM de
+# la máquina: TODA llamada a git cuya salida pueda traer una ruta se tiene que leer como UTF-8, no
+# sólo el `ls-files` del techo — bajo una ruta no-ASCII, `rev-parse --show-toplevel` volvía mojibake
+# y el marcador ya no se podía encontrar. Lo mismo el JSON del evento por STDIN: un evento cuyo `cwd`
+# trae una ruta no-ASCII (`C:\Users\Martín\…`) volvía mojibake, el `Set-Location` de abajo fallaba
+# en silencio, y el hook corría sobre el repo AMBIENTE y disparaba. Las dos cosas se leen con la lib
+# y no fijando [Console]::OutputEncoding/InputEncoding: ésas son de la CONSOLA, y se las queda todo
+# lo que arranque después en ella (issue 16). Si falta la lib, leer stdin no da nada y el hook sale
+# 0, que es como falla ante todo lo que no aplica.
+. (Join-Path $PSScriptRoot "..\scripts\lib\git-utf8.ps1")
 
 # 1. Leer el evento del hook por stdin
-$raw = [Console]::In.ReadToEnd()
+$raw = Read-StdinUtf8
 if (-not $raw) { exit 0 }
 try { $evt = $raw | ConvertFrom-Json } catch { exit 0 }
 $cmd = $evt.tool_input.command
@@ -546,6 +545,6 @@ $msg = "Cerraste un commit/slice en el branch '$branch' (base '$base'). " +
        "El rango sale del marcador ('.claude/scripts/review-marker.ps1 -Action range'), no del branch entero: " +
        "solo si ese script no existe, usá 'git diff $base...HEAD'. " +
        "No marques el trabajo como completo hasta que el loop cierre como dice /review-loop (limpio: cero hallazgos media/alta, o sin High en light; por un delta de solo prosa; o por el tope de turnos: 2, o 1 si el slice declara 'Review-Rigor: light')."
-@{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
-    ConvertTo-Json -Depth 4 -Compress
+Write-Stdout (@{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
+    ConvertTo-Json -Depth 4 -Compress)
 exit 0

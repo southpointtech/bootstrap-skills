@@ -32,11 +32,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # git escribe UTF-8 y PowerShell decodifica la salida del hijo con Console::OutputEncoding, que en
-# un pwsh con stdout redirigido es el code page OEM de la maquina. Sin esto, `rev-parse
+# un pwsh con stdout redirigido es el code page OEM de la maquina. Sin leerla como UTF-8, `rev-parse
 # --show-toplevel` llega deformado en un repo con acentos en la ruta y el script muere con un error
-# crudo en vez de abrir el carril. Es el mismo arreglo que ya tiene review-marker.ps1. Se setea y no
-# se restaura: este script siempre corre como proceso hijo y efimero.
-try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# crudo en vez de abrir el carril. La lib la lee asi por llamada, sin fijar Console::OutputEncoding:
+# esa es de la CONSOLA y se la queda todo lo que arranque despues en ella (issue 16).
+. (Join-Path $PSScriptRoot "lib\git-utf8.ps1")
 
 # Un rechazo sale con 1 y el motivo en stderr. `throw` tambien saldria con 1, pero con el
 # motivo enterrado en el formato de error de PowerShell.
@@ -144,7 +144,9 @@ if ($DryRun) {
 }
 
 New-Item -ItemType Directory -Force $Root | Out-Null
-git -C $repo worktree add -b $branch $path $Base
+# `git.exe` y no `git`: la de la lib descarta el stderr, y aca es el motivo que ve quien lo corre si
+# falla. No se lee nada de su salida, asi que no hay nada que decodificar.
+git.exe -C $repo worktree add -b $branch $path $Base
 if ($LASTEXITCODE -ne 0) { Rechazar 'git worktree add fallo.' }
 
 $copied = @(); $skipped = @()

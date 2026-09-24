@@ -20,20 +20,19 @@
 # run in another repo, which is the safe direction.
 $ErrorActionPreference = "SilentlyContinue"
 
-# git writes UTF-8 and PowerShell decodes child output with Console::OutputEncoding. A hook runs as
-# a child process with stdout redirected, so it does not inherit a UTF-8 console: every git call
-# whose output can carry a path needs this, not just the `ls-files` of the guide. `rev-parse
-# --show-toplevel` under a non-ASCII path came back mangled and the marker could no longer be found.
-try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
-# The event JSON arrives on STDIN, decoded with Console::InputEncoding — and a hook spawned with an
-# OEM console (the Windows default) does NOT inherit UTF-8 on input either. Without this, an event
-# whose `cwd` holds a non-ASCII path (`C:\Users\Martín\…`) came back mojibake, `Set-Location` below
-# failed silently, and the hook ran against the AMBIENT repo and fired — mislocating the whole thing.
-# Set before the first read of [Console]::In so the reader is (re)built with UTF-8.
-try { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+# git writes UTF-8 and a hook runs as a child process with stdout redirected, on the machine's OEM
+# code page: every git call whose output can carry a path has to be read as UTF-8, not just the
+# `ls-files` of the guide — `rev-parse --show-toplevel` under a non-ASCII path came back mangled and
+# the marker could no longer be found. The same goes for the event JSON on STDIN: an event whose
+# `cwd` holds a non-ASCII path (`C:\Users\Martín\…`) came back mojibake, `Set-Location` below failed
+# silently, and the hook ran against the AMBIENT repo and fired. Both are read through the lib and
+# not by setting [Console]::OutputEncoding/InputEncoding: those belong to the CONSOLE, and whatever
+# starts in it afterwards inherits them (issue 16). If the lib is missing, reading stdin yields
+# nothing and the hook exits 0, which is its failure mode for anything that does not apply.
+. (Join-Path $PSScriptRoot "..\scripts\lib\git-utf8.ps1")
 
 # 1. Read the hook event from stdin
-$raw = [Console]::In.ReadToEnd()
+$raw = Read-StdinUtf8
 if (-not $raw) { exit 0 }
 try { $evt = $raw | ConvertFrom-Json } catch { exit 0 }
 $cmd = $evt.tool_input.command
@@ -537,6 +536,6 @@ $msg = "You just closed a commit/slice on branch '$branch' (base '$base'). " +
        "The range comes from the marker ('.claude/scripts/review-marker.ps1 -Action range'), not from the whole branch: " +
        "only if that script is missing, use 'git diff $base...HEAD'. " +
        "Do not mark the work complete until the loop closes as /review-loop says (clean: zero medium/high-severity findings, or no High in light; a prose-only delta; or the turn cap: 2, or 1 if the slice declares 'Review-Rigor: light')."
-@{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
-    ConvertTo-Json -Depth 4 -Compress
+Write-Stdout (@{ hookSpecificOutput = @{ hookEventName = "PostToolUse"; additionalContext = $msg } } |
+    ConvertTo-Json -Depth 4 -Compress)
 exit 0
