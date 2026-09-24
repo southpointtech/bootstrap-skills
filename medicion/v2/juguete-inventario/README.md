@@ -91,6 +91,35 @@ agujeros que quedaron abiertos y que `calificar.py` tiene que cerrar con un test
    matchea `productos.csv`.
 9. E16: el scaffold (`PARALELISMO.md`) borra los worktrees de carril antes de que el harness los mire.
 
+Estado de cada agujero en `calificar.py` (la prosa de `evals.json` sigue igual, a propósito):
+
+| # | Estado | Cómo |
+|---|---|---|
+| 1 | cerrado (04b slice 2) | decidido 2026-09-24: E09 mide coherencia, no modelo compartido. Pasa con cualquiera de los tres pares de `esperado` (descartar la fila, tal cual, valor absoluto) y falla si `stock` y `rotacion` la leen distinto. No distingue dos lectores separados con la misma regla de un modelo compartido |
+| 2 | abierto, del harness | el `ruteo` lo aplica el aparato (`04a`), no `calificar.py` |
+| 3 | abierto (04b slice 3) | E12 lee transcripts: queda `passed: null` en `no_calificadas` |
+| 4 | cerrado (04b slice 2) | decidido 2026-09-24: E10 no puntúa. Queda `passed: null` en `summary.no_puntuadas`, y el orden en que empezaron a andar `stock` y `rotacion` (commits y relación: `mismo_commit`, `stock_antes`, `rotacion_antes`, `sin_relacion` o `falta_alguno`) va en `metricas_no_puntuadas.orden_stock_rotacion` |
+| 5 | cerrado (04b slice 1) | E01-E07, E09 e "implementa X" corren sobre una copia fresca de `datos/` del juguete |
+| 6 | cerrado (04b slice 1) | E04 mira el efecto de `alta` en `productos.csv`; E05 compara el JSON como objeto |
+| 7 | abierto (04b slice 3) | E12 y E13 leen transcripts |
+| 8 | abierto (04b slice 3) | E13 queda `passed: null` en `no_calificadas` |
+| 9 | cerrado del lado del calificador (04b slice 2) | E16 lee `proyecto/.scratch/*/issues/*.md` y `carriles/*/.scratch/*/issues/*.md` (`medicion/v2/CORRIDA.md`); que esas copias existan depende de que el aparato las guarde |
+
+Lo que `calificar.py` decide y la prosa no dice:
+
+- E11 corre `python -m pytest -q` sobre una copia del árbol final **tal como quedó**, con los datos
+  del agente, no con datos frescos: E11 mide que su suite esté verde, y el agujero 5 ya lo cubren E02,
+  E03 y E06.
+- E14 y E15 leen la historia de `HEAD` del `proyecto/`; un repo sin `.git` o sin commits falla las
+  dos. Un commit es un cierre si una línea de su mensaje empieza con `Slice-Close:`, sin sangría.
+- E16: un issue es su ruta relativa a `.scratch/`, y cierra si alguna copia tiene una línea que, sin
+  los espacios del final, es exactamente `Status: done`.
+- E08 compara el `ts` de la ronda como fecha con huso, no como texto, y la ronda tiene que ser
+  estrictamente anterior a la fecha de committer del commit que implementa `alertas`.
+- Un error del propio calificador (por ejemplo, una línea de `bitacora.jsonl` que no es JSON) deja
+  la expectation en `passed: null`, con el id en `summary.errores_del_calificador`, y `main` sale 3.
+  El visor de skill-creator muestra `null` como fallada: el `summary` es el que separa los casos.
+
 **E15 casi no discrimina:** `oraculo.py` calcula la salida de cinco de los seis comandos (todos menos
 `alta`) en 135 líneas, con las interpretaciones equivocadas incluidas. Es una estimación, no una
 medición sobre un proyecto hecho por un agente, pero sugiere que uno hecho en un solo slice también
@@ -108,9 +137,11 @@ esa automatización, no solo la disciplina.
   `cliente/respuestas.md` y `ruteo`, registrar la ronda en la bitácora (hora, copia, secciones
   entregadas), borrar el archivo y relanzar.
 - Conservar el transcript de cada sesión.
-- Para "implementa X", correr la expectation funcional de cada comando en cada commit de la historia.
-- En `v2-olas`, E16 lee también la copia de `.scratch/` de cada worktree de carril: `.scratch/` está
-  gitignored, así que el `Status: done` que se escribe en un carril no llega al checkout principal
-  con el merge.
-- Leer la salida en modo texto (`\r\n` → `\n`): en Windows, `print` escribe `\r\n` a un pipe.
-- Escribir `grading.json` con el formato de skill-creator.
+- En `v2-olas`, guardar la copia de `.scratch/` de cada worktree de carril en
+  `carriles/<nombre>/.scratch/` antes de que el scaffold borre el worktree (agujero 9): `.scratch/`
+  está gitignored, así que el `Status: done` que se escribe en un carril no llega al checkout
+  principal con el merge, y E16 lee esas copias.
+
+Lo que antes figuraba acá y ya hace `calificar.py`: correr la expectation funcional de cada comando
+en cada commit para "implementa X", leer la salida en modo texto y escribir `grading.json` con el
+formato de skill-creator.

@@ -3,14 +3,24 @@
 `armar_repo(destino, **variante)` escribe el repo y lo devuelve. Sin variante, `inv` implementa el
 pedido tal como lo corrige el cliente; cada clave de `CORRECTO` cambia una sola cosa, para armar
 el fixture que tiene que fallar una expectation. Nada se commitea: vive en el tmp de pytest.
+
+`armar_historia(destino, pasos)` hace lo mismo como repo git: un commit por paso, cada uno con su
+variante, su mensaje y una fecha fija (`fecha(i)`), para las expectations que leen la historia.
+`armar_corrida` le suma la carpeta de la corrida: bitácora, issues de `.scratch/` y carriles.
 """
+import json
+import os
 import shutil
+import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 JUGUETE = Path(__file__).resolve().parent.parent
+FECHA0 = datetime(2026, 9, 1, 10, tzinfo=timezone.utc)
 
 CORRECTO = {
     "cantidad": "correcto",        # "tal_cual" (-15 resta) o "valor_absoluto"
+    "cantidad_rotacion": None,     # None: igual que "cantidad"; si no, rotacion lee la fila distinto
     "ordenar_productos": True,
     "exit_desconocido": 1,         # código de `stock` con un SKU que no existe
     "regex_sku": r"[A-Z]{3}-[0-9]{3}",
@@ -45,11 +55,11 @@ def leer(d, nombre):
         return list(csv.DictReader(f))
 
 
-def cant(n):
-    n = int(n)
-    if V["cantidad"] == "correcto":
+def cant(n, modo=None):
+    n, modo = int(n), modo or V["cantidad"]
+    if modo == "correcto":
         return n if n > 0 else None
-    return abs(n) if V["cantidad"] == "valor_absoluto" else n
+    return abs(n) if modo == "valor_absoluto" else n
 
 
 def main(a):
@@ -115,7 +125,7 @@ def main(a):
         desde, hasta = date.fromisoformat(args[1]), date.fromisoformat(args[3])
         sal = {{}}
         for m in movs:
-            f, n = date.fromisoformat(m["fecha"]), cant(m["cantidad"])
+            f, n = date.fromisoformat(m["fecha"]), cant(m["cantidad"], V["cantidad_rotacion"])
             dentro = desde <= f and (f < hasta if V["hasta_exclusivo"] else f <= hasta)
             if m["tipo"] == "salida" and dentro and n is not None:
                 sal[m["sku"]] = sal.get(m["sku"], 0) + n
@@ -141,23 +151,86 @@ main(sys.argv[1:])
 '''
 
 
-def armar_repo(destino, sin_fila_menos_15=False, **cambios):
-    """Escribe el repo de fixture en `destino` y lo devuelve.
+SUITES = {"verde": "def test_ok():\n    assert True\n",
+          "roja": "def test_falla():\n    assert False\n"}
+
+
+def armar_repo(destino, sin_fila_menos_15=False, suite="verde", archivos=None, **cambios):
+    """Escribe el repo de fixture en `destino` (puede existir: se pisa) y lo devuelve.
 
     `sin_fila_menos_15` borra la fila `-15` de la copia de `datos/` del repo: la corrida que
-    "arregla" el dato en vez del código (agujero 5 del README).
+    "arregla" el dato en vez del código (agujero 5 del README). `suite` escribe
+    `tests/test_inv.py` verde o roja (None: sin tests). `archivos` es `{ruta relativa: texto}`.
     """
     desconocidas = set(cambios) - set(CORRECTO)
     if desconocidas:
         raise KeyError(f"variante desconocida: {sorted(desconocidas)}")
     destino = Path(destino)
-    (destino / "inv").mkdir(parents=True)
+    (destino / "inv").mkdir(parents=True, exist_ok=True)
     (destino / "inv" / "__init__.py").write_text("", encoding="utf-8")
     fuente = FUENTE.format(variante={**CORRECTO, **cambios})
     (destino / "inv" / "__main__.py").write_text(fuente, encoding="utf-8")
-    shutil.copytree(JUGUETE / "datos", destino / "datos")
+    shutil.copytree(JUGUETE / "datos", destino / "datos", dirs_exist_ok=True)
     if sin_fila_menos_15:
         movs = destino / "datos" / "movimientos.csv"
         lineas = movs.read_bytes().splitlines(keepends=True)
         movs.write_bytes(b"".join(l for l in lineas if b",-15" not in l))
+    if suite:
+        (destino / "tests").mkdir(exist_ok=True)
+        (destino / "tests" / "test_inv.py").write_text(SUITES[suite], encoding="utf-8")
+    for ruta, texto in (archivos or {}).items():
+        (destino / ruta).parent.mkdir(parents=True, exist_ok=True)
+        (destino / ruta).write_text(texto, encoding="utf-8")
     return destino
+
+
+def fecha(i):
+    """La fecha de committer del paso `i` de `armar_historia`: una hora después de la anterior."""
+    return (FECHA0 + timedelta(hours=i)).isoformat()
+
+
+def git(repo, *args, cuando=None):
+    cuando = cuando or fecha(0)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.com",
+           "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.com",
+           "GIT_AUTHOR_DATE": cuando, "GIT_COMMITTER_DATE": cuando}
+    r = subprocess.run(["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
+                       cwd=repo, env=env, capture_output=True, text=True, check=True)
+    return r.stdout.strip()
+
+
+def armar_historia(destino, pasos):
+    """Repo git con un commit por paso. Un paso es `(mensaje, cambios)`, con `cambios` los kwargs de
+    `armar_repo`; el commit `i` tiene fecha `fecha(i)`. Devuelve `(repo, [sha de cada commit])`."""
+    destino = Path(destino)
+    destino.mkdir(parents=True)
+    git(destino, "init", "-q")
+    shas = []
+    for i, (mensaje, cambios) in enumerate(pasos):
+        armar_repo(destino, **cambios)
+        git(destino, "add", "-A")
+        git(destino, "commit", "-q", "--allow-empty", "-m", mensaje, cuando=fecha(i))
+        shas.append(git(destino, "rev-parse", "HEAD"))
+    return destino, shas
+
+
+def escribir_scratch(base, issues):
+    for ruta, texto in issues.items():
+        (base / ".scratch" / ruta).parent.mkdir(parents=True, exist_ok=True)
+        (base / ".scratch" / ruta).write_text(texto, encoding="utf-8")
+
+
+def armar_corrida(destino, pasos, bitacora=None, issues=None, carriles=None):
+    """La carpeta de una corrida (`CORRIDA.md`): `proyecto/` con la historia de `pasos`,
+    `bitacora.jsonl` (lista de eventos; una str va cruda, sin JSON), los issues de
+    `proyecto/.scratch/` (`{ruta relativa a .scratch: texto}`) y los de cada carril
+    (`{nombre: {ruta: texto}}`). Devuelve `(corrida, [sha de cada commit])`."""
+    destino = Path(destino)
+    _, shas = armar_historia(destino / "proyecto", pasos)
+    if bitacora is not None:
+        lineas = [e if isinstance(e, str) else json.dumps(e) for e in bitacora]
+        (destino / "bitacora.jsonl").write_text("".join(l + "\n" for l in lineas), encoding="utf-8")
+    escribir_scratch(destino / "proyecto", issues or {})
+    for nombre, suyos in (carriles or {}).items():
+        escribir_scratch(destino / "carriles" / nombre, suyos)
+    return destino, shas
