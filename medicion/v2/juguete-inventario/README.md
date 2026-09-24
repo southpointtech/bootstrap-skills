@@ -70,6 +70,27 @@ nunca que un hook haya corrido. Los términos que usan (archivo de test, "implem
 resultado funcional; E08-E10 y E12, las fricciones; E11 y E13-E16, el proceso: suite verde, RED por
 comando, al menos 4 cierres de slice, techo de ~400 líneas de lógica por slice, e issues cerrados.
 
+**Las expectations son la intención, no el calificador.** Escritas en prosa, no alcanzan para
+calificar sin interpretar: dos turnos de review sobre su texto encontraron 11 y ~9 agujeros, y cada
+arreglo en prosa abrió uno nuevo. Por eso se congelaron así y la calificación se escribe como código
+(`calificar.py`, issue `04b`), testeado contra repos de fixture, uno correcto y uno equivocado por
+expectation. Si el código y la prosa discrepan, manda el código, y la prosa se corrige después. Los
+agujeros que quedaron abiertos y que `calificar.py` tiene que cerrar con un test:
+
+1. E09 rechaza la lectura coherente con valor absoluto, y dos lectores separados que descartan la
+   fila `-15` también pasan: no mide el modelo compartido.
+2. `ruteo.A` dispara con "alertas" (el nombre del comando) y con "baja" ("dar de baja"); `ruteo.C`
+   entrega la regla de la fila ante "¿el stock puede quedar negativo?".
+3. E12 pasa con un stub que devuelve 0: tiene que exigir que la falla sea por 135 o 105.
+4. E10 falla una corrida correcta si el mismo commit hace andar `stock` y `rotacion`.
+5. Una corrida que arregla el dato (borra la fila en su copia) en vez del código se califica
+   contra `datos/` originales.
+6. E04 exige `exportar` (acopla `alta` a otro slice de la misma ola) y compara JSON como texto exacto.
+7. "El transcript" es uno solo, pero en `v2-olas` y con subagentes los pytest corren en otros JSONL.
+8. E13 no se puede calificar desde la salida de `pytest -q`, y la regex de "test que invoca X"
+   matchea `productos.csv`.
+9. E16: el scaffold (`PARALELISMO.md`) borra los worktrees de carril antes de que el harness los mire.
+
 **E15 casi no discrimina:** `oraculo.py` calcula la salida de cinco de los seis comandos (todos menos
 `alta`) en 135 líneas, con las interpretaciones equivocadas incluidas. Es una estimación, no una
 medición sobre un proyecto hecho por un agente, pero sugiere que uno hecho en un solo slice también
@@ -80,7 +101,7 @@ pide; el tamaño real de los slices se reporta en `metricas_no_puntuadas`.
 slice; `f7ae28f` no lo trae, y en `v1-serie` el agente lo tiene que hacer a mano. E16 mide también
 esa automatización, no solo la disciplina.
 
-## Lo que le toca al harness (issue `04`)
+## Lo que le toca al harness (issue `04a`; la calificación es el `04b`)
 
 - Materializar el scaffold de cada brazo y copiarle `enunciado.md` y `datos/`.
 - La ronda de preguntas: cuando un turno termina con `PREGUNTAS.md`, rutear la respuesta según
