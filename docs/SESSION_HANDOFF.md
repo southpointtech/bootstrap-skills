@@ -1,3 +1,22 @@
+# Session Handoff — 2026-09-25 — **04b slice 2 CERRADO** (loop limpio en el turno 2, `48c10db`). Próximo: slice chico del 04a con sus 5 Medium.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `48c10db` + el commit de este handoff. Push pendiente como abajo (no pushear sin pedido).
+- **E11 DECIDIDO (2026-09-25)**: corre sobre los datos del agente, como ya hacía el código. No volver a preguntar.
+- **Review-loop del 04b slice 2 CERRADO**: `48c10db` arregla los 5 Medium (cada uno con test; los 5
+  mutantes mueren; 118 passed). Turno 2: 0 High / 0 Medium. Coherencia limpia. Marcador en
+  `48c10db`, `-Action close` corrido: **no hay `slice-open:main` colgando**. `marcar-done` dio
+  `sinRuta` (issue partido, a propósito). Los Low quedaron anotados en la sección "Slice 2" del
+  issue 04b.
+- Lo que sigue, en orden: (1) slice chico del 04a con sus 5 Medium (`light`; sección "Slice 3 hecho"
+  del issue 04a); (2) corrida en seco con el `claude` real (avisar costo); (3) 04b slice 3 (E12/E13)
+  sobre esos transcripts.
+- El resto del estado (ramas sobrantes, untracked de Codex, receta de carril) sigue como en la
+  sección de abajo.
+
+---
+
 # Session Handoff — 2026-09-24 (noche) — **Ola 2 integrada**: 04a slice 3 (`b1b7c78`, loop cerrado) ‖ 04b slice 2 (`c36c055`, **loop ABIERTO tras el turno 1**: faltan 5 Medium + turno 2 + coherencia). Contrato `medicion/v2/CORRIDA.md`.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
