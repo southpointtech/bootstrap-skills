@@ -1,3 +1,24 @@
+# Session Handoff — 2026-09-25 (tarde) — Verificación: un bootstrap nuevo sale con la **v2.1.0** y funciona. Sin cambios de código. Próximo: el mismo de abajo (slice chico del 04a).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `af0bc2e` + el commit de este handoff. Esta sesión NO tocó código ni skills.
+- **Verificado 2026-09-25**: lo instalado en `~/.claude/skills` (las 3 bootstrap, `upgrade-bootstrap`,
+  `setup-mcp-workstation`) es byte-idéntico al tag `v2.1.0`, manifest incluido (`diff -rq
+  --strip-trailing-cr` contra `git archive v2.1.0 skills`). Suite completa en un worktree sobre
+  `v2.1.0`: **41 suites verdes, 0 rojas (694 s)**. Bootstrap de humo en las 3 variantes (89/91/89
+  archivos, manifest sin faltantes, sin anidamientos, todos los `.ps1` parsean, `settings.json`
+  válido) y hooks ejecutados: `alignment-gate` frena la 1ª edición; `review-loop-trigger` dispara en
+  commit con `Slice-Close:` sobre rama de slice (sobre la rama base sale mudo, por diseño). Restos de
+  prueba borrados.
+- ⚠️ **No correr `tools/sync-skills.ps1` desde `main`** hasta cerrar lo que `main` tiene sobre
+  `skills/` después de `v2.1.0` (12 commits: issue 14a `hub-declarar.ps1` + `upgrade-extras.md`, e
+  issue 16 `.claude/scripts/lib/`). Deployaría eso a medias; hoy nada de eso está instalado.
+- Lo que sigue: sin cambios respecto de la sección de abajo — (1) slice chico del 04a con sus 5
+  Medium (`light`); (2) corrida en seco con el `claude` real (avisar costo); (3) 04b slice 3.
+
+---
+
 # Session Handoff — 2026-09-25 — **04b slice 2 CERRADO** (loop limpio en el turno 2, `48c10db`). Próximo: slice chico del 04a con sus 5 Medium.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
