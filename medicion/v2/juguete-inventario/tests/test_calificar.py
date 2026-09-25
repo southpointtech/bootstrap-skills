@@ -268,6 +268,18 @@ def test_e11_corre_sobre_los_datos_del_arbol_final(calificar_variante):
     assert e["passed"] is True, e["evidence"]
 
 
+def test_e11_sin_pytest_en_el_interprete_es_error_del_calificador(calificar_variante, monkeypatch):
+    """`python -m pytest` saldría 1 como una suite roja: no es un fallo del agente."""
+    import importlib.util
+    original = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda nombre, *a, **k: None if nombre == "pytest" else original(nombre, *a, **k))
+    g = calificar_variante(ids=["E11"])
+    assert entrada(g, "E11")["passed"] is None
+    assert "pytest" in entrada(g, "E11")["evidence"]
+    assert g["summary"]["errores_del_calificador"] == ["E11"]
+
+
 # --- "implementa X" y E10 (no puntuada) ---------------------------------------------------------
 
 def test_implementa_es_el_primer_commit_donde_cumple(grading_correcto, corrida_correcta):
@@ -367,6 +379,20 @@ def test_e08_pasa_con_una_ronda_a_antes_en_otro_huso(corrida_correcta, tmp_path)
     assert entrada(g, "E08")["passed"] is True, entrada(g, "E08")["evidence"]
 
 
+@pytest.mark.parametrize("autor,ronda_a,pasa", [
+    (fecha(2), 2.5, True),    # autor 12:00 < ronda 12:30 < committer 13:00
+    (fecha(4), 3.5, False),   # committer 13:00 < ronda 13:30 < autor 14:00
+])
+def test_e08_compara_contra_la_fecha_de_committer_no_la_de_autor(tmp_path, autor, ronda_a, pasa):
+    corrida, _ = armar_corrida(tmp_path / "corrida", PASOS[:3],
+                               bitacora=[ronda(1, ["A", "B"], ts(ronda_a))])
+    repo = corrida / "proyecto"
+    armar_repo(repo)
+    git(repo, "commit", "-q", "-am", sc("feat: alertas", "alertas"), cuando=fecha(3), autor=autor)
+    e = entrada(calificar.calificar(corrida, ids=["E08"]), "E08")
+    assert e["passed"] is pasa, e["evidence"]
+
+
 def test_e08_falla_si_ningun_commit_implementa_alertas(calificar_historia):
     g, _ = calificar_historia(PASOS[:3], ids=["E08"], bitacora=BITACORA)
     e = entrada(g, "E08")
@@ -453,6 +479,59 @@ def test_e15_suma_todos_los_commits_del_rango(calificar_historia):
     g, _ = calificar_historia(pasos, ids=["E15"])
     assert entrada(g, "E15")["passed"] is False
     assert g["metricas_no_puntuadas"]["rango_slice_close_mas_grande"]["lineas"] == 500
+
+
+def test_e15_cuenta_las_lineas_borradas(calificar_historia):
+    """Detrás de un cierre de 300: borra 151 líneas de inv/a.py y agrega 250 en inv/b.py = 401."""
+    pasos = PASOS + [(sc("feat: a", "a"), {"archivos": {"inv/a.py": relleno(300)}}),
+                     (sc("feat: b", "b"), {"archivos": {"inv/a.py": relleno(149), "inv/b.py": relleno(250)}})]
+    g, shas = calificar_historia(pasos, ids=["E15"])
+    e = entrada(g, "E15")
+    assert e["passed"] is False, e["evidence"]
+    assert shas[5][:10] in e["evidence"] and "401" in e["evidence"]
+
+
+def historia_con_carril(destino, archivos=None):
+    """Tres cierres en main; alertas en una rama de carril sin cierre, que entra a main con un merge
+    `--no-ff` que lleva el `Slice-Close:`. Devuelve `(corrida, sha del carril, sha del merge)`."""
+    corrida, _ = armar_corrida(destino, PASOS[:3])
+    repo = corrida / "proyecto"
+    git(repo, "checkout", "-q", "-b", "carril")
+    armar_repo(repo, archivos=archivos)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "feat: alertas", cuando=fecha(3))
+    carril = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-")
+    git(repo, "merge", "-q", "--no-ff", "-m", sc("merge: carril de alertas", "alertas"), "carril",
+        cuando=fecha(4))
+    return corrida, carril, git(repo, "rev-parse", "HEAD")
+
+
+def test_e14_el_rango_de_un_merge_incluye_la_rama_del_carril(tmp_path):
+    corrida, carril, _ = historia_con_carril(tmp_path / "corrida")
+    g = calificar.calificar(corrida, ids=["E14"])
+    assert g["metricas_no_puntuadas"]["implementa"]["alertas"] == carril
+    assert entrada(g, "E14")["passed"] is True, entrada(g, "E14")["evidence"]
+
+
+def test_e15_el_rango_de_un_merge_suma_las_lineas_del_carril(tmp_path):
+    corrida, _, merge = historia_con_carril(tmp_path / "corrida", {"inv/grande.py": relleno(401)})
+    g = calificar.calificar(corrida, ids=["E15"])
+    assert entrada(g, "E15")["passed"] is False, entrada(g, "E15")["evidence"]
+    mayor = g["metricas_no_puntuadas"]["rango_slice_close_mas_grande"]
+    # 401 del relleno más las que destraban alertas en inv/__main__.py.
+    assert mayor["commit"] == merge and mayor["lineas"] > 401
+
+
+def test_git_heredado_de_un_hook_no_manda_al_calificador_a_otro_repo(tmp_path, monkeypatch):
+    otro, _ = armar_historia(tmp_path / "otro", [("otro", {"rotos": ["stock", "alertas"]})])
+    monkeypatch.setenv("GIT_DIR", str(otro / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(otro))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(otro / ".git" / "index"))
+    corrida, shas = armar_corrida(tmp_path / "corrida", PASOS)
+    g = calificar.calificar(corrida, ids=["E14"])
+    assert entrada(g, "E14")["passed"] is True, entrada(g, "E14")["evidence"]
+    assert g["metricas_no_puntuadas"]["implementa"]["alertas"] == shas[3]
 
 
 @pytest.mark.parametrize("ruta,es_test", [

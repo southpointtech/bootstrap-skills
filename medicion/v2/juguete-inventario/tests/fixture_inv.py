@@ -189,11 +189,14 @@ def fecha(i):
     return (FECHA0 + timedelta(hours=i)).isoformat()
 
 
-def git(repo, *args, cuando=None):
+def git(repo, *args, cuando=None, autor=None):
+    """`cuando` es la fecha de committer; `autor`, la de autor (por defecto, la misma)."""
     cuando = cuando or fecha(0)
-    env = {**os.environ, "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.com",
+    heredado = {k: v for k, v in os.environ.items()
+                if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
+    env = {**heredado, "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.com",
            "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.com",
-           "GIT_AUTHOR_DATE": cuando, "GIT_COMMITTER_DATE": cuando}
+           "GIT_AUTHOR_DATE": autor or cuando, "GIT_COMMITTER_DATE": cuando}
     r = subprocess.run(["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
                        cwd=repo, env=env, capture_output=True, text=True, check=True)
     return r.stdout.strip()

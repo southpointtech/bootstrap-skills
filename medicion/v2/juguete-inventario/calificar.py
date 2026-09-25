@@ -23,6 +23,7 @@ Cómo corre cada comando (E01-E07, E09 e "implementa X"):
 `git rev-list --reverse HEAD`, extraído con `git archive`; el resultado se cachea por árbol.
 """
 import csv
+import importlib.util
 import io
 import json
 import os
@@ -46,6 +47,12 @@ TIMEOUT = 60
 TIMEOUT_PYTEST = 600
 TECHO_SLICE = 400
 SLICES_MINIMOS = 4
+# Heredadas (por ejemplo, de un hook de git), mandan a git a otro repo: se sacan de todo subproceso.
+GIT_HEREDADAS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
+
+
+def entorno(**extra):
+    return {**{k: v for k, v in os.environ.items() if k not in GIT_HEREDADAS}, **extra}
 
 
 class Copia:
@@ -62,7 +69,7 @@ class Copia:
     @classmethod
     def del_commit(cls, repo, sha, destino):
         tar = subprocess.run(["git", "archive", "--format=tar", sha], cwd=repo, capture_output=True,
-                             check=True).stdout
+                             check=True, env=entorno()).stdout
         with tarfile.open(fileobj=io.BytesIO(tar)) as t:
             t.extractall(destino, filter="data")
         return cls(destino)
@@ -88,7 +95,7 @@ class Copia:
 
 
 def correr(cmd, cwd, timeout):
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = entorno(PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
     try:
         r = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=timeout)
@@ -214,7 +221,7 @@ FUNCIONALES = {"productos": e01, "stock": e03, "alta": e04, "exportar": e05, "ro
 
 def git(repo, *args):
     r = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=repo, capture_output=True,
-                       check=True)
+                       check=True, env=entorno())
     return r.stdout.decode("utf-8", errors="replace")
 
 
@@ -236,7 +243,7 @@ class Historia:
         if not (repo / ".git").exists():
             return
         if subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD"], cwd=repo,
-                          capture_output=True).returncode != 0:
+                          capture_output=True, env=entorno()).returncode != 0:
             return
         for registro in git(repo, "log", "--reverse", "--format=%H%x00%P%x00%T%x00%cI%x00%B%x1e",
                             "HEAD").split("\x1e"):
@@ -387,7 +394,10 @@ def e10(c):
 
 
 def e11(c):
-    """Sobre el árbol final tal como lo dejó el agente, con sus propios datos."""
+    """Sobre el árbol final tal como lo dejó el agente, con sus propios datos. Sin pytest en el
+    intérprete, `python -m pytest` saldría 1 como una suite roja: tira, es error del calificador."""
+    if importlib.util.find_spec("pytest") is None:
+        raise RuntimeError(f"el intérprete del calificador ({sys.executable}) no tiene pytest")
     copia = Copia.del_repo(c.repo, c.tmp / "e11")
     codigo, out, err = correr([sys.executable, "-m", "pytest", "-q"], copia.raiz, TIMEOUT_PYTEST)
     return codigo == 0, f"`python -m pytest -q` salió {codigo}; stdout={out[-500:]!r}; stderr={err[-300:]!r}"
