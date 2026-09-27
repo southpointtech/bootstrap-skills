@@ -191,8 +191,8 @@ def _registrar_carriles_sin_copia(bitacora, sondeo, original=None):
             try:
                 bitacora.registrar("carril_sin_copia", **campos)
             except Exception:
-                # Se acepta perder el evento: si la bitácora está rota, el `corrida_cerrada`
-                # que sigue va a fallar exactamente igual, y ahí queda el rastro.
+                # Se acepta perder el evento: que falle escribirlo no puede cambiar el `motivo`
+                # de una corrida que, hasta acá, salió bien.
                 pass
 
 
