@@ -10,7 +10,7 @@ import pytest
 from aparato import brazos
 from aparato import materializar as mat
 from aparato.__main__ import main
-from aparato.correr import SesionFallida, lanzar, respuesta_del_cliente
+from aparato.correr import SesionFallida, Sondeo, lanzar, respuesta_del_cliente
 from aparato.materializar import materializar
 
 from test_fallas import FALSO, JUGUETE, SCRIPT_OK, T0, _eventos, _repo_falso
@@ -174,6 +174,22 @@ def test_sin_session_id_se_relanza_con_continue(entorno):
     assert "--continue" in segunda["argv"] and "--resume" not in segunda["argv"]
 
 
+def test_una_sesion_sin_session_id_conserva_el_anterior(entorno):
+    entorno.correr([{"session_id": "s1", "preguntas": "¿formato?"},
+                    {"session_id": "", "preguntas": "¿formato?"}, {"session_id": "s1"}])
+
+    tercera = entorno.llamadas()[2]["argv"]
+    assert tercera[tercera.index("--resume") + 1] == "s1"
+
+
+def test_un_session_id_nuevo_reemplaza_al_anterior(entorno):
+    entorno.correr([{"session_id": "s1", "preguntas": "¿formato?"},
+                    {"session_id": "s2", "preguntas": "¿formato?"}, {"session_id": "s2"}])
+
+    tercera = entorno.llamadas()[2]["argv"]
+    assert tercera[tercera.index("--resume") + 1] == "s2"
+
+
 @pytest.mark.parametrize("texto, secciones", [
     ("¿Qué formato de salida querés?", ["B"]),
     ("¿Cuál es el umbral?", ["A", "B"]),
@@ -229,6 +245,65 @@ def test_se_conserva_el_scratch_de_un_carril_que_el_agente_borro(entorno):
 def test_sin_carriles_no_hay_carpeta_carriles(entorno):
     entorno.correr([{"session_id": "s1"}])
     assert not (entorno.corrida / "carriles").exists()
+
+
+def test_dos_carriles_vivos_a_la_vez_se_conservan_los_dos(entorno):
+    entorno.correr([{"session_id": "s1", "worktree": ["carril-a", "carril-b"], "espera": 1.0}])
+
+    carriles = entorno.corrida / "carriles"
+    assert sorted(p.name for p in carriles.iterdir()) == ["carril-a", "carril-b"]
+    for nombre in ("carril-a", "carril-b"):
+        issue = carriles / nombre / ".scratch" / "issues" / "01.md"
+        assert issue.read_text(encoding="utf-8") == "Status: done\n"
+
+
+def test_una_copia_nueva_reemplaza_a_la_vieja(entorno):
+    entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.5,
+                     "estados": ["Status: in-progress\n", "Status: done\n"]}])
+
+    carpeta = entorno.corrida / "carriles" / "carril-a"
+    issue = carpeta / ".scratch" / "issues" / "01.md"
+    assert issue.read_text(encoding="utf-8") == "Status: done\n"
+    assert sorted(p.name for p in carpeta.iterdir()) == [".scratch"]  # sin `.scratch.nueva`
+
+
+def test_una_falla_del_sondeo_no_mata_el_hilo(entorno, monkeypatch):
+    # En Windows, un archivo tomado hace fallar el reemplazo de la copia; el próximo sondeo reintenta.
+    original, fallas = Sondeo._copiar, []
+
+    def copiar(self, nombre, scratch):
+        if not fallas:
+            fallas.append(nombre)
+            raise PermissionError("archivo tomado")
+        original(self, nombre, scratch)
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 1.0}])
+
+    assert motivo == "completa" and fallas == ["carril-a"]
+    issue = entorno.corrida / "carriles" / "carril-a" / ".scratch" / "issues" / "01.md"
+    assert issue.read_text(encoding="utf-8") == "Status: done\n"
+
+
+def test_una_falla_del_sondeo_final_no_cambia_el_motivo(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                              "queda": True}])
+
+    assert motivo == "completa"
+    assert _nuevos(entorno.corrida)[-1] == {**_nuevos(entorno.corrida)[-1],
+                                            "evento": "corrida_cerrada", "motivo": "completa"}
+
+
+def test_se_copian_los_transcripts_aunque_la_sesion_falle(entorno):
+    with pytest.raises(SesionFallida):
+        entorno.correr([{"session_id": "s1", "exit": 7}])
+
+    transcripts = entorno.corrida / "transcripts"
+    assert {p.name for p in transcripts.rglob("*.jsonl")} == {"s1.jsonl", "agent-1.jsonl"}
 
 
 # --- el CLI ------------------------------------------------------------------------------------

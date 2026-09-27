@@ -6,8 +6,10 @@ vio: argv, prompt (stdin), cwd, `CLAUDE_CONFIG_DIR`, qué había en la config, l
 credencial, las variables `CLAUDE*` del entorno y si había `PREGUNTAS.md`.
 
 Un paso: `session_id`, `exit` (default 0), `preguntas` (texto de `PREGUNTAS.md` o null),
-`worktree` (nombre de un carril: lo abre, le escribe `.scratch/`, espera `espera` segundos y lo
-borra, como el paso 8 de PARALELISMO.md).
+`worktree` (nombre de un carril, o una lista: los abre a la vez, les escribe `.scratch/`, espera
+`espera` segundos y los borra, como el paso 8 de PARALELISMO.md), `estados` (los textos sucesivos
+del issue del carril, con `espera` segundos entre uno y otro; default `["Status: done\n"]`),
+`queda` (true: los carriles no se borran al terminar la sesión).
 """
 import hashlib
 import json
@@ -50,19 +52,27 @@ sub.mkdir(parents=True, exist_ok=True)
 (sub / f"agent-{n + 1}.jsonl").write_text('{"timestamp": "2026-09-24T12:00:00Z"}\n', encoding="utf-8")
 
 if paso.get("worktree"):
-    nombre = paso["worktree"]
-    wt = cwd / ".claude" / "worktrees" / nombre
-    subprocess.run(["git", "-C", str(cwd), "worktree", "add", "-q", "-b", nombre, str(wt)],
-                   check=True, capture_output=True)
-    issues = wt / ".scratch" / "issues"
-    issues.mkdir(parents=True)
-    (issues / "01.md").write_text("Status: done\n", encoding="utf-8")
-    carril = cfg / "projects" / f"C--falso-{nombre}"
-    carril.mkdir(parents=True, exist_ok=True)
-    (carril / "carril.jsonl").write_text('{"timestamp": "2026-09-24T12:00:05Z"}\n', encoding="utf-8")
-    time.sleep(paso.get("espera", 1.0))
-    subprocess.run(["git", "-C", str(cwd), "worktree", "remove", "--force", str(wt)],
-                   check=True, capture_output=True)
+    nombres = paso["worktree"] if isinstance(paso["worktree"], list) else [paso["worktree"]]
+    estados = paso.get("estados", ["Status: done\n"])
+    espera = paso.get("espera", 1.0)
+    wts = [cwd / ".claude" / "worktrees" / nombre for nombre in nombres]
+    for nombre, wt in zip(nombres, wts):
+        subprocess.run(["git", "-C", str(cwd), "worktree", "add", "-q", "-b", nombre, str(wt)],
+                       check=True, capture_output=True)
+        (wt / ".scratch" / "issues").mkdir(parents=True)
+        carril = cfg / "projects" / f"C--falso-{nombre}"
+        carril.mkdir(parents=True, exist_ok=True)
+        (carril / "carril.jsonl").write_text('{"timestamp": "2026-09-24T12:00:05Z"}\n',
+                                             encoding="utf-8")
+    for i, estado in enumerate(estados):
+        if i:
+            time.sleep(espera)
+        for wt in wts:
+            (wt / ".scratch" / "issues" / "01.md").write_text(estado, encoding="utf-8")
+    time.sleep(espera)
+    for wt in ([] if paso.get("queda") else wts):
+        subprocess.run(["git", "-C", str(cwd), "worktree", "remove", "--force", str(wt)],
+                       check=True, capture_output=True)
 
 if paso.get("preguntas") is not None:
     (cwd / "PREGUNTAS.md").write_bytes(paso["preguntas"].encode("utf-8"))

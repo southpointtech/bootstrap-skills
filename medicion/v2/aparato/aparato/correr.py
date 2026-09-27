@@ -113,7 +113,12 @@ class Sondeo:
                  if l.startswith("worktree ")]
         for wt in rutas[1:]:  # el primero es el principal: `proyecto/`
             if (wt / ".scratch").is_dir():
-                self._copiar(wt.name, wt / ".scratch")
+                try:
+                    self._copiar(wt.name, wt / ".scratch")
+                except Exception:
+                    # Un archivo tomado en Windows: queda la copia anterior y se reintenta en el
+                    # próximo sondeo. Una falla del sondeo nunca cambia el `motivo` de la corrida.
+                    continue
 
     def _copiar(self, nombre, scratch):
         carpeta = self.destino / nombre
