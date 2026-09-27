@@ -2,12 +2,15 @@
 credencial real (`credencial=` apunta a un archivo falso)."""
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 from aparato import brazos
+from aparato import correr as correr_mod
 from aparato import materializar as mat
 from aparato.__main__ import main
 from aparato.correr import SesionFallida, Sondeo, lanzar, respuesta_del_cliente
@@ -435,6 +438,17 @@ def test_la_falla_de_un_carril_no_impide_copiar_el_otro(entorno, monkeypatch, fa
 
 # --- el evento `carril_sin_copia` (B2) ----------------------------------------------------------
 
+def _agregar_worktree_con_scratch(proyecto, nombre, estado="Status: done\n"):
+    """Crea un worktree de verdad en `proyecto` (como haría el agente) con un `.scratch/` ya
+    poblado, para testear `Sondeo.sondear()` sin depender de `claude_falso` ni de tiempos reales."""
+    wt = proyecto / ".claude" / "worktrees" / nombre
+    subprocess.run(["git", "-C", str(proyecto), "worktree", "add", "-q", "-b", nombre, str(wt)],
+                   check=True, capture_output=True)
+    (wt / ".scratch" / "issues").mkdir(parents=True)
+    (wt / ".scratch" / "issues" / "01.md").write_text(estado, encoding="utf-8")
+    return wt
+
+
 def test_carril_sin_copia_sin_copia_previa(entorno, monkeypatch):
     def copiar(self, nombre, scratch):
         raise PermissionError("archivo tomado")
@@ -455,61 +469,112 @@ def test_carril_sin_copia_sin_copia_previa(entorno, monkeypatch):
 
 
 def test_carril_sin_copia_copia_anterior_true_si_hubo_una_copia_buena(entorno, monkeypatch):
-    original, llamadas = Sondeo._copiar, []
+    # Determinístico (sin hilo, sin timing): dos `sondear()` sincrónicos. El primero copia bien
+    # (con el `_copiar` real); recién después se hace fallar el `_copiar`, así que el que falla es
+    # el sondeo final, como describe la brief ("se copió bien y después falla en el sondeo final").
+    proyecto = entorno.corrida / "proyecto"
+    _agregar_worktree_con_scratch(proyecto, "carril-a")
+    s = Sondeo(proyecto, entorno.corrida / "carriles", intervalo=999)
 
-    def copiar(self, nombre, scratch):
-        llamadas.append(nombre)
-        if len(llamadas) == 1:
-            return original(self, nombre, scratch)  # la primera copia sale bien
-        raise PermissionError("archivo tomado")  # las siguientes fallan siempre
+    s.sondear()  # la copia sale bien
+    assert s.carriles_sin_copia() == []
 
-    monkeypatch.setattr(Sondeo, "_copiar", copiar)
-    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.3,
-                              "queda": True}])  # sondeo por defecto (0.05): varios intentos reales
+    def copiar_falla(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
 
-    assert motivo == "completa"
-    assert len(llamadas) >= 2  # al menos la exitosa y una que falla
-    ev = _nuevos(entorno.corrida)
-    (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
-    assert evento == {**evento, "carril": "carril-a", "copia_anterior": True}
-    copia = entorno.corrida / "carriles" / "carril-a" / ".scratch"
-    assert copia.is_dir()  # la copia de la primera pasada sigue ahí
+    monkeypatch.setattr(Sondeo, "_copiar", copiar_falla)
+    s.sondear()  # el sondeo final falla
+
+    assert s.carriles_sin_copia() == [
+        ("carril-a", "PermissionError: archivo tomado", True),
+    ]
+    assert (entorno.corrida / "carriles" / "carril-a" / ".scratch").is_dir()  # la 1ª copia sigue
 
 
 def test_sin_evento_si_el_ultimo_intento_copio_bien(entorno, monkeypatch):
+    # Determinístico: falla el primer `sondear()`, sale bien el segundo (sin hilo, sin timing).
+    proyecto = entorno.corrida / "proyecto"
+    _agregar_worktree_con_scratch(proyecto, "carril-a")
     original, llamadas = Sondeo._copiar, []
 
     def copiar(self, nombre, scratch):
         llamadas.append(nombre)
         if len(llamadas) == 1:
-            raise PermissionError("archivo tomado")  # la primera falla
-        return original(self, nombre, scratch)  # las siguientes salen bien
+            raise PermissionError("archivo tomado")  # el primer intento falla
+        return original(self, nombre, scratch)  # el segundo sale bien
 
     monkeypatch.setattr(Sondeo, "_copiar", copiar)
-    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.3,
-                              "queda": True}])
+    s = Sondeo(proyecto, entorno.corrida / "carriles", intervalo=999)
 
-    assert motivo == "completa"
-    assert len(llamadas) >= 2
-    ev = _nuevos(entorno.corrida)
-    assert [x["evento"] for x in ev if x["evento"] == "carril_sin_copia"] == []
-    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "completa"}
+    s.sondear()  # falla
+    assert s.carriles_sin_copia() == [("carril-a", "PermissionError: archivo tomado", False)]
+    s.sondear()  # sale bien: limpia el fallo
+
+    assert len(llamadas) == 2
+    assert s.carriles_sin_copia() == []
 
 
 def test_carril_sin_copia_aparece_aunque_el_agente_ya_borro_el_carril(entorno, monkeypatch):
+    # Determinístico: el carril falla mientras vive, se borra, y un sondeo posterior (que ya no
+    # lo ve en `git worktree list`) no lo toca ni le borra el fallo guardado.
+    proyecto = entorno.corrida / "proyecto"
+    wt = _agregar_worktree_con_scratch(proyecto, "carril-a")
+
     def copiar(self, nombre, scratch):
         raise PermissionError("archivo tomado")
 
     monkeypatch.setattr(Sondeo, "_copiar", copiar)
-    # sin "queda": el agente borra el worktree antes de terminar la sesión; el fallo tiene que
-    # haber quedado en memoria de un sondeo anterior, mientras el carril todavía vivía.
-    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.3}])
+    s = Sondeo(proyecto, entorno.corrida / "carriles", intervalo=999)
+    s.sondear()  # el carril todavía vive: falla y queda en memoria
+
+    subprocess.run(["git", "-C", str(proyecto), "worktree", "remove", "--force", str(wt)],
+                   check=True, capture_output=True)
+    s.sondear()  # ya no aparece en `git worktree list`: no se reintenta ni se limpia
+
+    assert s.carriles_sin_copia() == [("carril-a", "PermissionError: archivo tomado", False)]
+
+
+def test_carril_sin_copia_cuando_copytree_falla_de_verdad(entorno, monkeypatch):
+    # No reemplaza `_copiar`: hace fallar `shutil.copytree` en serio, el error más probable en la
+    # práctica (un archivo tomado en Windows). Antes de este fix, `_copiar` lo atrapaba y volvía
+    # sin tirar, y `sondear` lo contaba como éxito (Important #2 del review).
+    def copytree_falla(*a, **kw):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(shutil, "copytree", copytree_falla)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                              "queda": True}], sondeo=10)
 
     assert motivo == "completa"
-    assert not (entorno.corrida / "proyecto" / ".claude" / "worktrees" / "carril-a").exists()
     ev = _nuevos(entorno.corrida)
     (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
     assert evento == {**evento, "carril": "carril-a", "copia_anterior": False}
+    assert evento["error"].startswith("PermissionError: archivo tomado")
+    carpeta = entorno.corrida / "carriles" / "carril-a"
+    assert not (carpeta / ".scratch").exists() and not (carpeta / ".scratch.nueva").exists()
+
+
+def test_carril_sin_copia_no_se_duplica_si_falla_copiar_los_transcripts(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+
+    def transcripts_falla(config, destino):
+        raise RuntimeError("copiar transcripts roto a propósito")
+
+    monkeypatch.setattr(correr_mod, "_copiar_transcripts", transcripts_falla)
+
+    with pytest.raises(RuntimeError, match="copiar transcripts roto"):
+        entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                         "queda": True}], sondeo=10)
+
+    ev = _nuevos(entorno.corrida)
+    sin_copia = [x for x in ev if x["evento"] == "carril_sin_copia"]
+    assert len(sin_copia) == 1  # no duplicado por el `except` del camino de error
+    assert sin_copia[0] == {**sin_copia[0], "carril": "carril-a"}
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "error"}
+    assert ev[-1]["error"].startswith("RuntimeError: copiar transcripts roto")
 
 
 def test_dos_carriles_sin_copia_salen_en_orden_de_nombre(entorno, monkeypatch):

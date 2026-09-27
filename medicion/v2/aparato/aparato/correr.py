@@ -93,6 +93,10 @@ class Sondeo:
         # carril con un intento exitoso más reciente no aparece acá. Solo lo toca `sondear` (el
         # hilo y, tras el `join`, el `__exit__`), nunca a la vez: no hace falta lock.
         self._fallas = {}
+        # Carriles que tuvieron al menos un intento de copia exitoso alguna vez. Nunca se saca un
+        # nombre de acá: una vez que hubo una copia buena, un intento fallido posterior no la
+        # destruye (el swap con renames de `_copiar`), así que sigue habiendo una copia anterior.
+        self._con_copia_previa = set()
 
     def __enter__(self):
         self._hilo.start()
@@ -105,11 +109,10 @@ class Sondeo:
 
     def carriles_sin_copia(self):
         """Los carriles cuyo último intento de copia falló, en orden de nombre de carril:
-        `(carril, error, copia_anterior)`. `copia_anterior` es si `<destino>/<carril>/.scratch/`
-        tiene una copia buena de un intento anterior: el swap con renames de `_copiar` la deja
-        intacta cuando un intento falla, así que mirar el filesystem alcanza."""
+        `(carril, error, copia_anterior)`. `copia_anterior` es si el carril tuvo, en algún
+        sondeo anterior de esta misma instancia, un intento de copia que no falló."""
         return [
-            (carril, error, (self.destino / carril / ".scratch").is_dir())
+            (carril, error, carril in self._con_copia_previa)
             for carril, error in sorted(self._fallas.items())
         ]
 
@@ -138,6 +141,7 @@ class Sondeo:
                     self._fallas[wt.name] = f"{type(e).__name__}: {e}"
                     continue
                 self._fallas.pop(wt.name, None)  # el último intento sobre este carril salió bien
+                self._con_copia_previa.add(wt.name)
 
     def _copiar(self, nombre, scratch):
         carpeta = self.destino / nombre
@@ -147,9 +151,12 @@ class Sondeo:
         try:
             shutil.copytree(scratch, nueva)
         except (OSError, shutil.Error):
-            # El agente la borró a mitad de la copia: queda la anterior, que es la última entera.
+            # Cualquier falla acá (el origen desapareció a mitad de copia, un archivo tomado,
+            # etc.) se propaga: para `sondear` es un intento fallido, no un éxito silencioso.
+            # Se borra lo parcial para no dejar un `.scratch.nueva` a medio copiar tirado; la
+            # copia vigente (si había una) no se toca.
             shutil.rmtree(nueva, ignore_errors=True)
-            return
+            raise
         # Swap con renames: nunca hay un instante sin `vigente` (ni una destrucción irreversible
         # si un rename falla a mitad de camino, p. ej. por un archivo tomado en Windows).
         shutil.rmtree(vieja, ignore_errors=True)  # sobrante de un intento anterior interrumpido
@@ -184,6 +191,8 @@ def _registrar_carriles_sin_copia(bitacora, sondeo, original=None):
             try:
                 bitacora.registrar("carril_sin_copia", **campos)
             except Exception:
+                # Se acepta perder el evento: si la bitácora está rota, el `corrida_cerrada`
+                # que sigue va a fallar exactamente igual, y ahí queda el rastro.
                 pass
 
 
@@ -246,6 +255,7 @@ def lanzar(corrida, brazo, *, claude, tope_rondas=TOPE_RONDAS, sondeo=SONDEO,
             with sondeo_obj:
                 motivo = _rondas(corrida, brazo, bitacora, claude, tope_rondas, juguete)
             _registrar_carriles_sin_copia(bitacora, sondeo_obj)
+            sondeo_obj = None  # ya registrados: si algo de acá para abajo falla, no repetirlos
             _copiar_transcripts(config, corrida / "transcripts")
         except BaseException as e:
             try:
