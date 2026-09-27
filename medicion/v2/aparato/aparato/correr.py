@@ -94,8 +94,10 @@ class Sondeo:
         # hilo y, tras el `join`, el `__exit__`), nunca a la vez: no hace falta lock.
         self._fallas = {}
         # Carriles que tuvieron al menos un intento de copia exitoso alguna vez. Nunca se saca un
-        # nombre de acá: una vez que hubo una copia buena, un intento fallido posterior no la
-        # destruye (el swap con renames de `_copiar`), así que sigue habiendo una copia anterior.
+        # nombre de acá: una vez que hubo una copia buena, un intento fallido normal (falla el
+        # primer rename, o falla el segundo y el rollback repone `vigente`) la deja intacta; el
+        # único caso sin esa garantía es que el rollback mismo falle (ver el comentario de
+        # `_copiar`).
         self._con_copia_previa = set()
 
     def __enter__(self):
@@ -133,11 +135,13 @@ class Sondeo:
                 try:
                     self._copiar(wt.name, wt / ".scratch")
                 except OSError as e:
-                    # `_copiar` no deja ventana de pérdida (swap con renames y rollback): si
-                    # falla, la copia anterior sobrevive intacta y se reintenta en el próximo
-                    # sondeo. El fallo queda en memoria por carril (`_fallas`) para que `lanzar`
-                    # lo reporte como `carril_sin_copia`; una falla del sondeo nunca cambia el
-                    # `motivo` de la corrida. Una excepción que no es `OSError` no se traga acá.
+                    # Si el rename que falló fue el primero, `_copiar` no tocó nada; si fue el
+                    # segundo, el rollback repuso `vigente` con la copia anterior (salvo que el
+                    # rollback mismo falle: ver el comentario de `_copiar`). Se reintenta en el
+                    # próximo sondeo. El fallo queda en memoria por carril (`_fallas`) para que
+                    # `lanzar` lo reporte como `carril_sin_copia`; una falla del sondeo nunca
+                    # cambia el `motivo` de la corrida. Una excepción que no es `OSError` no se
+                    # traga acá.
                     self._fallas[wt.name] = f"{type(e).__name__}: {e}"
                     continue
                 self._fallas.pop(wt.name, None)  # el último intento sobre este carril salió bien
@@ -157,8 +161,11 @@ class Sondeo:
             # copia vigente (si había una) no se toca.
             shutil.rmtree(nueva, ignore_errors=True)
             raise
-        # Swap con renames: nunca hay un instante sin `vigente` (ni una destrucción irreversible
-        # si un rename falla a mitad de camino, p. ej. por un archivo tomado en Windows).
+        # Swap con renames: entre los dos renames de abajo hay una ventana sin `vigente` (si el
+        # proceso muere justo ahí, la copia queda solo en `.scratch.vieja`). Si el primer rename
+        # falla (p. ej. por un archivo tomado en Windows), no se tocó nada. Si falla el segundo,
+        # el rollback repone `vigente` con la copia anterior; si el rollback también falla, esa
+        # copia queda en `.scratch.vieja` y el `_copiar` siguiente la borra al arrancar.
         shutil.rmtree(vieja, ignore_errors=True)  # sobrante de un intento anterior interrumpido
         movida = False
         if vigente.exists():

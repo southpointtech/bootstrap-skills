@@ -270,7 +270,7 @@ def test_una_copia_nueva_reemplaza_a_la_vieja(entorno):
     assert sorted(p.name for p in carpeta.iterdir()) == [".scratch"]  # sin `.scratch.nueva`
 
 
-# --- `_copiar`: el swap con renames no deja ventana de pérdida (B1) ----------------------------
+# --- `_copiar`: si un rename falla, la copia anterior sobrevive (swap con renames, B1) ---------
 
 def test_copiar_dos_veces_deja_solo_el_segundo_contenido(tmp_path):
     destino = tmp_path / "destino"
@@ -577,7 +577,34 @@ def test_carril_sin_copia_no_se_duplica_si_falla_copiar_los_transcripts(entorno,
     assert ev[-1]["error"].startswith("RuntimeError: copiar transcripts roto")
 
 
-def test_dos_carriles_sin_copia_salen_en_orden_de_nombre(entorno, monkeypatch):
+def test_carril_sin_copia_en_el_camino_de_error(entorno, monkeypatch):
+    # A diferencia de `test_carril_sin_copia_no_se_duplica_si_falla_copiar_los_transcripts` (donde
+    # `_rondas` sale bien y el evento ya se registró por el camino exitoso antes de que
+    # `sondeo_obj` se ponga en `None`), acá lo que falla es la sesión: `sondeo_obj` sigue sin ser
+    # `None` cuando el `except` de `lanzar` lo agarra, así que el evento se registra por el camino
+    # de error (`_registrar_carriles_sin_copia(..., original=e)`, con `mat.registrar_sin_tapar`).
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    # `sondeo=10` (mayor que la corrida entera): el único intento es el sondeo final, determinístico.
+    with pytest.raises(SesionFallida):
+        entorno.correr([{"session_id": "s1", "exit": 7, "worktree": "carril-a", "espera": 0.2,
+                         "queda": True}], sondeo=10)
+
+    ev = _nuevos(entorno.corrida)
+    (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
+    assert evento == {**evento, "carril": "carril-a", "copia_anterior": False}
+    assert evento["error"].startswith("PermissionError: archivo tomado")
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "error"}
+    assert ev.index(evento) < ev.index(ev[-1])  # antes de `corrida_cerrada`
+
+
+def test_dos_carriles_sin_copia_con_worktrees_creados_en_otro_orden(entorno, monkeypatch):
+    # No fija el orden por nombre: `git worktree list` (git 2.53 en Windows, medido) ya devuelve
+    # los worktrees por nombre aunque acá `carril-b` se cree antes que `carril-a`, así que este
+    # test pasaría igual sin el `sorted()` de `carriles_sin_copia`. Quien fija ese orden es
+    # `test_carriles_sin_copia_ordena_por_nombre_de_carril`, más abajo.
     def copiar(self, nombre, scratch):
         raise PermissionError("archivo tomado")
 
@@ -589,6 +616,16 @@ def test_dos_carriles_sin_copia_salen_en_orden_de_nombre(entorno, monkeypatch):
     ev = _nuevos(entorno.corrida)
     nombres = [x["carril"] for x in ev if x["evento"] == "carril_sin_copia"]
     assert nombres == ["carril-a", "carril-b"]
+
+
+def test_carriles_sin_copia_ordena_por_nombre_de_carril(tmp_path):
+    # Prueba directa sobre `Sondeo.carriles_sin_copia()`, sin git ni hilo: `_fallas` cargado a
+    # mano fuera de orden. Esta es la que fija el orden por nombre (ver el comentario del test
+    # anterior).
+    s = Sondeo(tmp_path, tmp_path, 999)
+    s._fallas = {"carril-b": "PermissionError: archivo tomado", "carril-a": "OSError: x"}
+
+    assert [carril for carril, *_ in s.carriles_sin_copia()] == ["carril-a", "carril-b"]
 
 
 def test_si_falla_escribir_carril_sin_copia_no_cambia_el_motivo(entorno, monkeypatch):
