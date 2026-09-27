@@ -267,6 +267,111 @@ def test_una_copia_nueva_reemplaza_a_la_vieja(entorno):
     assert sorted(p.name for p in carpeta.iterdir()) == [".scratch"]  # sin `.scratch.nueva`
 
 
+# --- `_copiar`: el swap con renames no deja ventana de pérdida (B1) ----------------------------
+
+def test_copiar_dos_veces_deja_solo_el_segundo_contenido(tmp_path):
+    destino = tmp_path / "destino"
+    scratch1, scratch2 = tmp_path / "scratch1", tmp_path / "scratch2"
+    scratch1.mkdir()
+    (scratch1 / "a.md").write_text("primero", encoding="utf-8")
+    scratch2.mkdir()
+    (scratch2 / "a.md").write_text("segundo", encoding="utf-8")
+
+    s = Sondeo(tmp_path, destino, 0.05)
+    s._copiar("carril-x", scratch1)
+    s._copiar("carril-x", scratch2)
+
+    carpeta = destino / "carril-x"
+    assert (carpeta / ".scratch" / "a.md").read_text(encoding="utf-8") == "segundo"
+    assert sorted(p.name for p in carpeta.iterdir()) == [".scratch"]  # sin nueva ni vieja
+
+
+def test_copiar_con_vieja_sobrante_no_impide_la_copia_siguiente(tmp_path):
+    destino = tmp_path / "destino"
+    carpeta = destino / "carril-x"
+    vigente = carpeta / ".scratch"
+    vigente.mkdir(parents=True)
+    (vigente / "a.md").write_text("anterior", encoding="utf-8")
+    vieja = carpeta / ".scratch.vieja"
+    vieja.mkdir()
+    (vieja / "basura.md").write_text("basura de un intento previo", encoding="utf-8")
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "a.md").write_text("nuevo", encoding="utf-8")
+
+    s = Sondeo(tmp_path, destino, 0.05)
+    s._copiar("carril-x", scratch)
+
+    assert (vigente / "a.md").read_text(encoding="utf-8") == "nuevo"
+    assert not vieja.exists()
+    assert not (carpeta / ".scratch.nueva").exists()
+
+
+def test_copiar_si_falla_el_primer_rename_sobrevive_la_copia_anterior(tmp_path, monkeypatch):
+    destino = tmp_path / "destino"
+    scratch1, scratch2 = tmp_path / "scratch1", tmp_path / "scratch2"
+    scratch1.mkdir()
+    (scratch1 / "a.md").write_text("anterior", encoding="utf-8")
+    scratch2.mkdir()
+    (scratch2 / "a.md").write_text("nuevo", encoding="utf-8")
+
+    s = Sondeo(tmp_path, destino, 0.05)
+    s._copiar("carril-x", scratch1)  # deja `vigente` con "anterior"
+
+    carpeta = destino / "carril-x"
+    vigente = carpeta / ".scratch"
+    contenido_previo = (vigente / "a.md").read_bytes()
+
+    real_rename = Path.rename
+
+    def rename_falla(self, target):
+        if self == vigente:  # el primer rename: `vigente` -> `.scratch.vieja`
+            raise PermissionError("archivo tomado")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename_falla)
+
+    with pytest.raises(PermissionError):
+        s._copiar("carril-x", scratch2)
+
+    assert (vigente / "a.md").read_bytes() == contenido_previo
+    assert not (carpeta / ".scratch.nueva").exists()
+    assert not (carpeta / ".scratch.vieja").exists()
+
+
+def test_copiar_si_falla_el_segundo_rename_hace_rollback(tmp_path, monkeypatch):
+    destino = tmp_path / "destino"
+    scratch1, scratch2 = tmp_path / "scratch1", tmp_path / "scratch2"
+    scratch1.mkdir()
+    (scratch1 / "a.md").write_text("anterior", encoding="utf-8")
+    scratch2.mkdir()
+    (scratch2 / "a.md").write_text("nuevo", encoding="utf-8")
+
+    s = Sondeo(tmp_path, destino, 0.05)
+    s._copiar("carril-x", scratch1)  # deja `vigente` con "anterior"
+
+    carpeta = destino / "carril-x"
+    vigente = carpeta / ".scratch"
+    contenido_previo = (vigente / "a.md").read_bytes()
+
+    real_rename = Path.rename
+
+    def rename_falla(self, target):
+        if self.name == ".scratch.nueva":  # el segundo rename: `.scratch.nueva` -> `vigente`
+            raise PermissionError("archivo tomado")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename_falla)
+
+    with pytest.raises(PermissionError):
+        s._copiar("carril-x", scratch2)
+
+    assert (vigente / "a.md").read_bytes() == contenido_previo
+    assert not (carpeta / ".scratch.vieja").exists()  # el rollback la deja en `vigente`
+    # `.scratch.nueva` queda tirada: el próximo `_copiar` la limpia al arrancar (rmtree inicial).
+
+
 def test_una_falla_del_sondeo_no_mata_el_hilo(entorno, monkeypatch):
     # En Windows, un archivo tomado hace fallar el reemplazo de la copia; el próximo sondeo reintenta.
     original, fallas = Sondeo._copiar, []
@@ -304,6 +409,28 @@ def test_se_copian_los_transcripts_aunque_la_sesion_falle(entorno):
 
     transcripts = entorno.corrida / "transcripts"
     assert {p.name for p in transcripts.rglob("*.jsonl")} == {"s1.jsonl", "agent-1.jsonl"}
+
+
+@pytest.mark.parametrize("falla", ["carril-a", "carril-b"])
+def test_la_falla_de_un_carril_no_impide_copiar_el_otro(entorno, monkeypatch, falla):
+    # Mutante `continue` -> `break` en `sondear`: si el que falla es el primero en el orden de
+    # `git worktree list` (acá, orden de creación: carril-a, carril-b), `break` corta el `for`
+    # antes de llegar al otro carril en cada sondeo, y ese otro nunca queda copiado.
+    original = Sondeo._copiar
+
+    def copiar(self, nombre, scratch):
+        if nombre == falla:
+            raise PermissionError("archivo tomado")
+        original(self, nombre, scratch)
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    ok = "carril-b" if falla == "carril-a" else "carril-a"
+    motivo = entorno.correr([{"session_id": "s1", "worktree": ["carril-a", "carril-b"],
+                              "espera": 0.5, "queda": True}])
+
+    assert motivo == "completa"
+    issue = entorno.corrida / "carriles" / ok / ".scratch" / "issues" / "01.md"
+    assert issue.read_text(encoding="utf-8") == "Status: done\n"
 
 
 # --- el CLI ------------------------------------------------------------------------------------

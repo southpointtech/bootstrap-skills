@@ -116,13 +116,15 @@ class Sondeo:
                 try:
                     self._copiar(wt.name, wt / ".scratch")
                 except Exception:
-                    # Un archivo tomado en Windows: queda la copia anterior y se reintenta en el
-                    # próximo sondeo. Una falla del sondeo nunca cambia el `motivo` de la corrida.
+                    # `_copiar` no deja ventana de pérdida (swap con renames y rollback): si
+                    # falla, la copia anterior sobrevive intacta y se reintenta en el próximo
+                    # sondeo. Una falla del sondeo nunca cambia el `motivo` de la corrida.
                     continue
 
     def _copiar(self, nombre, scratch):
         carpeta = self.destino / nombre
         nueva, vigente = carpeta / ".scratch.nueva", carpeta / ".scratch"
+        vieja = carpeta / ".scratch.vieja"
         shutil.rmtree(nueva, ignore_errors=True)
         try:
             shutil.copytree(scratch, nueva)
@@ -130,8 +132,24 @@ class Sondeo:
             # El agente la borró a mitad de la copia: queda la anterior, que es la última entera.
             shutil.rmtree(nueva, ignore_errors=True)
             return
-        shutil.rmtree(vigente, ignore_errors=True)
-        nueva.rename(vigente)
+        # Swap con renames: nunca hay un instante sin `vigente` (ni una destrucción irreversible
+        # si un rename falla a mitad de camino, p. ej. por un archivo tomado en Windows).
+        shutil.rmtree(vieja, ignore_errors=True)  # sobrante de un intento anterior interrumpido
+        movida = False
+        if vigente.exists():
+            try:
+                vigente.rename(vieja)
+            except OSError:
+                shutil.rmtree(nueva, ignore_errors=True)
+                raise
+            movida = True
+        try:
+            nueva.rename(vigente)
+        except OSError:
+            if movida:
+                vieja.rename(vigente)  # rollback: `vigente` queda como estaba
+            raise
+        shutil.rmtree(vieja, ignore_errors=True)
 
 
 def _copiar_transcripts(config, destino):
