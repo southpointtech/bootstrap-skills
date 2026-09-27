@@ -1,3 +1,86 @@
+# Session Handoff — 2026-09-27 — **04a slice 4 CERRADO** (`4249d06`, loop `light` limpio) + experimento de delegación integrado (`c25c544`). Próximo: **04a slice 5 = tratado #1 del experimento**, en sesión nueva y con `superpowers:subagent-driven-development`.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `c25c544` + el commit de este handoff. Push pendiente como en las secciones de
+  abajo (no pushear sin pedido).
+- **El slice 5 del 04a es el tratado #1 del experimento de delegación** (lo decidió el usuario el
+  2026-09-27). Protocolo en `medicion/delegacion/README.md`; leerlo antes de arrancar. En corto:
+  la principal planifica, despacha y verifica con `superpowers:subagent-driven-development`; **no
+  edita ella misma archivos de producción ni de test**. Commit del cierre con **`git commit -m`**
+  (con `-F` el script `medicion/delegacion/contexto.py slices` no ve el `Slice-Close:`). Freno: si
+  el review-loop encuentra algo que el subagente declaró hecho y no estaba, se anota en el issue.
+- **Worktree de la idea v2**: `C:\Repos\PERSONAL\carriles\Bootstrap Skills\idea-v2`, rama
+  `idea/v2`, con otra sesión del usuario trabajando ahí. No tocarlo desde `main`. No correr
+  `tests/run-all` en los dos árboles a la vez (la suite barre `%TEMP%`).
+- ⚠️ Sigue en pie: no correr `tools/sync-skills.ps1` desde `main` (ver la sección 2026-09-25 tarde).
+- Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajenos, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+- **`4249d06` — 04a slice 4** (`Review-Rigor: light`): los 5 Medium del slice 3.
+  `medicion/v2/aparato/aparato/correr.py`: `Sondeo.sondear` envuelve `_copiar` por carril en
+  `try/except Exception: continue`. Tests nuevos en `tests/test_correr.py` (dos carriles vivos,
+  copia nueva que reemplaza, falla del sondeo en el hilo y en el final, `session_id` vacío/nuevo,
+  transcripts con la sesión fallida). `tests/claude_falso.py`: `worktree` acepta lista, `estados`,
+  `queda`. 68 passed; 6 mutantes a mano, los 6 mueren; los 2 tests del sondeo fueron RED antes.
+- **Review-loop del slice 4**: `light`, cierre limpio (0 High). Marcador avanzado a `4249d06`,
+  `-Action close` corrido. `marcar-done` → `sinRuta` (el trailer no cita ruta: el 04a sigue abierto).
+- **`c25c544`** (hecho en la sesión de `idea/v2`, traído a `main` por fast-forward):
+  `medicion/delegacion/README.md` + `contexto.py`, el experimento de delegación congelado.
+- Medido (Windows, esta máquina): con un archivo abierto dentro de `x`,
+  `shutil.rmtree(x, ignore_errors=True)` deja `x` y `x.rename(...)` tira `PermissionError`.
+
+## 2. Tests
+
+- `python -m pytest -q` en `medicion/v2/aparato/` → **68 passed** (~90 s), en `4249d06`.
+- `run-all` completo no corrido (el slice solo toca `medicion/v2/aparato/`).
+
+## 3. Abierto — el slice 5 del 04a (`Review-Rigor: standard`)
+
+Detalle en la sección "Slice 4 hecho" de `.scratch/medicion-v2/issues/04a-aparato-de-los-tres-brazos.md`.
+Dos de los tres Medium los **introdujo el slice 4**: una falla que antes daba `motivo: error` ahora
+pasa callada con `motivo: completa`.
+
+- **B1** `Sondeo._copiar` hace `rmtree(vigente)` y después `nueva.rename(vigente)`: con un archivo
+  tomado en `carriles/`, `vigente` queda a medio borrar y el `except` nuevo se lo traga. Arreglo:
+  swap por renames (borrar `.scratch.vieja` sobrante; `vigente`→`.scratch.vieja`;
+  `nueva`→`vigente`, y si este falla, rollback `vieja`→`vigente`; recién ahí `rmtree(vieja)`).
+  Tests: que falle el primer rename (la copia anterior sobrevive byte a byte) y el segundo (rollback).
+  Corregir el comentario "queda la copia anterior" para que sea cierto en ese camino.
+- **B2** el `except` no deja rastro: un carril que nunca se copió desaparece de `carriles/` y E16
+  (`medicion/v2/juguete-inventario/calificar.py`, `copias_de_issues`) califica con datos
+  incompletos. **Decidido por el usuario (2026-09-27): evento nuevo `carril_sin_copia`** (nombre
+  del carril + error) en la bitácora. Condiciones que dio el scorer: angostar el `except` a
+  `OSError`; anotar en memoria, por carril, "visto y sin copia buena / último intento fallido" en
+  **todos** los sondeos (un carril que el agente ya borró no aparece en el sondeo final); escribir
+  el evento en el hilo principal **después del `join`** (la `Bitacora` de `materializar.py` no
+  tiene lock) y con `registrar_sin_tapar` o equivalente, para que tampoco cambie el `motivo`.
+  Agregar el evento a la tabla de `medicion/v2/CORRIDA.md` (el usuario lo aprobó). Que 04b lo lea
+  es trabajo del 04b, no de este slice: anotarlo en su issue.
+- **T1** `continue`→`break` sobrevive: test con dos carriles (`queda: True`) donde `_copiar` falla
+  **siempre** para uno solo, parametrizado por cuál falla; el otro tiene que quedar `Status: done`.
+- Low T2 (opcional): test directo y determinista de `_copiar` llamado dos veces.
+
+## 4. Próximos pasos
+
+1. **04a slice 5** en sesión nueva, como tratado #1 (arriba). Cierre con `Slice-Close:` +
+   `Review-Rigor: standard`, commit con `-m`, review-loop de 2 turnos + coherencia.
+2. Corrida en seco con el `claude` real (criterio de aceptación del 04a; avisar costo antes).
+3. 04b slice 3 (E12/E13) sobre esos transcripts, y que el 04b lea `carril_sin_copia`.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera edición: el trabajo ya está
+  alineado (este handoff es el plan), decirlo y reintentar.
+- Scripts de Python con literales `\n`: escribirlos con Write a un archivo del scratchpad, no por
+  heredoc de Bash (en esta sesión el heredoc convirtió `\n` en saltos reales y rompió dos archivos).
+- Los archivos de `medicion/v2/aparato/` son CRLF: medir el EOL antes de editar.
+- Un `.git/index.lock` pasajero puede aparecer mientras corre la otra sesión: verificar que no haya
+  `git.exe` vivo y reintentar; no borrar el lock a mano sin mirar.
+
+---
+
 # Session Handoff — 2026-09-25 (tarde) — Verificación: un bootstrap nuevo sale con la **v2.1.0** y funciona. Sin cambios de código. Próximo: el mismo de abajo (slice chico del 04a).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
