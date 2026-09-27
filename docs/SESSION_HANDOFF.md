@@ -1,15 +1,12 @@
-# Session Handoff — 2026-09-27 — **04a slice 4 CERRADO** (`4249d06`, loop `light` limpio) + experimento de delegación integrado (`c25c544`). Próximo: **04a slice 5 = tratado #1 del experimento**, en sesión nueva y con `superpowers:subagent-driven-development`.
+# Session Handoff — 2026-09-27 — **04a slice 4 CERRADO** (`4249d06`, loop `light` limpio). Próximo: **04a slice 5**, en sesión nueva.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
-- **Repo** `main` @ `c25c544` + el commit de este handoff. Push pendiente como en las secciones de
-  abajo (no pushear sin pedido).
-- **El slice 5 del 04a es el tratado #1 del experimento de delegación** (lo decidió el usuario el
-  2026-09-27). Protocolo en `medicion/delegacion/README.md`; leerlo antes de arrancar. En corto:
-  la principal planifica, despacha y verifica con `superpowers:subagent-driven-development`; **no
-  edita ella misma archivos de producción ni de test**. Commit del cierre con **`git commit -m`**
-  (con `-F` el script `medicion/delegacion/contexto.py slices` no ve el `Slice-Close:`). Freno: si
-  el review-loop encuentra algo que el subagente declaró hecho y no estaba, se anota en el issue.
+- **Repo** `main` @ el commit que descarta el experimento de delegación + este handoff. Push
+  pendiente como en las secciones de abajo (no pushear sin pedido).
+- **Experimento de delegación DESCARTADO por el usuario (2026-09-27)**: `c25c544` lo había
+  agregado (`medicion/delegacion/`) y un commit posterior lo borra. El slice 5 del 04a se hace como
+  siempre, no como tratado. No reabrir sin pedido.
 - **Worktree de la idea v2**: `C:\Repos\PERSONAL\carriles\Bootstrap Skills\idea-v2`, rama
   `idea/v2`, con otra sesión del usuario trabajando ahí. No tocarlo desde `main`. No correr
   `tests/run-all` en los dos árboles a la vez (la suite barre `%TEMP%`).
@@ -26,8 +23,6 @@
   `queda`. 68 passed; 6 mutantes a mano, los 6 mueren; los 2 tests del sondeo fueron RED antes.
 - **Review-loop del slice 4**: `light`, cierre limpio (0 High). Marcador avanzado a `4249d06`,
   `-Action close` corrido. `marcar-done` → `sinRuta` (el trailer no cita ruta: el 04a sigue abierto).
-- **`c25c544`** (hecho en la sesión de `idea/v2`, traído a `main` por fast-forward):
-  `medicion/delegacion/README.md` + `contexto.py`, el experimento de delegación congelado.
 - Medido (Windows, esta máquina): con un archivo abierto dentro de `x`,
   `shutil.rmtree(x, ignore_errors=True)` deja `x` y `x.rename(...)` tira `PermissionError`.
 
@@ -64,8 +59,8 @@ pasa callada con `motivo: completa`.
 
 ## 4. Próximos pasos
 
-1. **04a slice 5** en sesión nueva, como tratado #1 (arriba). Cierre con `Slice-Close:` +
-   `Review-Rigor: standard`, commit con `-m`, review-loop de 2 turnos + coherencia.
+1. **04a slice 5** en sesión nueva. Cierre con `Slice-Close:` + `Review-Rigor: standard`,
+   review-loop de 2 turnos + coherencia.
 2. Corrida en seco con el `claude` real (criterio de aceptación del 04a; avisar costo antes).
 3. 04b slice 3 (E12/E13) sobre esos transcripts, y que el 04b lea `carril_sin_copia`.
 
