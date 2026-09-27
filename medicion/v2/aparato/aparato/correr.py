@@ -89,6 +89,10 @@ class Sondeo:
         self.proyecto, self.destino, self.intervalo = Path(proyecto), Path(destino), intervalo
         self._parar = threading.Event()
         self._hilo = threading.Thread(target=self._bucle, daemon=True)
+        # Por carril, el error (`"<Tipo>: <mensaje>"`) de su último intento de copia si falló; un
+        # carril con un intento exitoso más reciente no aparece acá. Solo lo toca `sondear` (el
+        # hilo y, tras el `join`, el `__exit__`), nunca a la vez: no hace falta lock.
+        self._fallas = {}
 
     def __enter__(self):
         self._hilo.start()
@@ -98,6 +102,16 @@ class Sondeo:
         self._parar.set()
         self._hilo.join()
         self.sondear()
+
+    def carriles_sin_copia(self):
+        """Los carriles cuyo último intento de copia falló, en orden de nombre de carril:
+        `(carril, error, copia_anterior)`. `copia_anterior` es si `<destino>/<carril>/.scratch/`
+        tiene una copia buena de un intento anterior: el swap con renames de `_copiar` la deja
+        intacta cuando un intento falla, así que mirar el filesystem alcanza."""
+        return [
+            (carril, error, (self.destino / carril / ".scratch").is_dir())
+            for carril, error in sorted(self._fallas.items())
+        ]
 
     def _bucle(self):
         while not self._parar.wait(self.intervalo):
@@ -115,11 +129,15 @@ class Sondeo:
             if (wt / ".scratch").is_dir():
                 try:
                     self._copiar(wt.name, wt / ".scratch")
-                except Exception:
+                except OSError as e:
                     # `_copiar` no deja ventana de pérdida (swap con renames y rollback): si
                     # falla, la copia anterior sobrevive intacta y se reintenta en el próximo
-                    # sondeo. Una falla del sondeo nunca cambia el `motivo` de la corrida.
+                    # sondeo. El fallo queda en memoria por carril (`_fallas`) para que `lanzar`
+                    # lo reporte como `carril_sin_copia`; una falla del sondeo nunca cambia el
+                    # `motivo` de la corrida. Una excepción que no es `OSError` no se traga acá.
+                    self._fallas[wt.name] = f"{type(e).__name__}: {e}"
                     continue
+                self._fallas.pop(wt.name, None)  # el último intento sobre este carril salió bien
 
     def _copiar(self, nombre, scratch):
         carpeta = self.destino / nombre
@@ -150,6 +168,23 @@ class Sondeo:
                 vieja.rename(vigente)  # rollback: `vigente` queda como estaba
             raise
         shutil.rmtree(vieja, ignore_errors=True)
+
+
+def _registrar_carriles_sin_copia(bitacora, sondeo, original=None):
+    """Un evento `carril_sin_copia` por carril cuyo último intento de copia falló, en orden de
+    nombre. Escribir el evento nunca cambia el `motivo`: en el camino de error, la falla de la
+    bitácora queda como nota en `original` (`mat.registrar_sin_tapar`, igual que el resto de las
+    fallas de bitácora de esta corrida); en el exitoso (`original=None`), se descarta.
+    """
+    for carril, error, copia_anterior in sondeo.carriles_sin_copia():
+        campos = dict(carril=carril, error=error, copia_anterior=copia_anterior)
+        if original is not None:
+            mat.registrar_sin_tapar(bitacora, original, "carril_sin_copia", **campos)
+        else:
+            try:
+                bitacora.registrar("carril_sin_copia", **campos)
+            except Exception:
+                pass
 
 
 def _copiar_transcripts(config, destino):
@@ -202,18 +237,23 @@ def lanzar(corrida, brazo, *, claude, tope_rondas=TOPE_RONDAS, sondeo=SONDEO,
     config = corrida / "config"
     bitacora = mat.Bitacora(corrida / "bitacora.jsonl", ahora)
     copia_credencial = config / ".credentials.json"
+    sondeo_obj = None
     try:
         try:
             config.mkdir(exist_ok=True)
             shutil.copyfile(credencial, copia_credencial)
-            with Sondeo(corrida / "proyecto", corrida / "carriles", sondeo):
+            sondeo_obj = Sondeo(corrida / "proyecto", corrida / "carriles", sondeo)
+            with sondeo_obj:
                 motivo = _rondas(corrida, brazo, bitacora, claude, tope_rondas, juguete)
+            _registrar_carriles_sin_copia(bitacora, sondeo_obj)
             _copiar_transcripts(config, corrida / "transcripts")
         except BaseException as e:
             try:
                 _copiar_transcripts(config, corrida / "transcripts")
             except Exception as e2:
                 e.add_note(f"además falló copiar los transcripts: {type(e2).__name__}: {e2}")
+            if sondeo_obj is not None:
+                _registrar_carriles_sin_copia(bitacora, sondeo_obj, original=e)
             mat.registrar_sin_tapar(bitacora, e, "corrida_cerrada", motivo="error",
                                     error=f"{type(e).__name__}: {e}")
             raise

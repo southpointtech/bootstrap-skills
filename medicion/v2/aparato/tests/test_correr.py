@@ -433,6 +433,164 @@ def test_la_falla_de_un_carril_no_impide_copiar_el_otro(entorno, monkeypatch, fa
     assert issue.read_text(encoding="utf-8") == "Status: done\n"
 
 
+# --- el evento `carril_sin_copia` (B2) ----------------------------------------------------------
+
+def test_carril_sin_copia_sin_copia_previa(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    # `sondeo=10` (mayor que la corrida entera): el hilo nunca despierta antes del `_parar.set()`
+    # de `__exit__`, así que el único intento es el sondeo final, determinístico.
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                              "queda": True}], sondeo=10)
+
+    assert motivo == "completa"
+    ev = _nuevos(entorno.corrida)
+    (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
+    assert evento == {**evento, "carril": "carril-a", "copia_anterior": False}
+    assert evento["error"].startswith("PermissionError: archivo tomado")
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "completa"}
+    assert ev.index(evento) < ev.index(ev[-1])  # antes de `corrida_cerrada`
+
+
+def test_carril_sin_copia_copia_anterior_true_si_hubo_una_copia_buena(entorno, monkeypatch):
+    original, llamadas = Sondeo._copiar, []
+
+    def copiar(self, nombre, scratch):
+        llamadas.append(nombre)
+        if len(llamadas) == 1:
+            return original(self, nombre, scratch)  # la primera copia sale bien
+        raise PermissionError("archivo tomado")  # las siguientes fallan siempre
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.3,
+                              "queda": True}])  # sondeo por defecto (0.05): varios intentos reales
+
+    assert motivo == "completa"
+    assert len(llamadas) >= 2  # al menos la exitosa y una que falla
+    ev = _nuevos(entorno.corrida)
+    (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
+    assert evento == {**evento, "carril": "carril-a", "copia_anterior": True}
+    copia = entorno.corrida / "carriles" / "carril-a" / ".scratch"
+    assert copia.is_dir()  # la copia de la primera pasada sigue ahí
+
+
+def test_sin_evento_si_el_ultimo_intento_copio_bien(entorno, monkeypatch):
+    original, llamadas = Sondeo._copiar, []
+
+    def copiar(self, nombre, scratch):
+        llamadas.append(nombre)
+        if len(llamadas) == 1:
+            raise PermissionError("archivo tomado")  # la primera falla
+        return original(self, nombre, scratch)  # las siguientes salen bien
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.3,
+                              "queda": True}])
+
+    assert motivo == "completa"
+    assert len(llamadas) >= 2
+    ev = _nuevos(entorno.corrida)
+    assert [x["evento"] for x in ev if x["evento"] == "carril_sin_copia"] == []
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "completa"}
+
+
+def test_carril_sin_copia_aparece_aunque_el_agente_ya_borro_el_carril(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    # sin "queda": el agente borra el worktree antes de terminar la sesión; el fallo tiene que
+    # haber quedado en memoria de un sondeo anterior, mientras el carril todavía vivía.
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.3}])
+
+    assert motivo == "completa"
+    assert not (entorno.corrida / "proyecto" / ".claude" / "worktrees" / "carril-a").exists()
+    ev = _nuevos(entorno.corrida)
+    (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
+    assert evento == {**evento, "carril": "carril-a", "copia_anterior": False}
+
+
+def test_dos_carriles_sin_copia_salen_en_orden_de_nombre(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": ["carril-b", "carril-a"],
+                              "espera": 0.3, "queda": True}], sondeo=10)
+
+    assert motivo == "completa"
+    ev = _nuevos(entorno.corrida)
+    nombres = [x["carril"] for x in ev if x["evento"] == "carril_sin_copia"]
+    assert nombres == ["carril-a", "carril-b"]
+
+
+def test_si_falla_escribir_carril_sin_copia_no_cambia_el_motivo(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    original_registrar = mat.Bitacora.registrar
+
+    def registrar(self, evento, **campos):
+        if evento == "carril_sin_copia":
+            raise OSError("disco lleno a propósito")
+        return original_registrar(self, evento, **campos)
+
+    monkeypatch.setattr(mat.Bitacora, "registrar", registrar)
+    motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                              "queda": True}], sondeo=10)
+
+    assert motivo == "completa"
+    ev = _nuevos(entorno.corrida)
+    assert [x["evento"] for x in ev if x["evento"] == "carril_sin_copia"] == []  # no se escribió
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "completa"}
+
+
+def test_si_falla_escribir_carril_sin_copia_en_el_error_no_tapa_la_excepcion_original(
+        entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+    original_registrar = mat.Bitacora.registrar
+
+    def registrar(self, evento, **campos):
+        if evento == "carril_sin_copia":
+            raise OSError("disco lleno a propósito")
+        return original_registrar(self, evento, **campos)
+
+    monkeypatch.setattr(mat.Bitacora, "registrar", registrar)
+
+    with pytest.raises(SesionFallida, match="7") as exc:
+        entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                         "queda": True, "exit": 7}], sondeo=10)
+
+    assert any("carril_sin_copia" in n and "disco lleno" in n
+              for n in getattr(exc.value, "__notes__", []))
+    ev = _nuevos(entorno.corrida)
+    assert [x["evento"] for x in ev if x["evento"] == "carril_sin_copia"] == []  # no se escribió
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "error"}
+    assert ev[-1]["error"].startswith("SesionFallida: ")  # la original, no tapada
+
+
+def test_una_excepcion_que_no_es_oserror_en_copiar_no_se_traga(entorno, monkeypatch):
+    def copiar(self, nombre, scratch):
+        raise ValueError("no es OSError, a propósito")
+
+    monkeypatch.setattr(Sondeo, "_copiar", copiar)
+
+    with pytest.raises(ValueError, match="no es OSError"):
+        entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.2,
+                         "queda": True}], sondeo=10)
+
+    ev = _nuevos(entorno.corrida)
+    assert [x["evento"] for x in ev if x["evento"] == "carril_sin_copia"] == []
+    assert ev[-1] == {**ev[-1], "evento": "corrida_cerrada", "motivo": "error"}
+    assert ev[-1]["error"].startswith("ValueError: ")
+
+
 # --- el CLI ------------------------------------------------------------------------------------
 
 def test_cli_correr_materializa_lanza_y_devuelve_la_carpeta(entorno, tmp_path, monkeypatch, capsys):

@@ -29,6 +29,7 @@ Los del slice 1 y 2 siguen iguales (`corrida_abierta`, `materializado`, `version
 | `sesion_lanzada` | `sesion` (int, desde 1), `session_id` (str o `null` si no se conoce todavía) | antes de cada `claude -p` |
 | `sesion_terminada` | `sesion`, `session_id`, `exit_code` | al volver cada `claude -p` |
 | `ronda_preguntas` | `ronda` (int, desde 1), `copia` (ruta relativa a la carpeta de la corrida, `preguntas/ronda-NN.md`), `secciones` (lista en el orden entregado, subconjunto de `["A", "C", "B"]`; `B` siempre) | cuando una sesión terminó dejando `PREGUNTAS.md`, antes de relanzar |
+| `carril_sin_copia` | `carril` (nombre de la carpeta del worktree), `error` (`"<Tipo>: <mensaje>"` del último intento de copia), `copia_anterior` (bool: si `carriles/<carril>/.scratch/` tiene una copia buena de un intento anterior) | uno por carril cuyo último intento de copia falló, en el hilo principal después del `join` del sondeo, antes de `corrida_cerrada` (camino exitoso o de error) |
 | `corrida_cerrada` | `motivo`: `completa` (terminó sin `PREGUNTAS.md`), `tope_rondas`, `error`; y `error` (`"<Tipo>: <mensaje>"`) si el motivo es `error` | una sola vez, al final |
 
 E08 lee `ronda_preguntas`: una ronda con `"A"` en `secciones` y `ts` anterior a la fecha de
