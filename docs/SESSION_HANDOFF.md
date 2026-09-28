@@ -1,4 +1,82 @@
-# Session Handoff — 2026-09-27 — **04a slice 4 CERRADO** (`4249d06`, loop `light` limpio). Próximo: **04a slice 5**, en sesión nueva.
+# Session Handoff — 2026-09-28 — **04a slice 5 CERRADO** (`70237d9` + `1e05331`, loop `standard` limpio en el turno 2). Próximo: **corrida en seco del 04a con el `claude` real** (avisar costo antes).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `1e05331` + el commit de este handoff. Push pendiente (no pushear sin pedido).
+- **Experimento de delegación: DESCARTADO** (`c08e948`, otra sesión del usuario, 2026-09-27). El
+  slice 5 se hizo igual con subagentes (el usuario lo eligió a mitad de camino), pero **no cuenta
+  como tratado**. No reproponer delegar para ahorrar contexto.
+- **Worktree de la idea v2**: `C:\Repos\PERSONAL\carriles\Bootstrap Skills\idea-v2`, rama `idea/v2`,
+  con otra sesión del usuario. No tocarlo desde `main`; no correr `tests/run-all` en los dos árboles
+  a la vez. **Esa otra sesión commitea en `main` también** (así entró `c08e948` a mitad de esta):
+  mirar `git log` antes de reescribir historia — nunca `reset` sobre commits ajenos.
+- ⚠️ Sigue en pie: no correr `tools/sync-skills.ps1` desde `main` (sección 2026-09-25 tarde).
+- Untracked de Codex (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`): ajenos, no tocar.
+
+## 1. Qué se hizo en esta sesión (04a slice 5)
+
+Implementado con `superpowers:subagent-driven-development` (plan de 2 tareas, implementador +
+reviewer por tarea). Código: `medicion/v2/aparato/aparato/correr.py`; tests:
+`medicion/v2/aparato/tests/test_correr.py`; contrato: `medicion/v2/CORRIDA.md`.
+
+- `1a5eeb8` **B1**: `Sondeo._copiar` hace swap con renames (`.scratch.nueva` → `.scratch`, la
+  vieja a `.scratch.vieja`, rollback si falla el segundo rename). **T1** (dos carriles, uno falla
+  siempre, parametrizado; mata `continue`→`break`) y **T2** (`_copiar` dos veces, determinista).
+- `6e7d3ac` + `443c521` **B2**: evento `carril_sin_copia` (`carril`, `error`, `copia_anterior`)
+  por carril cuyo último intento falló; estado en memoria (`_fallas`, `_con_copia_previa`) en todos
+  los sondeos; escrito en el hilo principal después del `join`, antes de `corrida_cerrada`, sin
+  cambiar el `motivo` (`registrar_sin_tapar` en el error; se traga en el exitoso). `except` de
+  `sondear` angostado a `OSError`. Un fallo de `copytree` ahora **se propaga** (antes volvía
+  callado), también si el agente borró el carril a mitad de la copia. Fila nueva en `CORRIDA.md`.
+  Nota para el 04b al final de `.scratch/medicion-v2/issues/04b-calificador-como-codigo.md`.
+- `70237d9` cierre (`Slice-Close: 04a slice 5 (B1, B2, T1, T2)`, `Review-Rigor: standard`).
+- `1e05331` fixes del turno 1 del review-loop: comentario falso "nunca hay un instante sin
+  `vigente`" acotado en 4 lugares (D); test directo del orden de `carriles_sin_copia()` (F; git
+  2.53 en Windows ya lista worktrees por nombre, así que el test viejo no fijaba nada); test del
+  evento en el camino de error (G).
+- **Review-loop**: `standard`, **cierre limpio** en el turno 2 + coherencia. Marcador avanzado a
+  `1e05331`, `-Action close` corrido. `marcar-done` → `sinRuta` (el 04a sigue abierto).
+  Mutación incompleta: 3 de 8 mutantes (los 3 murieron); un OOM mató el 4.º. `/code-review`
+  revisó el commit `4249d06` en vez del rango (sus hallazgos, fuera de alcance).
+
+## 2. Tests
+
+- `python -m pytest -q` en `medicion/v2/aparato/` → **86 passed** (~106 s), en `1e05331`.
+- Flaky preexistente visto una vez por el implementador bajo la suite completa:
+  `test_una_falla_del_sondeo_no_mata_el_hilo` (timing real); no se reprodujo en 4 corridas más.
+
+## 3. Low abiertos (reportados, no arreglados)
+
+- `CORRIDA.md:32` define `copia_anterior` por el disco (`carriles/<c>/.scratch/` existe); el código
+  lo lleva en memoria. Difieren solo si fallan el segundo rename **y** el rollback. Puntuado 50/52.
+- `medicion/v2/aparato/README.md:92-93` no lista `carril_sin_copia` (62, Low).
+- `correr.py:167-168`: "el `_copiar` siguiente la borra al arrancar" — `.scratch.vieja` se borra en
+  `:169`, después de un `copytree` exitoso, no al arrancar.
+- Huecos de tests: `copia_anterior: true` nunca leído de la bitácora; rollback sin copia previa
+  (`if movida:`) sin test; limpieza de `.scratch.nueva` parcial tras fallar `copytree` sin test.
+- Comentarios de tests: `test_correr.py:~420` dice "orden de creación" (es por nombre); cita "la
+  brief" e "Important #2 del review" (documentos fuera del repo).
+- El 04b tiene que saber que un carril borrado a mitad de copia (cierre benigno) también emite
+  `carril_sin_copia`.
+
+## 4. Próximos pasos
+
+1. **Corrida en seco con el `claude` real** (criterio de aceptación del 04a; avisar costo antes).
+   Si sale bien, marcar el 04a `done`.
+2. 04b slice 3 (E12/E13) sobre esos transcripts, y que el 04b lea `carril_sin_copia`.
+3. Opcional: un slice `light` con los Low de la sección 3 (README + `CORRIDA.md:32` + 3 tests).
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera edición: el trabajo ya está
+  alineado (este handoff es el plan), decirlo y reintentar.
+- Scripts de Python con literales `\n`: escribirlos con Write a un archivo del scratchpad.
+- Los `.py` de `medicion/v2/aparato/` son CRLF, y este handoff también: medir el EOL antes de editar.
+- Correr pytest del aparato con la máquina liviana: el foco de mutación murió por OOM.
+
+---
+
+# (Handoff anterior) Session Handoff — 2026-09-27 — **04a slice 4 CERRADO** (`4249d06`, loop `light` limpio). Próximo: **04a slice 5**, en sesión nueva.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
