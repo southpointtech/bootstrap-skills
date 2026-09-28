@@ -10,9 +10,13 @@ Escribe `<dir-corrida>/grading.json` con el formato de skill-creator: una entrad
 `metricas_no_puntuadas`.
 
 `passed: null` no suma a `passed`/`failed`/`total`/`pass_rate`, y el id se lista en el `summary`
-según por qué: `no_calificadas` (E12 y E13, que leen transcripts: van en el 04b slice 3),
-`no_puntuadas` (E10, que se reporta y no puntúa) o `errores_del_calificador` (el calificador tiró:
-no es un fallo del agente, y `main` sale 3). El visor de skill-creator muestra `null` como fallada.
+según por qué: `no_calificadas` (no se pidió), `no_puntuadas` (E10, E12 y E13: se reportan y no
+puntúan) o `errores_del_calificador` (el calificador tiró: no es un fallo del agente, y `main` sale
+3). El visor de skill-creator muestra `null` como fallada.
+
+E12 y E13 no puntúan porque el transcript no muestra la salida completa de pytest: el agente suele
+recortarla con `| tail`, `| head` o `| grep` (`metricas_no_puntuadas.transcripts.recortadas` dice
+cuántas corridas), y pytest corta los mensajes del resumen. Se reporta lo que sí se ve.
 
 Cómo corre cada comando (E01-E07, E09 e "implementa X"):
 - sobre una copia (la corrida no se toca), con `python -m inv` desde la raíz de la copia;
@@ -28,6 +32,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -50,6 +55,12 @@ TECHO_SLICE = 400
 SLICES_MINIMOS = 4
 # Heredadas (por ejemplo, de un hook de git), mandan a git a otro repo: se sacan de todo subproceso.
 GIT_HEREDADAS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
+LETRA = "a-záéíóúñ"  # la clase de `definiciones["test que invoca X"]`
+PYTEST = re.compile(r"(?<![\w./-])pytest(?![\w.-])")  # no `log-de-pytest.txt` ni `pytest.ini`
+RECORTADA = re.compile(r"\|\s*(tail|head|grep)\b")
+LINEA_ROJA = re.compile(r"^(FAILED|ERROR) (\S+)", re.M)  # el resumen de pytest: `FAILED <id> - ...`
+VALOR_E12 = re.compile(r"(?<![\d.])(135|105)(?![\d.])")
+TOTALES = re.compile(r"\d+ (passed|failed|errors?)\b")
 
 
 def entorno(**extra):
@@ -313,6 +324,7 @@ class Corrida:
         self.repo = ruta / "proyecto" if con_proyecto else ruta
         self.carriles = ruta / "copias-de-carriles" if con_proyecto else None
         self.bitacora_path = ruta / "bitacora.jsonl" if con_proyecto else None
+        self.transcripts = ruta / "transcripts" if con_proyecto else None
         self.copia = Copia.del_repo(self.repo, self.tmp / "final")
 
     @cached_property
@@ -347,6 +359,37 @@ class Corrida:
 
     def rondas(self):
         return [e for e in self.eventos if e.get("evento") == "ronda_preguntas"]
+
+    @cached_property
+    def corridas_pytest(self):
+        """Las corridas de pytest de todos los `*.jsonl` de `transcripts/` (recursivo: sesiones y
+        subagentes), ordenadas por hora: un `tool_use` `Bash` cuyo comando corre pytest, con el texto
+        de su `tool_result`. None si la corrida no tiene `transcripts/`. Una línea que no es JSON
+        se saltea."""
+        if self.transcripts is None or not self.transcripts.is_dir():
+            return None
+        usos, corridas = {}, []
+        for archivo in sorted(self.transcripts.rglob("*.jsonl")):
+            for linea in archivo.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    evento = json.loads(linea)
+                except ValueError:
+                    continue
+                contenido = (evento.get("message") or {}).get("content") if isinstance(evento, dict) else None
+                for bloque in contenido if isinstance(contenido, list) else []:
+                    if not isinstance(bloque, dict):
+                        continue
+                    if bloque.get("type") == "tool_use" and bloque.get("name") == "Bash":
+                        comando = (bloque.get("input") or {}).get("command", "")
+                        if PYTEST.search(comando):
+                            usos[bloque.get("id")] = (evento["timestamp"], comando)
+                    elif bloque.get("type") == "tool_result" and bloque.get("tool_use_id") in usos:
+                        ts, comando = usos.pop(bloque["tool_use_id"])
+                        salida = bloque.get("content")
+                        if isinstance(salida, list):
+                            salida = "\n".join(x.get("text", "") for x in salida if isinstance(x, dict))
+                        corridas.append({"ts": ts, "comando": comando, "salida": salida or ""})
+        return sorted(corridas, key=lambda k: datetime.fromisoformat(k["ts"]))
 
 
 def corto(sha):
@@ -423,6 +466,56 @@ def e15(c):
         f"líneas de producción por rango: {lineas}"
 
 
+def invoca(test_id, comando):
+    """`definiciones["test que invoca X"]` sobre el id que muestra pytest (`ruta::nombre`, sin los
+    parámetros entre corchetes): la salida no muestra el cuerpo del test."""
+    return re.search(rf"(?<![{LETRA}]){comando}(?![{LETRA}])", test_id.split("[")[0],
+                     re.IGNORECASE) is not None
+
+
+def rojas(salida, comando, tipos=("FAILED", "ERROR")):
+    return any(tipo in tipos and invoca(t, comando) for tipo, t in LINEA_ROJA.findall(salida))
+
+
+def red_por_comando(c):
+    """Por comando: la primera corrida de pytest con un test que lo invoca en FAILED o ERROR, a la
+    vista en el transcript, y si fue antes del commit que lo implementa."""
+    resultado = {}
+    for x in FUNCIONALES:
+        primera = next((k["ts"] for k in c.corridas_pytest if rojas(k["salida"], x)), None)
+        sha = c.implementa[x]
+        impl = c.historia.fecha[sha] if sha else None
+        antes = None if primera is None or impl is None else datetime.fromisoformat(primera) < impl
+        resultado[x] = {"primera_roja_visible": primera, "implementa": impl and impl.isoformat(),
+                        "antes": antes}
+    return resultado
+
+
+def fallas_por_135_o_105(c):
+    """Las corridas de pytest con un test que invoca `stock` en FAILED y un 135 o 105 a la vista
+    fuera de la línea de totales."""
+    return [k["ts"] for k in c.corridas_pytest
+            if rojas(k["salida"], "stock", ("FAILED",))
+            and any(VALOR_E12.search(l) and not TOTALES.search(l) for l in k["salida"].splitlines())]
+
+
+def e12(c):
+    if c.corridas_pytest is None:
+        return None, "no puntúa: la corrida no tiene transcripts/"
+    fallas = fallas_por_135_o_105(c)
+    return None, (f"no puntúa: {len(fallas)} corridas de pytest muestran un test de stock en FAILED "
+                  f"con 135 o 105 a la vista: {fallas}")
+
+
+def e13(c):
+    if c.corridas_pytest is None:
+        return None, "no puntúa: la corrida no tiene transcripts/"
+    r = red_por_comando(c)
+    return None, (f"no puntúa: RED visible antes de implementar: {[x for x in r if r[x]['antes']]}; "
+                  f"de {len(c.corridas_pytest)} corridas de pytest, "
+                  f"{sum(bool(RECORTADA.search(k['comando'])) for k in c.corridas_pytest)} recortadas")
+
+
 def copias_de_issues(c):
     """Ruta relativa a `.scratch/` → las copias de ese issue (checkout principal y carriles)."""
     bases = [c.repo / ".scratch"]
@@ -457,8 +550,8 @@ def funcional(f):
 CALIFICADORES = {"E01": funcional(e01), "E02": funcional(e02), "E03": funcional(e03),
                  "E04": funcional(e04), "E05": funcional(e05), "E06": funcional(e06),
                  "E07": funcional(e07), "E08": e08, "E09": funcional(e09), "E10": e10, "E11": e11,
-                 "E14": e14, "E15": e15, "E16": e16}
-NO_PUNTUADAS = {"E10"}
+                 "E12": e12, "E13": e13, "E14": e14, "E15": e15, "E16": e16}
+NO_PUNTUADAS = {"E10", "E12", "E13"}
 
 
 def metricas_no_puntuadas(c):
@@ -471,7 +564,12 @@ def metricas_no_puntuadas(c):
             "orden_stock_rotacion": orden_stock_rotacion(c),
             "commits_slice_close": len(h.slice_closes),
             "rango_slice_close_mas_grande": mayor and {"commit": mayor, "lineas": lineas[mayor]},
-            "rondas_preguntas": rondas}
+            "rondas_preguntas": rondas,
+            "transcripts": None if c.corridas_pytest is None else {
+                "corridas_pytest": len(c.corridas_pytest),
+                "recortadas": sum(bool(RECORTADA.search(k["comando"])) for k in c.corridas_pytest),
+                "red_por_comando": red_por_comando(c),
+                "fallas_por_135_o_105": fallas_por_135_o_105(c)}}
 
 
 def calificar(ruta, ids=None):
@@ -484,8 +582,8 @@ def calificar(ruta, ids=None):
             eid = texto[1:4]
             if eid not in CALIFICADORES or (ids is not None and eid not in ids):
                 passed = None
-                evidencia = ("no calificada: calificar.py todavía no implementa esta expectation "
-                             "(04b slice 3)" if eid not in CALIFICADORES else "no calificada: no se pidió")
+                evidencia = ("no calificada: calificar.py no implementa esta expectation"
+                             if eid not in CALIFICADORES else "no calificada: no se pidió")
                 no_calificadas.append(eid)
             else:
                 try:

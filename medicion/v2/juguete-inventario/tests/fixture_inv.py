@@ -237,3 +237,20 @@ def armar_corrida(destino, pasos, bitacora=None, issues=None, carriles=None):
     for nombre, suyos in (carriles or {}).items():
         escribir_scratch(destino / "copias-de-carriles" / nombre, suyos)
     return destino, shas
+
+
+def escribir_transcript(archivo, corridas):
+    """Un JSONL de sesión como el de claude: por cada `(ts, herramienta, entrada, salida)`, un
+    mensaje del asistente con el `tool_use` y uno del usuario con su `tool_result`. Una `salida`
+    lista va como bloques de texto, como la devuelve claude a veces."""
+    archivo = Path(archivo)
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    lineas = []
+    for i, (ts, herramienta, entrada, salida) in enumerate(corridas):
+        uso = f"toolu_{archivo.stem}_{i}"
+        contenido = [{"type": "text", "text": s} for s in salida] if isinstance(salida, list) else salida
+        lineas.append({"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": uso, "name": herramienta, "input": entrada}]}})
+        lineas.append({"type": "user", "timestamp": ts, "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": uso, "content": contenido}]}})
+    archivo.write_text("".join(json.dumps(l) + "\n" for l in lineas), encoding="utf-8")

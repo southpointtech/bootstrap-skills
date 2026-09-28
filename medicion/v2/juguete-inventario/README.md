@@ -97,12 +97,12 @@ Estado de cada agujero en `calificar.py` (la prosa de `evals.json` sigue igual, 
 |---|---|---|
 | 1 | cerrado (04b slice 2) | decidido 2026-09-24: E09 mide coherencia, no modelo compartido. Pasa con cualquiera de los tres pares de `esperado` (descartar la fila, tal cual, valor absoluto) y falla si `stock` y `rotacion` la leen distinto. No distingue dos lectores separados con la misma regla de un modelo compartido |
 | 2 | abierto, del harness | el `ruteo` lo aplica el aparato (`04a`), no `calificar.py` |
-| 3 | abierto (04b slice 3) | E12 lee transcripts: queda `passed: null` en `no_calificadas` |
+| 3 | cerrado (04b slice 3) | decidido 2026-09-28: E12 no puntúa (ver abajo). Las corridas con un test de `stock` en FAILED y un 135 o 105 a la vista van en `metricas_no_puntuadas.transcripts.fallas_por_135_o_105` |
 | 4 | cerrado (04b slice 2) | decidido 2026-09-24: E10 no puntúa. Queda `passed: null` en `summary.no_puntuadas`, y el orden en que empezaron a andar `stock` y `rotacion` (commits y relación: `mismo_commit`, `stock_antes`, `rotacion_antes`, `sin_relacion` o `falta_alguno`) va en `metricas_no_puntuadas.orden_stock_rotacion` |
 | 5 | cerrado (04b slice 1) | E01-E07, E09 e "implementa X" corren sobre una copia fresca de `datos/` del juguete |
 | 6 | cerrado (04b slice 1) | E04 mira el efecto de `alta` en `productos.csv`; E05 compara el JSON como objeto |
-| 7 | abierto (04b slice 3) | E12 y E13 leen transcripts |
-| 8 | abierto (04b slice 3) | E13 queda `passed: null` en `no_calificadas` |
+| 7 | cerrado (04b slice 3) | E12 y E13 leen todos los `*.jsonl` de `transcripts/`, recursivo (sesiones y subagentes), ordenados por hora |
+| 8 | cerrado (04b slice 3) | decidido 2026-09-28: E13 no puntúa (ver abajo). Por comando, `metricas_no_puntuadas.transcripts.red_por_comando` da la primera corrida con un test que lo invoca en FAILED o ERROR a la vista, y si fue antes del commit que lo implementa. "Test que invoca X" se mira sobre el id que imprime pytest, sin los parámetros: no matchea `productos.csv` del cuerpo |
 | 9 | cerrado del lado del calificador (04b slice 2) | E16 lee `proyecto/.scratch/*/issues/*.md` y `copias-de-carriles/*/.scratch/*/issues/*.md` (`medicion/v2/CORRIDA.md`); que esas copias existan depende de que el aparato las guarde |
 
 Lo que `calificar.py` decide y la prosa no dice:
@@ -114,6 +114,11 @@ Lo que `calificar.py` decide y la prosa no dice:
   dos. Un commit es un cierre si una línea de su mensaje empieza con `Slice-Close:`, sin sangría.
 - E16: un issue es su ruta relativa a `.scratch/`, y cierra si alguna copia tiene una línea que, sin
   los espacios del final, es exactamente `Status: done`.
+- E12 y E13 no puntúan: el transcript no muestra la salida completa de pytest. El agente suele
+  recortarla con `| tail`, `| head` o `| grep` (`transcripts.recortadas` lo cuenta; en la corrida
+  en seco del 2026-09-28, 36 de 38), y pytest corta los mensajes del resumen, así que puntuarlas
+  mediría si el agente recortó la salida y no si hizo TDD. Una corrida de pytest es un `Bash` cuyo
+  comando nombra `pytest` como palabra suelta; una línea de un transcript que no es JSON se saltea.
 - E08 compara el `ts` de la ronda como fecha con huso, no como texto, y la ronda tiene que ser
   estrictamente anterior a la fecha de committer del commit que implementa `alertas`.
 - Un error del propio calificador (por ejemplo, una línea de `bitacora.jsonl` que no es JSON) deja
@@ -139,8 +144,10 @@ esa automatización, no solo la disciplina.
 - Conservar el transcript de cada sesión.
 - En `v2-olas`, guardar la copia de `.scratch/` de cada worktree de carril en
   `copias-de-carriles/<nombre>/.scratch/` antes de que el scaffold borre el worktree (agujero 9): `.scratch/`
-  está gitignored, así que el `Status: done` que se escribe en un carril no llega al checkout
-  principal con el merge, y E16 lee esas copias.
+  está gitignored, así que un `Status: done` que se escribe en un carril no llega al checkout
+  principal con el merge, y E16 lee esas copias además del principal. En la corrida en seco del
+  2026-09-28 el agente escribió el `done` en el principal, y las copias de los carriles quedaron en
+  `ready-for-agent`: E16 pasa con cualquiera de los dos.
 
 Lo que antes figuraba acá y ya hace `calificar.py`: correr la expectation funcional de cada comando
 en cada commit para "implementa X", leer la salida en modo texto y escribir `grading.json` con el

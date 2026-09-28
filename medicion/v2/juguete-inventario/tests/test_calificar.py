@@ -13,7 +13,8 @@ from datetime import timedelta
 import pytest
 
 import calificar
-from fixture_inv import FECHA0, JUGUETE, armar_corrida, armar_historia, armar_repo, escribir_scratch, fecha, git
+from fixture_inv import (FECHA0, JUGUETE, armar_corrida, armar_historia, armar_repo, escribir_scratch,
+                         escribir_transcript, fecha, git)
 
 IDS = [f"E{i:02d}" for i in range(1, 17)]
 PUNTUADAS = [e for e in IDS if e not in ("E10", "E12", "E13")]
@@ -103,15 +104,8 @@ def test_hay_una_entrada_por_expectation_en_orden(grading_correcto):
 def test_el_summary_de_la_corrida_correcta(grading_correcto):
     assert grading_correcto["summary"] == {
         "passed": 13, "failed": 0, "total": 13, "pass_rate": 1.0,
-        "no_calificadas": ["E12", "E13"], "no_puntuadas": ["E10"], "errores_del_calificador": [],
+        "no_calificadas": [], "no_puntuadas": ["E10", "E12", "E13"], "errores_del_calificador": [],
     }
-
-
-def test_e12_y_e13_quedan_no_calificadas(grading_correcto):
-    for eid in ("E12", "E13"):
-        e = entrada(grading_correcto, eid)
-        assert e["passed"] is None
-        assert "no calificada" in e["evidence"]
 
 
 def test_el_summary_cuenta_las_que_fallan(calificar_variante):
@@ -586,6 +580,108 @@ def test_e16_no_lee_los_worktrees_de_carriles(tmp_path):
     e = entrada(corrida_plana(corrida, {"v2/issues/01.md": "Status: ready\n"}), "E16")
     assert e["passed"] is False
     assert "v2/issues/01.md" in e["evidence"]
+
+
+# --- E12 y E13 (no puntuadas): lo que muestran los transcripts ---------------------------------
+
+def bash(horas, comando, salida):
+    return (ts(horas), "Bash", {"command": comando}, salida)
+
+
+def con_transcripts(pasos, transcripts, tmp_path):
+    """Una corrida con la historia de `pasos` y `transcripts` = `{ruta en transcripts/: corridas}`."""
+    corrida, _ = armar_corrida(tmp_path / "corrida", pasos)
+    for ruta, corridas in transcripts.items():
+        escribir_transcript(corrida / "transcripts" / ruta, corridas)
+    return calificar.calificar(corrida, ids=["E12", "E13"])
+
+
+def test_e12_y_e13_no_puntuan(grading_correcto):
+    for eid in ("E12", "E13"):
+        e = entrada(grading_correcto, eid)
+        assert e["passed"] is None
+        assert e["evidence"] == "no puntúa: la corrida no tiene transcripts/"
+    assert grading_correcto["metricas_no_puntuadas"]["transcripts"] is None
+
+
+def test_red_por_comando_antes_y_despues_de_implementar(tmp_path):
+    # PASOS implementa productos y stock en fecha(0), alta en fecha(1) y rotacion en fecha(2). Los
+    # transcripts de subagentes están en subcarpetas, y el orden es por hora, no por archivo.
+    g = con_transcripts(PASOS, {
+        "sesion/s1.jsonl": [
+            bash(-0.2, "python -m pytest -q", "FAILED tests/test_stock.py::test_s - AssertionError\n"),
+            bash(0.5, "python -m pytest -q 2>&1 | tail -3",
+                 "FAILED tests/test_alta.py::test_alta_valida - NotImplementedError\n1 failed in 0.1s\n"),
+            bash(5, "python -m pytest -q", "FAILED tests/test_rotacion.py::test_x - AssertionError\n"),
+        ],
+        "sesion/s1/subagents/agent-1.jsonl": [
+            bash(-0.5, "python -m pytest tests/test_stock.py -q",
+                 ["ERROR tests/test_stock.py - ModuleNotFoundError: No module named 'inv'\n"]),
+            bash(0.8, "python -m pytest -q", "FAILED tests/test_alta.py::test_otra - AssertionError\n"),
+        ],
+    }, tmp_path)
+    t = g["metricas_no_puntuadas"]["transcripts"]
+    assert (t["corridas_pytest"], t["recortadas"]) == (5, 1)
+    r = t["red_por_comando"]
+    assert r["alta"] == {"primera_roja_visible": ts(0.5), "implementa": fecha(1), "antes": True}
+    assert r["stock"] == {"primera_roja_visible": ts(-0.5), "implementa": fecha(0), "antes": True}
+    assert r["rotacion"] == {"primera_roja_visible": ts(5), "implementa": fecha(2), "antes": False}
+    assert r["productos"] == {"primera_roja_visible": None, "implementa": fecha(0), "antes": None}
+    assert r["alertas"]["implementa"] == fecha(3) and r["alertas"]["antes"] is None
+    assert "RED visible antes de implementar: ['stock', 'alta']" in entrada(g, "E13")["evidence"]
+
+
+def test_red_por_comando_usa_la_definicion_de_test_que_invoca(tmp_path):
+    # `faltante` no invoca alta (letras pegadas), lo que va entre corchetes son parámetros y no el
+    # nombre del test, y sin distinguir mayúsculas `test_ALTA` sí invoca alta.
+    salida = ("FAILED tests/test_varios.py::test_faltante[alta-1] - AssertionError\n"
+              "FAILED tests/test_varios.py::test_ALTA_repetida - AssertionError\n")
+    g = con_transcripts(PASOS, {"s.jsonl": [bash(0.2, "pytest -q", "FAILED tests/test_v.py::test_faltante[alta]\n"),
+                                            bash(0.4, "pytest -q", salida)]}, tmp_path)
+    assert g["metricas_no_puntuadas"]["transcripts"]["red_por_comando"]["alta"]["primera_roja_visible"] == ts(0.4)
+
+
+def test_solo_cuentan_las_corridas_de_pytest_por_bash(tmp_path):
+    roja = "FAILED tests/test_alta.py::test_alta - AssertionError\n"
+    g = con_transcripts(PASOS, {"s.jsonl": [
+        (ts(0.2), "Write", {"file_path": "notas.md", "content": "pytest -q\n" + roja}, "ok"),
+        bash(0.3, "cat log-de-pytest.txt", roja),  # `pytest` dentro de un nombre de archivo
+        bash(0.4, "type salida.txt", roja),
+    ]}, tmp_path)
+    t = g["metricas_no_puntuadas"]["transcripts"]
+    assert t["corridas_pytest"] == 0
+    assert t["red_por_comando"]["alta"]["primera_roja_visible"] is None
+
+
+def test_e12_lista_las_fallas_de_stock_por_135_o_105(tmp_path):
+    g = con_transcripts(PASOS, {"s.jsonl": [
+        bash(-0.9, "python -m pytest -q",
+             "FAILED tests/test_stock.py::test_tor_001 - AssertionError\n"
+             "E       AssertionError: assert '135\\n' == '120\\n'\n1 failed in 0.1s\n"),
+        # sin 135 ni 105 en la salida (el valor quedó cortado)
+        bash(-0.8, "python -m pytest -q | tail -1", "FAILED tests/test_stock.py::test_tor_001 - Asse...\n"),
+        # el 135 está en la línea de totales, no en la falla
+        bash(-0.7, "python -m pytest -q", "FAILED tests/test_stock.py::test_x - KeyError\n1 failed, 135 passed\n"),
+        # 105 visible, pero la falla no es de un test que invoca stock
+        bash(-0.6, "python -m pytest -q", "FAILED tests/test_alta.py::test_x - assert 105 == 120\n"),
+        # un ERROR de colección no es un FAILED
+        bash(-0.5, "python -m pytest -q", "ERROR tests/test_stock.py - valor 105\n"),
+        bash(-0.4, "python -m pytest -q", "FAILED tests/test_stock.py::test_abs - assert 105 == 120\n"),
+    ]}, tmp_path)
+    assert g["metricas_no_puntuadas"]["transcripts"]["fallas_por_135_o_105"] == [ts(-0.9), ts(-0.4)]
+    assert entrada(g, "E12")["passed"] is None
+    assert f"[{ts(-0.9)!r}, {ts(-0.4)!r}]" in entrada(g, "E12")["evidence"]
+
+
+def test_una_linea_del_transcript_que_no_es_json_se_saltea(tmp_path):
+    corrida, _ = armar_corrida(tmp_path / "corrida", PASOS)
+    archivo = corrida / "transcripts" / "s.jsonl"
+    escribir_transcript(archivo, [bash(0.5, "pytest -q", "FAILED tests/test_alta.py::test_a\n")])
+    with open(archivo, "a", encoding="utf-8") as f:
+        f.write('{"type": "assistant", "message": {"content": [{"type": "tool_u')  # cortada
+    g = calificar.calificar(corrida, ids=["E13"])
+    assert g["summary"]["errores_del_calificador"] == []
+    assert g["metricas_no_puntuadas"]["transcripts"]["red_por_comando"]["alta"]["antes"] is True
 
 
 # --- Métricas no puntuadas ---------------------------------------------------------------------
