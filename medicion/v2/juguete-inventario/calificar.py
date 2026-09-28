@@ -3,7 +3,8 @@
     python calificar.py <dir-corrida>
 
 `<dir-corrida>` es la carpeta de una corrida del aparato (`medicion/v2/CORRIDA.md`: el repo está en
-`proyecto/`, al lado de `bitacora.jsonl` y `carriles/`) o el repo mismo, sin bitácora ni carriles.
+`proyecto/`, al lado de `bitacora.jsonl` y `copias-de-carriles/`) o el repo mismo, sin bitácora ni
+copias de carriles.
 Escribe `<dir-corrida>/grading.json` con el formato de skill-creator: una entrada
 `{text, passed, evidence}` por expectation de `evals/evals.json`, en su orden, un `summary` y
 `metricas_no_puntuadas`.
@@ -310,7 +311,7 @@ class Corrida:
         con_proyecto = (ruta / "proyecto").is_dir()
         self.dir, self.tmp = ruta, Path(tmp)
         self.repo = ruta / "proyecto" if con_proyecto else ruta
-        self.carriles = ruta / "carriles" if con_proyecto else None
+        self.carriles = ruta / "copias-de-carriles" if con_proyecto else None
         self.bitacora_path = ruta / "bitacora.jsonl" if con_proyecto else None
         self.copia = Copia.del_repo(self.repo, self.tmp / "final")
 

@@ -551,7 +551,7 @@ def corrida_plana(destino, issues, carriles=None):
     armar_repo(destino / "proyecto")
     escribir_scratch(destino / "proyecto", issues)
     for nombre, suyos in (carriles or {}).items():
-        escribir_scratch(destino / "carriles" / nombre, suyos)
+        escribir_scratch(destino / "copias-de-carriles" / nombre, suyos)
     return calificar.calificar(destino, ids=["E16"])
 
 

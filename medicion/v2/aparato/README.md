@@ -83,7 +83,7 @@ mandarían a otro repo. La corrida fallida queda como está; relanzar abre otra 
    en seco; la bitácora registra el que devuelve cada sesión). Pasado el tope, la última `PREGUNTAS.md` queda en `proyecto/` sin responder.
 4. Mientras corre, un hilo mira cada `--sondeo` segundos `git -C proyecto worktree list
    --porcelain` y, por cada worktree que no es el principal y tiene `.scratch/`, guarda su copia
-   en `carriles/<nombre de la carpeta>/.scratch/` (copia nueva completa y después reemplaza: si el
+   en `copias-de-carriles/<nombre de la carpeta>/.scratch/` (copia nueva completa y después reemplaza: si el
    agente la borra a mitad, queda la anterior). Mira una vez más al terminar. El agente borra los
    worktrees al cerrar cada ola, así que lo que queda es la última copia vista.
 5. Al final (también si falla) copia crudos a `transcripts/` todos los `*.jsonl` de
@@ -104,7 +104,7 @@ Eventos nuevos en la bitácora: `sesion_lanzada`, `sesion_terminada`, `ronda_pre
 | `config/` | el `CLAUDE_CONFIG_DIR` de la corrida (`correr`); la credencial ya no está al terminar |
 | `preguntas/ronda-NN.md` | copia byte a byte de cada `PREGUNTAS.md` respondida (`correr`) |
 | `transcripts/` | los JSONL de `config/projects/`, crudos (`correr`) |
-| `carriles/<nombre>/.scratch/` | la última copia vista del `.scratch/` de cada carril (`correr`, solo si hubo) |
+| `copias-de-carriles/<nombre>/.scratch/` | la última copia vista del `.scratch/` de cada carril (`correr`, solo si hubo) |
 
 Eventos, en orden: `corrida_abierta` (brazo, ref, sha, modo) y después uno terminal (falta solo si
 el proceso muere sin llegar a escribirlo, por ejemplo matado desde afuera):

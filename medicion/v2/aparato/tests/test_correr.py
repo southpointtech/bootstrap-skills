@@ -240,20 +240,35 @@ def test_se_conserva_el_scratch_de_un_carril_que_el_agente_borro(entorno):
     entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 1.0}])
 
     assert not (entorno.corrida / "proyecto" / ".claude" / "worktrees" / "carril-a").exists()
-    copia = entorno.corrida / "carriles" / "carril-a" / ".scratch" / "issues" / "01.md"
+    copia = entorno.corrida / "copias-de-carriles" / "carril-a" / ".scratch" / "issues" / "01.md"
     assert copia.read_text(encoding="utf-8") == "Status: done\n"
-    assert sorted(p.name for p in (entorno.corrida / "carriles").iterdir()) == ["carril-a"]
+    assert sorted(p.name for p in (entorno.corrida / "copias-de-carriles").iterdir()) == ["carril-a"]
 
 
 def test_sin_carriles_no_hay_carpeta_carriles(entorno):
     entorno.correr([{"session_id": "s1"}])
-    assert not (entorno.corrida / "carriles").exists()
+    assert not (entorno.corrida / "copias-de-carriles").exists()
+
+
+def test_las_copias_no_se_mezclan_con_los_worktrees_del_scaffold(entorno):
+    # `abrir-carril.ps1` abre cada carril en `<padre del repo>/carriles/<repo>/<slug>`, y el
+    # padre de `proyecto/` es la corrida: en la corrida en seco del 2026-09-28 los worktrees
+    # cayeron en `carriles/proyecto/`, dentro de la carpeta de copias, y dejaron ahí un carril
+    # `proyecto` vacío. La carpeta de copias tiene que tener solo los carriles.
+    entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 1.0,
+                     "como_el_scaffold": True}])
+
+    assert (entorno.corrida / "carriles" / "proyecto").is_dir()  # el scaffold la dejó
+    copias = entorno.corrida / "copias-de-carriles"
+    assert sorted(p.name for p in copias.iterdir()) == ["carril-a"]
+    issue = copias / "carril-a" / ".scratch" / "issues" / "01.md"
+    assert issue.read_text(encoding="utf-8") == "Status: done\n"
 
 
 def test_dos_carriles_vivos_a_la_vez_se_conservan_los_dos(entorno):
     entorno.correr([{"session_id": "s1", "worktree": ["carril-a", "carril-b"], "espera": 1.0}])
 
-    carriles = entorno.corrida / "carriles"
+    carriles = entorno.corrida / "copias-de-carriles"
     assert sorted(p.name for p in carriles.iterdir()) == ["carril-a", "carril-b"]
     for nombre in ("carril-a", "carril-b"):
         issue = carriles / nombre / ".scratch" / "issues" / "01.md"
@@ -264,7 +279,7 @@ def test_una_copia_nueva_reemplaza_a_la_vieja(entorno):
     entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 0.5,
                      "estados": ["Status: in-progress\n", "Status: done\n"]}])
 
-    carpeta = entorno.corrida / "carriles" / "carril-a"
+    carpeta = entorno.corrida / "copias-de-carriles" / "carril-a"
     issue = carpeta / ".scratch" / "issues" / "01.md"
     assert issue.read_text(encoding="utf-8") == "Status: done\n"
     assert sorted(p.name for p in carpeta.iterdir()) == [".scratch"]  # sin `.scratch.nueva`
@@ -389,7 +404,7 @@ def test_una_falla_del_sondeo_no_mata_el_hilo(entorno, monkeypatch):
     motivo = entorno.correr([{"session_id": "s1", "worktree": "carril-a", "espera": 1.0}])
 
     assert motivo == "completa" and fallas == ["carril-a"]
-    issue = entorno.corrida / "carriles" / "carril-a" / ".scratch" / "issues" / "01.md"
+    issue = entorno.corrida / "copias-de-carriles" / "carril-a" / ".scratch" / "issues" / "01.md"
     assert issue.read_text(encoding="utf-8") == "Status: done\n"
 
 
@@ -432,7 +447,7 @@ def test_la_falla_de_un_carril_no_impide_copiar_el_otro(entorno, monkeypatch, fa
                               "espera": 0.5, "queda": True}])
 
     assert motivo == "completa"
-    issue = entorno.corrida / "carriles" / ok / ".scratch" / "issues" / "01.md"
+    issue = entorno.corrida / "copias-de-carriles" / ok / ".scratch" / "issues" / "01.md"
     assert issue.read_text(encoding="utf-8") == "Status: done\n"
 
 
@@ -474,7 +489,7 @@ def test_carril_sin_copia_copia_anterior_true_si_hubo_una_copia_buena(entorno, m
     # el sondeo final, como describe la brief ("se copió bien y después falla en el sondeo final").
     proyecto = entorno.corrida / "proyecto"
     _agregar_worktree_con_scratch(proyecto, "carril-a")
-    s = Sondeo(proyecto, entorno.corrida / "carriles", intervalo=999)
+    s = Sondeo(proyecto, entorno.corrida / "copias-de-carriles", intervalo=999)
 
     s.sondear()  # la copia sale bien
     assert s.carriles_sin_copia() == []
@@ -488,7 +503,7 @@ def test_carril_sin_copia_copia_anterior_true_si_hubo_una_copia_buena(entorno, m
     assert s.carriles_sin_copia() == [
         ("carril-a", "PermissionError: archivo tomado", True),
     ]
-    assert (entorno.corrida / "carriles" / "carril-a" / ".scratch").is_dir()  # la 1ª copia sigue
+    assert (entorno.corrida / "copias-de-carriles" / "carril-a" / ".scratch").is_dir()  # la 1ª copia sigue
 
 
 def test_sin_evento_si_el_ultimo_intento_copio_bien(entorno, monkeypatch):
@@ -504,7 +519,7 @@ def test_sin_evento_si_el_ultimo_intento_copio_bien(entorno, monkeypatch):
         return original(self, nombre, scratch)  # el segundo sale bien
 
     monkeypatch.setattr(Sondeo, "_copiar", copiar)
-    s = Sondeo(proyecto, entorno.corrida / "carriles", intervalo=999)
+    s = Sondeo(proyecto, entorno.corrida / "copias-de-carriles", intervalo=999)
 
     s.sondear()  # falla
     assert s.carriles_sin_copia() == [("carril-a", "PermissionError: archivo tomado", False)]
@@ -524,7 +539,7 @@ def test_carril_sin_copia_aparece_aunque_el_agente_ya_borro_el_carril(entorno, m
         raise PermissionError("archivo tomado")
 
     monkeypatch.setattr(Sondeo, "_copiar", copiar)
-    s = Sondeo(proyecto, entorno.corrida / "carriles", intervalo=999)
+    s = Sondeo(proyecto, entorno.corrida / "copias-de-carriles", intervalo=999)
     s.sondear()  # el carril todavía vive: falla y queda en memoria
 
     subprocess.run(["git", "-C", str(proyecto), "worktree", "remove", "--force", str(wt)],
@@ -550,7 +565,7 @@ def test_carril_sin_copia_cuando_copytree_falla_de_verdad(entorno, monkeypatch):
     (evento,) = [x for x in ev if x["evento"] == "carril_sin_copia"]
     assert evento == {**evento, "carril": "carril-a", "copia_anterior": False}
     assert evento["error"].startswith("PermissionError: archivo tomado")
-    carpeta = entorno.corrida / "carriles" / "carril-a"
+    carpeta = entorno.corrida / "copias-de-carriles" / "carril-a"
     assert not (carpeta / ".scratch").exists() and not (carpeta / ".scratch.nueva").exists()
 
 

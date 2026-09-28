@@ -103,7 +103,7 @@ Estado de cada agujero en `calificar.py` (la prosa de `evals.json` sigue igual, 
 | 6 | cerrado (04b slice 1) | E04 mira el efecto de `alta` en `productos.csv`; E05 compara el JSON como objeto |
 | 7 | abierto (04b slice 3) | E12 y E13 leen transcripts |
 | 8 | abierto (04b slice 3) | E13 queda `passed: null` en `no_calificadas` |
-| 9 | cerrado del lado del calificador (04b slice 2) | E16 lee `proyecto/.scratch/*/issues/*.md` y `carriles/*/.scratch/*/issues/*.md` (`medicion/v2/CORRIDA.md`); que esas copias existan depende de que el aparato las guarde |
+| 9 | cerrado del lado del calificador (04b slice 2) | E16 lee `proyecto/.scratch/*/issues/*.md` y `copias-de-carriles/*/.scratch/*/issues/*.md` (`medicion/v2/CORRIDA.md`); que esas copias existan depende de que el aparato las guarde |
 
 Lo que `calificar.py` decide y la prosa no dice:
 
@@ -138,7 +138,7 @@ esa automatización, no solo la disciplina.
   entregadas), borrar el archivo y relanzar.
 - Conservar el transcript de cada sesión.
 - En `v2-olas`, guardar la copia de `.scratch/` de cada worktree de carril en
-  `carriles/<nombre>/.scratch/` antes de que el scaffold borre el worktree (agujero 9): `.scratch/`
+  `copias-de-carriles/<nombre>/.scratch/` antes de que el scaffold borre el worktree (agujero 9): `.scratch/`
   está gitignored, así que el `Status: done` que se escribe en un carril no llega al checkout
   principal con el merge, y E16 lee esas copias.
 

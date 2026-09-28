@@ -235,5 +235,5 @@ def armar_corrida(destino, pasos, bitacora=None, issues=None, carriles=None):
         (destino / "bitacora.jsonl").write_text("".join(l + "\n" for l in lineas), encoding="utf-8")
     escribir_scratch(destino / "proyecto", issues or {})
     for nombre, suyos in (carriles or {}).items():
-        escribir_scratch(destino / "carriles" / nombre, suyos)
+        escribir_scratch(destino / "copias-de-carriles" / nombre, suyos)
     return destino, shas

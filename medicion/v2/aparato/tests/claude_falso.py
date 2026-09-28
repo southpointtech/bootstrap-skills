@@ -9,7 +9,9 @@ Un paso: `session_id`, `exit` (default 0), `preguntas` (texto de `PREGUNTAS.md` 
 `worktree` (nombre de un carril, o una lista: los abre a la vez, les escribe `.scratch/`, espera
 `espera` segundos y los borra, como el paso 8 de PARALELISMO.md), `estados` (los textos sucesivos
 del issue del carril, con `espera` segundos entre uno y otro; default `["Status: done\n"]`),
-`queda` (true: los carriles no se borran al terminar la sesión).
+`queda` (true: los carriles no se borran al terminar la sesión), `como_el_scaffold` (true:
+abre los carriles donde los abre `abrir-carril.ps1`, `<padre>/carriles/<repo>/<nombre>`; si
+no, en `.claude/worktrees/<nombre>`).
 """
 import hashlib
 import json
@@ -55,7 +57,9 @@ if paso.get("worktree"):
     nombres = paso["worktree"] if isinstance(paso["worktree"], list) else [paso["worktree"]]
     estados = paso.get("estados", ["Status: done\n"])
     espera = paso.get("espera", 1.0)
-    wts = [cwd / ".claude" / "worktrees" / nombre for nombre in nombres]
+    raiz = (cwd.parent / "carriles" / cwd.name if paso.get("como_el_scaffold")
+            else cwd / ".claude" / "worktrees")
+    wts = [raiz / nombre for nombre in nombres]
     for nombre, wt in zip(nombres, wts):
         subprocess.run(["git", "-C", str(cwd), "worktree", "add", "-q", "-b", nombre, str(wt)],
                        check=True, capture_output=True)

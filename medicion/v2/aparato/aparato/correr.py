@@ -258,7 +258,9 @@ def lanzar(corrida, brazo, *, claude, tope_rondas=TOPE_RONDAS, sondeo=SONDEO,
         try:
             config.mkdir(exist_ok=True)
             shutil.copyfile(credencial, copia_credencial)
-            sondeo_obj = Sondeo(corrida / "proyecto", corrida / "carriles", sondeo)
+            # No `carriles/`: ahí abre sus worktrees `abrir-carril.ps1`
+            # (`<padre del repo>/carriles/<repo>/<slug>`, y el padre de `proyecto/` es la corrida).
+            sondeo_obj = Sondeo(corrida / "proyecto", corrida / "copias-de-carriles", sondeo)
             with sondeo_obj:
                 motivo = _rondas(corrida, brazo, bitacora, claude, tope_rondas, juguete)
             _registrar_carriles_sin_copia(bitacora, sondeo_obj)
