@@ -1,4 +1,103 @@
-# Session Handoff — 2026-09-28 — **04a slice 5 CERRADO** (`70237d9` + `1e05331`, loop `standard` limpio en el turno 2). Próximo: **corrida en seco del 04a con el `claude` real** (avisar costo antes).
+# Session Handoff — 2026-09-28 (tarde) — **Corrida en seco con el `claude` real HECHA; 04a `done`**. Slice 6 (`884e3ac`, `light`, cierre limpio). Próximo: **slice `light` de prosa + Lows** (abajo, sección 4).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `884e3ac` + el commit de este handoff. Push pendiente (no pushear sin pedido).
+- **04a `done`** (`.scratch/medicion-v2/issues/04a-aparato-de-los-tres-brazos.md`, sección
+  "Corrida en seco con el `claude` real (2026-09-28) y slice 6"). El 04b tiene una nota nueva al
+  final.
+- **La corrida real vive FUERA del repo**:
+  `C:\Users\marti\medicion-v2-corridas\v2-olas-20260928T152704Z` (+ `seco-stdout.txt` /
+  `seco-stderr.txt` al lado). **No borrarla**: es la fuente del 04b slice 3 (E12/E13). Sus copias
+  de carriles están en el layout VIEJO (`carriles/slice-0N/.scratch/`), no en `copias-de-carriles/`.
+- Marcador del review-loop en `884e3ac`; `-Action close` corrido (no hay `slice-open:main` colgando).
+- Siguen en pie: worktree `idea-v2` con otra sesión (no tocarlo; no correr `run-all` en los dos
+  árboles a la vez; esa sesión también commitea en `main`: mirar `git log` antes de reescribir
+  historia); no correr `tools/sync-skills.ps1` desde `main`; untracked de Codex ajenos, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+**Corrida en seco** (criterio de aceptación del 04a), desde `medicion/v2/aparato/`:
+`python -m aparato correr --brazo v2-olas --raiz 'C:\Users\marti\medicion-v2-corridas'`.
+- Exit 0, `motivo: completa`, 45 min. Sesión 1 (1 min) → `PREGUNTAS.md` → ronda 1 (A, C, B);
+  sesión 2 (44 min) cerró los 4 issues del juguete con una ola de 3 carriles (`slice-02..04`).
+  Sin `carril_sin_copia`. Consumo (dedupe por `message.id`): 148.132 tokens de salida, 1.858.566 de
+  escritura de cache, 45.725.996 de lectura de cache.
+- Medido: `claude -p` toma el prompt por stdin (sí); `--resume` conserva el `session_id` (sí);
+  JSONL de subagentes en `config/projects/<proy>/<session_id>/subagents/agent-*.jsonl` (se copiaron
+  los 54); hash de `~/.claude/.credentials.json` igual antes y después, la copia no quedó.
+
+**Defecto → slice 6 `884e3ac`** (`Slice-Close: 04a slice 6 …`, `Review-Rigor: light`):
+`abrir-carril.ps1` abre worktrees en `<padre del repo>/carriles/<repo>/slice-<N>`; el padre de
+`proyecto/` es la corrida → caían en `carriles/` del aparato (quedó un carril `proyecto` vacío).
+Las copias van ahora a **`copias-de-carriles/`**. Archivos: `medicion/v2/aparato/aparato/correr.py`,
+`aparato/tests/{claude_falso.py,test_correr.py}`, `aparato/README.md`, `medicion/v2/CORRIDA.md`,
+`juguete-inventario/{calificar.py,README.md}`, `juguete-inventario/tests/{fixture_inv.py,test_calificar.py}`.
+`claude_falso.py` ganó `como_el_scaffold`; test nuevo
+`test_las_copias_no_se_mezclan_con_los_worktrees_del_scaffold` (RED antes; con las dos rutas
+vueltas a `carriles` falla con `['carril-a', 'proyecto'] == ['carril-a']`).
+
+**Review-loop**: `light`, 1 turno (Bugs + Tests + 5 scorers), cierre limpio (0 High).
+`marcar-done` → `sinRuta` (el 04a lo marqué `done` a mano).
+
+## 2. Tests
+
+- `medicion/v2/aparato/`: `python -m pytest -q` → **87 passed** en `884e3ac`.
+- `medicion/v2/juguete-inventario/`: `python -m pytest -q` → **118 passed**.
+- Flaky visto 1 vez en la suite completa del aparato: `test_una_copia_nueva_reemplaza_a_la_vieja`
+  (`FileNotFoundError`, truncado); 0 fallas en 27 corridas posteriores (aislado y en grupo). Causa
+  no verificada.
+
+## 3. Abierto
+
+Del review del slice 6:
+- **Medium (prosa del contrato, no arreglado por `light`)**: `CORRIDA.md:18`, `correr.py:262`,
+  `test_correr.py:254`, `claude_falso.py:13` dicen `<padre del repo>/carriles/<repo>/<slug>` (o
+  `<nombre>`); la carpeta real es `slice-<N>` (`.claude/scripts/abrir-carril.ps1:130`, igual en
+  `v2.1.0`); el slug solo va en la rama. El mensaje de `884e3ac` repite el error (no reescribir).
+- **Low**: E16 no tiene test negativo de que ignora `carriles/` (caso tipo `test_e16_falla` con
+  `Status: done` solo bajo `carriles/<x>/.scratch/…`; `corrida_plana` escribe solo en
+  `copias-de-carriles`, escribir a mano).
+- Descartados por previos (35): ruta de la corrida como literal duplicado entre aparato y
+  calificador sin test cruzado (vale para todo el layout, slice propio si se hace); `Sondeo` usa
+  solo `wt.name` como clave.
+
+Low del slice 5 que siguen abiertos (sección 3 del handoff de abajo): `aparato/README.md:92-93` no
+lista `carril_sin_copia`; `CORRIDA.md:32` define `copia_anterior` por el disco
+(`copias-de-carriles/<carril>/.scratch/`) y el código lo lleva en memoria; `correr.py:~167`
+"el `_copiar` siguiente la borra al arrancar" (se borra después del `copytree`); huecos de tests
+(`copia_anterior: true` leído de la bitácora, rollback sin copia previa, limpieza de
+`.scratch.nueva` parcial); comentarios de `test_correr.py` ("orden de creación", "la brief",
+"Important #2").
+
+Para el 04b (anotado en su issue): en la corrida real las copias de carriles tienen `02`–`04` en
+`ready-for-agent` y `proyecto/.scratch` los tiene `done` → el `done` se escribe en el principal,
+no en el carril; contradice `juguete-inventario/README.md` ~139-143. Revisar qué lee E16.
+
+## 4. Próximos pasos (acordados con el usuario)
+
+1. **Slice `light` de prosa + Lows**: el Medium de `<slug>`→`slice-<N>` en los 4 lugares, el test
+   negativo de E16 (RED primero), y los Low del slice 5 listados arriba. Cerrar con
+   `Slice-Close:` + `Review-Rigor: light`.
+2. **04b slice 3 (E12/E13)** sobre la corrida real (transcripts), y resolver qué lee E16 dado el
+   dato del `done` en el principal (+ leer `carril_sin_copia`).
+3. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera edición: el trabajo ya está
+  alineado (este handoff es el plan), decirlo y reintentar.
+- **EOL por archivo, medido en bytes con Python** (`grep -c $'\r$'` de Git Bash mintió en esta
+  sesión): en disco, `aparato/**` y `juguete-inventario/{README.md,tests/*}` son CRLF;
+  `juguete-inventario/calificar.py`, `CORRIDA.md` y `.scratch/medicion-v2/issues/*` son LF; este
+  handoff, CRLF. Editar con un script `.py` escrito con Write que adopte el EOL del archivo y aborte
+  si el patrón no matchea exactamente N veces.
+- Correr pytest del aparato con la máquina liviana (una suite por vez).
+- Commit con mensaje por archivo (`git commit -F`), no heredoc.
+
+---
+
+# (Handoff anterior) Session Handoff — 2026-09-28 — **04a slice 5 CERRADO** (`70237d9` + `1e05331`, loop `standard` limpio en el turno 2). Próximo: **corrida en seco del 04a con el `claude` real** (avisar costo antes).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
