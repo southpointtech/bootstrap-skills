@@ -578,6 +578,16 @@ def test_e16_pasa_si_la_copia_del_carril_esta_cerrada(tmp_path):
     assert e["passed"] is True, e["evidence"]
 
 
+def test_e16_no_lee_los_worktrees_de_carriles(tmp_path):
+    # `carriles/` es donde abre sus worktrees el scaffold (`abrir-carril.ps1`), no donde guarda el
+    # aparato sus copias: un `Status: done` que solo está ahí no cierra el issue.
+    corrida = tmp_path / "corrida"
+    escribir_scratch(corrida / "carriles" / "slice-02", {"v2/issues/01.md": "Status: done\n"})
+    e = entrada(corrida_plana(corrida, {"v2/issues/01.md": "Status: ready\n"}), "E16")
+    assert e["passed"] is False
+    assert "v2/issues/01.md" in e["evidence"]
+
+
 # --- Métricas no puntuadas ---------------------------------------------------------------------
 
 def test_metricas_de_la_corrida_correcta(grading_correcto, corrida_correcta):

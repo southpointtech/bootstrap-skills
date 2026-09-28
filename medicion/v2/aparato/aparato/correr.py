@@ -165,7 +165,7 @@ class Sondeo:
         # proceso muere justo ahí, la copia queda solo en `.scratch.vieja`). Si el primer rename
         # falla (p. ej. por un archivo tomado en Windows), no se tocó nada. Si falla el segundo,
         # el rollback repone `vigente` con la copia anterior; si el rollback también falla, esa
-        # copia queda en `.scratch.vieja` y el `_copiar` siguiente la borra al arrancar.
+        # copia queda en `.scratch.vieja` y el `_copiar` siguiente la borra si su `copytree` sale bien.
         shutil.rmtree(vieja, ignore_errors=True)  # sobrante de un intento anterior interrumpido
         movida = False
         if vigente.exists():
@@ -259,7 +259,7 @@ def lanzar(corrida, brazo, *, claude, tope_rondas=TOPE_RONDAS, sondeo=SONDEO,
             config.mkdir(exist_ok=True)
             shutil.copyfile(credencial, copia_credencial)
             # No `carriles/`: ahí abre sus worktrees `abrir-carril.ps1`
-            # (`<padre del repo>/carriles/<repo>/<slug>`, y el padre de `proyecto/` es la corrida).
+            # (`<padre del repo>/carriles/<repo>/slice-<N>`, y el padre de `proyecto/` es la corrida).
             sondeo_obj = Sondeo(corrida / "proyecto", corrida / "copias-de-carriles", sondeo)
             with sondeo_obj:
                 motivo = _rondas(corrida, brazo, bitacora, claude, tope_rondas, juguete)

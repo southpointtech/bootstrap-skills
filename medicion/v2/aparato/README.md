@@ -89,8 +89,8 @@ mandarían a otro repo. La corrida fallida queda como está; relanzar abre otra 
 5. Al final (también si falla) copia crudos a `transcripts/` todos los `*.jsonl` de
    `config/projects/`, recursivo y con las mismas subcarpetas, y cierra con `corrida_cerrada`.
 
-Eventos nuevos en la bitácora: `sesion_lanzada`, `sesion_terminada`, `ronda_preguntas` y
-`corrida_cerrada`, con los campos de `../CORRIDA.md`. Una sesión que sale distinto de 0 cierra con
+Eventos nuevos en la bitácora: `sesion_lanzada`, `sesion_terminada`, `ronda_preguntas`,
+`carril_sin_copia` y `corrida_cerrada`, con los campos de `../CORRIDA.md`. Una sesión que sale distinto de 0 cierra con
 `motivo: error` y `error: "SesionFallida: ..."`.
 
 ## Una corrida

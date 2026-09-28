@@ -15,7 +15,7 @@ un cambio acá vuelve al orquestador. El aparato (`aparato/`) es el único que e
 | `bitacora.jsonl` | aparato | append-only, un evento JSON por línea con `ts` (ISO 8601 UTC con offset, `datetime.isoformat()`) y `evento` |
 | `preguntas/ronda-NN.md` | aparato | copia byte a byte del `PREGUNTAS.md` de la ronda `NN` (dos dígitos, desde `01`) |
 | `transcripts/**/*.jsonl` | aparato | **todos** los JSONL de sesión de Claude Code de la corrida (sesión principal, subagentes, carriles), copiados crudos, sin reescribir. El nombre y las subcarpetas son del aparato: el calificador los lee con un glob recursivo y los ordena por el `timestamp` de su primera línea que lo tenga |
-| `copias-de-carriles/<nombre>/.scratch/` | aparato | la última copia vista del `.scratch/` de cada worktree de carril que abrió el agente (`<nombre>` = nombre de la carpeta del worktree). Existe solo si hubo carriles. No se llama `carriles/` porque ahí abre sus worktrees el scaffold (`abrir-carril.ps1`: `<padre del repo>/carriles/<repo>/<slug>`, y el padre de `proyecto/` es la corrida) |
+| `copias-de-carriles/<nombre>/.scratch/` | aparato | la última copia vista del `.scratch/` de cada worktree de carril que abrió el agente (`<nombre>` = nombre de la carpeta del worktree). Existe solo si hubo carriles. No se llama `carriles/` porque ahí abre sus worktrees el scaffold (`abrir-carril.ps1`: `<padre del repo>/carriles/<repo>/slice-<N>`, y el padre de `proyecto/` es la corrida) |
 | `config/` | aparato | el `CLAUDE_CONFIG_DIR` de la corrida. `config/.credentials.json` se borra siempre al terminar, también si la corrida falla |
 | `grading.json` | calificador | formato skill-creator |
 
@@ -29,7 +29,7 @@ Los del slice 1 y 2 siguen iguales (`corrida_abierta`, `materializado`, `version
 | `sesion_lanzada` | `sesion` (int, desde 1), `session_id` (str o `null` si no se conoce todavía) | antes de cada `claude -p` |
 | `sesion_terminada` | `sesion`, `session_id`, `exit_code` | al volver cada `claude -p` |
 | `ronda_preguntas` | `ronda` (int, desde 1), `copia` (ruta relativa a la carpeta de la corrida, `preguntas/ronda-NN.md`), `secciones` (lista en el orden entregado, subconjunto de `["A", "C", "B"]`; `B` siempre) | cuando una sesión terminó dejando `PREGUNTAS.md`, antes de relanzar |
-| `carril_sin_copia` | `carril` (nombre de la carpeta del worktree), `error` (`"<Tipo>: <mensaje>"` del último intento de copia), `copia_anterior` (bool: si `copias-de-carriles/<carril>/.scratch/` tiene una copia buena de un intento anterior) | uno por carril cuyo último intento de copia falló, en el hilo principal después del `join` del sondeo, antes de `corrida_cerrada` (camino exitoso o de error) |
+| `carril_sin_copia` | `carril` (nombre de la carpeta del worktree), `error` (`"<Tipo>: <mensaje>"` del último intento de copia), `copia_anterior` (bool: si un intento anterior de copiar ese carril, en esta corrida, salió bien; el aparato lo lleva en memoria, no mira el disco. Si además falló el rollback de ese último intento, esa copia no está en `copias-de-carriles/<carril>/.scratch/` sino en `.scratch.vieja/`, al lado) | uno por carril cuyo último intento de copia falló, en el hilo principal después del `join` del sondeo, antes de `corrida_cerrada` (camino exitoso o de error) |
 | `corrida_cerrada` | `motivo`: `completa` (terminó sin `PREGUNTAS.md`), `tope_rondas`, `error`; y `error` (`"<Tipo>: <mensaje>"`) si el motivo es `error` | una sola vez, al final |
 
 E08 lee `ronda_preguntas`: una ronda con `"A"` en `secciones` y `ts` anterior a la fecha de

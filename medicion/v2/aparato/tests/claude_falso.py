@@ -10,8 +10,8 @@ Un paso: `session_id`, `exit` (default 0), `preguntas` (texto de `PREGUNTAS.md` 
 `espera` segundos y los borra, como el paso 8 de PARALELISMO.md), `estados` (los textos sucesivos
 del issue del carril, con `espera` segundos entre uno y otro; default `["Status: done\n"]`),
 `queda` (true: los carriles no se borran al terminar la sesión), `como_el_scaffold` (true:
-abre los carriles donde los abre `abrir-carril.ps1`, `<padre>/carriles/<repo>/<nombre>`; si
-no, en `.claude/worktrees/<nombre>`).
+abre los carriles bajo `<padre>/carriles/<repo>/`, como `abrir-carril.ps1`, pero en una carpeta
+`<nombre>` y no `slice-<N>`; si no, en `.claude/worktrees/<nombre>`).
 """
 import hashlib
 import json

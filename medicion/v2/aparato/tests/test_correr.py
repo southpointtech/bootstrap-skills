@@ -251,7 +251,7 @@ def test_sin_carriles_no_hay_carpeta_carriles(entorno):
 
 
 def test_las_copias_no_se_mezclan_con_los_worktrees_del_scaffold(entorno):
-    # `abrir-carril.ps1` abre cada carril en `<padre del repo>/carriles/<repo>/<slug>`, y el
+    # `abrir-carril.ps1` abre cada carril en `<padre del repo>/carriles/<repo>/slice-<N>`, y el
     # padre de `proyecto/` es la corrida: en la corrida en seco del 2026-09-28 los worktrees
     # cayeron en `carriles/proyecto/`, dentro de la carpeta de copias, y dejaron ahí un carril
     # `proyecto` vacío. La carpeta de copias tiene que tener solo los carriles.
@@ -390,6 +390,48 @@ def test_copiar_si_falla_el_segundo_rename_hace_rollback(tmp_path, monkeypatch):
     # `.scratch.nueva` queda tirada: el próximo `_copiar` la limpia al arrancar (rmtree inicial).
 
 
+def test_copiar_si_falla_el_segundo_rename_sin_copia_previa_no_hay_rollback(tmp_path, monkeypatch):
+    # Sin `vigente` no se movió nada a `.scratch.vieja`: el error que sale es el del rename, no
+    # uno de un rollback que intenta mover una `.scratch.vieja` que no existe.
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "a.md").write_text("nuevo", encoding="utf-8")
+    real_rename = Path.rename
+
+    def rename_falla(self, target):
+        if self.name == ".scratch.nueva":
+            raise PermissionError("archivo tomado")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename_falla)
+    s = Sondeo(tmp_path, tmp_path / "destino", 0.05)
+
+    with pytest.raises(PermissionError, match="archivo tomado"):
+        s._copiar("carril-x", scratch)
+
+    carpeta = tmp_path / "destino" / "carril-x"
+    assert not (carpeta / ".scratch").exists() and not (carpeta / ".scratch.vieja").exists()
+
+
+def test_copiar_borra_la_nueva_a_medio_copiar_si_falla_copytree(tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "a.md").write_text("nuevo", encoding="utf-8")
+
+    def copytree_a_medias(origen, destino, *a, **kw):
+        Path(destino).mkdir(parents=True)
+        (Path(destino) / "a.md").write_text("a medias", encoding="utf-8")
+        raise PermissionError("archivo tomado")
+
+    monkeypatch.setattr(shutil, "copytree", copytree_a_medias)
+    s = Sondeo(tmp_path, tmp_path / "destino", 0.05)
+
+    with pytest.raises(PermissionError):
+        s._copiar("carril-x", scratch)
+
+    assert not (tmp_path / "destino" / "carril-x" / ".scratch.nueva").exists()
+
+
 def test_una_falla_del_sondeo_no_mata_el_hilo(entorno, monkeypatch):
     # En Windows, un archivo tomado hace fallar el reemplazo de la copia; el próximo sondeo reintenta.
     original, fallas = Sondeo._copiar, []
@@ -432,7 +474,7 @@ def test_se_copian_los_transcripts_aunque_la_sesion_falle(entorno):
 @pytest.mark.parametrize("falla", ["carril-a", "carril-b"])
 def test_la_falla_de_un_carril_no_impide_copiar_el_otro(entorno, monkeypatch, falla):
     # Mutante `continue` -> `break` en `sondear`: si el que falla es el primero en el orden de
-    # `git worktree list` (acá, orden de creación: carril-a, carril-b), `break` corta el `for`
+    # `git worktree list` (acá, carril-a y después carril-b), `break` corta el `for`
     # antes de llegar al otro carril en cada sondeo, y ese otro nunca queda copiado.
     original = Sondeo._copiar
 
@@ -486,7 +528,7 @@ def test_carril_sin_copia_sin_copia_previa(entorno, monkeypatch):
 def test_carril_sin_copia_copia_anterior_true_si_hubo_una_copia_buena(entorno, monkeypatch):
     # Determinístico (sin hilo, sin timing): dos `sondear()` sincrónicos. El primero copia bien
     # (con el `_copiar` real); recién después se hace fallar el `_copiar`, así que el que falla es
-    # el sondeo final, como describe la brief ("se copió bien y después falla en el sondeo final").
+    # el sondeo final: el carril se copió bien y después falla.
     proyecto = entorno.corrida / "proyecto"
     _agregar_worktree_con_scratch(proyecto, "carril-a")
     s = Sondeo(proyecto, entorno.corrida / "copias-de-carriles", intervalo=999)
@@ -504,6 +546,11 @@ def test_carril_sin_copia_copia_anterior_true_si_hubo_una_copia_buena(entorno, m
         ("carril-a", "PermissionError: archivo tomado", True),
     ]
     assert (entorno.corrida / "copias-de-carriles" / "carril-a" / ".scratch").is_dir()  # la 1ª copia sigue
+
+    bitacora = entorno.corrida / "bitacora.jsonl"
+    correr_mod._registrar_carriles_sin_copia(mat.Bitacora(bitacora, lambda: T0), s)
+    (evento,) = [x for x in _nuevos(entorno.corrida) if x["evento"] == "carril_sin_copia"]
+    assert evento == {**evento, "carril": "carril-a", "copia_anterior": True}
 
 
 def test_sin_evento_si_el_ultimo_intento_copio_bien(entorno, monkeypatch):
@@ -552,7 +599,7 @@ def test_carril_sin_copia_aparece_aunque_el_agente_ya_borro_el_carril(entorno, m
 def test_carril_sin_copia_cuando_copytree_falla_de_verdad(entorno, monkeypatch):
     # No reemplaza `_copiar`: hace fallar `shutil.copytree` en serio, el error más probable en la
     # práctica (un archivo tomado en Windows). Antes de este fix, `_copiar` lo atrapaba y volvía
-    # sin tirar, y `sondear` lo contaba como éxito (Important #2 del review).
+    # sin tirar, y `sondear` lo contaba como éxito.
     def copytree_falla(*a, **kw):
         raise PermissionError("archivo tomado")
 
