@@ -5,7 +5,8 @@
 de medición, en vez del release). El "antes" tampoco está limpio: en esos días la v2 se construía en
 el worktree `Bootstrap-Skills-bootstrap-v2` con su propio `CLAUDE.md` a medio cambiar, y el conjunto
 `bs-todos` incluye esas sesiones. Y la métrica titular del beneficio, los hallazgos por reporte, está
-confundida con un cambio en el formato de los reportes entre un brazo y otro (sección 3). Y el
+confundida con un cambio en el formato de los reportes entre un brazo y otro (sección 3), y ADR-0010
+cambió el formato de los scorers a mitad del "antes" (sección 1). Y el
 "después" cierra muchos más slices `light` que el "antes" (sección 4), así que el costo por slice
 tampoco compara lo mismo.
 
@@ -15,13 +16,20 @@ Issue: `.scratch/medicion-v2/issues/08-retrospectivo-este-repo.md`. PRD: `.scrat
 
 El partidor divide un solo snapshot por fecha, así que los dos brazos comparten la ventana y el
 ruleset (ADR-0006 de claude-analytics). El borde es la fecha en que la doctrina de la v2 entró a
-este repo, leída de git (`git log --first-parent main -- CLAUDE.md docs/ai-workflow .claude`):
+este repo. Estos son todos los commits que tocan la doctrina en `main` dentro de la ventana, según
+`git log --first-parent main -- CLAUDE.md docs/ai-workflow .claude` (fecha de committer, UTC):
 
 | Fecha (UTC) | Commit | Qué entró | Papel |
 |---|---|---|---|
-| 2026-09-11 22:52 | `f7ae28f` | scaffold `2026-09-11`, con el review-loop de ADR-0009 (`cb5b6cd`, `451eb32`) | **inicio** del "antes": es la doctrina v1 que se compara |
+| 2026-09-11 15:45 a 20:02 | `cb5b6cd`, `49edefe`, `451eb32` | review-loop de ADR-0009: techo de 2 turnos y `Review-Rigor` | doctrina v1 que se compara |
+| 2026-09-11 22:52 | `f7ae28f` | sello del scaffold `2026-09-11` (solo los tres `.bootstrap-manifest.json`, por eso no sale en el comando) | **inicio** del "antes": es el sujeto `v1` del PRD. El primer subagente del "antes" es del 2026-09-14, así que no cambia nada frente a `451eb32` |
+| 2026-09-15 23:30 a 2026-09-16 11:58 | `08ecb2e`, `ca72c67`, `7b1f832` | ADR-0010: el pase de confianza puntúa el arreglo y marca REJECTED | **cambio de doctrina dentro del "antes"**: los scorers cambian de formato desde acá |
+| 2026-09-18 18:47 | `f73d65b` | `review-loop.md`: las copias propias del repo | menor, dentro del "antes" |
 | 2026-09-21 18:47 | `816f4f3` | merge de la v2 (release v2.0.0): cambian a la vez `CLAUDE.md`, `docs/ai-workflow/` y `.claude/` | **borde principal** |
+| 2026-09-23 14:03 | `07eda4e` | hook del review-loop: gramática de comillas por herramienta | mecanismo, no doctrina |
+| 2026-09-23 14:11 | `9f45aa4` | merge de hub-sync: `review-loop.md`, `CLAUDE.md`, `triage.md`, `tdd.md` (marcar `done` al cerrar) | doctrina, entre los dos bordes |
 | 2026-09-23 15:52 | `7131d3d` | ADR-0013 (las 9 skills vuelven a ser model-invoked), base del tag `v2.1.0` | **borde de control**, para ver si el signo depende del corte |
+| 2026-09-24 02:11 | `5d16676` | hook y scripts: la code page de la consola | mecanismo, no doctrina |
 
 El "después" termina donde termina el snapshot: 2026-09-27 17:52 UTC.
 
@@ -77,7 +85,8 @@ reportes que nombran una severidad (High, Medium…) y de los que el parser no s
 230/516 (44,6 %) en el "antes" y 195/381 (51,2 %) en el "después". Es una cota gruesa, porque "no
 High findings" también nombra una severidad. Aun así alcanza para ver que el parser se pierde una
 parte grande en los dos brazos, y una parte mayor en el "después". Con eso, la caída puede venir
-entera del formato y no de la doctrina.
+entera del formato y no de la doctrina. Además, el "antes" no tiene un solo formato: desde ADR-0010
+(2026-09-15/16) los scorers, que esta métrica cuenta como a cualquier subagente, reportan distinto.
 
 ## 4. Costo por slice cerrado (`bs-todos`, no depende del formato)
 
