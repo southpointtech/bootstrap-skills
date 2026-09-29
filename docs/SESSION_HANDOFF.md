@@ -1,4 +1,88 @@
-# Session Handoff — 2026-09-28 (noche) — **04a y 04b `done`: aparato y calificador terminados**. Próximo: **correr los brazos `v1-serie` y `v2-serie` con el `claude` real y calificarlos** (el A/B que destraba el rollout de la v2).
+# Session Handoff — 2026-09-29 — **`v1-serie` corrida y calificada (12/13); issue 08 (retrospectivo) `done`**. Próximo: **lanzar `v2-serie` (confirmar con el usuario antes) y comparar los tres brazos**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `c7636e0` + el commit de este handoff. Push pendiente (no pushear sin pedido).
+- Issues de `.scratch/medicion-v2/issues/`: 01, 02, 03, 04a, 04b, **08** `done`; **05** (correr el A/B)
+  en curso: faltan `v2-serie` y la comparación; 06, 07 y 09 esperan.
+- Review-loop del 08: **cerró por tope** (turno 1 `light`, promovido a `standard` por un High, turno 2
+  = tope). Marcador en `c51a103`→avanzado a `99b6b6a`; ancla `slice-open:main` **sigue puesta a
+  propósito** (cap close: NO se corrió `-Action close`). El slice siguiente arranca con esa ancla:
+  si su pase de coherencia lee también el 08, es por eso. Los fixes del turno 2 (`99b6b6a`) y el de
+  coherencia (`c7636e0`) no tuvieron re-review.
+- Siguen en pie: worktree `idea-v2` con otra sesión (no tocarlo; no correr `run-all` en los dos
+  árboles a la vez; esa sesión también commitea en `main`: mirar `git log` antes de reescribir
+  historia); no correr `tools/sync-skills.ps1` desde `main`; untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`) ajenos, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+- **`v2-olas` recalificada** con `calificar.py`: ahora tiene `grading.json` en su carpeta (13/13).
+- **`v1-serie` corrida** con el `claude` real (41 min, exit 0, `corrida_cerrada: completa`):
+  `C:\Users\marti\medicion-v2-corridas\v1-serie-20260929T171853Z` (+ `v1-serie-stdout.txt` /
+  `-stderr.txt` al lado). Calificada: **12/13**. Falla **E14** (3 commits con `Slice-Close`, pide
+  ≥4: juntó `stock`, `rotacion` y `alertas` en un commit `a38a943`). No puntuadas: E10
+  `mismo_commit`; E13 RED visible solo en `alta` (1/6; `v2-olas`: 5/6); 49 de 54 corridas de
+  pytest recortadas.
+- **Issue 08 — retrospectivo** en `medicion/v2/retrospectivo/` (commits `9b90636`, `c51a103`,
+  `99b6b6a`, `c7636e0`): `REPORTE.md` + `filtrar.py`, `clasificar.mts`, `auditar.mts`,
+  `contar_slices.py`, `test_contar_slices.py`. Resultado: **no confirma ni contradice el A/B**.
+  - Hallazgos/100 reportes bajan (86,8→68,8) pero **no atribuible**: el parser de `finding-rules`
+    de claude-analytics no lee buena parte de los reportes de ningún brazo, el formato cambia entre
+    brazos (tablas 30/516→0/381) y ADR-0010 cambió el formato de los scorers dentro del "antes".
+  - `outTok` de subagentes por slice cerrado baja con los dos bordes (−23 %, −45 %), confundido
+    con la mezcla de rigor (`light` 17 %→48 %).
+  - Bordes: `816f4f3` (merge v2, 2026-09-21 18:47 UTC) y control `7131d3d` (2026-09-23 15:52 UTC);
+    inicio `f7ae28f`. Snapshot `claude-analytics/output/raw/review-cost-snapshot-2026-09-27`.
+
+## 2. Tests
+
+- `medicion/v2/retrospectivo/`: `python -m pytest -q -p no:cacheprovider test_contar_slices.py` →
+  **3 passed** (cada test visto en RED o matando su mutante).
+- No se corrieron las suites de `aparato/` ni `juguete-inventario/` (no se tocaron).
+
+## 3. Abierto (Lows del 08, anotados, sin slice — regla `low-sin-falla-observada-no-abre-slice`)
+
+- Fila "commits cuyo subject nombra un turno" incluye 11 `docs(handoff)`; ese 11 no sale de ningún script.
+- `filtrar.py` no descarta `t0` inválido y cuenta `sin_fecha` doble (hoy 0 filas).
+- Comentario de `clasificar.mts` ("no reconoce los prompts de /slice-review de ninguno de los dos
+  brazos") exagera: reconoce una parte.
+- REPORTE §5 dice "lo único que no depende del corte" y §3/§4 muestran otras métricas que tampoco.
+- REPORTE §3 generaliza "con los dos bordes" con filas que solo traen el 09-21.
+
+## 4. Próximos pasos
+
+1. **Lanzar `v2-serie`** (confirmar con el usuario: ~45 min, ~150K tokens de salida), en
+   background, desde `medicion/v2/aparato/`:
+   `python -m aparato correr --brazo v2-serie --raiz 'C:\Users\marti\medicion-v2-corridas' > C:/Users/marti/medicion-v2-corridas/v2-serie-stdout.txt 2> C:/Users/marti/medicion-v2-corridas/v2-serie-stderr.txt`
+2. Calificarla: `python medicion/v2/juguete-inventario/calificar.py <carpeta>` (sale 3 si hubo
+   errores del calificador) y comparar los tres `grading.json` (E14, E10, E13 son los que
+   discriminan hasta ahora).
+3. Con los tres, decidir con el usuario si 1 corrida por brazo alcanza o hay que repetir
+   (PRD `.scratch/medicion-v2/PRD.md`, memoria `v2-cerrada-rollout-frenado-para-medir`); después
+   06 (piloto en Administración May) y 09 (resumen para el equipo, que cita el REPORTE del 08).
+4. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera edición: si el trabajo ya está
+  alineado por este handoff, decirlo y reintentar.
+- Correr un brazo es acción cara y larga: confirmar con el usuario antes de lanzarla.
+- Los `.mts` del retrospectivo se corren desde un checkout de claude-analytics en `master`
+  (`C:\Repos\PERSONAL\wt-review-cost-split`; el checkout principal está en otra rama sin `tools/`).
+  Son `.mts` por el top-level await (tsx los compila a cjs si son `.ts`).
+- Un `Slice-Close:` se busca en todo el cuerpo (`%B` + `(?m)^\s*Slice-Close:`), nunca con
+  `%(trailers)`: en este repo va arriba de la atribución y git no lo ve. Ese error dio un número
+  falso en esta sesión.
+- **EOL**: los archivos nuevos de `medicion/v2/retrospectivo/` quedaron LF en el working copy (git
+  avisa que autocrlf los pasa a CRLF). Medir con Python antes de editar. Editar con un script `.py`
+  escrito con Write que aborte si el patrón no matchea exactamente 1 vez: por heredoc de bash los
+  `\s`/`\x1f` se rompen (pasó esta sesión; el script abortó sin escribir).
+- Correr pytest una suite por vez. Commit con `git commit -F <archivo>`, no heredoc en `-m`.
+
+---
+
+# (Handoff anterior) Session Handoff — 2026-09-28 (noche) — **04a y 04b `done`: aparato y calificador terminados**. Próximo: **correr los brazos `v1-serie` y `v2-serie` con el `claude` real y calificarlos** (el A/B que destraba el rollout de la v2).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
