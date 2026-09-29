@@ -43,3 +43,25 @@ def test_un_rebase_no_cambia_el_brazo_del_slice(tmp_path, capsys):
     contar_slices.main(repo, str(agents), "2026-09-21T18:47:24Z", "2026-09-27T17:53:00Z")
 
     assert "antes: slices cerrados 1 " in capsys.readouterr().out
+
+
+def test_solo_cuenta_cierres_declarados_dentro_de_la_ventana(tmp_path, capsys):
+    repo = str(tmp_path / "repo")
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    subprocess.run(["git", "-C", repo, "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", repo, "config", "user.email", "t@t"], check=True)
+    _commit(repo, "feat: sin cierre", "2026-09-15T12:00:00Z")
+    _commit(repo, "docs: prosa\n\nEl hook lee la línea Slice-Close: del mensaje.", "2026-09-15T13:00:00Z")
+    _commit(repo, "feat: el cierre\n\nSlice-Close: x", "2026-09-15T14:00:00Z")
+    # Fuera de la ventana por fecha de autor; el segundo, con la de committer adentro.
+    _commit(repo, "feat: viejo\n\nSlice-Close: x", "2026-09-01T12:00:00Z")
+    env = dict(os.environ, GIT_AUTHOR_DATE="2026-09-28T12:00:00Z", GIT_COMMITTER_DATE="2026-09-25T12:00:00Z")
+    subprocess.run(["git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "feat: tarde\n\nSlice-Close: x"], check=True, env=env)
+    agents = tmp_path / "agents.jsonl"
+    agents.write_text("", encoding="utf-8")
+
+    contar_slices.main(repo, str(agents), "2026-09-21T18:47:24Z", "2026-09-27T17:53:00Z")
+
+    salida = capsys.readouterr().out
+    assert "antes: slices cerrados 1 " in salida
+    assert "desde: slices cerrados 0 " in salida

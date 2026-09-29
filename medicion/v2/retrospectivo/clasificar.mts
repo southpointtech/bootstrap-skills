@@ -15,7 +15,9 @@ if (!dir || !bordeIso) throw new Error("uso: clasificar.ts <dir> <borde ISO>");
 const BORDE = Date.parse(bordeIso);
 if (!Number.isFinite(BORDE)) throw new Error(`borde inválido: ${bordeIso}`);
 const { classifyPrompt } = await import(pathToFileURL(path.resolve("src/lib/focus-rules.ts")).href);
-const NO_REVIEW = /implementador|implementer|\bcarril\b|lane implement|Explore|Buscá|Encontr|investig/i;
+// El rol va anclado a la frase de identidad: un verbo suelto ("encontrás") o "del review del
+// carril" atrapaban reviewers.
+const NO_REVIEW = /^\W*Sos el \**(carril|implementador)\b|^\W*(Buscá|Necesito) /i;
 
 for (const conj of ["bs-main", "bs-todos"]) {
   const cuenta: Record<string, number> = {};

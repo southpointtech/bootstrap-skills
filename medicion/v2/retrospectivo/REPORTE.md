@@ -42,8 +42,9 @@ El "después" termina donde termina el snapshot: 2026-09-27 17:52 UTC.
   que deja afuera hay focos y scorers de `/slice-review` ("Sos el foco **Bugs** de
   un /slice-review", "Brief and rubric: …"), con formatos que el clasificador no conoce. Filtrar
   con él quitaría reviewers de verdad, y más de un brazo que del otro. Los subagentes que no son
-  review (los que nombran otro rol en los primeros 160 caracteres del prompt, con la regex
-  `NO_REVIEW` de `clasificar.mts`) son 17 de 516 y 10 de 381 en `bs-todos`.
+  review (los que en los primeros 160 caracteres se presentan como carril o implementador, o
+  arrancan pidiendo una búsqueda con "Buscá" o "Necesito": la regex `NO_REVIEW` de
+  `clasificar.mts`) son 12 de 516 y 12 de 381 en `bs-todos`.
 - **Costo por slice**: `contar_slices.py`. De git (`--all`, deduplicado por subject porque los
   carriles se integran por cherry-pick) toma los commits con una línea `Slice-Close:` en cualquier
   parte del mensaje (como el hook: el parser de trailers de git solo lee el último párrafo), su
