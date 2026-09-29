@@ -1,4 +1,79 @@
-# Session Handoff — 2026-09-28 (tarde) — **Corrida en seco con el `claude` real HECHA; 04a `done`**. Slice 6 (`884e3ac`, `light`, cierre limpio). Próximo: **slice `light` de prosa + Lows** (abajo, sección 4).
+# Session Handoff — 2026-09-28 (noche) — **04a y 04b `done`: aparato y calificador terminados**. Próximo: **correr los brazos `v1-serie` y `v2-serie` con el `claude` real y calificarlos** (el A/B que destraba el rollout de la v2).
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `00f55e5` + el commit de este handoff. Push pendiente (no pushear sin pedido).
+- **Se cortó un loop de arreglos.** Del 25/9 al 28/9 hubo 0 `feat` en `medicion/`: los slices 4, 5 y 7
+  del 04a blindaron `Sondeo._copiar` contra fallas de rename/rollback que ninguna corrida real
+  mostró. Regla nueva (memoria `low-sin-falla-observada-no-abre-slice`): **un Low sobre una falla no
+  observada en una corrida real se anota en el issue y NO abre slice**. No proponer slices de Lows.
+- Ambos issues están `done`: `.scratch/medicion-v2/issues/04a-aparato-de-los-tres-brazos.md` y
+  `04b-calificador-como-codigo.md` (Lows anotados al final de cada uno, a propósito sin arreglar).
+- Review-loop: marcador en `00f55e5`, `-Action close` corrido (no hay `slice-open:main` colgando).
+- Siguen en pie: worktree `idea-v2` con otra sesión (no tocarlo; no correr `run-all` en los dos
+  árboles a la vez; esa sesión también commitea en `main`: mirar `git log` antes de reescribir
+  historia); no correr `tools/sync-skills.ps1` desde `main`; untracked de Codex ajenos, no tocar.
+
+## 1. Qué se hizo en esta sesión
+
+- **`8e83212` — 04a slice 7** (`light`, loop limpio): prosa `<slug>` → `slice-<N>` (la carpeta real
+  de `abrir-carril.ps1`) en `CORRIDA.md`, `correr.py`, `test_correr.py`, `claude_falso.py`;
+  `copia_anterior` definido en memoria; README del aparato lista `carril_sin_copia`; 4 tests nuevos
+  (E16 ignora `carriles/`; rollback sin copia previa; `.scratch.nueva` parcial; `copia_anterior`
+  leído de la bitácora), cada uno mata su mutante.
+- **`00f55e5` — 04b slice 3** (`light`, loop limpio; cita el issue → `marcar-done` lo pasó a `done`):
+  **decidido por el usuario: E12 y E13 no puntúan** (van a `no_puntuadas`, como E10). Motivo medido:
+  el agente recorta la salida de pytest (`| tail`) casi siempre y pytest corta los mensajes del
+  resumen. `calificar.py` reporta en `metricas_no_puntuadas.transcripts`: `corridas_pytest`,
+  `recortadas`, `red_por_comando` (E13) y `fallas_por_135_o_105` (E12). README del juguete:
+  agujeros 3, 7 y 8 cerrados; corregido el supuesto de que el `done` vive en el carril.
+- **Calificación de la corrida real** (`C:\Users\marti\medicion-v2-corridas\v2-olas-20260928T152704Z`,
+  brazo `v2-olas`): **13/13 en las puntuadas**; RED visible antes de implementar en 5 de 6 comandos
+  (productos no); ningún 135/105 (el agente preguntó por la fila `-15`: E08 pasa). El `grading.json`
+  NO se escribió en esa carpeta (se llamó a `calificar.calificar()` desde Python, sin `main`).
+
+## 2. Tests
+
+- `medicion/v2/aparato/`: `python -m pytest -q` → **89 passed** (en `8e83212`).
+- `medicion/v2/juguete-inventario/`: `python -m pytest -q` → **124 passed** (en `00f55e5`).
+
+## 3. Abierto (anotado, sin slice)
+
+Ver el final de los issues 04a y 04b. Resumen del 04b slice 3: E12 cuenta un 135 de cualquier
+línea (también `test_stock.py:135:` de un traceback); `antes` usa fecha de committer (un rebase la
+corre; en la corrida real no cambia nada); el "36 de 38" del README es lo que imprime la métrica,
+recortando de verdad la salida de pytest son 34 de 37; solo cuenta el tool `Bash`, no `PowerShell`.
+
+## 4. Próximos pasos
+
+1. **Correr `v1-serie`** con el `claude` real, desde `medicion/v2/aparato/`:
+   `python -m aparato correr --brazo v1-serie --raiz 'C:\Users\marti\medicion-v2-corridas'`
+   (~45 min y ~150K tokens de salida por corrida, según la de `v2-olas`; avisar costo antes y correr
+   en background redirigiendo stdout/stderr a archivos al lado, como `seco-stdout.txt`).
+2. **Correr `v2-serie`** igual. Después calificar las tres con
+   `python medicion/v2/juguete-inventario/calificar.py <carpeta-de-la-corrida>` (escribe
+   `grading.json`, sale 3 si hubo errores del calificador) y comparar los tres brazos.
+3. Con los tres `grading.json`, decidir con el usuario si la muestra (1 corrida por brazo) alcanza o
+   hace falta repetir; ver `.scratch/medicion-v2/PRD.md` y la memoria
+   `v2-cerrada-rollout-frenado-para-medir` (A/B de 3 brazos + piloto en Administración May).
+4. Push cuando el usuario lo pida.
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera edición: si el trabajo ya está
+  alineado por este handoff, decirlo y reintentar.
+- Correr un brazo es acción cara y larga: confirmar con el usuario antes de lanzarla.
+- **EOL por archivo, medido en bytes con Python**: `aparato/**` y
+  `juguete-inventario/{README.md,tests/*}` son CRLF; `juguete-inventario/calificar.py`,
+  `CORRIDA.md` y `.scratch/medicion-v2/issues/*` son LF; este handoff, CRLF. Editar con un script
+  `.py` escrito con Write que adopte el EOL y aborte si el patrón no matchea exactamente N veces
+  (hay uno en el scratchpad de la sesión anterior, no versionado: reescribirlo). Ojo con el nivel de
+  escape de `\n` cuando el texto nuevo pasa por un heredoc de bash: esta sesión partió una línea.
+- Correr pytest una suite por vez. Commit con `git commit -F <archivo>`, no heredoc.
+
+---
+
+# (Handoff anterior) Session Handoff — 2026-09-28 (tarde) — **Corrida en seco con el `claude` real HECHA; 04a `done`**. Slice 6 (`884e3ac`, `light`, cierre limpio). Próximo: **slice `light` de prosa + Lows** (abajo, sección 4).
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
