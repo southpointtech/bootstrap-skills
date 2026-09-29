@@ -5,8 +5,9 @@
 de medición, en vez del release). El "antes" tampoco está limpio: en esos días la v2 se construía en
 el worktree `Bootstrap-Skills-bootstrap-v2` con su propio `CLAUDE.md` a medio cambiar, y el conjunto
 `bs-todos` incluye esas sesiones. Y la métrica titular del beneficio, los hallazgos por reporte, está
-confundida con un cambio en el formato de los reportes entre un brazo y otro (sección 3). Con 14 y 7 slices
-cerrados por brazo, ningún cociente por slice sostiene una conclusión.
+confundida con un cambio en el formato de los reportes entre un brazo y otro (sección 3). Y el
+"después" cierra muchos más slices `light` que el "antes" (sección 4), así que el costo por slice
+tampoco compara lo mismo.
 
 Issue: `.scratch/medicion-v2/issues/08-retrospectivo-este-repo.md`. PRD: `.scratch/medicion-v2/PRD.md`.
 
@@ -41,12 +42,14 @@ El "después" termina donde termina el snapshot: 2026-09-27 17:52 UTC.
   que deja afuera hay focos y scorers de `/slice-review` ("Sos el foco **Bugs** de
   un /slice-review", "Brief and rubric: …"), con formatos que el clasificador no conoce. Filtrar
   con él quitaría reviewers de verdad, y más de un brazo que del otro. Los subagentes que no son
-  review (prompts con `implementador`, `carril`, `investig`…) son 17 de 516 y 10 de 381 en
-  `bs-todos`.
+  review (los que nombran otro rol en los primeros 160 caracteres del prompt, con la regex
+  `NO_REVIEW` de `clasificar.mts`) son 17 de 516 y 10 de 381 en `bs-todos`.
 - **Costo por slice**: `contar_slices.py`. De git (`--all`, deduplicado por subject porque los
-  carriles se integran por cherry-pick) toma los commits con trailer `Slice-Close`, su
+  carriles se integran por cherry-pick) toma los commits con una línea `Slice-Close:` en cualquier
+  parte del mensaje (como el hook: el parser de trailers de git solo lee el último párrafo), su
   `Review-Rigor` y los commits cuyo subject nombra un "turno". Del snapshot toma los subagentes y el
-  `outTok`. Todo es por fecha de committer o por `t0`, con los mismos bordes.
+  `outTok`. Los commits van por fecha de autor, que un rebase no cambia, y los subagentes por `t0`,
+  con los mismos bordes.
 - **Cómo re-correrlo**, desde un checkout de claude-analytics en `master`:
   ```
   python <aca>/filtrar.py <snapshot> <salida>
@@ -79,21 +82,22 @@ entera del formato y no de la doctrina.
 
 | Métrica (denominador) | Borde | antes | después |
 |---|---|---|---|
-| slices cerrados (standard / light) | 09-21 | 14 (11 / 3) | 7 (4 / 3) |
-| | 09-23 | 16 (12 / 4) | 5 (3 / 2) |
-| commits de turno por slice cerrado | 09-21 | 35/14 = 2,5 | 30/7 = 4,3 |
-| | 09-23 | 53/16 = 3,3 | 12/5 = 2,4 |
-| subagentes por slice cerrado | 09-21 | 516/14 = 36,9 | 381/7 = 54,4 |
-| | 09-23 | 647/16 = 40,4 | 250/5 = 50,0 |
-| `outTok` de subagentes por slice cerrado | 09-21 | 7.364.008/14 = 526.001 | 3.614.946/7 = 516.421 |
-| | 09-23 | 8.982.005/16 = 561.375 | 1.996.949/5 = 399.390 |
+| slices cerrados (standard / light) | 09-21 | 36 (30 / 6) | 23 (12 / 11) |
+| | 09-23 | 42 (35 / 7) | 17 (7 / 10) |
+| commits cuyo subject nombra un turno, por slice cerrado | 09-21 | 43/36 = 1,2 | 22/23 = 1,0 |
+| | 09-23 | 53/42 = 1,3 | 12/17 = 0,7 |
+| subagentes por slice cerrado | 09-21 | 516/36 = 14,3 | 381/23 = 16,6 |
+| | 09-23 | 647/42 = 15,4 | 250/17 = 14,7 |
+| `outTok` de subagentes por slice cerrado | 09-21 | 7.364.008/36 = 204.556 | 3.614.946/23 = 157.172 |
+| | 09-23 | 8.982.005/42 = 213.857 | 1.996.949/17 = 117.468 |
 
-- **Commits de turno por slice**: el signo se invierte según el borde. No dice nada.
-- **Subagentes por slice**: sube con los dos bordes (+47 % y +24 %). Es la única dirección que no
-  depende del corte, y con 7 y 5 slices en el "después" sigue siendo ruido posible. No resta el
-  trabajo que no cierra slice (la corrida en seco, los carriles del aparato), que en el "después" es
-  proporcionalmente mayor.
-- **`outTok` por slice**: plano con el primer borde, baja con el segundo. No dice nada.
+- **Subagentes por slice**: +16 % con un borde y −4,5 % con el otro. No dice nada.
+- **`outTok` por slice** baja con los dos bordes (−23 % y −45 %), y los commits de turno por slice
+  también (la fila cuenta además 11 commits `docs(handoff)` que nombran un turno sin serlo). Pero la
+  mezcla de rigor cambió: los slices `light` pasan de 6 de 36 (17 %) a 11 de 23 (48 %) con el primer
+  borde, y de 7 de 42 a 10 de 17 con el segundo, y un slice `light` corre un solo turno con dos
+  focos. La baja puede venir entera de esa mezcla, que no es de la v2: `Review-Rigor` entró con
+  ADR-0009, antes del inicio.
 - El costo del loop principal (`tokenShare` de `report review-cost --split`) no se corrió: necesita
   cargar el snapshot a la DB, que está bloqueada por la sincronización cada 10 minutos, y ese
   reporte tardó más de 40 minutos sin terminar con 1.893 agentes (`.scratch/issue-review-cost-lento.md`
@@ -101,7 +105,8 @@ entera del formato y no de la doctrina.
 
 ## 5. Qué dice, contra el A/B
 
-Nada que contradiga ni confirme el A/B. Lo único estable ante el corte es que en el "después" se
-lanzan más subagentes por slice cerrado. La caída de hallazgos queda sin atribuir hasta que el
+Nada que contradiga ni confirme el A/B. Lo único que no depende del corte es que en el "después"
+cada slice cerrado costó menos `outTok` de subagentes, y eso está confundido con la mezcla de
+rigor. La caída de hallazgos queda sin atribuir hasta que el
 parser de `finding-rules` lea el formato de reporte de la v2, y ese arreglo es de claude-analytics,
 no de este PRD.

@@ -15,14 +15,21 @@ if (!dir || !bordeIso) throw new Error("uso: clasificar.ts <dir> <borde ISO>");
 const BORDE = Date.parse(bordeIso);
 if (!Number.isFinite(BORDE)) throw new Error(`borde inválido: ${bordeIso}`);
 const { classifyPrompt } = await import(pathToFileURL(path.resolve("src/lib/focus-rules.ts")).href);
+const NO_REVIEW = /implementador|implementer|\bcarril\b|lane implement|Explore|Buscá|Encontr|investig/i;
 
 for (const conj of ["bs-main", "bs-todos"]) {
   const cuenta: Record<string, number> = {};
   for (const l of fs.readFileSync(path.join(dir, conj, "agents.jsonl"), "utf8").split("\n").filter(Boolean)) {
     const r = JSON.parse(l);
     const c = classifyPrompt(r.prompt ?? "");
-    const k = `${Date.parse(r.t0) < BORDE ? "antes" : "desde"} reviewer=${c.is_reviewer}`;
+    const brazo = Date.parse(r.t0) < BORDE ? "antes" : "desde";
+    const k = `${brazo} reviewer=${c.is_reviewer}`;
     cuenta[k] = (cuenta[k] ?? 0) + 1;
+    // Cota de los subagentes que NO son review, independiente del clasificador: los que
+    // nombran otro rol en el arranque del prompt.
+    if (NO_REVIEW.test((r.prompt ?? "").replace(/\s+/g, " ").slice(0, 160))) {
+      cuenta[`${brazo} no-review`] = (cuenta[`${brazo} no-review`] ?? 0) + 1;
+    }
   }
   console.log(conj, JSON.stringify(cuenta));
 }

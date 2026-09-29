@@ -4,18 +4,26 @@
 
 Del git de <repo> (todas las ramas, commits deduplicados por subject porque los carriles
 se integran por cherry-pick y el mismo commit aparece con dos hashes) cuenta, por fecha
-de committer entre INICIO y <fin>: los commits con trailer `Slice-Close`, su
-`Review-Rigor` y los commits cuyo subject nombra un "turno" del review-loop. Del
+de autor entre INICIO y <fin>: los commits con una línea `Slice-Close:` en cualquier
+parte del mensaje, su `Review-Rigor` y los commits cuyo subject nombra un "turno" del review-loop. Del
 agents.jsonl, subagentes y `outTok` por brazo según su `t0`.
 """
 import collections
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 
 INICIO = "2026-09-11T22:52:59Z"  # f7ae28f, scaffold 2026-09-11 (igual que filtrar.py)
-FMT = "%H%x1f%cI%x1f%s%x1f%(trailers:key=Slice-Close,valueonly,separator=;)%x1f%(trailers:key=Review-Rigor,valueonly,separator=;)%x1e"
+# El cuerpo entero y no `%(trailers)`: el parser de trailers de git solo lee el último párrafo, y en
+# este repo `Slice-Close:` suele ir arriba del bloque de atribución. Mismas regex que el hook.
+# Fecha de autor y no de committer: un rebase o un cherry-pick reescribe la segunda y mandaría
+# el slice al otro brazo que sus subagentes, que se asignan por `t0`. Por lo mismo la ventana se
+# filtra acá y no con `--since`/`--until`, que miran la fecha de committer.
+FMT = "%H%x1f%aI%x1f%s%x1f%B%x1e"
+SLICE_CLOSE = re.compile(r"(?m)^\s*Slice-Close:")
+LIGHT = re.compile(r"(?m)^\s*Review-Rigor:\s*light\s*$")
 
 
 def fecha(s):
@@ -24,8 +32,9 @@ def fecha(s):
 
 def main(repo, agents, borde_iso, fin_iso):
     borde = fecha(borde_iso)
+    inicio, fin = fecha(INICIO), fecha(fin_iso)
     salida = subprocess.run(
-        ["git", "-C", repo, "log", "--all", f"--since={INICIO}", f"--until={fin_iso}", f"--format={FMT}"],
+        ["git", "-C", repo, "log", "--all", f"--format={FMT}"],
         capture_output=True, check=True, encoding="utf-8",
     ).stdout
     c = collections.Counter()
@@ -34,15 +43,15 @@ def main(repo, agents, borde_iso, fin_iso):
         rec = rec.strip("\n")
         if not rec:
             continue
-        _, d, subject, slice_close, rigor = rec.split("\x1f")
-        if subject in vistos:
+        _, d, subject, cuerpo = rec.split("\x1f", 3)
+        if not inicio <= fecha(d) <= fin or subject in vistos:
             continue
         vistos.add(subject)
         brazo = "antes" if fecha(d) < borde else "desde"
         c[(brazo, "commits")] += 1
-        if slice_close.strip():
+        if SLICE_CLOSE.search(cuerpo):
             c[(brazo, "slice-close")] += 1
-            c[(brazo, "rigor-" + (rigor.strip() or "standard"))] += 1
+            c[(brazo, "rigor-" + ("light" if LIGHT.search(cuerpo) else "standard"))] += 1
         if "turno" in subject.lower():
             c[(brazo, "commits-turno")] += 1
     n = collections.Counter()
