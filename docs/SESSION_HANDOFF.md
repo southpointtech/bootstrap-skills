@@ -1,4 +1,70 @@
-# Session Handoff — 2026-09-29 — **`v1-serie` corrida y calificada (12/13); issue 08 (retrospectivo) `done`**. Próximo: **lanzar `v2-serie` (confirmar con el usuario antes) y comparar los tres brazos**.
+# Session Handoff — 2026-09-29 (noche) — **A/B (issue 05): 5 corridas válidas de 9; la tanda de repeticiones la mató falta de memoria**. Próximo: **relanzar las 4 corridas que faltan (el usuario ya lo aprobó) y escribir el reporte del 05**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `4d45991` + el commit de este handoff. No se tocó código en esta sesión. Push pendiente (no pushear sin pedido).
+- **Decidido por el usuario: 3 corridas por brazo** (opción "repetir cada brazo 2 veces más"). Y **ya aprobó relanzar
+  las 4 que faltan en esta terminal nueva**: no volver a preguntar si se corren; sí avisar que arrancan.
+- Issue 05 (`.scratch/medicion-v2/issues/05-correr-el-ab.md`) sigue `ready-for-human`: faltan corridas y el reporte.
+- Siguen en pie: worktree `idea-v2` con otra sesión (no tocarlo; no correr `run-all` en los dos árboles a la vez;
+  esa sesión también commitea en `main`); no correr `tools/sync-skills.ps1` desde `main`; untracked de Codex
+  (`.agents/skills/source-command-*`, `.codex/`, `AGENTS.md`) ajenos, no tocar. Ancla `slice-open:main` del 08
+  sigue puesta a propósito (ver handoff anterior).
+
+## 1. Corridas del A/B (todas en `C:\Users\marti\medicion-v2-corridas`)
+
+| Brazo | Carpeta | Min | Nota | E14 (cierres) | E10 | E13 RED visible |
+|---|---|---|---|---|---|---|
+| v1-serie | `v1-serie-20260929T171853Z` | 41,5 | 12/13 | ❌ 3 | mismo_commit | 1/6 (`alta`) |
+| v1-serie | `v1-serie-20260929T200851Z` | 42 | 13/13 | ✅ 4 | stock_antes | 2/6 (`stock`,`alta`) |
+| v2-serie | `v2-serie-20260929T190049Z` | 25 | 12/13 | ❌ 3 | stock_antes | 5/6 |
+| v2-serie | `v2-serie-20260929T205043Z` | 30 | 12/13 | ❌ 3 | stock_antes | 3/6 (`alta`,`rotacion`,`alertas`) |
+| v2-olas | `v2-olas-20260928T152704Z` | 45,5 | 13/13 | ✅ 4 | stock_antes | 5/6 |
+| ~~v2-olas~~ | `v2-olas-20260929T212055Z` | — | **INVÁLIDA** | — | — | — |
+
+- Las 5 válidas tienen `grading.json` en su carpeta (`calificar.py`, 0 errores del calificador) y
+  `corrida_cerrada: completa` en `bitacora.jsonl`.
+- **`v2-olas-20260929T212055Z` es inválida**: el proceso lo mató Claude Code por memoria baja del sistema a ~40 s de
+  arrancar (última línea de su bitácora: `sesion_lanzada`, sin `corrida_cerrada`). Excluirla del reporte.
+  No se borró (decidirlo con el usuario; CLAUDE.md pide borrar rastros de testeo).
+- E12 no mostró ningún 135/105 en ninguna corrida. Pytest recortado en casi todas (49/54, 61/79, 30/32, 22/27, 36/38).
+- Lectura provisoria: el único criterio puntuado que discrimina es E14, y **oscila dentro de v1-serie** (❌ y ✅),
+  así que con n=2 parece ruido de corrida, no doctrina. No afirmarlo en el reporte sin las 3 por brazo.
+
+## 2. Qué falta (en orden)
+
+1. **Liberar memoria** antes de relanzar: la tanda murió por presión de memoria. Quedaron 3 `claude.exe` vivos
+   al cortar (PIDs 45468, 24760, 35416); uno podría ser huérfano de la corrida muerta, pero hay otras sesiones
+   del usuario abiertas: **no matar procesos sin preguntarle**. Sugerirle cerrar sesiones que no use.
+2. **Relanzar las 4** en background, **en serie** (no en paralelo: la duración es métrica y compiten por
+   máquina/rate limit), intercaladas, desde `medicion/v2/aparato/` (~2,5 h):
+   ```bash
+   cd "/c/Repos/PERSONAL/Bootstrap Skills/medicion/v2/aparato" && R=/c/Users/marti/medicion-v2-corridas; for x in v2-olas:2 v1-serie:3 v2-serie:3 v2-olas:3; do b=${x%%:*}; rep=${x##*:}; echo "$(date -u +%FT%TZ) inicio $b rep$rep"; python -m aparato correr --brazo $b --raiz 'C:\Users\marti\medicion-v2-corridas' > $R/$b-rep$rep-stdout.txt 2> $R/$b-rep$rep-stderr.txt; echo "$(date -u +%FT%TZ) fin $b rep$rep exit=$?"; done
+   ```
+   (Los `*-rep2-*.txt` de v2-olas de la corrida muerta se pisan; está bien.)
+3. **Calificar** cada una: `python medicion/v2/juguete-inventario/calificar.py "C:/Users/marti/medicion-v2-corridas/<carpeta>"`
+   — con **barras `/`**: con `\\` dentro de comillas en un `for` de bash la ruta llega mal ("no existe el directorio").
+4. **Reporte del 05** (criterios de aceptación del issue): cada número con denominador y método; en qué fricción
+   discrimina el A/B; separar doctrina (v1-serie vs v2-serie) de paralelismo (v2-serie vs v2-olas); aplicar el
+   compromiso previo congelado (issue 01) **tal como está escrito**. El issue pide también contexto por request,
+   costo del ciclo de review y paralelismo (reloj, serie, factor, cola de integración) y contrastar con las olas
+   medidas en Administración May: nada de eso está calculado todavía (solo notas del calificador y duración por bitácora).
+   Es un slice: offer alignment si hace falta, `Slice-Close:` + review-loop al cerrar.
+5. Después: 06 (piloto Administración May), 09 (resumen para el equipo).
+
+## 3. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera Write/Edit (incluso en el scratchpad):
+  decir que ya está alineado por este handoff y reintentar.
+- Para comparar `grading.json` usar un script `.py` escrito con Write (el heredoc de bash rompe los `\\` de
+  `split`). Los campos útiles: `summary`, `expectations` (E14 puntúa), `metricas_no_puntuadas`
+  (`orden_stock_rotacion`, `commits_slice_close`, `transcripts.red_por_comando`, `corridas_pytest`, `recortadas`).
+- Duración de una corrida: primera (`corrida_abierta`) y última (`corrida_cerrada`) línea de `bitacora.jsonl`.
+- Resto de gotchas (EOL, `git commit -F`, pytest una suite por vez, Slice-Close por `%B`): ver handoff anterior abajo.
+
+---
+
+# (Handoff anterior) Session Handoff — 2026-09-29 — **`v1-serie` corrida y calificada (12/13); issue 08 (retrospectivo) `done`**. Próximo: **lanzar `v2-serie` (confirmar con el usuario antes) y comparar los tres brazos**.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
