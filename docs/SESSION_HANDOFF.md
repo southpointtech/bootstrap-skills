@@ -1,4 +1,71 @@
-# Session Handoff — 2026-09-29 (noche) — **A/B (issue 05): 5 corridas válidas de 9; la tanda de repeticiones la mató falta de memoria**. Próximo: **relanzar las 4 corridas que faltan (el usuario ya lo aprobó) y escribir el reporte del 05**.
+# Session Handoff — 2026-09-30 (madrugada) — **A/B (issue 05): 8 corridas válidas de 9; falta `v2-olas` rep3 (la cortó Claude Code por memoria)**. Próximo: **relanzar esa corrida, sólo con el OK del usuario y con memoria libre, y escribir el reporte del 05**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `4bb8661` + el commit de este handoff. No se tocó código. Push pendiente (no pushear sin pedido).
+- **`v2-olas` rep3 NO se relanza sola**: Claude Code mató la tanda en background por memoria crítica del sistema
+  (~2 GB libres de 15,3). La instrucción del harness es no reiniciarla sin pedido. **Preguntarle al usuario**
+  antes de relanzar; sugerirle cerrar sesiones/apps y, si quiere evitar el corte, arrancar Claude Code con
+  `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` (tiene que estar en el entorno de Claude Code, no en un shell hijo).
+  Recomendación dada: relanzarla (el usuario decidió 3 por brazo; el compromiso del issue 01 se aplica tal cual).
+  Alternativa: reporte con n=2 en `v2-olas`, declarado.
+- Issue 05 (`.scratch/medicion-v2/issues/05-correr-el-ab.md`) sigue `ready-for-human`.
+- Siguen en pie: worktree `idea-v2` con otra sesión (no tocar; no `run-all` en los dos árboles a la vez; también
+  commitea en `main`); no `tools/sync-skills.ps1` desde `main`; untracked de Codex (`.agents/skills/source-command-*`,
+  `.codex/`, `AGENTS.md`) ajenos. Ancla `slice-open:main` del 08 sigue puesta a propósito.
+
+## 1. Tabla del A/B (válidas; todas en `C:\Users\marti\medicion-v2-corridas`, cada una con `grading.json`)
+
+| Brazo | Carpeta | Min | Nota | E14 (cierres) | E10 | E13 RED visible | pytest recortadas |
+|---|---|---|---|---|---|---|---|
+| v1-serie | `v1-serie-20260929T171853Z` | 41,5 | 12/13 | ❌ 3 | mismo_commit | 1/6 | 49/54 |
+| v1-serie | `v1-serie-20260929T200851Z` | 42 | 13/13 | ✅ 4 | stock_antes | 2/6 | (handoff ant.) |
+| v1-serie | `v1-serie-20260930T011252Z` | 55 | 13/13 | ✅ 4 | stock_antes | 4/6 (`stock`,`alta`,`rotacion`,`alertas`) | 88/94 |
+| v2-serie | `v2-serie-20260929T190049Z` | 25 | 12/13 | ❌ 3 | stock_antes | 5/6 | (handoff ant.) |
+| v2-serie | `v2-serie-20260929T205043Z` | 30 | 12/13 | ❌ 3 | stock_antes | 3/6 | (handoff ant.) |
+| v2-serie | `v2-serie-20260930T020742Z` | 26 | 12/13 | ❌ 3 | stock_antes | 3/6 (`stock`,`alta`,`exportar`) | 27/37 |
+| v2-olas | `v2-olas-20260928T152704Z` | 45,5 | 13/13 | ✅ 4 | stock_antes | 5/6 | (handoff ant.) |
+| v2-olas | `v2-olas-20260930T002556Z` | 44 | 13/13 | ✅ 7 | stock_antes | 5/6 (sin `productos`) | 56/61 |
+
+- Minutos = primera/última línea de `bitacora.jsonl`. E13 = `metricas_no_puntuadas.transcripts.red_por_comando[*].antes`.
+- **Inválidas (excluir del reporte; no borradas todavía, decidir con el usuario — CLAUDE.md pide borrar rastros):**
+  `v2-olas-20260929T212055Z` (memoria, tanda anterior), `v1-serie-20260930T011001Z`, `v2-serie-20260930T011005Z`,
+  `v2-olas-20260930T011009Z` (las tres: sesión 1 de claude salió con 1 a los 2 s, costo 0, 0 llamadas a la API;
+  coincidió con un `/login` del usuario → **inferido** login vencido, no confirmado), `v2-olas-20260930T023346Z`
+  (la mató Claude Code por memoria en la sesión 2, sin `corrida_cerrada`).
+- Patrón a mirar (NO afirmarlo sin aplicar el compromiso del issue 01): E14 falla 3/3 en v2-serie, 1/3 en v1-serie,
+  0/2 en v2-olas.
+
+## 2. Qué falta (en orden)
+
+1. **Relanzar `v2-olas` rep3** (con OK del usuario), en background, desde `medicion/v2/aparato/` (~45 min).
+   Ojo: en `echo "$(date) exit=$?"` el `$(date)` pisa `$?` (medido: imprime 0 tras `false`); capturar `rc=$?` antes:
+   ```bash
+   cd "/c/Repos/PERSONAL/Bootstrap Skills/medicion/v2/aparato" && R=/c/Users/marti/medicion-v2-corridas; echo "$(date -u +%FT%TZ) inicio v2-olas rep3" | tee -a $R/tanda-rep.log; python -m aparato correr --brazo v2-olas --raiz 'C:\Users\marti\medicion-v2-corridas' > $R/v2-olas-rep3-stdout.txt 2> $R/v2-olas-rep3-stderr.txt; rc=$?; echo "$(date -u +%FT%TZ) fin v2-olas rep3 exit=$rc" | tee -a $R/tanda-rep.log
+   ```
+   Chequear `corrida_cerrada: completa` en la bitácora y calificar:
+   `python medicion/v2/juguete-inventario/calificar.py "C:/Users/marti/medicion-v2-corridas/<carpeta>"` (barras `/`).
+   Si una sesión sale con 1 en segundos y costo 0: pedirle al usuario `/login` y reintentar.
+2. **Reporte del 05**: criterios de aceptación del issue (cada número con denominador y método; separar doctrina
+   v1-serie vs v2-serie de paralelismo v2-serie vs v2-olas; compromiso congelado del issue 01 **tal como está
+   escrito**; contexto por request, costo del review, factor de paralelismo y contraste con Administración May
+   — nada de eso calculado aún). Es un slice: `Slice-Close:` + review-loop al cerrar.
+3. Después: 06 (piloto Administración May), 09 (resumen para el equipo). Decidir con el usuario el borrado de las
+   carpetas inválidas.
+
+## 3. Lo que la próxima sesión TIENE que saber
+
+- Hablar SIEMPRE en español. El `alignment-gate` salta en la primera Write/Edit: decir que ya está alineado por
+  este handoff y reintentar.
+- `tanda-rep.log` en la carpeta de corridas registra inicio/fin con exit real. Los `*-rep3-std*.txt` de
+  `v1-serie` y `v2-serie` son de la relanzada buena (se pisaron); el de `v2-olas-rep3` es de la cortada.
+- Para leer `grading.json` usar un `.py` escrito aparte (heredoc de bash rompe los `\\`). Campos: `summary`,
+  `expectations`, `metricas_no_puntuadas.transcripts` (`corridas_pytest`, `recortadas`, `red_por_comando`),
+  `orden_stock_rotacion.relacion`, `commits_slice_close`.
+
+---
+
+# (Handoff anterior) Session Handoff — 2026-09-29 (noche) — **A/B (issue 05): 5 corridas válidas de 9; la tanda de repeticiones la mató falta de memoria**. Próximo: **relanzar las 4 corridas que faltan (el usuario ya lo aprobó) y escribir el reporte del 05**.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
 
