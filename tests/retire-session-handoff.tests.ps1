@@ -39,11 +39,14 @@ function Commit-File([string]$root, [string]$rel, [string]$text) {
 }
 function Invoke-Retire([string]$proj, [switch]$Check) {
   $extra = @(); if ($Check) { $extra = @('-Check') }
-  $out = & pwsh -NoProfile -File $retire -ProjectDir $proj @extra
+  # stderr a un archivo aparte: mezclado con stdout rompería el JSON, y el mensaje de la negativa es contrato.
+  $errFile = Join-Path $script:runRoot ("stderr-" + [guid]::NewGuid().ToString("N") + ".txt")
+  $out = & pwsh -NoProfile -File $retire -ProjectDir $proj @extra 2> $errFile
   $code = $LASTEXITCODE
+  $err = if (Test-Path -LiteralPath $errFile) { [IO.File]::ReadAllText($errFile) } else { '' }
   $json = $null
   try { $json = ($out -join "`n") | ConvertFrom-Json } catch { }
-  return [pscustomobject]@{ exit = $code; json = $json; raw = ($out -join "`n") }
+  return [pscustomobject]@{ exit = $code; json = $json; raw = ($out -join "`n"); err = $err }
 }
 # Lo que `git status` ve, una línea por entrada. Es el estado observable del repo, no un detalle interno.
 function Get-Status([string]$root) { return @(& git -C $root status --porcelain --untracked-files=all) }
@@ -215,6 +218,8 @@ Write-File $t "SESSION_HANDOFF.md" "# editado después`n"
 $antes = Get-Status $t
 $r = Invoke-Retire $t -Check
 Assert ($r.exit -ne 0) "11: -Check sobre un staged que solo vive en el índice da exit distinto de 0"
+# El agente releva este mensaje tal cual (Step 5 / § 4b): tiene que nombrar la causa y decir que no retiró nada.
+Assert ($r.err.Contains("has staged changes that differ from the file on disk") -and $r.err.Contains("Nothing was retired.")) "11: la negativa dice por qué y que no se retiró nada (stderr: $($r.err))"
 Assert ((@(Get-Status $t) -join '|') -eq ($antes -join '|')) "11: y tampoco toca nada"
 
 # 9. upgrade-bootstrap lo invoca desde la skill bootstrap del proyecto, sin cuarta copia, y con la
@@ -301,7 +306,19 @@ foreach ($s in "bootstrap-personal-project", "bootstrap-southpoint-project", "bo
   Assert ($s6.Contains('If the `-Check` refused, say that nothing was retired') -and $s6.Contains("if the script failed, say what Step 5 found had actually moved")) "12 ${s}: el Step 6 separa la negativa de la falla del script"
   # Un "no" a la aprobación deja el archivo donde está: el Step 5 lo chequea y el Step 6 lo dice.
   Assert ($s5.Contains("and the user approved its retirement") -and $s0.Contains("turns it down") -and $s6.Contains("turned the retirement down")) "12 ${s}: si el usuario rechaza el retiro, el archivo queda y se reporta"
+  # La condición del párrafo cubre negativa, falla y rechazo: "If Step 5 retired" los dejaba afuera al pie de la letra.
+  $iP = $s6.IndexOf("SESSION_HANDOFF.md"); $iIf = if ($iP -ge 0) { $s6.LastIndexOf("`n", $iP) } else { -1 }
+  $cond = if ($iIf -ge 0) { $s6.Substring($iIf + 1, $iP - $iIf - 1) } else { '' }
+  Assert ($cond -eq 'If Step 0 found a `') "12 ${s}: el reporte del Step 6 se condiciona a lo que encontró el Step 0 (abre con: '$cond')"
+  # El bullet del Step 0 es un ítem más de la lista, no un párrafo suelto tras otro bloque.
+  $l0 = $s0 -split "`n"; $iB = [Array]::FindIndex($l0, [Predicate[string]]{ param($x) $x.StartsWith('- If a `SESSION_HANDOFF.md`') })
+  Assert ($iB -gt 0 -and $l0[$iB - 1].StartsWith("- ")) "12 ${s}: el bullet del Step 0 sigue a otro ítem de la lista"
+  # La cabecera del script no promete que nunca se commitea: el Step 5 del bootstrap commitea el retiro.
+  $hdr = [IO.File]::ReadAllText((Join-Path $repo "skills/$s/scripts/retire-session-handoff.ps1"))
+  Assert (-not $hdr.Contains("never committed: the user reviews and commits")) "12 ${s}: la cabecera del script no dice que nunca se commitea"
 }
+# El reporte del paso 6 de upgrade-bootstrap recoge lo que el § 4b le manda: la negativa y lo que una falla movió.
+Assert ($p6.Contains("refused") -and $p6.Contains("actually moved")) "9: el paso 6 reporta la negativa del -Check y lo que movió una falla"
 
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FAIL"; exit 1 }

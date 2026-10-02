@@ -95,7 +95,7 @@ The bootstrap skill the canonical scaffold belongs to (the folder holding its `a
 
 ### 6. Report what changed
 
-List files copied, updated, left customized (skipped), orphans flagged, the handoff files removed and backed up by step 4b (with each `backup` path) and, when the project's `CLAUDE.md` has no `### Handoff` section, that it should merge it: a next session only finds the migrated handoff through that rule, and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
+List files copied, updated, left customized (skipped), orphans flagged, the handoff files removed and backed up by step 4b (with each `backup` path) or, if its `-Check` refused or the script failed, the script's message and, after a failure, what actually moved; and, when the project's `CLAUDE.md` has no `### Handoff` section, that it should merge it: a next session only finds the migrated handoff through that rule, and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
 
 ## Guardrails
 

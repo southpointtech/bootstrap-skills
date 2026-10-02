@@ -2,7 +2,7 @@
 # agent has migrated its latest block to the ephemeral handoff in the OS temp dir. The migration is the
 # agent's job and happens BEFORE this runs; this script only takes the files out.
 #
-# A tracked file leaves with `git rm` (staged, never committed: the user reviews and commits), backed up
+# A tracked file leaves with `git rm` (staged, not committed: the caller commits it), backed up
 # first when it has uncommitted edits; an untracked or ignored one is moved to .bootstrap-backup\. A file
 # whose staged version differs from both HEAD and the one on disk makes the whole run refuse, touching
 # nothing. -Check runs only that refusal check and changes nothing: the agent runs it before migrating,
