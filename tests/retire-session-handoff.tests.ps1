@@ -247,6 +247,10 @@ Assert ($sec.Contains("one block") -and $sec.Contains("single write")) "9: con d
 $chequeo = 'pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>" -Check'
 $iChk = $sec.IndexOf($chequeo)
 Assert ($iChk -ge 0 -and $iChk -lt $sec.IndexOf("migrate one block")) "9: el paso corre -Check antes de migrar"
+$iSkip = $sec.IndexOf("skip both the migration and the retirement")
+Assert ($iSkip -gt $iChk -and $iSkip -lt $sec.IndexOf("migrate one block")) "9: si el -Check se niega, no se migra ni se retira"
+Assert ($sec.Contains("any other error")) "9: otro error no se lee como la negativa"
+Assert ($sec.IndexOf('check `git status` and `.bootstrap-backup/`') -gt $sec.IndexOf($invocacion + "`n")) "9: si el script falla, se mira qué se movió antes de reportar"
 Assert ($sec.Contains("<canonical scaffold>/CLAUDE.md")) "9: sin ### Handoff en el proyecto, la ruta sale del CLAUDE.md del scaffold canónico"
 $iP6 = $md.IndexOf("### 6. Report what changed")
 $p6 = if ($iP6 -ge 0) { $md.Substring($iP6) } else { '' }
@@ -268,15 +272,31 @@ foreach ($s in "bootstrap-personal-project", "bootstrap-southpoint-project", "bo
   $s5  = if ($iS5 -ge 0 -and $iS6 -gt $iS5) { $md.Substring($iS5, $iS6 - $iS5) } else { '' }
   $iChk = $s5.IndexOf($chk); $iMig = $s5.IndexOf("migrate one block"); $iInv = $s5.IndexOf($inv)
   Assert ($iChk -ge 0 -and $iMig -gt $iChk -and $iInv -gt $iMig) "12 ${s}: el Step 5 corre -Check, migra un bloque e invoca el script, en ese orden"
-  Assert ($s5.IndexOf("git init -b main") -lt $iChk -and $iInv -lt $s5.IndexOf("Then commit everything")) "12 ${s}: después del git init y antes del commit"
+  $iGit = $s5.IndexOf("git init -b main")
+  Assert ($iGit -ge 0 -and $iGit -lt $iChk -and $iInv -lt $s5.IndexOf("Then commit everything")) "12 ${s}: después del git init y antes del commit"
+  # Una negativa del -Check frena la migración: migrar antes rotaría `.prev` y el re-run lo rotaría otra vez.
+  $iSkip = $s5.IndexOf("skip both the migration and the retirement")
+  Assert ($iSkip -gt $iChk -and $iSkip -lt $iMig) "12 ${s}: si el -Check se niega, no se migra ni se retira"
+  # Cada llamada al shell arranca sin variables: el paso las define, como el Step 0b.
+  $iDef = $s5.IndexOf('Define `$skill` and `$proj` as in Step 2')
+  Assert ($iDef -ge 0 -and $iDef -lt $iChk) "12 ${s}: define `$skill y `$proj antes de usarlos"
+  # Un exit distinto de 0 que no es la negativa (script no encontrado, git que falla) no se reporta como ella,
+  # y una falla del script a mitad de camino puede haber sacado ya el primer archivo.
+  Assert ($s5.Contains("any other error")) "12 ${s}: otro error no se lee como la negativa"
+  $iMov = $s5.IndexOf('check `git status` and `.bootstrap-backup/`')
+  Assert ($iMov -gt $iInv) "12 ${s}: si el script falla, se mira qué se movió antes de reportar"
   Assert (Test-Path -LiteralPath (Join-Path $repo "skills/$s/scripts/retire-session-handoff.ps1")) "12 ${s}: la skill trae su propia copia del script"
   Assert (-not $md.Contains("<generatedFrom>/scripts/retire-session-handoff")) "12 ${s}: no lo busca en otra skill"
   Assert ($s5.Contains("single write") -and $s5.Contains("### Handoff")) "12 ${s}: una sola escritura, en la ruta de ### Handoff"
+  Assert ($s5.Contains('$skill\assets\scaffold\CLAUDE.md')) "12 ${s}: sin ### Handoff en el proyecto, la ruta sale del CLAUDE.md del scaffold de la skill"
   $iS0 = $md.IndexOf("`n## Step 0 — Safety check"); $iS0b = $md.IndexOf("`n## Step 0b")
   $s0 = if ($iS0 -ge 0 -and $iS0b -gt $iS0) { $md.Substring($iS0, $iS0b - $iS0) } else { '' }
   Assert ($s0.Contains("SESSION_HANDOFF.md") -and $s0.Contains("coverage map")) "12 ${s}: el Step 0 lo pone en el plan que se aprueba (el mapa de cobertura en adopción)"
+  # El Step 0b/D sellado sigue de largo sin aprobación cuando el mapa no tiene filas: ahí el retiro se aprueba solo.
+  Assert ($s0.Contains("no rows")) "12 ${s}: con el mapa sin filas, el retiro igual se aprueba"
   $s6 = if ($iS6 -ge 0) { $md.Substring($iS6) } else { '' }
   Assert ($s6.Contains("removed") -and $s6.Contains("backedUp")) "12 ${s}: el reporte del Step 6 declara removidos y respaldados"
+  Assert ($s6.Contains("### Handoff")) "12 ${s}: el reporte del Step 6 avisa si el CLAUDE.md del proyecto no trae ### Handoff"
 }
 
 Remove-TestRunRoot $script:runRoot

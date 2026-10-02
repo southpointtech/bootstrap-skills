@@ -20,7 +20,7 @@ Run this in the directory the user designates as the new project root (usually t
 - If the directory contains other files (code, docs), list them and confirm with the user before proceeding. Where the project has its own version of a file the scaffold also ships, the copy **does** overwrite it — backing the original up to `.bootstrap-backup/` and declaring it under `overwritten` first (Step 2, ADR-0007). Report that list; never assume nothing of the project's was touched.
 
 **Chequeo de máquina (no bloqueante):** si no existe la env var `SOUTHPOINT_GIT_NAME` ni el archivo `"$env:USERPROFILE\.claude\mcp-workstation.local.json"`, esta PC probablemente no fue preparada para Southpoint. No frenes el bootstrap, pero avisá al usuario que conviene correr la skill `setup-mcp-workstation` una vez (deja la identidad git, los tokens de DOMO/Zoho y Playwright listos), y anotalo en el reporte del Step 6. Si la env var o el archivo existen, no digas nada.
-- If a `SESSION_HANDOFF.md` exists at the project root or in `docs/`, it is the handoff of an older contract: Step 5 migrates its latest block to the handoff in temp and retires the file. Put that in the plan the user approves now — in adoption mode, as a line right below Step 0b/D's coverage map (a line, not a row: it is not an `overwritten` entry), and otherwise next to the file list above. That approval covers it: there is no separate question.
+- If a `SESSION_HANDOFF.md` exists at the project root or in `docs/`, it is the handoff of an older contract: Step 5 migrates its latest block to the handoff in temp and retires the file. Put that in the plan the user approves now — in adoption mode, as a line right below Step 0b/D's coverage map (a line, not a row: it is not an `overwritten` entry), and otherwise next to the file list above. That approval covers it: there is no separate question. If that map turns out to have no rows, Step 0b/D continues without asking anything, so present this line by itself there and get its approval before going on.
 
 ## Step 0b — Adoption mode
 
@@ -167,7 +167,7 @@ disponible, no declares nada. En los dos casos, anotá en el reporte del Step 6 
 declarado, y recordá que el PM tiene que cargar la ruta del repo en la bandeja, para cada dev que trabaje
 en él, antes de que la tarea diaria lo recolecte.
 
-**Retire the inherited session handoff.** Only if Step 0 found a `SESSION_HANDOFF.md`. It runs here, after the repository exists and before the commit: the handoff path is keyed on the git toplevel, which is `$proj` only from this point on.
+**Retire the inherited session handoff.** Only if Step 0 found a `SESSION_HANDOFF.md`. Define `$skill` and `$proj` as in Step 2. It runs here, after the repository exists and before the commit: the handoff path is keyed on the git toplevel, which is `$proj` only from this point on.
 
 First check that the files can be retired, before touching the handoff:
 
@@ -175,7 +175,7 @@ First check that the files can be retired, before touching the handoff:
 pwsh -NoProfile -File "$skill\scripts\retire-session-handoff.ps1" -ProjectDir $proj -Check
 ```
 
-It changes nothing. If it exits non-zero, a file has staged changes that differ from both HEAD and the disk: relay its message, skip both the migration and the retirement, and say so in the Step 6 report. Checking first matters because the migration rotates `.prev`: a refusal after it would leave the files in place, and a re-run would rotate `.prev` again and push the developer's live handoff out.
+It changes nothing. If it exits non-zero, relay its message, skip both the migration and the retirement, and say so in the Step 6 report. Its one designed refusal is a file whose staged changes differ from both HEAD and the disk; any other error (the script not found, a failed `git` call) is not that refusal: report it as an error, not as staged changes. Checking first matters because the migration rotates `.prev`: a refusal after it would leave the files in place, and a re-run would rotate `.prev` again and push the developer's live handoff out.
 
 Then migrate one block: the most recent one. It is usually the top block, but check the dates in the headings. When both files exist, take the more recent of the two; with no dates, go by the file's last commit or, for an untracked file, its modification time. Write it to the handoff path in a single write, in that rule's format: the current state plus references to commits, issues and files, not a transcript. Move whatever already sits at that path to its `.prev` first, once: the rule keeps a single previous generation. If the block describes closed work, or is old enough that the code has moved past it, say so in one line and create nothing. The path comes from the `### Handoff` section of the project's `CLAUDE.md`, the one Step 2 installed. If Step 0b/E restored the project's own and it has no such section, use the rule in `$skill\assets\scaffold\CLAUDE.md` and carry the gap to the Step 6 report.
 
@@ -185,7 +185,7 @@ Then retire the files with this skill's own copy of the script:
 pwsh -NoProfile -File "$skill\scripts\retire-session-handoff.ps1" -ProjectDir $proj
 ```
 
-Tracked files go out with `git rm`, so the removal lands in the commit below. Untracked and ignored ones — all of them, in a repository `git init` just created — go to `.bootstrap-backup/`, numbered `.2` when a backup is already there. It prints `{ removed[], backedUp[{file, backup}] }`: keep it for Step 6, and use the `backup` field as reported; do not derive it from `file`. The `-Check` above already ruled out its one refusal; if it refuses anyway, it retired nothing: relay its message and say so in the Step 6 report.
+Tracked files go out with `git rm`, so the removal lands in the commit below. Untracked and ignored ones — all of them, in a repository `git init` just created — go to `.bootstrap-backup/`, numbered `.2` when a backup is already there. It prints `{ removed[], backedUp[{file, backup}] }`: keep it for Step 6, and use the `backup` field as reported; do not derive it from `file`. The `-Check` above already ruled out its one refusal. If it exits non-zero anyway, relay its message, and do not assume it retired nothing: a failed `git` call on the second file stops it after the first one was already removed or backed up, so check `git status` and `.bootstrap-backup/` and say in the Step 6 report what actually moved.
 
 Then commit everything as `chore: project scaffolding (AI workflow + skills)` — **except `.bootstrap-backup/`**. That directory holds copies of the project's own files and is deliberately not gitignored so the user sees it; whether it belongs in history is their call, not the skill's. Stage with an exclusion rather than a bare `git add -A` — `git add -A -- . ':!.bootstrap-backup'` — and point the directory out in the Step 6 report.
 
@@ -197,6 +197,6 @@ Report: files created (counts per area), git status, and the immediate next step
 
 Do not fill in the placeholders of `docs/ai-workflow/PARALELISMO-DEL-PROYECTO.md` (its `{{…}}` marks): they are the project's lane data, filled in when the project opens its first wave of parallel lanes, and until then `.claude/scripts/abrir-carril.ps1` refuses to open a lane. Leave them as they come.
 
-If Step 5 retired a `SESSION_HANDOFF.md`, report the script's output: each file under `removed` and, for each one under `backedUp`, its `backup` path; whether a block was migrated to the handoff in temp (and to which path) or why none was; and, when the project's `CLAUDE.md` has no `### Handoff` section, that it should merge it: a next session only finds the migrated handoff through that rule. If the `-Check` or the script refused, say that nothing was retired and relay its message.
+If Step 5 retired a `SESSION_HANDOFF.md`, report the script's output: each file under `removed` and, for each one under `backedUp`, its `backup` path; whether a block was migrated to the handoff in temp (and to which path) or why none was; and, when the project's `CLAUDE.md` has no `### Handoff` section, that it should merge it: a next session only finds the migrated handoff through that rule. If the `-Check` refused, say that nothing was retired; if the script failed, say what Step 5 found had actually moved. Relay its message either way.
 
 Do not start requirements, PRDs, or code as part of this skill — bootstrap ends here by design (step 1 of the workflow needs the human present).
