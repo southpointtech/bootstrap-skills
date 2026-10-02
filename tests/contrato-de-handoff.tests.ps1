@@ -44,11 +44,16 @@ foreach ($c in $copias) {
   # La ruta completa, con el prefijo: sin él, mover el handoff adentro del repo (el contrato que
   # esto retira) quedaba verde.
   Assert ($s.Contains('<OS temp dir>/claude-handoff/<key>.md')) "${n}: nombra la ruta fija <OS temp dir>/claude-handoff/<key>.md"
-  # La clave tiene que salir igual desde cualquier shell. Medido el 2026-10-02: con `ó`, el `sed` de
-  # Git Bash cuenta bytes y da `--`, el `-replace` de pwsh cuenta caracteres y da `-`; quien escribe
-  # y quien lee no se encontraban. La regla dice "por carácter" y cada ejemplo `x` → `y` de la
-  # sección se recalcula acá: uno con acento es obligatorio, para que la diferencia quede a la vista.
+  # La clave tiene que salir igual desde cualquier shell, y lo que decide eso es si la salida de git se
+  # lee como UTF-8, no la herramienta. Medido el 2026-10-02 con `ó`: `sed` sin locale da `--` y con
+  # `LC_ALL=C.UTF-8` da `-`; `-replace` de pwsh da `--` con la consola en cp850 y `-` con
+  # `[Console]::OutputEncoding` en UTF-8. La regla nombra las dos recetas, y cada ejemplo `x` → `y`
+  # de la sección se recalcula acá: uno con acento es obligatorio, para que la diferencia quede a la vista.
   Assert ($s -match '(?i)per character, not per byte') "${n}: la clave se cuenta por carácter, no por byte"
+  Assert ($s.Contains('[Console]::OutputEncoding')) "${n}: dice cómo leer git como UTF-8 desde PowerShell"
+  Assert ($s.Contains('LC_ALL=C.UTF-8')) "${n}: dice cómo contar por carácter desde bash"
+  # La frase del turno 1 recomendaba pwsh sin condición, y pwsh en cp850 da lo mismo que sed (medido).
+  Assert (-not ($s -match '(?i)gets it right')) "${n}: no recomienda una herramienta sin condición de encoding"
   $ejemplos = @([regex]::Matches($s, '`([^`]+)` → `([^`]+)`'))
   Assert ($ejemplos.Count -ge 2) "${n}: trae al menos dos ejemplos de clave ($($ejemplos.Count))"
   $conAcento = @($ejemplos | Where-Object { $_.Groups[1].Value -match '[^\x00-\x7F]' })

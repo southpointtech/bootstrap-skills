@@ -1,7 +1,7 @@
 {
   "variant": "ai",
   "generatedFrom": "bootstrap-ai-project",
-  "version": "2026-10-02+1ba90ff",
+  "version": "2026-10-02+7566478",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
@@ -76,7 +76,7 @@
     ".claude/settings.json": "0443bad9b8f815be10b18917ec11f17a72b4a9ef8780dc902f0a6521ff668a12",
     ".gitattributes": "4d9f8b1976c35a2bb47647d06bee0b59f2b8f4c91e27ca6714c2c1bcf3a9db7d",
     ".gitignore": "1762689c0b84495c3cf204ae1bf4af09c30d65b16da1713125cc00c011e59b65",
-    "CLAUDE.md": "c9516b6983fb74a13cc2d2507f4cd4d30883f4f883a4dbc40d3b6dc967274ed7",
+    "CLAUDE.md": "88a46d38c955e2dd78d1f5e9a196ca1d380450da220a0c70930deb681ffc0555",
     "docs/agents/domain.md": "685b56398dda8718b49d4ed5035b742c61275538c203cc88ea08a8f5c2d2247c",
     "docs/agents/issue-tracker.md": "b46d161cdc96f406867dc8f1b5fc1be072089acebee285e9cb777646389092b1",
     "docs/agents/triage-labels.md": "516369386797e4587a507966c570538d87d1de3de2c24f41b1f9a9640313c0ab",
