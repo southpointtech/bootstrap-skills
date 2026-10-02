@@ -175,6 +175,8 @@ What makes it more than "just run a review":
 Two helper skills support the loop without being steps of it: **`/zoom-out`** gives a higher-level map
 of how a piece fits the architecture before you dive in, and **`/handoff`** compacts the current
 session into a clean handoff so another agent or a fresh terminal can pick up without losing context.
+The handoff lives outside the repo, at one fixed path per worktree in the OS temp dir (the
+`### Handoff` rule of the scaffold's `CLAUDE.md`), so saying "continue" in a new terminal finds it.
 
 ## MCP servers & clients
 

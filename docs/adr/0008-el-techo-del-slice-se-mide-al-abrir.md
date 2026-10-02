@@ -49,7 +49,7 @@ Lo que la tabla **sí** sostiene, y alcanza para la decisión:
 - Cuatro de los ocho commits son **posteriores al cierre declarado** (`900ba7f`), y suman **414
   líneas**. Existen porque el `/review-loop` corrió después de que el slice se dio por cerrado: no
   hay otra cosa que los explique, y son más que el techo entero.
-- El loop también había corrido **antes** de ese cierre —dos turnos, `docs/SESSION_HANDOFF.md`, encabezado
+- El loop también había corrido **antes** de ese cierre —dos turnos, `f04e06f:docs/SESSION_HANDOFF.md`, encabezado
   (*"turno 2 de 5, NO cerrado"*)—, así que su contribución no está acotada a esos cuatro commits.
 
 Con eso basta: **el loop le agrega líneas al slice que revisa, después de que el slice cerró.** Si el
@@ -88,9 +88,9 @@ vueltas** sobre el mismo rango `3e175b0..2edb0a1`:
 | altas + bajas, excluyendo `.md` | **660** | este ADR |
 | altas + bajas, con el `$skipPat` real del hook (que **no** excluye `.md`) | **874** | `.claude/hooks/review-loop-trigger.ps1` |
 
-El **617** viene del handoff (`docs/SESSION_HANDOFF.md`, encabezado "El techo de tamaño, otra vez"), pero **no sobre el rango que el handoff declara**: ahí dice `3e175b0..HEAD`, y ese rango daba 919 altas medido en `4227fde` — al terminar en `HEAD` el número cambia con cada commit, que es exactamente el problema. Reproduce sobre `3e175b0..2edb0a1`, que es el que usa este ADR — o sea que el número es correcto y la referencia del handoff quedó vieja al seguir avanzando `HEAD`.
+El **617** viene del handoff (`f04e06f:docs/SESSION_HANDOFF.md`, encabezado "El techo de tamaño, otra vez"), pero **no sobre el rango que el handoff declara**: ahí dice `3e175b0..HEAD`, y ese rango daba 919 altas medido en `4227fde` — al terminar en `HEAD` el número cambia con cada commit, que es exactamente el problema. Reproduce sobre `3e175b0..2edb0a1`, que es el que usa este ADR — o sea que el número es correcto y la referencia del handoff quedó vieja al seguir avanzando `HEAD`.
 
-Un cuarto número, el **716** que el handoff publica para 04b (`docs/SESSION_HANDOFF.md`, encabezado "Dos cosas ABIERTAS que el próximo debe saber", punto 1), **no reproduce con ninguna de las tres** sobre el rango que el propio handoff declara (su tabla de slices, fila 04b: `1c52fe0`…`3e175b0`): esa base da 735, y 607 con la otra frontera. Queda anotado como no reproducido en vez de asignado a una base que no lo produce.
+Un cuarto número, el **716** que el handoff publica para 04b (`f04e06f:docs/SESSION_HANDOFF.md`, encabezado "Dos cosas ABIERTAS que el próximo debe saber", punto 1), **no reproduce con ninguna de las tres** sobre el rango que el propio handoff declara (su tabla de slices, fila 04b: `1c52fe0`…`3e175b0`): esa base da 735, y 607 con la otra frontera. Queda anotado como no reproducido en vez de asignado a una base que no lo produce.
 
 Ninguna de las tres está mal; no son comparables entre sí. Y la exclusión de `.md` que aplicaron el handoff y
 este ADR **no la concede ninguna regla escrita**: ni el bullet del `CLAUDE.md` ni el `$skipPat` del

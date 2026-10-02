@@ -75,7 +75,7 @@ VerificarSitio "CLAUDE.md" @(
      msg    = 'el techo se mide al ABRIR el slice' }
   @{ patron = '(?i)do NOT count against the slice they are fixing'
      msg    = 'las lineas que agrega el loop no cuentan contra el slice que arregla' }
-  @{ patron = '(?i)declare it in the .Slice-Close:. trailer and in the session handoff'
+  @{ patron = '(?i)declare it in the .Slice-Close:. trailer\**\s+instead of splitting'
      msg    = 'el exceso al cerrar se declara en un artefacto nombrado, no al aire' }
   @{ patron = '(?i)is NOT the hook.s ~400-line safety net'
      msg    = 'distingue el techo de planificacion de la red del hook' }
@@ -87,6 +87,10 @@ VerificarSitio "CLAUDE.md" @(
   # estado intermedio que el turno 1 encontro (bullet nuevo + ejecutores viejos).
   @{ patron = '(?i)Cohesion comes first, but a slice projected'
      msg    = 'ya no queda la redaccion original del bullet (pin contra revert)' }
+  # .scratch/handoff-pocock: el handoff es efimero (se pisa en la sesion siguiente), asi que no
+  # puede ser el registro del exceso; el registro es el trailer.
+  @{ patron = '(?i)and in the session handoff'
+     msg    = 'el exceso ya no se declara en el handoff, que es efimero' }
 )
 
 # --- 2. El pre-flight de /review-loop: corre DESPUES del cierre, no puede ordenar partir ---
@@ -231,9 +235,24 @@ foreach ($g in @(
 # es texto del handoff y no resolvia a nada.
 $adrPath = Join-Path $repo "docs\adr\0008-el-techo-del-slice-se-mide-al-abrir.md"
 $txtAdrCitas = if (Test-Path -LiteralPath $adrPath) { [IO.File]::ReadAllText($adrPath) } else { "" }
-$handoffPath = Join-Path $repo "docs\SESSION_HANDOFF.md"
-$txtHandoff = if (Test-Path -LiteralPath $handoffPath) { [IO.File]::ReadAllText($handoffPath) } else { $null }
-Assert ($null -ne $txtHandoff) "existe docs/SESSION_HANDOFF.md, que es lo que el ADR-0008 cita"
+# El handoff ya no vive en el arbol (.scratch/handoff-pocock: el contrato es efimero, en temp), asi
+# que la evidencia se lee FIJADA al commit que el ADR cita. Leido por Process + UTF-8 y no con `& git`:
+# pwsh decodifica la salida de git con la code page de la consola (ibm850 en esta maquina) y los
+# titulos con acento no resolverian. Un clon superficial sin ese commit da rojo, no verde vacuo.
+$commitHandoff = 'f04e06f'
+function Get-GitShowUtf8([string]$spec) {
+  $psi = [Diagnostics.ProcessStartInfo]::new('git')
+  foreach ($a in @('-C', $repo, 'show', $spec)) { $psi.ArgumentList.Add($a) }
+  $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $p = [Diagnostics.Process]::Start($psi)
+  $out = $p.StandardOutput.ReadToEnd(); $null = $p.StandardError.ReadToEnd(); $p.WaitForExit()
+  if ($p.ExitCode -eq 0) { return $out } else { return $null }
+}
+$txtHandoff = Get-GitShowUtf8 "${commitHandoff}:docs/SESSION_HANDOFF.md"
+Assert ($null -ne $txtHandoff) "git show ${commitHandoff}:docs/SESSION_HANDOFF.md resuelve: es la evidencia que el ADR-0008 cita"
+Assert ($txtAdrCitas.Contains("``${commitHandoff}:docs/SESSION_HANDOFF.md``")) "ADR-0008 cita el handoff fijado a ${commitHandoff}, no al archivo vivo"
+Assert (-not ($txtAdrCitas -match '(?<!:)`docs/SESSION_HANDOFF\.md`')) "ADR-0008 ya no cita docs/SESSION_HANDOFF.md sin commit"
 foreach ($a in @('El techo de tamaño, otra vez', 'Dos cosas ABIERTAS que el próximo debe saber',
                  'turno 2 de 5, NO cerrado', '`1c52fe0`…`3e175b0`',
                  '| F14 | la invariante', '| F18 | ')) {
