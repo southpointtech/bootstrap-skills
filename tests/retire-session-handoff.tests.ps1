@@ -133,6 +133,34 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $t "docs/SESSION_HANDOFF.md"))) 
 # Path exacto y no un glob: `*docs/SESSION_HANDOFF.md` matchea también el respaldo, que git ve sin trackear.
 Assert (@(Get-Status $t | Where-Object { $_.Substring(3) -eq "docs/SESSION_HANDOFF.md" }).Count -eq 0) "6b: git ya no lo ve (ni en el índice)"
 
+# 6c. Lo staged difiere del disco (AM/MM) -> el script se niega ANTES de tocar nada: un `git rm -f`
+#     tiraría la versión staged, que no está ni en HEAD ni en el árbol. Con dos candidatos, tampoco
+#     toca el otro: rechazar a mitad de camino dejaría un retiro a medias.
+$t = New-Repo
+Commit-File $t "SESSION_HANDOFF.md" "# raíz limpia`n"
+Write-File $t "docs/SESSION_HANDOFF.md" "# staged`n"
+& git -C $t add -- "docs/SESSION_HANDOFF.md"
+Write-File $t "docs/SESSION_HANDOFF.md" "# editado después de stagear`n"
+$antes = Get-Status $t
+$r = Invoke-Retire $t
+Assert ($r.exit -ne 0) "6c: exit distinto de 0 (salida: $($r.raw))"
+Assert ((@(Get-Status $t) -join '|') -eq ($antes -join '|')) "6c: git status idéntico: no sacó ni la raíz limpia (status: $((Get-Status $t) -join ' | '))"
+Assert ((& git -C $t show ":docs/SESSION_HANDOFF.md") -eq "# staged") "6c: la versión staged sigue en el índice"
+Assert (-not (Test-Path -LiteralPath (Join-Path $t ".bootstrap-backup"))) "6c: no creó .bootstrap-backup/"
+
+# 5b. Respaldo base y .2 ocupados -> el nuevo va a .3 y el .2 queda intacto
+$t = New-Repo
+Write-File $t ".bootstrap-backup/SESSION_HANDOFF.md" "# base`n"
+Write-File $t ".bootstrap-backup/SESSION_HANDOFF.md.2" "# segundo`n"
+Write-File $t "SESSION_HANDOFF.md" "# tercero`n"
+$r = Invoke-Retire $t
+Assert ($r.exit -eq 0) "5b: exit 0 (salida: $($r.raw))"
+$b = @($r.json.backedUp)
+Assert ($b.Count -eq 1 -and $b[0].backup -eq ".bootstrap-backup/SESSION_HANDOFF.md.3") "5b: el backup del reporte es el .3 (reporte: $($r.raw))"
+Assert ([IO.File]::ReadAllText((Join-Path $t ".bootstrap-backup/SESSION_HANDOFF.md.2")) -eq "# segundo`n") "5b: el .2 no se pisó"
+$bak3 = Join-Path $t ".bootstrap-backup/SESSION_HANDOFF.md.3"
+Assert ((Test-Path -LiteralPath $bak3) -and [IO.File]::ReadAllText($bak3) -eq "# tercero`n") "5b: el .3 tiene el archivo de esta corrida"
+
 # 7. Ningún archivo -> reporte vacío, exit 0, repo intacto y sin .bootstrap-backup/
 $t = New-Repo
 $antes = Get-Status $t
@@ -169,6 +197,15 @@ $sec = if ($iInv -ge 0) { $md.Substring($iSec, $iFin - $iSec) } else { '' }
 $iMig = $sec.IndexOf("migrate")
 Assert ($iMig -ge 0 -and $iMig -lt $sec.IndexOf($invocacion)) "9: la sección dice que el agente migra antes de invocar el script"
 Assert ($sec.Contains("no separate question")) "9: y que no hay pregunta aparte de la aprobación del upgrade"
+# Con los dos archivos presentes se migra UN bloque en una sola escritura: dos escrituras rotarían
+# `.prev` dos veces y se llevarían el handoff vivo del dev (la regla guarda una sola generación).
+Assert ($sec.Contains("one block") -and $sec.Contains("single write")) "9: con dos archivos, un solo bloque en una sola escritura"
+# Sin `### Handoff` en el CLAUDE.md del proyecto (lo salteó como customized), la ruta sale de la regla del
+# scaffold canónico, y el reporte avisa que falta mergearla.
+Assert ($sec.Contains("<canonical scaffold>/CLAUDE.md")) "9: sin ### Handoff en el proyecto, la ruta sale del CLAUDE.md del scaffold canónico"
+$iP6 = $md.IndexOf("### 6. Report what changed")
+$p6 = if ($iP6 -ge 0) { $md.Substring($iP6) } else { '' }
+Assert ($p6.Contains("### Handoff")) "9: el reporte del paso 6 avisa si el CLAUDE.md del proyecto no trae ### Handoff"
 # El plan (paso 3) los lista junto con el resto del delta.
 $iP3 = $md.IndexOf("### 3. Report")
 $p3 = if ($iP3 -ge 0) { $md.Substring($iP3, $md.IndexOf("`n### ", $iP3 + 1) - $iP3) } else { '' }

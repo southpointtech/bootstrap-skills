@@ -59,7 +59,9 @@ It is idempotent — running it twice never duplicates any hook. If the project 
 
 Only if step 3 listed a `SESSION_HANDOFF.md`. The approval for the plan covers it: there is no separate question.
 
-First, you migrate. Read the most recent block of each file (the top one) and write it to the handoff path that the project's `CLAUDE.md` defines under `### Handoff`, in that format: the current state plus references to commits, issues and files, not a transcript. Move whatever already sits at that path to its `.prev` first, as the rule says. If the block describes closed work, or is old enough that the code has moved past it, say so in one line and create nothing.
+First, you migrate one block. Each file keeps its newest block at the top; when both files exist, take the more recent of the two tops (by the date in its heading, or the file's last commit when it has none). Write it to the handoff path in a single write, in that rule's format: the current state plus references to commits, issues and files, not a transcript. Move whatever already sits at that path to its `.prev` first, once: the rule keeps a single previous generation, so a second write would push the developer's live handoff out. If the block describes closed work, or is old enough that the code has moved past it, say so in one line and create nothing.
+
+The path comes from the `### Handoff` section of the project's `CLAUDE.md`. If the project has none (step 4 left its `CLAUDE.md` customized), compute the path with the rule in `<canonical scaffold>/CLAUDE.md`, which depends only on the OS temp dir and the git toplevel, and carry the gap to the step 6 report.
 
 Then invoke the script from the project's bootstrap skill (the one step 1 resolved, `generatedFrom` or the user's answer). It lives there and nowhere else:
 
@@ -67,7 +69,7 @@ Then invoke the script from the project's bootstrap skill (the one step 1 resolv
 pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"
 ```
 
-It takes tracked files out with `git rm`, which stages the removal and does not commit it. Untracked and ignored ones go to `.bootstrap-backup/`, numbered `.2` when a backup is already there. It prints `{ removed[], backedUp[{file, backup}] }`. A tracked file with uncommitted edits appears in both lists: its edits are backed up before the `git rm`. Use the `backup` field as reported; do not derive it from `file`.
+It takes tracked files out with `git rm`, which stages the removal and does not commit it. Untracked and ignored ones go to `.bootstrap-backup/`, numbered `.2` when a backup is already there. It prints `{ removed[], backedUp[{file, backup}] }`. A tracked file with uncommitted edits appears in both lists: its edits are backed up before the `git rm`. Use the `backup` field as reported; do not derive it from `file`. If a file has staged changes that differ from both HEAD and the disk, the script exits non-zero having retired nothing: relay its message, leave both files in place, and say so in the step 6 report.
 
 ### 5. Re-seal the manifest
 
@@ -85,7 +87,7 @@ The bootstrap skill the canonical scaffold belongs to (the folder holding its `a
 
 ### 6. Report what changed
 
-List files copied, updated, left customized (skipped), orphans flagged, the handoff files removed and backed up by step 4b (with each `backup` path), and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
+List files copied, updated, left customized (skipped), orphans flagged, the handoff files removed and backed up by step 4b (with each `backup` path) and, when the project's `CLAUDE.md` has no `### Handoff` section, that it should merge it: a next session only finds the migrated handoff through that rule, and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
 
 ## Guardrails
 

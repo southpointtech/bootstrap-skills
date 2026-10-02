@@ -2,8 +2,10 @@
 # agent has migrated its latest block to the ephemeral handoff in the OS temp dir. The migration is the
 # agent's job and happens BEFORE this runs; this script only takes the files out.
 #
-# A tracked file leaves with `git rm` (staged, never committed: the user reviews and commits); an
-# untracked or ignored one is moved to .bootstrap-backup\. Prints JSON on stdout:
+# A tracked file leaves with `git rm` (staged, never committed: the user reviews and commits), backed up
+# first when it has uncommitted edits; an untracked or ignored one is moved to .bootstrap-backup\. A file
+# whose staged version differs from the one on disk makes the whole run refuse, touching nothing.
+# Prints JSON on stdout:
 # { removed[], backedUp[{file, backup}] }. With no handoff files it prints both empty and exits 0.
 # Usage: pwsh -NoProfile -File retire-session-handoff.ps1 -ProjectDir <project root>
 param(
@@ -37,12 +39,34 @@ function Save-Backup([string]$rel) {
   })
 }
 
-foreach ($rel in @("SESSION_HANDOFF.md", "docs/SESSION_HANDOFF.md")) {
-  if (-not [IO.File]::Exists((Join-Path $ProjectDir $rel))) { continue }
+$candidates = @("SESSION_HANDOFF.md", "docs/SESSION_HANDOFF.md") |
+  Where-Object { [IO.File]::Exists((Join-Path $ProjectDir $_)) }
+$tracked = @{}
+foreach ($rel in $candidates) {
   & git -C $ProjectDir ls-files --error-unmatch -- $rel 2>$null | Out-Null
-  if ($LASTEXITCODE -eq 0) {
+  $tracked[$rel] = ($LASTEXITCODE -eq 0)
+}
+
+# A staged version that differs from both HEAD and the file on disk lives only in the index: the backup
+# below copies the disk, and `git rm -f` would drop the index. Refuse before touching anything, for both
+# files, so a refusal never leaves a retirement half done.
+foreach ($rel in $candidates) {
+  if (-not $tracked[$rel]) { continue }
+  & git -C $ProjectDir diff --quiet -- $rel            # index vs disk
+  $vsDisk = $LASTEXITCODE
+  & git -C $ProjectDir diff --cached --quiet -- $rel   # HEAD vs index
+  $vsHead = $LASTEXITCODE
+  if ($vsDisk -gt 1 -or $vsHead -gt 1) { throw "git diff failed for $rel" }
+  if ($vsDisk -eq 1 -and $vsHead -eq 1) {
+    throw "$rel has staged changes that differ from the file on disk; commit, unstage or restore them first. Nothing was retired."
+  }
+}
+
+foreach ($rel in $candidates) {
+  if ($tracked[$rel]) {
     # Tracked, but with content HEAD does not have (edited, or staged and never committed): `git rm`
-    # refuses it, and `git rm -f` alone would lose exactly the part nobody committed. Back it up first.
+    # refuses it, and `git rm -f` alone would lose exactly the part nobody committed. Back it up first;
+    # the check above guarantees the disk copy holds everything the index does.
     $dirty = @(& git -C $ProjectDir status --porcelain -- $rel)
     if ($LASTEXITCODE -ne 0) { throw "git status failed for $rel" }
     if ($dirty.Count -gt 0) {
