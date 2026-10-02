@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.2.0 — 2026-10-02
+
+### Changed — the session handoff lives outside the repo
+
+There is one handoff contract now, the one `/handoff` already followed: it writes to
+`<OS temp dir>/claude-handoff/<key>.md`, where `<key>` is the worktree's top-level path with every
+character outside `[A-Za-z0-9]` replaced by `-`, keeping one previous generation as `<key>.prev.md`.
+When a session opens with "continue" or "continuemos", it reads that file and the current
+`git diff`; if the file does not exist it says so and stops. The rule lives in the `### Handoff`
+section of the scaffold's `CLAUDE.md`. The slice-size rule no longer asks you to declare an
+oversized slice "in the session handoff": the `Slice-Close:` trailer is the record.
+
+### Added — the inherited `SESSION_HANDOFF.md` leaves the repo
+
+`upgrade-bootstrap` lists any `SESSION_HANDOFF.md` (at the root or in `docs/`) in its plan. Once you
+approve, it migrates the most recent block to the new handoff path and runs
+`retire-session-handoff.ps1`: a tracked file leaves with `git rm` (staged, for you to commit), and an
+untracked or ignored one is moved to `.bootstrap-backup/`. The bootstrap skills do the same when
+they find one (in adoption mode, as a line under the coverage map), after `git init` and before
+their commit; declining it there leaves the file where it is.
+
+### Added — hub-sync declaration in the bootstrap and the upgrade (Southpoint only)
+
+`.claude/scripts/hub-declarar.ps1` creates or updates `.claude/hub-sync.json`, the declaration
+without which the daily collection produces nothing for the repo. The Southpoint bootstrap offers it
+in Step 5, and `upgrade-bootstrap` offers it through the new step 5b, which follows the source
+skill's `upgrade-extras.md` when there is one.
+
+### Fixed — scripts no longer change the console's code page
+
+`review-marker.ps1`, `abrir-carril.ps1` and the `review-loop-trigger` hook set
+`[Console]::OutputEncoding` to UTF-8, which belongs to the console and stayed set for everything
+started there afterwards. They now read git's output as UTF-8 per call through
+`.claude/scripts/lib/git-utf8.ps1`.
+
 ## v2.1.0 — 2026-09-23
 
 ### Changed — every scaffold skill is agent-invocable again
