@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.2.1 — 2026-10-02
+
+### Fixed — reporting the retirement of the inherited handoff
+
+- The bootstrap skills' final report now covers every outcome of retiring a `SESSION_HANDOFF.md`
+  that Step 0 found: retired, refused by the `-Check`, failed partway, or declined by you. Before,
+  its opening condition read as if it applied only when the file had been retired.
+- `upgrade-bootstrap`'s final report now includes the `-Check` refusal and, after a failure, what
+  actually moved, as its step 4b already asked.
+- The header of `retire-session-handoff.ps1` no longer says the removal is never committed: the
+  bootstrap commits it; `upgrade-bootstrap` leaves it staged for you.
+- Southpoint bootstrap: the `SESSION_HANDOFF.md` item is back inside the Step 0 checklist.
+
 ## v2.2.0 — 2026-10-02
 
 ### Changed — the session handoff lives outside the repo
