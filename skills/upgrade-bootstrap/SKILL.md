@@ -33,6 +33,8 @@ This prints JSON with `missing`, `outdated`, `customized`, `orphan`, `uptodate`,
 
 Summarize the JSON grouped by category, with counts. Be explicit about what each action will do. If `hasProjectManifest` is false, tell the user this is a legacy adoption run: customizations and old-but-untouched files can't be distinguished, so they appear under "different — your call".
 
+Also check for an inherited `SESSION_HANDOFF.md` at the project root and in `docs/`. The comparison does not see them (they are not part of the scaffold), so list each one that exists in the plan too, as "retired: latest block migrated to the handoff in temp, then removed" (step 4b).
+
 ### 4. Apply, with the user's approval
 
 Get explicit approval before writing anything. Then:
@@ -53,6 +55,20 @@ pwsh -File <this-skill>/scripts/merge-settings.ps1 -ProjectSettings "<project>/.
 
 It is idempotent — running it twice never duplicates any hook. If the project had no `settings.json`, it copies the canonical one verbatim.
 
+### 4b. Retire the inherited session handoff
+
+Only if step 3 listed a `SESSION_HANDOFF.md`. The approval for the plan covers it: there is no separate question.
+
+First, you migrate. Read the most recent block of each file (the top one) and write it to the handoff path that the project's `CLAUDE.md` defines under `### Handoff`, in that format: the current state plus references to commits, issues and files, not a transcript. Move whatever already sits at that path to its `.prev` first, as the rule says. If the block describes closed work, or is old enough that the code has moved past it, say so in one line and create nothing.
+
+Then invoke the script from the project's bootstrap skill (the one step 1 resolved, `generatedFrom` or the user's answer). It lives there and nowhere else:
+
+```powershell
+pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"
+```
+
+It takes tracked files out with `git rm`, which stages the removal and does not commit it. Untracked and ignored ones go to `.bootstrap-backup/`, numbered `.2` when a backup is already there. It prints `{ removed[], backedUp[{file, backup}] }`. A tracked file with uncommitted edits appears in both lists: its edits are backed up before the `git rm`. Use the `backup` field as reported; do not derive it from `file`.
+
 ### 5. Re-seal the manifest
 
 After applying, record the new baseline so the next run is precise:
@@ -69,7 +85,7 @@ The bootstrap skill the canonical scaffold belongs to (the folder holding its `a
 
 ### 6. Report what changed
 
-List files copied, updated, left customized (skipped), orphans flagged, and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
+List files copied, updated, left customized (skipped), orphans flagged, the handoff files removed and backed up by step 4b (with each `backup` path), and whatever step 5b's extras asked the report to carry. Remind the user to review the diff and commit when satisfied. Do not commit on their behalf unless they ask.
 
 ## Guardrails
 
