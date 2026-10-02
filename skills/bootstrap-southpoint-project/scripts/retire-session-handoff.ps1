@@ -4,12 +4,15 @@
 #
 # A tracked file leaves with `git rm` (staged, never committed: the user reviews and commits), backed up
 # first when it has uncommitted edits; an untracked or ignored one is moved to .bootstrap-backup\. A file
-# whose staged version differs from the one on disk makes the whole run refuse, touching nothing.
-# Prints JSON on stdout:
+# whose staged version differs from both HEAD and the one on disk makes the whole run refuse, touching
+# nothing. -Check runs only that refusal check and changes nothing: the agent runs it before migrating,
+# so a refusal never comes after the migration already rotated the handoff's `.prev`.
+# Without -Check, prints JSON on stdout:
 # { removed[], backedUp[{file, backup}] }. With no handoff files it prints both empty and exits 0.
-# Usage: pwsh -NoProfile -File retire-session-handoff.ps1 -ProjectDir <project root>
+# Usage: pwsh -NoProfile -File retire-session-handoff.ps1 -ProjectDir <project root> [-Check]
 param(
-  [Parameter(Mandatory)][string]$ProjectDir
+  [Parameter(Mandatory)][string]$ProjectDir,
+  [switch]$Check
 )
 $ErrorActionPreference = "Stop"
 
@@ -61,12 +64,13 @@ foreach ($rel in $candidates) {
     throw "$rel has staged changes that differ from the file on disk; commit, unstage or restore them first. Nothing was retired."
   }
 }
+if ($Check) { exit 0 }
 
 foreach ($rel in $candidates) {
   if ($tracked[$rel]) {
     # Tracked, but with content HEAD does not have (edited, or staged and never committed): `git rm`
     # refuses it, and `git rm -f` alone would lose exactly the part nobody committed. Back it up first;
-    # the check above guarantees the disk copy holds everything the index does.
+    # the check above guarantees that no version lives only in the index: each is in HEAD or on disk.
     $dirty = @(& git -C $ProjectDir status --porcelain -- $rel)
     if ($LASTEXITCODE -ne 0) { throw "git status failed for $rel" }
     if ($dirty.Count -gt 0) {

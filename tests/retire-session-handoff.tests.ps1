@@ -37,8 +37,9 @@ function Commit-File([string]$root, [string]$rel, [string]$text) {
   & git -C $root add -- $rel
   & git -C $root commit -q -m "add $rel"
 }
-function Invoke-Retire([string]$proj) {
-  $out = & pwsh -NoProfile -File $retire -ProjectDir $proj
+function Invoke-Retire([string]$proj, [switch]$Check) {
+  $extra = @(); if ($Check) { $extra = @('-Check') }
+  $out = & pwsh -NoProfile -File $retire -ProjectDir $proj @extra
   $code = $LASTEXITCODE
   $json = $null
   try { $json = ($out -join "`n") | ConvertFrom-Json } catch { }
@@ -180,12 +181,51 @@ Assert (@($r.json.removed) -contains "SESSION_HANDOFF.md") "8: git rm del tracke
 Assert (@($r.json.backedUp | ForEach-Object { $_.file }) -contains "docs/SESSION_HANDOFF.md") "8: respaldo del suelto"
 Assert (Test-Path -LiteralPath (Join-Path $t ".bootstrap-backup/docs/SESSION_HANDOFF.md")) "8: el respaldo existe"
 
+# 10. Sin repo git: todo va a respaldo. Primero se afirma que el directorio NO cae dentro de un repo
+#     (si %TEMP% viviera dentro de un working tree, git subiría al padre y el caso no probaría nada).
+$t = New-TestWorkspace $script:runRoot "rsh-nogit"
+& git -C $t rev-parse --git-dir 2>$null | Out-Null
+$fueraDeRepo = ($LASTEXITCODE -ne 0)
+Assert $fueraDeRepo "10: el directorio está fuera de todo repo git"
+Write-File $t "SESSION_HANDOFF.md" "# sin git`n"
+$r = Invoke-Retire $t
+Assert ($r.exit -eq 0) "10: exit 0 (salida: $($r.raw))"
+Assert (@($r.json.removed).Count -eq 0) "10: nada en removed"
+$b = @($r.json.backedUp)
+Assert ($b.Count -eq 1 -and $b[0].backup -eq ".bootstrap-backup/SESSION_HANDOFF.md") "10: backedUp declara el respaldo (reporte: $($r.raw))"
+$bak = Join-Path $t ".bootstrap-backup/SESSION_HANDOFF.md"
+Assert ((Test-Path -LiteralPath $bak) -and [IO.File]::ReadAllText($bak) -eq "# sin git`n") "10: el respaldo tiene el contenido original"
+Assert (-not (Test-Path -LiteralPath (Join-Path $t "SESSION_HANDOFF.md"))) "10: el original ya no está"
+
+# 11. -Check corre solo los chequeos previos: no toca nada. El paso 4b lo corre ANTES de migrar, para
+#     que una negativa no llegue después de haber rotado `.prev`.
+$t = New-Repo
+Commit-File $t "SESSION_HANDOFF.md" "# limpio`n"
+Write-File $t "docs/SESSION_HANDOFF.md" "# suelto`n"
+$antes = Get-Status $t
+$r = Invoke-Retire $t -Check
+Assert ($r.exit -eq 0) "11: -Check sobre un caso retirable da exit 0 (salida: $($r.raw))"
+Assert ((@(Get-Status $t) -join '|') -eq ($antes -join '|')) "11: -Check no cambió git status"
+Assert ((Test-Path -LiteralPath (Join-Path $t "SESSION_HANDOFF.md")) -and (Test-Path -LiteralPath (Join-Path $t "docs/SESSION_HANDOFF.md"))) "11: -Check dejó los dos archivos"
+Assert (-not (Test-Path -LiteralPath (Join-Path $t ".bootstrap-backup"))) "11: -Check no creó .bootstrap-backup/"
+$t = New-Repo
+Write-File $t "SESSION_HANDOFF.md" "# staged`n"
+& git -C $t add -- "SESSION_HANDOFF.md"
+Write-File $t "SESSION_HANDOFF.md" "# editado después`n"
+$antes = Get-Status $t
+$r = Invoke-Retire $t -Check
+Assert ($r.exit -ne 0) "11: -Check sobre un staged que solo vive en el índice da exit distinto de 0"
+Assert ((@(Get-Status $t) -join '|') -eq ($antes -join '|')) "11: y tampoco toca nada"
+
 # 9. upgrade-bootstrap lo invoca desde la skill bootstrap del proyecto, sin cuarta copia, y con la
 #    migración del agente ANTES del script, dentro de la aprobación que el upgrade ya pide.
 $upgrade = Join-Path $repo "skills/upgrade-bootstrap"
-$md = [IO.File]::ReadAllText((Join-Path $upgrade "SKILL.md"))
+# LF normalizado: con autocrlf el árbol puede traer CRLF, y los índices de abajo anclan en "`n".
+$md = [IO.File]::ReadAllText((Join-Path $upgrade "SKILL.md")).Replace("`r`n", "`n")
 $invocacion = 'pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"'
-$iInv = $md.IndexOf($invocacion)
+# Con el fin de línea: la invocación con -Check empieza con el mismo texto, y sin el ancla IndexOf la encuentra
+# primero a ella.
+$iInv = $md.IndexOf($invocacion + "`n")
 Assert ($iInv -ge 0) "9: SKILL.md invoca el script desde ~/.claude/skills/<generatedFrom>/scripts/"
 Assert (-not (Test-Path -LiteralPath (Join-Path $upgrade "scripts/retire-session-handoff.ps1"))) "9: upgrade-bootstrap no trae una cuarta copia del script"
 Assert (-not $md.Contains("<this-skill>/scripts/retire-session-handoff")) "9: ni lo busca en su propio scripts/"
@@ -194,14 +234,19 @@ $iSec = $md.LastIndexOf("`n### ", [Math]::Max($iInv, 0))
 $iFin = $md.IndexOf("`n### ", [Math]::Max($iInv, 0))
 if ($iFin -lt 0) { $iFin = $md.Length }
 $sec = if ($iInv -ge 0) { $md.Substring($iSec, $iFin - $iSec) } else { '' }
-$iMig = $sec.IndexOf("migrate")
-Assert ($iMig -ge 0 -and $iMig -lt $sec.IndexOf($invocacion)) "9: la sección dice que el agente migra antes de invocar el script"
+$iMig = $sec.IndexOf("migrate one block")
+Assert ($iMig -ge 0 -and $iMig -lt $sec.IndexOf($invocacion + "`n")) "9: la sección dice que el agente migra antes de invocar el script"
 Assert ($sec.Contains("no separate question")) "9: y que no hay pregunta aparte de la aprobación del upgrade"
 # Con los dos archivos presentes se migra UN bloque en una sola escritura: dos escrituras rotarían
 # `.prev` dos veces y se llevarían el handoff vivo del dev (la regla guarda una sola generación).
 Assert ($sec.Contains("one block") -and $sec.Contains("single write")) "9: con dos archivos, un solo bloque en una sola escritura"
 # Sin `### Handoff` en el CLAUDE.md del proyecto (lo salteó como customized), la ruta sale de la regla del
 # scaffold canónico, y el reporte avisa que falta mergearla.
+# El chequeo va ANTES de migrar: si el script se niega después, la migración ya rotó `.prev` y el re-run
+# la rota de nuevo, llevándose el handoff vivo del dev.
+$chequeo = 'pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>" -Check'
+$iChk = $sec.IndexOf($chequeo)
+Assert ($iChk -ge 0 -and $iChk -lt $sec.IndexOf("migrate one block")) "9: el paso corre -Check antes de migrar"
 Assert ($sec.Contains("<canonical scaffold>/CLAUDE.md")) "9: sin ### Handoff en el proyecto, la ruta sale del CLAUDE.md del scaffold canónico"
 $iP6 = $md.IndexOf("### 6. Report what changed")
 $p6 = if ($iP6 -ge 0) { $md.Substring($iP6) } else { '' }
