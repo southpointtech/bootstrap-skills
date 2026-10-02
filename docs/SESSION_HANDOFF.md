@@ -1,3 +1,66 @@
+# Session Handoff — 2026-10-02 — **handoff-pocock: grill cerrado (Q1–Q16), PRD + 4 issues aprobados, issue 01 `done`**. Próximo: **`/tdd` del issue 02** (script de retiro + paso en `upgrade-bootstrap`), en serie.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `c0c62de` + el commit de este handoff. Sin push. El bloque del 2026-10-01 de abajo dice
+  "ronda 2 SIN responder": **está superado**. El grill se había bifurcado; las respuestas válidas eran las de
+  las 23:03 del 2026-10-01 (transcript `548c88d8`) y el 2026-10-02 se cerraron Q11–Q16.
+- **Fase**: implementación (TDD), en serie 01 → 02 → 03 → 04 (el usuario eligió serie, no olas).
+- Todo vive en `.scratch/handoff-pocock/` (gitignoreado): `PRD.md` (las 16 decisiones al final) e `issues/01..04`.
+  01 `done`; 02 y 03 `ready-for-agent`; 04 `ready-for-human` (HITL).
+- Este bloque sigue el contrato VIEJO a propósito: el `CLAUDE.md` global sigue leyendo `docs/SESSION_HANDOFF.md`
+  hasta el issue 04.
+- El estado del A/B (issue 05 de `medicion-v2`) sigue tal cual en el bloque del 2026-09-30 de abajo.
+
+## 1. Qué se hizo (issue 01)
+
+- `75f4dfe` slice + `83be9eb` (fixes turno 1) + `c0c62de` (fix turno 2):
+  - `### Handoff` en los 4 `CLAUDE.md` (repo + 3 scaffolds), idéntica: ruta `<OS temp dir>/claude-handoff/<key>.md`,
+    key = toplevel sanitizado **por carácter** (leer git como UTF-8: pwsh `[Console]::OutputEncoding` UTF-8;
+    bash `LC_ALL=C.UTF-8 sed` — medido: sin eso la `ó` da `--`), `.prev` una generación, "continuemos" o frena.
+  - Techo sin "and in the session handoff". ADR-0008 cita `f04e06f:docs/SESSION_HANDOFF.md`; §5c del test del
+    techo lo lee con `git show` (sobrevive al `git rm` del 04). `docs/TESTING.md` y README actualizados.
+  - Suite nueva `tests/contrato-de-handoff.tests.ps1`. Manifests regenerados. Goldens: N/A (ninguno tiene la frase).
+- Review-loop `standard`: **cierre por tope** (el Medium del turno 2 —"pwsh gets it right" era falso en cp850— se
+  arregló y no tiene turno propio). Coherencia corrida: 2 Low. Issue marcado `done` con `marcar-done.ps1`.
+  **No** se corrió `-Action close`; el ancla `slice-open` vieja del 08 (`00f55e5`) sigue puesta y el marcador
+  está en `83be9eb`: el próximo `range` va a incluir `c0c62de`. Para el loop del 02, revisar desde su propia base.
+
+## 2. Tests
+
+- Verdes: `contrato-de-handoff`, `techo-del-slice`, `mirror`, `shareable-leaks`, `dieta-del-claude-md`.
+- `run-all` (antes de los fixes): 42/45; las 3 rojas (`skills-lock`, `chicas-y-forks-propios`, `consola-intacta`)
+  las tiran los untracked de Codex (`.codex/`, `AGENTS.md`, `.agents/skills/source-command-*`,
+  `.agents/skills/writing-for-agents/`). No se borraron (ajenos). `run-all` no se re-corrió tras los fixes.
+
+## 3. Low abiertos (anotados, sin slice)
+
+ADR-0008:41 cita sin path; `-ne` case-insensitive en la identidad de secciones; "continuemos" y el `-` sin anclar;
+sha corto; el mensaje de §5c (`techo-del-slice.tests.ps1:265`) imprime `$commitHandoff` literal; colisión
+`My App`/`My-App`; `docs/TESTING.md` dice "solo" tres causas de rojo.
+
+## 4. Próximos pasos
+
+1. **`/tdd` del 02** (`.scratch/handoff-pocock/issues/02-script-de-retiro-y-upgrade-bootstrap.md`): script
+   byte-idéntico en `skills/bootstrap-*/scripts/` (reporte JSON; trackeado → `git rm`; ignorado/sin trackear →
+   `.bootstrap-backup/` con numeración `.2` como `copy-scaffold.ps1`, ADR-0007), tests con repos git temporales al
+   estilo `tests/copy-scaffold.tests.ps1` (usar `tests/lib/temp-workspace.ps1`), y paso en
+   `skills/upgrade-bootstrap/SKILL.md` que lo invoca desde `~/.claude/skills/<generatedFrom>/scripts/`. ~300 líneas.
+   Rigor `standard`.
+2. 03: mismo paso en el modo adopción, fuera del Step 0b sellado.
+3. 04 (HITL): global, retiros a `skills-retired`, `sync-skills`, `/handoff` manual y upgrade real en este repo y la v2.
+   Antes de `sync-skills`, preguntar si sigue vigente "no `sync-skills` desde `main`" (worktree `idea-v2`).
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar en español. El `alignment-gate` salta en la primera Write/Edit: ya está alineado (grill + PRD + issues
+  aprobados); decirlo y reintentar.
+- Commits: escribir el mensaje a un archivo y `git commit -F` (la Bash tool mutila heredocs con backticks).
+- Leer git desde pwsh con Process + UTF-8 (consola cp850 deforma acentos).
+- Un `Review-Rigor: light` NO corresponde a cambios en archivos que gobiernan al agente (`CLAUDE.md`, skills).
+
+---
+
 # Session Handoff — 2026-10-01 — **Grill a mitad: unificar el contrato de handoff al de Pocock (efímero en `%TEMP%`)**. Ronda 1 cerrada; **ronda 2 (Q5–Q9) planteada y SIN responder**. No se tocó código ni se commiteó nada salvo este bloque.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
