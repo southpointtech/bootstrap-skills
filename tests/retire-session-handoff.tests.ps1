@@ -256,6 +256,29 @@ $iP3 = $md.IndexOf("### 3. Report")
 $p3 = if ($iP3 -ge 0) { $md.Substring($iP3, $md.IndexOf("`n### ", $iP3 + 1) - $iP3) } else { '' }
 Assert ($p3.Contains("SESSION_HANDOFF.md")) "9: el reporte del paso 3 lista los SESSION_HANDOFF.md en el plan"
 
+# 12. El modo adopción (y todo bootstrap sobre un directorio con archivos) retira el handoff heredado
+#     en las tres skills bootstrap: con su propia copia del script, fuera del Step 0b sellado, después
+#     del `git init` (la clave del handoff sale del toplevel) y antes del commit del scaffold.
+foreach ($s in "bootstrap-personal-project", "bootstrap-southpoint-project", "bootstrap-ai-project") {
+  $md = [IO.File]::ReadAllText((Join-Path $repo "skills/$s/SKILL.md")).Replace("`r`n", "`n")
+  $chk = 'pwsh -NoProfile -File "$skill\scripts\retire-session-handoff.ps1" -ProjectDir $proj -Check'
+  $inv = 'pwsh -NoProfile -File "$skill\scripts\retire-session-handoff.ps1" -ProjectDir $proj' + "`n"
+  $iS5 = $md.IndexOf("`n## Step 5 — Git")
+  $iS6 = $md.IndexOf("`n## Step 6 — Report and hand off")
+  $s5  = if ($iS5 -ge 0 -and $iS6 -gt $iS5) { $md.Substring($iS5, $iS6 - $iS5) } else { '' }
+  $iChk = $s5.IndexOf($chk); $iMig = $s5.IndexOf("migrate one block"); $iInv = $s5.IndexOf($inv)
+  Assert ($iChk -ge 0 -and $iMig -gt $iChk -and $iInv -gt $iMig) "12 ${s}: el Step 5 corre -Check, migra un bloque e invoca el script, en ese orden"
+  Assert ($s5.IndexOf("git init -b main") -lt $iChk -and $iInv -lt $s5.IndexOf("Then commit everything")) "12 ${s}: después del git init y antes del commit"
+  Assert (Test-Path -LiteralPath (Join-Path $repo "skills/$s/scripts/retire-session-handoff.ps1")) "12 ${s}: la skill trae su propia copia del script"
+  Assert (-not $md.Contains("<generatedFrom>/scripts/retire-session-handoff")) "12 ${s}: no lo busca en otra skill"
+  Assert ($s5.Contains("single write") -and $s5.Contains("### Handoff")) "12 ${s}: una sola escritura, en la ruta de ### Handoff"
+  $iS0 = $md.IndexOf("`n## Step 0 — Safety check"); $iS0b = $md.IndexOf("`n## Step 0b")
+  $s0 = if ($iS0 -ge 0 -and $iS0b -gt $iS0) { $md.Substring($iS0, $iS0b - $iS0) } else { '' }
+  Assert ($s0.Contains("SESSION_HANDOFF.md") -and $s0.Contains("coverage map")) "12 ${s}: el Step 0 lo pone en el plan que se aprueba (el mapa de cobertura en adopción)"
+  $s6 = if ($iS6 -ge 0) { $md.Substring($iS6) } else { '' }
+  Assert ($s6.Contains("removed") -and $s6.Contains("backedUp")) "12 ${s}: el reporte del Step 6 declara removidos y respaldados"
+}
+
 Remove-TestRunRoot $script:runRoot
 if ($script:failures -gt 0) { Write-Host "`n$($script:failures) FAIL"; exit 1 }
 Write-Host "`nTodo verde"
