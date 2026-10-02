@@ -1,3 +1,73 @@
+# Session Handoff — 2026-10-02 (noche) — **handoff-pocock: issue 03 `done`** (retiro del handoff heredado en las tres bootstrap / modo adopción). Próximo: **04 (HITL)**.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `6ddc081` + el commit de este handoff. Sin push. Árbol limpio salvo los untracked de Codex
+  (`.codex/`, `AGENTS.md`, `.agents/skills/source-command-*`, `.agents/skills/writing-for-agents/`): ajenos, no borrar.
+- **Fase**: 01, 02 y 03 `done`; queda el **04** (`ready-for-human`). Todo en `.scratch/handoff-pocock/` (gitignoreado).
+- Este bloque sigue el contrato VIEJO a propósito (`docs/SESSION_HANDOFF.md`) hasta que el 04 cambie el `CLAUDE.md` global.
+- El A/B (issue 05 de `medicion-v2`) sigue como en el bloque del 2026-09-30 de abajo.
+
+## 1. Qué se hizo (issue 03)
+
+- `e150484` slice (Slice-Close cita el 03) + `a832773` (fixes turno 1) + `6ddc081` (fixes turno 2).
+- `skills/bootstrap-{personal,southpoint,ai}-project/SKILL.md` (mismo texto en las tres; Step 0b sellado intacto):
+  - **Step 0**: bullet nuevo — un `SESSION_HANDOFF.md` (raíz o `docs/`) entra al plan que se aprueba; en adopción, como
+    línea bajo el mapa de cobertura del 0b/D (no fila). Si el mapa no tiene filas, se pide la aprobación ahí. Un "no"
+    deja el archivo.
+  - **Step 5**: bloque "Retire the inherited session handoff" DESPUÉS del `git init` y ANTES de "Then commit everything"
+    (la clave del handoff sale del toplevel de git). Gate: encontrado en Step 0 **y** aprobado. Define `$skill`/`$proj`;
+    `-Check` → migrar un bloque (una escritura, ruta de `### Handoff`; fallback `$skill\assets\scaffold\CLAUDE.md`) →
+    `$skill\scripts\retire-session-handoff.ps1`. Distingue la negativa diseñada de cualquier otro error, y ante una
+    falla del script manda mirar `git status` y `.bootstrap-backup/` (puede haber movido el primer archivo).
+  - **Step 6**: reporta `removed`, `backedUp` con su `backup`, migración, falta de `### Handoff`, negativa vs falla vs rechazo.
+- `skills/upgrade-bootstrap/SKILL.md` § 4b: misma distinción negativa / otro error / falla a mitad de camino.
+- `tests/retire-session-handoff.tests.ps1`: caso 12 (las tres skills) y caso 9 reforzado.
+
+## 2. Review-loop del 03
+
+- Rigor `standard`, **cierre por tope** (los 2 Medium del turno 2 se arreglaron con RED/mutante, sin turno propio).
+- Rango revisado desde `a5ffd4b` (no `c2c2e95`): incluyó los fixes del turno 2 del 02, que nadie había leído.
+- Ancla: se hizo `-Action close` + `open` al empezar (ancla = `a5ffd4b`); por ser cierre por tope **no** se corrió
+  `close` al final → `slice-open` sigue en `a5ffd4b`, marcador en `a832773`. Para el próximo slice: `close` y luego `open`.
+- Coherencia: un Low (abajo). Issue 03 marcado `done` con `marcar-done.ps1 -Sha e150484`.
+
+## 3. Tests
+
+- Verdes después de `6ddc081`: `retire-session-handoff`, `mirror`, `temp-hygiene`.
+- `run-all` ANTES del review: 46 suites, 3 rojas (`consola-intacta`, `chicas-y-forks-propios`, `skills-lock`), todas por
+  los untracked de Codex. El `run-all` final **no terminó**: Claude Code lo mató por memoria baja. Re-correrlo primero
+  (`chcp.com 65001` antes; tarda ~8 min).
+
+## 4. Low abiertos del 03 (anotados, sin slice)
+
+- Step 6 abre con "If Step 5 retired a `SESSION_HANDOFF.md`", que leído literal excluye negativa/falla/rechazo que el
+  mismo párrafo cubre (fix de una palabra: "If Step 0 found…", ×3). Salió en los dos turnos y en coherencia.
+- Header de `retire-session-handoff.ps1` dice "staged, never committed": falso para el bootstrap, que commitea.
+- En southpoint el bullet del Step 0 quedó tras el párrafo "Chequeo de máquina" (fuera de la lista).
+- `upgrade-bootstrap` § 6 no recoge negativa / falla parcial (el § 4b sí lo manda ahí).
+- Ningún test fija el texto del mensaje de la negativa (`Invoke-Retire` no captura stderr).
+- Comentario del caso 9 fuera de lugar; ejemplo de falla parcial más angosto que lo posible; assert de `no rows` débil.
+- Más los Low del 02 (bloque de abajo).
+
+## 5. Próximos pasos
+
+1. Re-correr `run-all` y confirmar que solo quedan las 3 rojas de Codex.
+2. **04 (HITL)** (`.scratch/handoff-pocock/issues/04-global-retiros-y-upgrade-real.md`): `CLAUDE.md` global, retiros a
+   `skills-retired`, `sync-skills`, `/handoff` manual y upgrade real en este repo y la v2. Antes de `sync-skills`,
+   preguntar si sigue vigente "no `sync-skills` desde `main`" (worktree `idea-v2`). Leer el issue antes.
+3. Opcional: un slice `light` con los Low de prosa del §4 (sobre todo el "If Step 5 retired").
+
+## 6. Lo que la próxima sesión TIENE que saber
+
+- Hablar en español. El `alignment-gate` salta en la primera Write/Edit: el 04 ya está alineado (PRD + issues aprobados).
+- Commits: mensaje a un archivo y `git commit -F`.
+- Los `SKILL.md` de las bootstrap son CRLF en el árbol (LF en el índice): editar normalizando y re-escribir CRLF;
+  `upgrade-bootstrap/SKILL.md` y el test son LF. Ojo con python: `'\a'` en un string se vuelve BEL (pasó en esta sesión).
+- `run-all` y comandos largos: correr en background; si la memoria aprieta, Claude Code los mata.
+
+---
+
 # Session Handoff — 2026-10-02 (tarde) — **handoff-pocock: issue 02 `done`** (script de retiro + paso 4b en `upgrade-bootstrap`). Próximo: **`/tdd` del issue 03** (mismo retiro en el modo adopción), en serie.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
