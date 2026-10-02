@@ -297,6 +297,10 @@ foreach ($s in "bootstrap-personal-project", "bootstrap-southpoint-project", "bo
   $s6 = if ($iS6 -ge 0) { $md.Substring($iS6) } else { '' }
   Assert ($s6.Contains("removed") -and $s6.Contains("backedUp")) "12 ${s}: el reporte del Step 6 declara removidos y respaldados"
   Assert ($s6.Contains("### Handoff")) "12 ${s}: el reporte del Step 6 avisa si el CLAUDE.md del proyecto no trae ### Handoff"
+  # La negativa del -Check no retiró nada; una falla del script pudo haber movido el primer archivo.
+  Assert ($s6.Contains('If the `-Check` refused, say that nothing was retired') -and $s6.Contains("if the script failed, say what Step 5 found had actually moved")) "12 ${s}: el Step 6 separa la negativa de la falla del script"
+  # Un "no" a la aprobación deja el archivo donde está: el Step 5 lo chequea y el Step 6 lo dice.
+  Assert ($s5.Contains("and the user approved its retirement") -and $s0.Contains("turns it down") -and $s6.Contains("turned the retirement down")) "12 ${s}: si el usuario rechaza el retiro, el archivo queda y se reporta"
 }
 
 Remove-TestRunRoot $script:runRoot
