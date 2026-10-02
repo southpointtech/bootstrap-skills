@@ -1,3 +1,67 @@
+# Session Handoff — 2026-10-02 (tarde) — **handoff-pocock: issue 02 `done`** (script de retiro + paso 4b en `upgrade-bootstrap`). Próximo: **`/tdd` del issue 03** (mismo retiro en el modo adopción), en serie.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `7e01ba8` + el commit de este handoff. Sin push. Árbol limpio salvo los untracked de Codex
+  (`.codex/`, `AGENTS.md`, `.agents/skills/source-command-*`, `.agents/skills/writing-for-agents/`): ajenos, no borrar.
+- **Fase**: implementación (TDD), en serie 01 → 02 → 03 → 04. 01 y 02 `done`; 03 `ready-for-agent`; 04 `ready-for-human`.
+  Todo en `.scratch/handoff-pocock/` (gitignoreado): `PRD.md` + `issues/01..04`.
+- Este bloque sigue el contrato VIEJO a propósito (`docs/SESSION_HANDOFF.md`) hasta que el 04 cambie el `CLAUDE.md` global.
+- El estado del A/B (issue 05 de `medicion-v2`) sigue tal cual en el bloque del 2026-09-30 de abajo.
+
+## 1. Qué se hizo (issue 02)
+
+- `dffd18a` slice (Slice-Close cita el 02) + `a5ffd4b` (fixes turno 1) + `7e01ba8` (fixes turno 2).
+- `skills/bootstrap-{personal,southpoint,ai}-project/scripts/retire-session-handoff.ps1` (byte-idéntico; lo cubre `mirror`):
+  `-ProjectDir <raíz> [-Check]`. Candidatos `SESSION_HANDOFF.md` y `docs/SESSION_HANDOFF.md`. Trackeado limpio → `git rm`;
+  trackeado con edits sin commitear → respaldo + `git rm -f`; sin trackear / ignorado / sin repo git → movido a
+  `.bootstrap-backup/` con numeración `.2`, `.3` (ADR-0007). Se NIEGA (exit≠0, no toca nada, ni el otro archivo) si un
+  trackeado tiene staged distinto de HEAD **y** del disco. `-Check` corre solo esa negativa y no toca nada.
+  Emite `{ removed[], backedUp[{file, backup}] }` (sin `-Check`).
+- `skills/upgrade-bootstrap/SKILL.md`: paso 3 lista los `SESSION_HANDOFF.md` en el plan; **paso 4b nuevo**: `-Check` →
+  migrar UN bloque (el más reciente por fecha de encabezado; con dos archivos, el más reciente de ambos; una sola escritura,
+  una sola rotación de `.prev`) → script. Ruta del handoff: `### Handoff` del `CLAUDE.md` del proyecto, o si no lo tiene,
+  la regla de `<canonical scaffold>/CLAUDE.md` y el paso 6 avisa que falta mergearla. Sin pregunta aparte.
+- `tests/retire-session-handoff.tests.ps1` (prefijo `rsh`, casos 1–11 + 9 sobre la prosa del SKILL.md), registrado en
+  `tests/temp-hygiene.tests.ps1` (`$suitesConHelperEsperadas`).
+- Review-loop `standard`: **cierre por tope** (los 4 Medium del turno 2 se arreglaron con RED/mutante pero sin turno propio).
+  Coherencia (base `c1794da`): limpia. Issue 02 marcado `done` con `marcar-done.ps1`. **No** se corrió `-Action close`:
+  el ancla `slice-open` quedó en `83be9eb` y el marcador en `a5ffd4b`. Para el loop del 03, revisar desde la base propia
+  del 03 (el commit de este handoff) y limpiar/re-abrir el ancla como se hizo en el 02 (`-Action close` y luego `open`).
+
+## 2. Tests
+
+- Verdes: `retire-session-handoff`, `mirror`, `temp-hygiene`.
+- `run-all` (después del turno 2): 46 suites, 3 rojas — `consola-intacta`, `chicas-y-forks-propios`, `skills-lock` —
+  todas por los untracked de Codex. Ninguna del slice.
+
+## 3. Low abiertos del 02 (anotados, sin slice)
+
+Frase del paso 6 con dos "and" encadenados (ambigua); orden de casos en el test (6c antes de 5b, 11 antes de 9);
+CRLF bajo `autocrlf` cuenta como edit y genera un respaldo de más (dirección segura); `Session_Handoff.md` con otra
+capitalización en Windows cae como no-trackeado; si el script falla a mitad de camino no imprime el reporte;
+`~` en `pwsh -File ~/.claude/...` depende del shell que lo invoca (mismo patrón que la línea de `gen-mcp-json` en Guardrails).
+
+## 4. Próximos pasos
+
+1. **`/tdd` del 03** (`.scratch/handoff-pocock/issues/03-paso-en-modo-adopcion.md`): el mismo retiro en el modo adopción,
+   **fuera del Step 0b sellado** (sellado por `tools/reseal-step0b.ps1`; no tocar su texto). Reusar la secuencia del 4b:
+   `-Check` → migrar un bloque → script desde `scripts/` de la propia skill bootstrap. Si el cambio toca el SKILL.md de
+   las tres bootstrap, aplicar idéntico en las tres (regla de espejo). Leer el issue antes: puede pedir más que esto.
+2. 04 (HITL): global, retiros a `skills-retired`, `sync-skills`, `/handoff` manual y upgrade real en este repo y la v2.
+   Antes de `sync-skills`, preguntar si sigue vigente "no `sync-skills` desde `main`" (worktree `idea-v2`).
+
+## 5. Lo que la próxima sesión TIENE que saber
+
+- Hablar en español. El `alignment-gate` salta en la primera Write/Edit: ya está alineado (grill + PRD + issues
+  aprobados); decirlo y reintentar.
+- Commits: mensaje a un archivo y `git commit -F` (la Bash tool mutila heredocs con backticks en `-m`).
+- Edits con python sobre archivos: medir CRLF antes (`temp-hygiene.tests.ps1` es CRLF en el árbol; los nuevos van LF).
+- Antes de `run-all`: `chcp.com 65001` (si no, `marcar-done.tests` da rojo espurio).
+- Un `Review-Rigor: light` NO corresponde a cambios en archivos que gobiernan al agente (`CLAUDE.md`, skills).
+
+---
+
 # Session Handoff — 2026-10-02 — **handoff-pocock: grill cerrado (Q1–Q16), PRD + 4 issues aprobados, issue 01 `done`**. Próximo: **`/tdd` del issue 02** (script de retiro + paso en `upgrade-bootstrap`), en serie.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
