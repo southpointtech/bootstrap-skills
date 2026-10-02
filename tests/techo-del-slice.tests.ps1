@@ -226,10 +226,11 @@ foreach ($g in @(
 # --- 5c. Las citas del ADR al handoff tienen que resolver a UN solo lugar ---
 # El ADR citaba el handoff por numero de linea y las cinco citas quedaron obsoletas: `ed07ceb`
 # prepende 210 lineas y todo se corrio. Se cambiaron por anclas de texto, pero eso mueve el riesgo
-# en vez de sacarlo: la skill `session-handoff` PREPENDE un bloque por sesion, y estos titulos son
-# genericos y repetibles ("El techo de tamano, otra vez"). La cita se rompe en silencio el dia que
-# alguien repita uno. Se chequea de los dos lados —que el ADR siga citando el ancla y que el
-# handoff la resuelva una sola vez— para que ninguno de los dos se mueva sin el otro.
+# en vez de sacarlo: los titulos son genericos y repetibles ("El techo de tamano, otra vez"), y el
+# handoff vivo acumulaba un bloque por sesion. Desde .scratch/handoff-pocock la evidencia se lee del
+# blob fijado (abajo), que ya no cambia: un rojo aca significa que se movio `$commitHandoff`, que el
+# ADR cambio un ancla, o que el clon no tiene ese commit. Se chequea de los dos lados —que el ADR
+# siga citando el ancla y que el blob la resuelva una sola vez— para que ninguno se mueva sin el otro.
 # Son las cinco citas: cuatro son titulos o filas, y la quinta —la que reemplazo a `:22-23`— se
 # ancla por el texto de la fila F14, porque la prosa que la nombra ("tabla de cierre de 04c") no
 # es texto del handoff y no resolvia a nada.
@@ -261,7 +262,7 @@ foreach ($a in @('El techo de tamaño, otra vez', 'Dos cosas ABIERTAS que el pr�
     # `Split` con un separador de string cuenta apariciones sin depender de regex: los titulos
     # llevan acentos y comillas que habria que escapar.
     $veces = $txtHandoff.Split(@($a), [StringSplitOptions]::None).Length - 1
-    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces) — con 2 o más, una sesión nueva repitió el texto: cambiá la cita del ADR-0008 por una que siga siendo única. Con 0, la evidencia que el ADR cita ya no está en el handoff: recuperala del historial antes de reescribir la cita"
+    Assert ($veces -eq 1) "el ancla '$a' resuelve a un solo lugar del handoff ($veces) — el blob fijado no cambia, así que con 0 o con 2 o más se movió `$commitHandoff` o el ADR-0008 cambió el ancla: elegí un ancla que resuelva una sola vez en ese commit"
   }
 }
 

@@ -41,7 +41,23 @@ foreach ($c in $copias) {
   $s = Seccion $txt
   $secciones += ,$s
   $s = "$s"
-  Assert ($s.Contains('claude-handoff/<key>.md')) "${n}: nombra la ruta fija claude-handoff/<key>.md"
+  # La ruta completa, con el prefijo: sin él, mover el handoff adentro del repo (el contrato que
+  # esto retira) quedaba verde.
+  Assert ($s.Contains('<OS temp dir>/claude-handoff/<key>.md')) "${n}: nombra la ruta fija <OS temp dir>/claude-handoff/<key>.md"
+  # La clave tiene que salir igual desde cualquier shell. Medido el 2026-10-02: con `ó`, el `sed` de
+  # Git Bash cuenta bytes y da `--`, el `-replace` de pwsh cuenta caracteres y da `-`; quien escribe
+  # y quien lee no se encontraban. La regla dice "por carácter" y cada ejemplo `x` → `y` de la
+  # sección se recalcula acá: uno con acento es obligatorio, para que la diferencia quede a la vista.
+  Assert ($s -match '(?i)per character, not per byte') "${n}: la clave se cuenta por carácter, no por byte"
+  $ejemplos = @([regex]::Matches($s, '`([^`]+)` → `([^`]+)`'))
+  Assert ($ejemplos.Count -ge 2) "${n}: trae al menos dos ejemplos de clave ($($ejemplos.Count))"
+  $conAcento = @($ejemplos | Where-Object { $_.Groups[1].Value -match '[^\x00-\x7F]' })
+  Assert ($conAcento.Count -ge 1) "${n}: al menos un ejemplo con un carácter no ASCII"
+  foreach ($e in $ejemplos) {
+    $de = $e.Groups[1].Value; $a = $e.Groups[2].Value
+    $calc = $de -replace '[^A-Za-z0-9]', '-'
+    Assert ($calc -ceq $a) "${n}: el ejemplo '$de' da '$a' por la regla (calculado: '$calc')"
+  }
   Assert ($s.Contains('git rev-parse --show-toplevel')) "${n}: la clave sale del toplevel del worktree"
   Assert ($s.Contains('[A-Za-z0-9]')) "${n}: declara la clase de caracteres que sobrevive a la sanitización"
   Assert ($s.Contains('<key>.prev.md')) "${n}: el anterior se mueve a <key>.prev.md"

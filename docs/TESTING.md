@@ -372,8 +372,9 @@ exactamente lo que pasó (ADR-0008). Cubre:
   los 8 commits del rango **y en orden**, y que ninguna fila sea un rango. Sacar el número de la
   prosa fue lo que cortó un ciclo de seis versiones del mismo párrafo con seis atribuciones falsas.
 - **Las citas del ADR al handoff**, de los dos lados: que el ADR siga citando cada ancla y que el
-  handoff la resuelva **una sola vez**. La skill `session-handoff` prepende un bloque por sesión, así
-  que un título repetido rompe la cita en silencio; con este chequeo se rompe en rojo.
+  handoff la resuelva **una sola vez**. El handoff se lee fijado a `f04e06f` con `git show`, para que
+  sobreviva al `git rm` del issue 04 de `.scratch/handoff-pocock`; así, el rojo solo puede venir de
+  mover ese commit, de cambiar un ancla del ADR o de un clon que no tiene el commit.
 
 **El guard de rangos acumulados es un ALAMBRE DE TROPIEZO declarado, no una prueba.** Se lo ensanchó
 turno tras turno y cada ronda de mutación encontró formas nuevas de esquivarlo, que es el mismo
