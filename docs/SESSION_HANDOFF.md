@@ -1,3 +1,73 @@
+# Session Handoff — 2026-10-01 — **Grill a mitad: unificar el contrato de handoff al de Pocock (efímero en `%TEMP%`)**. Ronda 1 cerrada; **ronda 2 (Q5–Q9) planteada y SIN responder**. No se tocó código ni se commiteó nada salvo este bloque.
+
+## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
+
+- **Repo** `main` @ `f04e06f` + el commit de este handoff. Sin push. El estado del A/B (issue 05) del bloque de abajo
+  **sigue vigente tal cual**: esta sesión no lo tocó (falta relanzar `v2-olas` rep3 con OK del usuario y escribir el reporte del 05).
+- **Fase del workflow**: paso 1, alineación (`/grill-me` → skill `grilling`). Lo próximo es **retomar el grill en la
+  ronda 2**: volver a plantear Q5–Q9 (abajo, con las recomendaciones) y esperar respuestas. No implementar hasta que el
+  usuario confirme que el entendimiento es compartido.
+- Este bloque se escribió con el contrato VIEJO (`session-handoff` → `docs/SESSION_HANDOFF.md`) a propósito: el nuevo
+  todavía no existe y el prompt de continuación del `CLAUDE.md` global lee este archivo.
+
+## 1. El problema (verificado esta sesión)
+
+- Conviven dos contratos de handoff con triggers que se pisan:
+  - `handoff` (Pocock, en el scaffold de las tres skills: `.agents/skills/handoff/SKILL.md:7`, `.claude/commands/handoff.md:7`):
+    "Save to the temporary directory of the user's OS - not the current workspace". Sin nombre de archivo → cada corrida
+    inventa uno (en `%TEMP%` ya hay `HANDOFF-survey-mantenimiento-2026-09-16b.md`, `HANDOFF-margin-optimizer-horas.md`).
+  - `session-handoff` (solo en `~/.claude/skills/`, NO la deploya `tools/sync-skills.ps1`): escribe y acumula
+    `docs/SESSION_HANDOFF.md` en el repo; el `CLAUDE.md` global (L11, L15, L27) la usa para "continuemos".
+- El scaffold se contradice: su `CLAUDE.md:80` exige declarar el exceso del techo *"in the `Slice-Close:` trailer and in
+  the session handoff"*, pero a los demás devs solo les llega la skill efímera.
+- El usuario quiere hacerlo como Pocock, pero que "continuemos" en la terminal nueva vaya directo al handoff sin pegar rutas.
+- Corrección dada al usuario: la suite NO barre `%TEMP%` en general; solo sus carpetas `<prefijo>-run-*` de >1 día
+  (`tests/lib/temp-workspace.ps1:66-68`).
+
+## 2. Decisiones de la ronda 1 (cerradas por el usuario)
+
+- **Q1 = (d)**: la skill `handoff` de Pocock queda **byte-idéntica** (está en `skills-lock.json:116-128`, similitud 1.0000;
+  editarla obligaría a resellar y sumaría drift). La convención de ruta vive **afuera**, en `CLAUDE.md`.
+- **Q2**: ruta `%TEMP%\claude-handoff\<clave>.md`, clave = path absoluto del worktree sanitizado como `~/.claude/projects/`
+  (p. ej. `C--Repos-PERSONAL-Bootstrap-Skills.md`). Único por worktree.
+- **Q3**: cada handoff nuevo pisa al anterior, que antes se mueve a `<clave>.prev.md` (una sola generación).
+- **Q4**: solo se lee el último; lo durable va a commits/issues/ADRs/memoria (no se rescata historia del handoff viejo).
+
+## 3. Ronda 2 — planteada, SIN respuesta (re-plantear con estas recomendaciones)
+
+- **Q5 Dónde vive la convención**: (a) solo global · (b) solo template del scaffold (3 skills espejadas) · (c) ambos.
+  ➡️ (c).
+- **Q6 Destino de `session-handoff`**: (a) borrarla · (b) puntero de una línea a `/handoff` · (c) conservarla y pasar sus 16
+  puntos a la regla. ➡️ (a) (la descripción de `handoff` ya cubre el trigger; un puntero vuelve a duplicar triggers).
+- **Q7 Quién calcula la ruta**: (a) solo regla con algoritmo explícito (`git rev-parse --show-toplevel`, todo no
+  `[A-Za-z0-9]` → `-`) · (b) además hook `SessionStart` que inyecta "el handoff de este worktree es X (existe/no, hace N h)".
+  ➡️ (b). Dónde va el hook (global/scaffold/ambos, sin inyección doble) es pregunta de la ronda 3, depende de Q5.
+- **Q8 Los 19 `SESSION_HANDOFF.md` trackeados bajo `C:\Repos\`**: (a) migrar todos ya · (b) perezoso con regla de transición
+  en el global (si no hay handoff en temp pero sí legado, leer solo su última entrada y proponer `git rm`) · (c) este repo y
+  `Bootstrap-Skills-bootstrap-v2` ahora, el resto perezoso. ➡️ (c); además borrar `~/.claude/SESSION_HANDOFF.md` suelto ("(cerrado)").
+- **Q9 Frase del techo en `CLAUDE.md:80`**: (a) sacar "and in the session handoff" · (b) cambiarla por el issue del slice.
+  ➡️ (a); los goldens del techo se regraban con `tools/reseal-goldens.ps1`.
+- **Decisión técnica anunciada (sin objeción todavía)**: `tests/techo-del-slice.tests.ps1` §5c (L220-245, `Assert` de
+  existencia en L236) y ADR-0008 (L52, L91, L93) citan `docs/SESSION_HANDOFF.md`; el test pasará a leerlo fijado a un
+  commit (`git show <sha>:docs/SESSION_HANDOFF.md`) para sobrevivir al `git rm`. `docs/TESTING.md:374-375` lo documenta.
+
+## 4. Inventario de lo que toca la implementación (relevado por subagente)
+
+- `~/.claude/CLAUDE.md` (L11, L15, L27 nombran `SESSION_HANDOFF.md`; L17-20 statusline). `~/.claude/statusline.mjs` no nombra
+  archivo (solo avisos `⚠️ save handoff soon` / `🔴 handoff now`): no cambia.
+- Template `CLAUDE.md` de las 3 skills (mirror + `.bootstrap-manifest.json` vía `tools/gen-manifest.ps1`); `CLAUDE.md` del repo L79.
+- `README.md:176` documenta `/handoff`.
+- Ningún hook actual usa el handoff; el único hook global es `herdr-agent-state.ps1`.
+- Trackeados (19): este repo 14.192 líneas, v2 11.644, claude-analytics 813, Finanzas 911, Southpoint App Migration 919, etc.
+  Ignorados: Forecasting App, Margin Optimizer, claude-multiaccount-setup.
+
+## 5. Preferencias reafirmadas
+
+- Hablar en español. El usuario adhiere a Pocock en todo; lo único que exige es "continuemos" sin pegar rutas.
+- Antes de implementar: terminar el grill (frontier vacía) y confirmación explícita del usuario; después `/to-prd`.
+
+---
+
 # Session Handoff — 2026-09-30 (madrugada) — **A/B (issue 05): 8 corridas válidas de 9; falta `v2-olas` rep3 (la cortó Claude Code por memoria)**. Próximo: **relanzar esa corrida, sólo con el OK del usuario y con memoria libre, y escribir el reporte del 05**.
 
 ## ▶▶▶▶▶▶▶▶▶▶ ESTADO AL RETOMAR (leer esto primero)
