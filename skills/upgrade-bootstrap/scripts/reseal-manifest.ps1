@@ -5,7 +5,8 @@
 #   has a base, current still matches it     -> base = current normalized hash (untouched; converts
 #                                               a legacy raw base)
 #   has a base, current does not match it    -> base = previous base, as-is (customized: stays detectable)
-#   no base                                  -> base = current normalized hash (legacy: seed)
+#   no base, project had no manifest         -> base = current normalized hash (legacy: seed)
+#   no base, project had a manifest          -> not recorded (the project's own file: stays customized)
 #   file absent in project                   -> not recorded (user skipped it)
 param(
     [Parameter(Mandatory)][string]$ProjectDir,
@@ -19,7 +20,8 @@ $ErrorActionPreference = "Stop"
 $canon = Get-Content (Join-Path $CanonicalScaffold ".bootstrap-manifest.json") -Raw | ConvertFrom-Json
 $projManifestPath = Join-Path $ProjectDir ".bootstrap-manifest.json"
 $oldBase = @{}
-if (Test-Path $projManifestPath) {
+$hadManifest = Test-Path $projManifestPath
+if ($hadManifest) {
     (Get-Content $projManifestPath -Raw | ConvertFrom-Json).files.PSObject.Properties | ForEach-Object { $oldBase[$_.Name] = $_.Value }
 }
 
@@ -36,7 +38,10 @@ foreach ($p in ($canon.files.PSObject.Properties | Sort-Object Name)) {
         if (Test-Sealed $actual $oldBase[$rel]) { $files[$rel] = $actual.n }
         else                                    { $files[$rel] = $oldBase[$rel] }
     }
-    else                                 { $files[$rel] = $actual.n }
+    # No base and different from canonical. Without a manifest this is a first adoption: seed. With
+    # one, the file is the project's own (it existed before the canonical added it): seeding it would
+    # make the next upgrade see it as untouched and overwrite it, so leave it out and keep it customized.
+    elseif (-not $hadManifest)           { $files[$rel] = $actual.n }
 }
 
 $manifest = [ordered]@{

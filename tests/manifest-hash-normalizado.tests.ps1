@@ -29,7 +29,7 @@ function Assert($cond, $msg) {
 
 # Cantidad EXACTA de aserciones (ver normalized-hash.tests.ps1: sin esto, un mutante que borra
 # asserts sale en verde).
-$ExpectedChecks = 22
+$ExpectedChecks = 24
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "mhn"
@@ -138,7 +138,8 @@ try {
 
   # ---- reseal-manifest ----
   # Sobre el proyecto legacy: a.md llega actualizado en CRLF, c.md y g.md se saltean (quedan viejos
-  # e intactos), d.md queda customizado y f.md, sin base, se siembra.
+  # e intactos), d.md queda customizado y f.md, sin base pero en un proyecto CON manifest, no se
+  # registra: es del proyecto (issue upgrade-tanda-2026-10-03/01).
   Write-Raw $p2 "a.md" $CRLF
   & pwsh -NoProfile -File $reseal -ProjectDir $p2 -CanonicalScaffold $scaf | Out-Null
   Assert ($LASTEXITCODE -eq 0) "reseal: sale 0"
@@ -149,7 +150,7 @@ try {
   # e.md tiene una base vieja que NO coincide: solo la rama "igual al canónico" sella el canónico.
   # a.md no lo distingue, porque sin base la rama de siembra escribe el mismo hash.
   Assert ($m2.'e.md' -eq $H_OTRO) "reseal: el archivo igual al canónico en CRLF sella el canónico aunque su base vieja no coincida"
-  Assert ($m2.'f.md' -eq $H_LF) "reseal: un archivo sin base en CRLF se siembra con el hash normalizado, no el crudo"
+  Assert ($null -eq $m2.'f.md') "reseal: con manifest, un archivo sin base que difiere del canónico no se registra"
   Assert ($m2.'g.md' -eq $H_LF) "reseal: la base cruda CRLF de un archivo intacto que pasó a LF se convierte a normalizada"
   Assert ($m2.'h.md' -eq $H_LF) "reseal: la base cruda de un archivo intacto con fines de línea mezclados se convierte a normalizada"
 
@@ -158,6 +159,15 @@ try {
   Assert (((Names $r3.uptodate) -contains "a.md") -and ((Names $r3.outdated) -contains "c.md") -and
           ((Names $r3.customized) -contains "d.md")) `
     "compare tras reseal: a.md uptodate, c.md outdated y d.md customized (sin drift falso)"
+  # Si se sembrara, el upgrade siguiente lo vería intacto y lo pisaría sin preguntar.
+  Assert ((Names $r3.customized) -contains "f.md") "compare tras reseal: el archivo del proyecto sin base sigue customized, no outdated"
+
+  # (3) Proyecto SIN manifest (adopción): la siembra sí aplica, con el hash normalizado.
+  $p3 = New-TestWorkspace -Root $script:runRoot -Name "p3"
+  Write-Raw $p3 "f.md" $CRLF
+  & pwsh -NoProfile -File $reseal -ProjectDir $p3 -CanonicalScaffold $scaf | Out-Null
+  $m3 = (Read-Manifest (Join-Path $p3 ".bootstrap-manifest.json")).files
+  Assert ($m3.'f.md' -eq $H_LF) "reseal sin manifest: un archivo sin base en CRLF se siembra con el hash normalizado, no el crudo"
 }
 finally {
   Remove-TestRunRoot $script:runRoot
