@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.2.2 — 2026-10-03
+
+### Fixed — `upgrade-bootstrap` no longer overwrites your files or misses a narrowed hook
+
+- Re-sealing the manifest no longer records as a base a file the project already had before the
+  scaffold added it. That file keeps showing as customized, so the next upgrade asks before touching
+  it instead of overwriting it. A project adopted for the first time (no manifest yet) is sealed as
+  before.
+- Merging `.claude/settings.json` now widens the `matcher` of a hook you already have with the
+  canonical alternatives it lacks (for example `Bash` becomes `Bash|PowerShell`), keeping your own
+  alternatives first. Before, it reported "nothing to do" and the hook did not fire on commits made
+  from PowerShell.
+
 ## v2.2.1 — 2026-10-02
 
 ### Fixed — reporting the retirement of the inherited handoff
