@@ -1,5 +1,5 @@
 # Resolves which installed bootstrap skill a project's canonical scaffold comes from.
-# Usage: pwsh -File resolve-canonical.ps1 -ProjectDir <path> [-SkillsRoot <path, default ~/.claude/skills>]
+# Usage: pwsh -File resolve-canonical.ps1 -ProjectDir <path> [-SkillsRoot <path, default ~/.claude/skills>] [-Skill <name>]
 # Emits JSON to stdout: { skill, scaffold, generatedFrom, resolvedBy, variantSwitch, candidates[] }
 # and exits 0, or writes a message and exits 1 when it cannot decide.
 #
@@ -14,12 +14,15 @@
 #     workflow doc) and not by an upstream update, and the two cannot be told apart without the
 #     original variant installed. The SKILL puts such files to the user one by one instead of
 #     overwriting them as "outdated".
-#   - several or none installed -> exit 1 listing them, so the agent asks instead of guessing.
+#   - several or none installed -> exit 1 listing them, so the agent asks instead of guessing, and
+#     re-runs with -Skill <the user's answer>: that skill is taken ("user"), and variantSwitch is
+#     true when the manifest named a different one, for the same reason as above.
 # A candidate is <SkillsRoot>/bootstrap-*-project with assets/scaffold/.bootstrap-manifest.json: a
 # bootstrap-* folder without one is not a bootstrap of this family.
 param(
     [Parameter(Mandatory)][string]$ProjectDir,
-    [string]$SkillsRoot = (Join-Path $HOME ".claude" "skills")
+    [string]$SkillsRoot = (Join-Path $HOME ".claude" "skills"),
+    [string]$Skill
 )
 $ErrorActionPreference = "Stop"
 
@@ -41,11 +44,17 @@ if (Test-Path -LiteralPath $SkillsRoot) {
         Sort-Object Name | ForEach-Object { $_.Name })
 }
 
-$skill = $null; $resolvedBy = $null
-if ($generatedFrom -and (Get-Scaffold $generatedFrom)) {
-    $skill = $generatedFrom; $resolvedBy = "manifest"
+$chosen = $null; $resolvedBy = $null
+if ($Skill) {
+    if (-not (Get-Scaffold $Skill)) {
+        Write-Error -ErrorAction Continue "'$Skill' is not installed with a scaffold under $SkillsRoot (candidates: $($candidates -join ', '))."
+        exit 1
+    }
+    $chosen = $Skill; $resolvedBy = "user"
+} elseif ($generatedFrom -and (Get-Scaffold $generatedFrom)) {
+    $chosen = $generatedFrom; $resolvedBy = "manifest"
 } elseif ($candidates.Count -eq 1) {
-    $skill = $candidates[0]; $resolvedBy = "only-installed"
+    $chosen = $candidates[0]; $resolvedBy = "only-installed"
 } else {
     $why = if ($generatedFrom) { "The project manifest names '$generatedFrom', which is not installed under $SkillsRoot" }
            else                { "The project has no .bootstrap-manifest.json (legacy)" }
@@ -56,10 +65,10 @@ if ($generatedFrom -and (Get-Scaffold $generatedFrom)) {
 }
 
 [ordered]@{
-    skill         = $skill
-    scaffold      = (Get-Scaffold $skill)
+    skill         = $chosen
+    scaffold      = (Get-Scaffold $chosen)
     generatedFrom = $generatedFrom
     resolvedBy    = $resolvedBy
-    variantSwitch = ($resolvedBy -eq "only-installed" -and [bool]$generatedFrom)
+    variantSwitch = ([bool]$generatedFrom -and $chosen -ne $generatedFrom)
     candidates    = $candidates
 } | ConvertTo-Json -Depth 3

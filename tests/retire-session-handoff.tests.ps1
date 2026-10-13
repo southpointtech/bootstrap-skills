@@ -227,11 +227,12 @@ Assert ((@(Get-Status $t) -join '|') -eq ($antes -join '|')) "11: y tampoco toca
 $upgrade = Join-Path $repo "skills/upgrade-bootstrap"
 # LF normalizado: con autocrlf el árbol puede traer CRLF, y los índices de abajo anclan en "`n".
 $md = [IO.File]::ReadAllText((Join-Path $upgrade "SKILL.md")).Replace("`r`n", "`n")
-$invocacion = 'pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"'
+# `<skill>` es la skill que resolvió el paso 1 (generatedFrom, la única instalada o la elegida con -Skill).
+$invocacion = 'pwsh -File ~/.claude/skills/<skill>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"'
 # Con el fin de línea: la invocación con -Check empieza con el mismo texto, y sin el ancla IndexOf la encuentra
 # primero a ella.
 $iInv = $md.IndexOf($invocacion + "`n")
-Assert ($iInv -ge 0) "9: SKILL.md invoca el script desde ~/.claude/skills/<generatedFrom>/scripts/"
+Assert ($iInv -ge 0) "9: SKILL.md invoca el script desde ~/.claude/skills/<skill>/scripts/"
 Assert (-not (Test-Path -LiteralPath (Join-Path $upgrade "scripts/retire-session-handoff.ps1"))) "9: upgrade-bootstrap no trae una cuarta copia del script"
 Assert (-not $md.Contains("<this-skill>/scripts/retire-session-handoff")) "9: ni lo busca en su propio scripts/"
 # La sección que contiene la invocación: desde su `###` hasta el siguiente.
@@ -249,7 +250,7 @@ Assert ($sec.Contains("one block") -and $sec.Contains("single write")) "9: con d
 # scaffold canónico, y el reporte avisa que falta mergearla.
 # El chequeo va ANTES de migrar: si el script se niega después, la migración ya rotó `.prev` y el re-run
 # la rota de nuevo, llevándose el handoff vivo del dev.
-$chequeo = 'pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>" -Check'
+$chequeo = 'pwsh -File ~/.claude/skills/<skill>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>" -Check'
 $iChk = $sec.IndexOf($chequeo)
 Assert ($iChk -ge 0 -and $iChk -lt $sec.IndexOf("migrate one block")) "9: el paso corre -Check antes de migrar"
 $iSkip = $sec.IndexOf("skip both the migration and the retirement")

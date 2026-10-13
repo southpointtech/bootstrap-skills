@@ -30,7 +30,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin esto, un mutante que borra asserts sale en verde.
-$ExpectedChecks = 25
+$ExpectedChecks = 41
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "rcanon"
@@ -54,9 +54,10 @@ function New-Project($root, $name, $generatedFrom) {
   }
   $p
 }
-# Corre el script y devuelve @{ exit; json (o $null); text }.
-function Resolve($proj, $skillsRoot) {
-  $out = & pwsh -NoProfile -File $script -ProjectDir $proj -SkillsRoot $skillsRoot 2>&1 | Out-String
+# Corre el script y devuelve @{ exit; json (o $null); text }. Con -Skill, pasa la elección del usuario.
+function Resolve($proj, $skillsRoot, $skill) {
+  $extra = @(); if ($skill) { $extra = @("-Skill", $skill) }
+  $out = & pwsh -NoProfile -File $script -ProjectDir $proj -SkillsRoot $skillsRoot @extra 2>&1 | Out-String
   $json = $null
   if ($LASTEXITCODE -eq 0) { $json = $out | ConvertFrom-Json }
   @{ exit = $LASTEXITCODE; json = $json; text = $out }
@@ -133,6 +134,79 @@ $p7 = New-Project (Join-Path $script:runRoot "r7") "proj" "bootstrap-inexistente
 $out7 = & pwsh -NoProfile -File $script -ProjectDir $p7 2>&1 | Out-String
 $esperado = Join-Path $HOME ".claude" "skills"
 Assert ($out7 -match [regex]::Escape($esperado)) "(7) sin -SkillsRoot, el JSON o el mensaje apuntan a ~/.claude/skills"
+
+# (8) -Skill: la respuesta del usuario cuando el script no pudo decidir. Vuelve a correrse con la
+#     skill elegida para que el JSON lleve variantSwitch: con varias instaladas y un manifest de otra
+#     variante, la elegida es por definición otra variante (turno 2 del review-loop).
+$r8 = Join-Path $script:runRoot "r8"
+$s8ai = New-Skill $r8 "bootstrap-ai-project"
+New-Skill $r8 "bootstrap-southpoint-project" | Out-Null
+New-Skill $r8 "bootstrap-multistage-project" -SinManifest | Out-Null
+$p8 = New-Project $r8 "proj" "bootstrap-personal-project"
+$x = Resolve $p8 $r8 "bootstrap-ai-project"
+Assert ($x.exit -eq 0) "(8) -Skill con scaffold: exit 0"
+Assert ($x.json.resolvedBy -eq "user" -and $x.json.skill -eq "bootstrap-ai-project" -and $x.json.scaffold -eq $s8ai) "(8) -Skill: resolvedBy user, skill y scaffold los elegidos"
+Assert ($x.json.variantSwitch -eq $true) "(8) -Skill distinta de la del manifest: variantSwitch true"
+$x = Resolve $p8 $r8 "bootstrap-multistage-project"
+Assert ($x.exit -ne 0 -and $x.text -match "bootstrap-multistage-project") "(8) -Skill sin manifest de scaffold: exit != 0 y la nombra"
+$p8b = New-Project $r8 "proj-ai" "bootstrap-ai-project"
+$x = Resolve $p8b $r8 "bootstrap-ai-project"
+Assert ($x.json.resolvedBy -eq "user" -and $x.json.variantSwitch -eq $false) "(8) -Skill igual a la del manifest: variantSwitch false"
+$p8c = New-Project $r8 "proj-legacy" $null
+$x = Resolve $p8c $r8 "bootstrap-ai-project"
+Assert ($x.json.resolvedBy -eq "user" -and $x.json.variantSwitch -eq $false) "(8) -Skill en un proyecto legacy: variantSwitch false"
+
+# (9) El flujo completo del cambio de variante: el usuario conserva un archivo (su contenido es el de
+#     la otra variante) y el reseal del paso 5 con -VariantSwitch lo deja FUERA del manifest, así que
+#     el upgrade siguiente lo ve customized y no outdated. Sin el switch, el reseal lo re-basaba con
+#     su hash actual (intacto desde su base) y el próximo upgrade lo pisaba con una sola aprobación.
+$reseal  = Join-Path $repo "skills/upgrade-bootstrap/scripts/reseal-manifest.ps1"
+$compare = Join-Path $repo "skills/upgrade-bootstrap/scripts/compare-scaffold.ps1"
+. (Join-Path $repo "skills/upgrade-bootstrap/scripts/normalized-hash.ps1")
+$r9 = Join-Path $script:runRoot "r9"
+$canonSkill = Join-Path $r9 "bootstrap-ai-project"
+$canon = Join-Path $canonSkill "assets\scaffold"
+[IO.Directory]::CreateDirectory($canon) | Out-Null
+"tracker: generic`n"  | Set-Content -LiteralPath (Join-Path $canon "a.md") -NoNewline
+"same everywhere`n"   | Set-Content -LiteralPath (Join-Path $canon "b.md") -NoNewline
+& (Join-Path $repo "tools/gen-manifest.ps1") -SkillDir $canonSkill | Out-Null
+$canonManifest = Get-Content -LiteralPath (Join-Path $canon ".bootstrap-manifest.json") -Raw | ConvertFrom-Json
+function New-SwitchedProject($name) {
+  # a.md intacto desde su base (la otra variante), b.md igual al canónico.
+  $p = Join-Path $r9 $name
+  [IO.Directory]::CreateDirectory($p) | Out-Null
+  "tracker: personal`n" | Set-Content -LiteralPath (Join-Path $p "a.md") -NoNewline
+  "same everywhere`n"   | Set-Content -LiteralPath (Join-Path $p "b.md") -NoNewline
+  $baseA = (Get-Hashes (Join-Path $p "a.md")).n
+  ([ordered]@{ variant = "personal"; generatedFrom = "bootstrap-personal-project"; version = "old"
+               files = [ordered]@{ "a.md" = $baseA; "b.md" = $canonManifest.files.'b.md' } } | ConvertTo-Json) |
+    Set-Content -LiteralPath (Join-Path $p ".bootstrap-manifest.json") -Encoding UTF8
+  $p
+}
+$p9 = New-SwitchedProject "proj"
+& pwsh -NoProfile -File $reseal -ProjectDir $p9 -CanonicalScaffold $canon -VariantSwitch | Out-Null
+Assert ($LASTEXITCODE -eq 0) "(9) reseal -VariantSwitch: exit 0"
+$m9 = Get-Content -LiteralPath (Join-Path $p9 ".bootstrap-manifest.json") -Raw | ConvertFrom-Json
+Assert ($null -eq $m9.files.'a.md') "(9) reseal -VariantSwitch: el archivo conservado (de la otra variante) queda fuera del manifest"
+Assert ($m9.files.'b.md' -eq $canonManifest.files.'b.md') "(9) reseal -VariantSwitch: el archivo igual al canónico se sella igual que siempre"
+Assert ($m9.generatedFrom -eq "bootstrap-ai-project") "(9) reseal -VariantSwitch: generatedFrom pasa a la skill usada"
+$c9raw = & pwsh -NoProfile -File $compare -ProjectDir $p9 -CanonicalScaffold $canon | Out-String
+$c9 = if ($LASTEXITCODE -eq 0) { $c9raw | ConvertFrom-Json } else { $null }
+Assert (@($c9.customized | ForEach-Object { $_.file }) -contains "a.md" -and @($c9.outdated).Count -eq 0) "(9) el upgrade siguiente ve el archivo conservado como customized, no outdated"
+# Control: sin el switch, el reseal lo re-basa y el upgrade siguiente lo pisaría (outdated).
+$p9c = New-SwitchedProject "proj-control"
+& pwsh -NoProfile -File $reseal -ProjectDir $p9c -CanonicalScaffold $canon | Out-Null
+$c9c = (& pwsh -NoProfile -File $compare -ProjectDir $p9c -CanonicalScaffold $canon | Out-String) | ConvertFrom-Json
+Assert (@($c9c.outdated) -contains "a.md") "(9) control: sin -VariantSwitch el reseal re-basa el archivo y el siguiente upgrade lo ve outdated"
+
+# (10) El SKILL.md consume el contrato: lo que frena el pisado es prosa del paso 4, y sin ancla se
+#      podía borrar con toda la suite en verde (mismo patrón que carriles-scaffold.tests.ps1).
+$up = Get-Content -LiteralPath (Join-Path $repo "skills/upgrade-bootstrap/SKILL.md") -Raw
+function Paso($n) { [regex]::Match($up, "(?ms)^### $n\. .*?(?=^### |\z)").Value }
+Assert ((Paso 1) -cmatch '-Skill ') "(10) el paso 1 reintenta el script con -Skill cuando hay que preguntar"
+Assert ((Paso 3) -cmatch 'variantSwitch') "(10) el paso 3 reporta variantSwitch"
+Assert ((Paso 4) -cmatch 'variantSwitch: true' -and (Paso 4) -cmatch 'outdated') "(10) el paso 4 condiciona el pisado de outdated a variantSwitch"
+Assert ((Paso 5) -cmatch '-VariantSwitch') "(10) el paso 5 pasa -VariantSwitch al reseal"
 
 Remove-TestRunRoot $script:runRoot
 
