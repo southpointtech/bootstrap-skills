@@ -225,5 +225,5 @@ The loop used to end at its 5-turn cap, fixing its own comments turn after turn.
 - **The copy backs up what it overwrites** into `.bootstrap-backup/` and reports every replaced file.
 - **Adoption mode** for projects that already have a `CLAUDE.md`: the original is preserved at
   `docs/agents/legacy-claude.md` and merged only with your approval.
-- **`bootstrap-ai-project`:** a shareable variant with no DOMO, a generic issue tracker, and no change
+- **`bootstrap-ai-project`:** a shareable variant with none of the in-house MCP servers, a generic issue tracker, and no change
   to your git identity.

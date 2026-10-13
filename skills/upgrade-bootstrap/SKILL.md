@@ -18,8 +18,13 @@ For each scaffold file it compares three hashes — **base** (what the manifest 
 ### 1. Locate the project and the canonical scaffold
 
 - The project is the current working directory unless the user points elsewhere.
-- If `<project>/.bootstrap-manifest.json` exists, read `generatedFrom`; the canonical scaffold is `~/.claude/skills/<generatedFrom>/assets/scaffold`.
-- If there is no manifest (legacy project), ask the user which bootstrap-*-project skill this project was originally bootstrapped with, and use that skill's scaffold as canonical.
+- Resolve the canonical scaffold with the script. It reads the manifest's `generatedFrom` and checks what is installed:
+
+```powershell
+pwsh -File <this-skill>/scripts/resolve-canonical.ps1 -ProjectDir "<project>"
+```
+
+It prints JSON `{ skill, scaffold, generatedFrom, resolvedBy, candidates }`: `scaffold` is the canonical scaffold for every step below, and `skill` is the project's bootstrap skill (steps 4b and 5b run scripts from it). `resolvedBy` is `manifest` when the skill the manifest names is installed, or `only-installed` when it is not (or the project has no manifest) and exactly one bootstrap-*-project skill is installed: that one is taken, and the manifest's bases still classify every file. That is the project bootstrapped with one variant and upgraded on a machine that only has another: nothing to edit by hand, and step 5 re-seals `generatedFrom` to the skill used. Carry it to the step 3 report. When the script exits non-zero it says why (no bootstrap skill installed, or several and none is the manifest's) and lists the candidates: ask the user which skill the project belongs to, and use `~/.claude/skills/<that skill>/assets/scaffold`.
 
 ### 2. Run the comparison
 
@@ -31,7 +36,7 @@ This prints JSON with `missing`, `outdated`, `customized`, `orphan`, `uptodate`,
 
 ### 3. Report
 
-Summarize the JSON grouped by category, with counts. Be explicit about what each action will do. If `hasProjectManifest` is false, tell the user this is a legacy adoption run: customizations and old-but-untouched files can't be distinguished, so they appear under "different — your call".
+Summarize the JSON grouped by category, with counts. Be explicit about what each action will do. If `hasProjectManifest` is false, tell the user this is a legacy adoption run: customizations and old-but-untouched files can't be distinguished, so they appear under "different — your call". If step 1 resolved by `only-installed`, say which skill the manifest named and which one the upgrade uses.
 
 Also check for an inherited `SESSION_HANDOFF.md` at the project root and in `docs/`. The comparison does not see them (they are not part of the scaffold), so list each one that exists in the plan too, as "retired: latest block migrated to the handoff in temp, then removed" (step 4b).
 
@@ -62,7 +67,7 @@ Only if step 3 listed a `SESSION_HANDOFF.md`. The approval for the plan covers i
 First, check that the files can be retired, before touching the handoff:
 
 ```powershell
-pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>" -Check
+pwsh -File ~/.claude/skills/<skill>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>" -Check
 ```
 
 It changes nothing. If it exits non-zero, relay its message, skip both the migration and the retirement, and say so in the step 6 report. Its one designed refusal is a file whose staged changes differ from both HEAD and the disk; any other error (the script not found, a failed `git` call) is not that refusal: report it as an error, not as staged changes. Checking first matters because the migration rotates `.prev`: a refusal after it would leave the files in place, and the re-run would rotate `.prev` again and push the developer's live handoff out.
@@ -71,10 +76,10 @@ Then you migrate one block: the most recent one. It is usually the top block, bu
 
 The path comes from the `### Handoff` section of the project's `CLAUDE.md`. If the project has none (step 4 left its `CLAUDE.md` customized), compute the path with the rule in `<canonical scaffold>/CLAUDE.md`, which depends only on the OS temp dir and the git toplevel, and carry the gap to the step 6 report.
 
-Then invoke the script from the project's bootstrap skill (the one step 1 resolved, `generatedFrom` or the user's answer). It lives there and nowhere else:
+Then invoke the script from the project's bootstrap skill (the `skill` step 1 resolved). It lives there and nowhere else:
 
 ```powershell
-pwsh -File ~/.claude/skills/<generatedFrom>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"
+pwsh -File ~/.claude/skills/<skill>/scripts/retire-session-handoff.ps1 -ProjectDir "<project>"
 ```
 
 It takes tracked files out with `git rm`, which stages the removal and does not commit it. Untracked and ignored ones go to `.bootstrap-backup/`, numbered `.2` when a backup is already there. It prints `{ removed[], backedUp[{file, backup}] }`. A tracked file with uncommitted edits appears in both lists: its edits are backed up before the `git rm`. Use the `backup` field as reported; do not derive it from `file`. The `-Check` above already ruled out its one refusal. If it exits non-zero anyway, relay its message, and do not assume it retired nothing: a failed `git` call on the second file stops it after the first one was already removed or backed up, so check `git status` and `.bootstrap-backup/` and say in the step 6 report what actually moved.
@@ -102,5 +107,5 @@ List files copied, updated, left customized (skipped), orphans flagged, the hand
 - Never overwrite a `customized` file without explicit per-file consent — that's the whole point.
 - Don't delete orphans automatically.
 - The scaffold's `.gitignore` lives as `gitignore.txt` in the source; map it when copying.
-- If `compare-scaffold.ps1` errors (e.g. canonical scaffold has no manifest), stop and report — don't guess.
-- `.mcp.json` is not part of the scaffold nor the manifest, so `compare-scaffold.ps1` does not see it and this upgrade never touches it. If the project was bootstrapped before the per-project MCP feature and you want to add a `.mcp.json`, run the menu manually with `~/.claude/skills/<generatedFrom>/scripts/gen-mcp-json.ps1` (not part of the upgrade flow).
+- If `resolve-canonical.ps1` or `compare-scaffold.ps1` errors (several candidate skills, canonical scaffold with no manifest), stop and ask or report — don't guess.
+- `.mcp.json` is not part of the scaffold nor the manifest, so `compare-scaffold.ps1` does not see it and this upgrade never touches it. If the project was bootstrapped before the per-project MCP feature and you want to add a `.mcp.json`, run the menu manually with `~/.claude/skills/<skill>/scripts/gen-mcp-json.ps1` (not part of the upgrade flow).

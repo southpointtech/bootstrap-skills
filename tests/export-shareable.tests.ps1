@@ -1,6 +1,7 @@
 # tests/export-shareable.tests.ps1 — runner sin Pester. Correr: pwsh -NoProfile -File tests/export-shareable.tests.ps1
-# El export al repo público debe: copiar limpio las 2 skills + README + install.ps1,
-# y abortar (exit != 0) si el árbol exportado contiene un marcador de fuga.
+# El export al repo público debe: copiar limpio las 2 skills + README + install.ps1 + el CHANGELOG
+# filtrado (tools/export-changelog.ps1, con suite propia), y abortar (exit != 0) si el árbol
+# exportado contiene un marcador de fuga.
 $ErrorActionPreference = "Stop"
 $repo   = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $repo "tools/export-shareable.ps1"
@@ -36,6 +37,11 @@ Assert (Test-Path "$t\skills\bootstrap-ai-project\SKILL.md") "export: bootstrap-
 Assert (Test-Path "$t\skills\upgrade-bootstrap\SKILL.md") "export: upgrade-bootstrap presente"
 $manifest = Get-Content "$t\skills\bootstrap-ai-project\assets\scaffold\.bootstrap-manifest.json" -Raw | ConvertFrom-Json
 Assert ($manifest.generatedFrom -eq "bootstrap-ai-project") "export: manifest generatedFrom correcto"
+Assert (Test-Path "$t\CHANGELOG.md") "export: CHANGELOG.md presente"
+# La versión de arriba del changelog exportado es la del repo: el filtro saca secciones ### e ítems,
+# nunca una sección ## de versión.
+$topVersion = (Get-Content "$repo\CHANGELOG.md" | Where-Object { $_ -match '^## ' } | Select-Object -First 1)
+Assert ((Get-Content "$t\CHANGELOG.md" | Where-Object { $_ -match '^## ' } | Select-Object -First 1) -ceq $topVersion) "export: el CHANGELOG exportado abre con la misma versión que el del repo ($topVersion)"
 
 # 2. Re-export sobre clon sucio: borra huérfanos dentro de skills/
 "orphan" | Set-Content "$t\skills\bootstrap-ai-project\HUERFANO.txt"
@@ -65,6 +71,7 @@ try {
   # $src se creo vacio arriba y cada destino de Copy-Item ($src\skills y sus hermanos) todavia no
   # existe: sobre un destino preexistente, -Recurse anida (skills\skills).
   foreach ($d in @("skills", "public", "tools")) { Copy-Item (Join-Path $repo $d) (Join-Path $src $d) -Recurse }
+  Copy-Item (Join-Path $repo "CHANGELOG.md") (Join-Path $src "CHANGELOG.md")
 
   # 3a. Corrida que llega hasta el final: el exportador no escribe en su arbol fuente. Es la propiedad
   #     que hace que correr la suite no ensucie el repo, y la que a2313ee dejo asentada al mover la

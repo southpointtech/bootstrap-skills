@@ -46,4 +46,6 @@ git pull
 pwsh -NoProfile -File install.ps1
 ```
 
-Then, inside each bootstrapped project, ask Claude to run `upgrade-bootstrap` — it applies only the delta since your install and never overwrites your customizations.
+Then, inside each bootstrapped project, ask Claude to run `upgrade-bootstrap` — it applies only the delta since your install and never overwrites your customizations. A project bootstrapped with another variant of these skills is upgraded the same way: when the skill its manifest names is not installed and `bootstrap-ai-project` is the only one that is, the upgrade uses it and says so, with nothing to edit by hand.
+
+`CHANGELOG.md` lists what each version changed; entries that only apply to variants not published here are left out.

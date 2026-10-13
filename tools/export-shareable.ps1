@@ -1,6 +1,7 @@
 # export-shareable.ps1 — publica las skills compartibles a un clon local del repo público.
-# Copia limpia (borra el destino de cada skill primero) + gate anti-fuga: si el árbol exportado
-# contiene un marcador de tools/leak-markers.txt, aborta con exit != 0 y lista los hits.
+# Copia limpia (borra el destino de cada skill primero) + CHANGELOG.md sin las entradas de la variante
+# Southpoint (tools/export-changelog.ps1) + gate anti-fuga: si el árbol exportado contiene un marcador
+# de tools/leak-markers.txt, aborta con exit != 0 y lista los hits.
 # El commit/push en el clon es SIEMPRE manual (revisar el diff antes).
 # Uso: pwsh -NoProfile -File tools/export-shareable.ps1 -PublicRepoDir <clon local del repo publico>
 param([Parameter(Mandatory)][string]$PublicRepoDir)
@@ -21,6 +22,9 @@ foreach ($name in @("bootstrap-ai-project", "upgrade-bootstrap")) {
 }
 Copy-Item (Join-Path $repo "public/README.md")   (Join-Path $PublicRepoDir "README.md")   -Force
 Copy-Item (Join-Path $repo "public/install.ps1") (Join-Path $PublicRepoDir "install.ps1") -Force
+# El changelog viaja filtrado por estructura (secciones e ítems de la variante Southpoint); lo que
+# quede con marcador lo frena el gate de abajo, y se arregla en la fuente.
+& (Join-Path $PSScriptRoot "export-changelog.ps1") -Source (Join-Path $repo "CHANGELOG.md") -Dest (Join-Path $PublicRepoDir "CHANGELOG.md")
 
 # 2. Manifest fresco sobre la copia YA en el clon (nunca toca el árbol del repo fuente,
 #    así correr el export/los tests no deja el .bootstrap-manifest.json del repo modificado)
