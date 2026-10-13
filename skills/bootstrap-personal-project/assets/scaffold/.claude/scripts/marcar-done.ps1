@@ -94,7 +94,10 @@ foreach ($v in $valores) {
     catch [Text.DecoderFallbackException] { $rep.noUtf8 += $rel; continue }
     $linea = [regex]::Match($txt, '(?m)^Status:[^\r\n]*')
     if (-not $linea.Success) { $rep.sinStatus += $rel; continue }
-    if ($linea.Value -match '^Status:[ \t]*done[ \t]*$') { $rep.yaDone += $rel; continue }
+    # Un done con nota (`Status: done (PR #6, …)`, `` Status: `done` — … ``) ya está cerrado: se lo
+    # reescribía a `Status: done` a secas y la nota se perdía. Misma regla que el token de
+    # hub-recolectar.ps1: "done, pendiente QA manual" no es un cierre y se marca.
+    if ($linea.Value -match '(?i)^Status:[ \t]*`?done`?[ \t]*(?:$|\(|[—–])') { $rep.yaDone += $rel; continue }
     $txt = $txt.Substring(0, $linea.Index) + 'Status: done' + $txt.Substring($linea.Index + $linea.Length)
     [IO.File]::WriteAllBytes($p, $utf8.GetPreamble() + $utf8.GetBytes($txt))
     $rep.marcados += $rel

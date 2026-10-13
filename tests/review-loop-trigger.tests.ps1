@@ -883,6 +883,29 @@ $o = Fire $t "git commit -m 'fix: it'\''s ready to git push now'" $null 'Bash'
 Assert ([string]::IsNullOrEmpty($o)) "Bash: el apostrofe escrito a la bash ('\'') sigue sin exponer el mensaje"
 Remove-Item -Recurse -Force $t
 
+# Here-strings de PowerShell (la forma de mensaje de commit que recomienda la guia de la herramienta).
+# La gramatica del walker no los modela: un apostrofe en el cuerpo de un `@'...'@` cierra el literal,
+# el `'` de `'@` abre uno que no cierra nunca, y todo lo que sigue queda enmascarado — el `git push`
+# de la linea siguiente se perdia sin `$(` ni backtick que llevara al recomputo crudo. Por eso `@'` y
+# `@"` entran al predicado del recomputo. Portado de PROJECT MANAGEMENT (9a2497a), donde se encontro.
+$t = New-Repo
+$o = Fire $t "git commit -m @'`nfeat: it's done`n'@`ngit push" $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: un here-string con apostrofe no tapa el git push que le sigue"
+Remove-Item -Recurse -Force $t
+
+# Control: el mismo comando sin apostrofe ya disparaba (sin el, un fix que rompiera el parseo entero
+# pasaria el assert de arriba).
+$t = New-Repo
+$o = Fire $t "git commit -m @'`nfeat: done`n'@`ngit push" $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: control, un here-string sin apostrofe deja ver el git push"
+Remove-Item -Recurse -Force $t
+
+# La otra forma: un here-string de comillas dobles con apostrofe tampoco tapa el push.
+$t = New-Repo
+$o = Fire $t "git commit -m @`"`nfeat: it's done`n`"@`ngit push" $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: un here-string doble con apostrofe no tapa el git push que le sigue"
+Remove-Item -Recurse -Force $t
+
 # --- Sin la lib al lado, el hook dispara igual ---
 # El hook lee el evento y emite su JSON con la lib (issue 16). Un hook portado a mano, o un upgrade
 # aplicado a medias, lo deja sin ella: bajo `SilentlyContinue` el dot-source falla callado, y leer

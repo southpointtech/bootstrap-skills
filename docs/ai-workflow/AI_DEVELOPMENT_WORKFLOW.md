@@ -23,7 +23,7 @@ Claude must not write code during this phase.
 
 ### The `alignment-gate` hook
 
-`PreToolUse` on `Edit`/`Write`/`MultiEdit`. It blocks the first edit of a *code* file once per session and tells the agent to OFFER alignment (`/grill-me` or `/grill-with-docs`) before coding — it never runs the grill on its own, and non-code files (`*.md`, `docs/`, `.scratch/`, `.agents/`, `.claude/`, config) pass through untouched. If the work is trivial or already aligned, just retry the edit and proceed. This breaks the "fix→implement" autopilot that text rules alone do not stop.
+`PreToolUse` on `Edit`/`Write`/`MultiEdit`. It blocks the first edit of a *code* file once per session and tells the agent to OFFER alignment (`/grill-me` or `/grill-with-docs`) before coding — it never runs the grill on its own, and non-code files (`*.md`, `docs/`, `.scratch/`, `.agents/`, `.claude/`, config) pass through untouched. The call is the user's, not the gate's: offer the grill and wait for their decision; if they say the work is trivial or already aligned and to continue, retry the edit and proceed. This breaks the "fix→implement" autopilot that text rules alone do not stop.
 
 
 ## 2. PRD

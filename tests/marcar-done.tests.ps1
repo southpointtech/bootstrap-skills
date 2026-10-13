@@ -121,6 +121,23 @@ Assert (@($r.rep.yaDone) -contains ".scratch/feat-a/issues/01-uno.md") "ya done:
 Assert (@($r.rep.marcados).Count -eq 0) "ya done: no figura en marcados"
 Assert ([IO.File]::GetLastWriteTimeUtc($a) -eq $viejo) "ya done: el archivo no se reescribe"
 
+# --- Ya done CON NOTA: la nota no se pierde; "done, pendiente QA manual" no es un cierre ---
+# Misma regla que el token de hub-recolectar.ps1: la nota la abre un paréntesis, una raya o el
+# backtick de cierre; una coma CALIFICA el estado. Antes un `Status: done (PR #6, …)` se reescribía
+# a `Status: done` a secas y la nota se perdía. Portado de PROJECT MANAGEMENT (9a2497a).
+$t = New-Repo
+$nota = 'done (PR #6, mergeado el 2026-09-27); queda la pregunta de `completed_at`'
+$a = New-Issue $t ".scratch/feat-a/issues/01-uno.md" $nota
+$b = New-Issue $t ".scratch/feat-a/issues/02-dos.md" '`done` — ver notas'
+$c = New-Issue $t ".scratch/feat-a/issues/03-tres.md" 'done, pendiente QA manual'
+Commit $t "Slice-Close: .scratch/feat-a/issues/01-uno.md, .scratch/feat-a/issues/02-dos.md, .scratch/feat-a/issues/03-tres.md" | Out-Null
+$r = Marcar $t
+Assert ([IO.File]::ReadAllText($a).Contains("`nStatus: $nota`r`n")) "done con nota entre paréntesis: queda intacto"
+Assert ([IO.File]::ReadAllText($b).Contains("`nStatus: ``done`` — ver notas`r`n")) "done entre backticks con nota tras la raya: queda intacto"
+Assert ((@($r.rep.yaDone) -contains ".scratch/feat-a/issues/01-uno.md") -and (@($r.rep.yaDone) -contains ".scratch/feat-a/issues/02-dos.md") -and @($r.rep.yaDone).Count -eq 2) "los dos done con nota van a yaDone (salida: $($r.out))"
+Assert ([IO.File]::ReadAllText($c) -match "(?m)^Status: done`r$") "'done, pendiente QA manual' no es un cierre: se marca done"
+Assert (@($r.rep.marcados) -contains ".scratch/feat-a/issues/03-tres.md") "'done, pendiente QA manual' figura en marcados"
+
 # --- BOM: un issue con BOM UTF-8 lo conserva, y los acentos no se deforman ---
 $t = New-Repo
 $p = Join-Path $t ".scratch/feat-a/issues/01-bom.md"

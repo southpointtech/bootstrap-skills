@@ -140,6 +140,10 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-gra
 # backtick — including a commit message that uses markdown-style `code`. It stays wide on purpose:
 # the walker's PowerShell grammar does not model here-strings (`@"…"@`) or the `--%` token, and
 # narrowing it without measuring those forms risks a silent false negative.
+# For the same reason `@'` and `@"` are in the predicate: an apostrophe inside a `@'…'@` body closes
+# the walker's literal, the `'` of `'@` opens one that never closes, and everything after it is
+# masked — `git commit -m @'<newline>it's done<newline>'@<newline>git push` lost the push, with no
+# `$(` or backtick to reach this branch (tests/review-loop-trigger.tests.ps1).
 # The cost is a wider false-POSITIVE surface: a commit whose MESSAGE text mentions "git push" /
 # "gh pr create" inside a `$(...)` now raises $isPush/$isPr from that text, and since step 6's gate is
 # `-not ($isPush -or $isPr)`, such a commit skips the trailer gate, the freshness window AND the
@@ -151,7 +155,7 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-gra
 # Natural uses (`date +"%F"`, `basename "$PWD"`) keep an even quote count and the walker re-aligns
 # on its own: they enter this branch through the `$(`, but the trigger was already in $scan. The accepted false positive is pinned by a fixture so it cannot regress
 # into a silent behavior change.
-if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
+if ($cmd.Contains('$(') -or $cmd.Contains('`') -or $cmd.Contains("@'") -or $cmd.Contains('@"')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
     $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
     $isPush   = $isPush   -or ($rawFolded -match '\bgit\s+push\b')

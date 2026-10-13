@@ -141,7 +141,12 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # que su motivo, y el recomputo crudo corre para cualquier comando con un backtick — incluido un
 # mensaje de commit que use `código` al estilo markdown. Se deja ancho a propósito: la gramática de
 # PowerShell del walker no modela here-strings (`@"…"@`) ni el token `--%`, y angostarlo sin medir
-# esas formas arriesga un falso negativo mudo. El costo es una superficie más ancha de falsos POSITIVOS: un
+# esas formas arriesga un falso negativo mudo.
+# Por lo mismo `@'` y `@"` están en el predicado: un apóstrofo adentro del cuerpo de un `@'…'@`
+# cierra el literal del walker, el `'` de `'@` abre uno que no cierra nunca, y todo lo que sigue queda
+# enmascarado — `git commit -m @'<salto>it's done<salto>'@<salto>git push` perdía el push, sin `$(` ni
+# backtick que lo trajera a esta rama (tests/review-loop-trigger.tests.ps1).
+# El costo es una superficie más ancha de falsos POSITIVOS: un
 # commit cuyo MENSAJE mencione "git push" / "gh pr create" adentro de un `$(...)` ahora levanta
 # $isPush/$isPr desde ese texto, y como la puerta del paso 6 es `-not ($isPush -or $isPr)`, ese
 # commit saltea la puerta del trailer, la ventana de frescura Y el techo, y dispara con sólo el gate
@@ -152,7 +157,7 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # perdido. Los usos naturales (`date +"%F"`, `basename "$PWD"`) mantienen un número PAR de comillas y
 # el walker se re-alinea solo: entran a esta rama por el `$(`, pero el disparador ya estaba en $scan. El falso positivo aceptado está fijado por un fixture,
 # así que no puede degradarse a un cambio de conducta silencioso.
-if ($cmd.Contains('$(') -or $cmd.Contains('`')) {
+if ($cmd.Contains('$(') -or $cmd.Contains('`') -or $cmd.Contains("@'") -or $cmd.Contains('@"')) {
     $rawFolded = $cmd -replace '(?i)\bgit\s+(?:(?:-C|-c|--git-dir|--work-tree)(?:\s+|=)\S+\s+|--no-pager\s+|--paginate\s+)+', 'git '
     $isPr     = $isPr     -or ($rawFolded -match '\bgh\s+pr\s+create\b')
     $isPush   = $isPush   -or ($rawFolded -match '\bgit\s+push\b')
