@@ -1,5 +1,37 @@
 # Changelog
 
+## v2.2.3 — 2026-10-13
+
+### Fixed — `upgrade-bootstrap` finds the canonical scaffold itself, and a variant switch asks per file
+
+- Step 1 runs `resolve-canonical.ps1`: when the skill the project's manifest names is installed, it
+  uses it; when it is not and exactly one bootstrap skill is installed, it uses that one and says so.
+  With several or none it lists them, the agent asks you, and re-runs with `-Skill <your answer>`.
+  Before, a project bootstrapped with a variant you no longer have (a copy received before this
+  skill existed) stopped with "Canonical scaffold has no manifest" and the manifest had to be edited
+  by hand.
+- When the manifest came from another variant, every `outdated` file is put to you one by one,
+  because its difference may be the other variant's content rather than an update. A file you keep
+  stays out of the re-sealed manifest (`reseal-manifest.ps1 -VariantSwitch`), so the next upgrade
+  asks again instead of overwriting it.
+
+### Added — the public export ships `CHANGELOG.md`
+
+- `tools/export-changelog.ps1` copies this file to the public repo without the sections and list
+  items that belong to variants not published there (by structure: a `###` section whose title
+  carries a marker, with its body; an item whose text does), and lists what it dropped. The leak
+  gate still checks the result, so a marker left in a loose paragraph aborts the export.
+
+### Fixed — scaffold: three fixes ported from a project in use
+
+- `review-loop-trigger` hook: a here-string commit message no longer hides the `git push` that
+  follows it. An apostrophe inside `@'…'@`, or a bare `"` inside `@"…"@`, masked the rest of the
+  command and the push went unseen.
+- `marcar-done.ps1`: `Status: done (note)` already counts as done and keeps its note; before, it was
+  rewritten to a bare `Status: done`.
+- Workflow doc § 1: the alignment gate offers the grill and waits for your decision; the call is
+  yours, not the gate's.
+
 ## v2.2.2 — 2026-10-03
 
 ### Fixed — `upgrade-bootstrap` no longer overwrites your files or misses a narrowed hook

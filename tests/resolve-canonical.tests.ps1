@@ -162,7 +162,7 @@ Assert ($x.json.resolvedBy -eq "user" -and $x.json.variantSwitch -eq $false) "(8
 #     su hash actual (intacto desde su base) y el próximo upgrade lo pisaba con una sola aprobación.
 $reseal  = Join-Path $repo "skills/upgrade-bootstrap/scripts/reseal-manifest.ps1"
 $compare = Join-Path $repo "skills/upgrade-bootstrap/scripts/compare-scaffold.ps1"
-. (Join-Path $repo "skills/upgrade-bootstrap/scripts/normalized-hash.ps1")
+. (Join-Path $PSScriptRoot "..\tools\normalized-hash.ps1")   # Get-Hashes; la forma 3 que admite temp-hygiene, después del helper
 $r9 = Join-Path $script:runRoot "r9"
 $canonSkill = Join-Path $r9 "bootstrap-ai-project"
 $canon = Join-Path $canonSkill "assets\scaffold"
