@@ -20,7 +20,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin esto, un mutante que borra asserts sale en verde.
-$ExpectedChecks = 17
+$ExpectedChecks = 19
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "xchlog"
@@ -54,7 +54,13 @@ The body mentions zoho and goes away with its heading.
 
 There is one handoff contract now.
 
+### Changed — zoho sync (Southpoint only)
+
+Body of the dropped section that closes the version block.
+
 ## v2.1.0 — 2026-09-23
+
+Intro paragraph directly under the version heading.
 
 - contact MartinDele703 for details
 - every scaffold skill is agent-invocable again
@@ -86,6 +92,12 @@ Assert ($text -notmatch "this continuation line goes with it") "la continuación
 Assert ($text -notmatch "hub-sync declaration" -and $text -notmatch "hub-declarar" -and $text -notmatch "a bullet inside the dropped section") "la sección ### con marcador en el título se va con todo su cuerpo"
 Assert ($text -notmatch "MartinDele703") "un bullet con marcador bajo una sección ## se va"
 Assert (-not ($lines -match '^### ' | Where-Object { $_ -match 'Southpoint' })) "no queda ningún título ### con marcador"
+
+# Una sección ### borrada que cierra el bloque de versión: el `##` siguiente corta el borrado. Sin
+# ese reset (el mutante que sobrevivió en el turno 1 del review-loop) todo lo que sigue al `##` hasta
+# el próximo `###` se iba en silencio.
+Assert ($text -notmatch "Body of the dropped section that closes the version block") "la sección ### borrada justo antes de un ## se va con su cuerpo"
+Assert ($text -match "Intro paragraph directly under the version heading\.") "el párrafo bajo el ## que sigue a una sección borrada se queda"
 
 # El límite del filtro: un párrafo suelto con marcador NO se toca (es del gate).
 Assert ($text -match "A paragraph that names SouthPoint stays") "un párrafo suelto con marcador se queda para que lo frene el gate"

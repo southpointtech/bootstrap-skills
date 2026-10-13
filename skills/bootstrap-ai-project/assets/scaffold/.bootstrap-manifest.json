@@ -1,7 +1,7 @@
 {
   "variant": "ai",
   "generatedFrom": "bootstrap-ai-project",
-  "version": "2026-10-03+930a59c",
+  "version": "2026-10-13+1e8ff3c",
   "files": {
     ".agents/skills/debug-source-first/SKILL.md": "46a315a6afc1bdde895787f9cf4f8db132af0bcef55f05ac581df59c70440e9b",
     ".agents/skills/diagnosing-bugs/SKILL.md": "e1cfb19afaab3f6396e6b8404261d52798cbcfbed71a91e80c90dd64622e6529",
@@ -68,7 +68,7 @@
     ".claude/commands/wizard.md": "3dc401f186ca2506cf3e3594e030354b001fccfde9c0a490977ae858bc5988d7",
     ".claude/commands/zoom-out.md": "7956109fbeff2422dbcbe7f64059c8d144467d7eee2531d42221bd436f3b3e32",
     ".claude/hooks/alignment-gate.ps1": "09e7751ffe376d84282dce49efb7cb2ee0d10599cb88d4fbdfd031d687f8c7e1",
-    ".claude/hooks/review-loop-trigger.ps1": "ced4c0082883d14fec132b1d6bac3a8ce6b63acd1658e1a0045c414c3d29bd46",
+    ".claude/hooks/review-loop-trigger.ps1": "b2e1109af0d8a3121dec8968b3f8b914b4f0c78ea8f195ec6d84444b063def76",
     ".claude/scripts/abrir-carril.ps1": "c641000b10336e863ebc9a779972abe0d6a2fda7e691ba407928d3939720db90",
     ".claude/scripts/lib/git-utf8.ps1": "02cbae46f4f2e4644897a2cc8830f68c54edb84d8155681339e966b0c89d126b",
     ".claude/scripts/marcar-done.ps1": "6aabbdd24dce90486d5c24d0bd0d305b50d4970834a1d45b33b1eba48a21462e",

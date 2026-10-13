@@ -145,7 +145,10 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excluye git commit-grap
 # Por lo mismo `@'` y `@"` están en el predicado: un apóstrofo adentro del cuerpo de un `@'…'@`
 # cierra el literal del walker, el `'` de `'@` abre uno que no cierra nunca, y todo lo que sigue queda
 # enmascarado — `git commit -m @'<salto>it's done<salto>'@<salto>git push` perdía el push, sin `$(` ni
-# backtick que lo trajera a esta rama (tests/review-loop-trigger.tests.ps1).
+# backtick que lo trajera a esta rama. Para `@"…"@` lo que enmascara es una `"` suelta en el cuerpo
+# (cantidad impar), que un here-string admite sin escapar: cierra el literal que abrió la `"` de `@"`
+# y la `"` de `"@` abre uno que no cierra nunca; un apóstrofo adentro de un literal doble no le dice
+# nada al walker (tests/review-loop-trigger.tests.ps1).
 # El costo es una superficie más ancha de falsos POSITIVOS: un
 # commit cuyo MENSAJE mencione "git push" / "gh pr create" adentro de un `$(...)` ahora levanta
 # $isPush/$isPr desde ese texto, y como la puerta del paso 6 es `-not ($isPush -or $isPr)`, ese

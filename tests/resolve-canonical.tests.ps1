@@ -7,8 +7,11 @@
 # bootstrapeó con una variante (personal) y se actualiza en una máquina que sólo tiene otra
 # (ai-project): el manifest nombra una skill que no existe ahí, y el usuario tenía que editarlo a mano.
 #
-# CONTRATO: emite JSON { skill, scaffold, generatedFrom, resolvedBy, candidates[] } con exit 0, o un
-# mensaje con exit != 0.
+# CONTRATO: emite JSON { skill, scaffold, generatedFrom, resolvedBy, variantSwitch, candidates[] } con
+# exit 0, o un mensaje con exit != 0. variantSwitch es true solo en only-installed con un manifest
+# que nombraba otra skill: las bases del manifest son de la OTRA variante, así que un archivo intacto
+# que difiere del canónico puede diferir por la variante y no por una actualización, y el SKILL.md
+# lo pone a consentimiento por archivo en vez de pisarlo como "outdated".
 #   - la skill del manifest está instalada con scaffold      -> ella, resolvedBy = "manifest"
 #   - no está (o no hay manifest) y hay UNA instalada         -> ésa, resolvedBy = "only-installed"
 #   - no está (o no hay manifest) y hay varias o ninguna      -> exit != 0, listando las candidatas
@@ -27,7 +30,7 @@ function Assert($cond, $msg) {
 }
 
 # Cantidad EXACTA de aserciones: sin esto, un mutante que borra asserts sale en verde.
-$ExpectedChecks = 22
+$ExpectedChecks = 25
 
 . (Join-Path $PSScriptRoot "lib\temp-workspace.ps1")
 $script:runRoot = New-TestRunRoot "rcanon"
@@ -70,6 +73,7 @@ Assert ($x.json.skill -eq "bootstrap-personal-project") "(1) manifest instalada:
 Assert ($x.json.scaffold -eq $sPersonal) "(1) manifest instalada: scaffold = assets/scaffold de esa skill"
 Assert ($x.json.resolvedBy -eq "manifest") "(1) manifest instalada: resolvedBy = manifest"
 Assert ($x.json.generatedFrom -eq "bootstrap-personal-project") "(1) manifest instalada: generatedFrom reportado"
+Assert ($x.json.variantSwitch -eq $false) "(1) manifest instalada: variantSwitch false"
 
 # (2) El caso del hermano: el manifest nombra una skill que no está, y hay UNA instalada.
 $r2 = Join-Path $script:runRoot "r2"
@@ -83,6 +87,7 @@ Assert ($x.json.scaffold -eq $sAi) "(2) manifest no instalada + una candidata: s
 Assert ($x.json.resolvedBy -eq "only-installed") "(2) manifest no instalada + una candidata: resolvedBy = only-installed"
 Assert ($x.json.generatedFrom -eq "bootstrap-personal-project") "(2) manifest no instalada + una candidata: generatedFrom sigue siendo el del manifest (para el reporte)"
 Assert (@($x.json.candidates).Count -eq 1 -and $x.json.candidates[0] -eq "bootstrap-ai-project") "(2) un bootstrap-* sin manifest de scaffold no cuenta como candidata"
+Assert ($x.json.variantSwitch -eq $true) "(2) manifest de otra variante resuelto a la única instalada: variantSwitch true"
 
 # (3) El manifest nombra una skill que no está, y hay VARIAS instaladas: no adivina.
 $r3 = Join-Path $script:runRoot "r3"
@@ -103,6 +108,7 @@ Assert ($x.exit -eq 0) "(4) legacy + una candidata: exit 0"
 Assert ($x.json.scaffold -eq $s4) "(4) legacy + una candidata: scaffold = el de la única instalada"
 Assert ($x.json.resolvedBy -eq "only-installed") "(4) legacy + una candidata: resolvedBy = only-installed"
 Assert ($null -eq $x.json.generatedFrom) "(4) legacy: generatedFrom nulo"
+Assert ($x.json.variantSwitch -eq $false) "(4) legacy: sin manifest no hay variante previa, variantSwitch false"
 
 # (5) Proyecto legacy con varias instaladas: no adivina.
 $r5 = Join-Path $script:runRoot "r5"

@@ -143,7 +143,10 @@ $isCommit = $folded -match '\bgit\s+commit(?![\w-])'   # excludes git commit-gra
 # For the same reason `@'` and `@"` are in the predicate: an apostrophe inside a `@'…'@` body closes
 # the walker's literal, the `'` of `'@` opens one that never closes, and everything after it is
 # masked — `git commit -m @'<newline>it's done<newline>'@<newline>git push` lost the push, with no
-# `$(` or backtick to reach this branch (tests/review-loop-trigger.tests.ps1).
+# `$(` or backtick to reach this branch. For `@"…"@` the masking character is a bare `"` in the body
+# (odd count), which a here-string allows unescaped: it closes the literal the `"` of `@"` opened, and
+# the `"` of `"@` opens one that never closes; an apostrophe inside a double-quoted literal means
+# nothing to the walker (tests/review-loop-trigger.tests.ps1).
 # The cost is a wider false-POSITIVE surface: a commit whose MESSAGE text mentions "git push" /
 # "gh pr create" inside a `$(...)` now raises $isPush/$isPr from that text, and since step 6's gate is
 # `-not ($isPush -or $isPr)`, such a commit skips the trailer gate, the freshness window AND the

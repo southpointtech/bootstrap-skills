@@ -888,6 +888,9 @@ Remove-Item -Recurse -Force $t
 # el `'` de `'@` abre uno que no cierra nunca, y todo lo que sigue queda enmascarado — el `git push`
 # de la linea siguiente se perdia sin `$(` ni backtick que llevara al recomputo crudo. Por eso `@'` y
 # `@"` entran al predicado del recomputo. Portado de PROJECT MANAGEMENT (9a2497a), donde se encontro.
+# Para `@"…"@` lo que tapa no es un apostrofe (adentro de un literal doble no significa nada) sino una
+# comilla doble IMPAR en el cuerpo, que un here-string admite sin escapar: cierra el literal que abrio
+# la `"` de `@"`, y la `"` de `"@` abre uno que no cierra nunca.
 $t = New-Repo
 $o = Fire $t "git commit -m @'`nfeat: it's done`n'@`ngit push" $null 'PowerShell'
 Assert ($o -match "additionalContext") "PowerShell: un here-string con apostrofe no tapa el git push que le sigue"
@@ -900,10 +903,12 @@ $o = Fire $t "git commit -m @'`nfeat: done`n'@`ngit push" $null 'PowerShell'
 Assert ($o -match "additionalContext") "PowerShell: control, un here-string sin apostrofe deja ver el git push"
 Remove-Item -Recurse -Force $t
 
-# La otra forma: un here-string de comillas dobles con apostrofe tampoco tapa el push.
+# La otra forma: un here-string de comillas dobles con una comilla impar en el cuerpo tampoco tapa
+# el push. Con apostrofe en vez de comilla este caso pasaba SIN la clausula `@"` del predicado (el
+# turno 1 del review-loop lo midio quitandola): el walker ya empareja las comillas de `@"` y `"@`.
 $t = New-Repo
-$o = Fire $t "git commit -m @`"`nfeat: it's done`n`"@`ngit push" $null 'PowerShell'
-Assert ($o -match "additionalContext") "PowerShell: un here-string doble con apostrofe no tapa el git push que le sigue"
+$o = Fire $t "git commit -m @`"`nfeat: say `"hi`n`"@`ngit push" $null 'PowerShell'
+Assert ($o -match "additionalContext") "PowerShell: un here-string doble con comilla impar no tapa el git push que le sigue"
 Remove-Item -Recurse -Force $t
 
 # --- Sin la lib al lado, el hook dispara igual ---

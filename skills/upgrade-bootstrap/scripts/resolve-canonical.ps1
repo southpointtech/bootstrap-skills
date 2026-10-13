@@ -1,14 +1,19 @@
 # Resolves which installed bootstrap skill a project's canonical scaffold comes from.
 # Usage: pwsh -File resolve-canonical.ps1 -ProjectDir <path> [-SkillsRoot <path, default ~/.claude/skills>]
-# Emits JSON to stdout: { skill, scaffold, generatedFrom, resolvedBy, candidates[] } and exits 0,
-# or writes a message and exits 1 when it cannot decide.
+# Emits JSON to stdout: { skill, scaffold, generatedFrom, resolvedBy, variantSwitch, candidates[] }
+# and exits 0, or writes a message and exits 1 when it cannot decide.
 #
 # Rule:
 #   - the manifest's generatedFrom names a skill installed with a scaffold -> that one ("manifest")
 #   - otherwise (not installed, or no manifest: legacy project), exactly one bootstrap-*-project skill
 #     with a scaffold is installed -> that one ("only-installed"). This is the project bootstrapped
 #     with one variant and upgraded on a machine that only has another (a shared copy of the skills):
-#     the manifest's bases still classify every file, and the reseal rewrites generatedFrom.
+#     the manifest's bases still classify every file, and the reseal rewrites generatedFrom. It is
+#     reported as variantSwitch = true: those bases belong to the OTHER variant, so an untouched file
+#     that differs from the canonical may differ by variant (CLAUDE.md, the issue-tracker doc, the
+#     workflow doc) and not by an upstream update, and the two cannot be told apart without the
+#     original variant installed. The SKILL puts such files to the user one by one instead of
+#     overwriting them as "outdated".
 #   - several or none installed -> exit 1 listing them, so the agent asks instead of guessing.
 # A candidate is <SkillsRoot>/bootstrap-*-project with assets/scaffold/.bootstrap-manifest.json: a
 # bootstrap-* folder without one is not a bootstrap of this family.
@@ -55,5 +60,6 @@ if ($generatedFrom -and (Get-Scaffold $generatedFrom)) {
     scaffold      = (Get-Scaffold $skill)
     generatedFrom = $generatedFrom
     resolvedBy    = $resolvedBy
+    variantSwitch = ($resolvedBy -eq "only-installed" -and [bool]$generatedFrom)
     candidates    = $candidates
 } | ConvertTo-Json -Depth 3
